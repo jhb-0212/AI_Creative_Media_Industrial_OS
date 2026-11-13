@@ -16,9 +16,9 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.api.main import app
-from packages.shared.database import get_sessionmaker
 from tests.conftest import make_test_token
 
 
@@ -34,7 +34,9 @@ async def client() -> AsyncClient:
         yield c
 
 
-async def test_composite_fk_rejects_dangling_episode(client: AsyncClient) -> None:
+async def test_composite_fk_rejects_dangling_episode(
+    client: AsyncClient, db_sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
     """数据库层拒绝引用不存在 Episode 的 script_revision。
 
     场景：直接 INSERT 一条 (project_id, episode_ref) 无对应 Episode 的
@@ -44,8 +46,7 @@ async def test_composite_fk_rejects_dangling_episode(client: AsyncClient) -> Non
     dangling_project = f"proj_dangling_{uuid.uuid4().hex[:8]}"
     dangling_ref = f"EP{uuid.uuid4().hex[:4].upper()}"
 
-    sessionmaker = get_sessionmaker()
-    async with sessionmaker() as session:
+    async with db_sessionmaker() as session:
         # 注入 RLS 上下文（app_role 连接下 RLS 生效，需设置 tenant 才能写）。
         await session.execute(
             text(

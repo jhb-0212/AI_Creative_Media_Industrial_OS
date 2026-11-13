@@ -14,11 +14,14 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncIterator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.api.main import app
+from packages.shared.database import create_engine, create_sessionmaker
 from services.identity_access import issue_token
 
 # 测试固定租户（历史数据已回填到此默认租户；新测试数据也用此租户，
@@ -46,6 +49,24 @@ def make_test_token(
         tenant_id=str(tenant_id),
         roles=roles or ["导演", "编剧", "制片"],
     )
+
+
+@pytest.fixture(scope="session", autouse=True)
+async def db_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """为整个测试会话装配独立引擎 + 会话工厂，并挂到 app.state（P0-4 根治）。
+
+    ASGITransport 不触发 lifespan，因此生产代码的 lifespan 不会在测试里执行；
+    这里由 conftest 注入独立引擎，保证 app.state.sessionmaker 在测试期间可用，
+    同时与生产引擎彻底隔离（ADR 3.4：测试用独立引擎，生产代码零测试感知）。
+    """
+    engine = create_engine()
+    sessionmaker = create_sessionmaker(engine)
+    app.state.engine = engine
+    app.state.sessionmaker = sessionmaker
+    try:
+        yield sessionmaker
+    finally:
+        await engine.dispose()
 
 
 @pytest.fixture

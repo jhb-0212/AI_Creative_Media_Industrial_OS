@@ -25,6 +25,7 @@ from packages.errors.error_codes import (
     to_response_payload,
 )
 from packages.shared.config import get_settings
+from packages.shared.database import lifespan
 from packages.shared.logging import get_logger, set_trace_id, setup_logging
 from packages.telemetry.tracing import setup_telemetry
 
@@ -36,6 +37,7 @@ app = FastAPI(
     title="AI Creative Media Industrial OS",
     version=settings.app_version,
     description="AI 影视工业化生产平台 API（模块化单体 + 异步 Worker）",
+    lifespan=lifespan,
 )
 
 # 接入 OpenTelemetry 分布式追踪（未配置 OTLP endpoint 时优雅降级）。

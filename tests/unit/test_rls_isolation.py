@@ -12,8 +12,7 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import text
-
-from packages.shared.database import get_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 # 测试租户（历史数据已回填到默认租户）。
 DEFAULT_TENANT = "00000000-0000-0000-0000-000000000000"
@@ -21,9 +20,10 @@ DEFAULT_TENANT = "00000000-0000-0000-0000-000000000000"
 OTHER_TENANT = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
 
-async def _count_projects_without_context() -> int:
+async def _count_projects_without_context(
+    sessionmaker: async_sessionmaker[AsyncSession],
+) -> int:
     """无 tenant 上下文下查询（RLS 应返回 0）。"""
-    sessionmaker = get_sessionmaker()
     async with sessionmaker() as session:
         result = await session.execute(
             text("SELECT count(*) FROM project_planning.projects")
@@ -31,9 +31,10 @@ async def _count_projects_without_context() -> int:
         return result.scalar_one()
 
 
-async def _count_projects_with_context(tenant_id: str) -> int:
+async def _count_projects_with_context(
+    sessionmaker: async_sessionmaker[AsyncSession], tenant_id: str
+) -> int:
     """注入 tenant 上下文后查询。"""
-    sessionmaker = get_sessionmaker()
     async with sessionmaker() as session:
         await session.execute(
             text("SELECT set_config('app.current_tenant_id', :tid, true)"),
@@ -45,36 +46,41 @@ async def _count_projects_with_context(tenant_id: str) -> int:
         return result.scalar_one()
 
 
-async def test_rls_blocks_without_tenant_context() -> None:
+async def test_rls_blocks_without_tenant_context(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
     """未注入 tenant 上下文时，裸 SQL 查询返回 0 行（fail-closed）。"""
-    count = await _count_projects_without_context()
+    count = await _count_projects_without_context(db_sessionmaker)
     assert count == 0
 
 
-async def test_rls_isolates_across_tenants() -> None:
+async def test_rls_isolates_across_tenants(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
     """注入不匹配 tenant 时返回 0 行，匹配默认 tenant 时返回真实行数。
 
     这证明 RLS 在数据库层隔离租户——即使研发写 ``SELECT * FROM projects``
     不主动加 tenant 过滤，也只会看到当前租户数据。
     """
     # 默认 tenant（历史数据归属）应能看到数据。
-    default_count = await _count_projects_with_context(DEFAULT_TENANT)
+    default_count = await _count_projects_with_context(db_sessionmaker, DEFAULT_TENANT)
     assert default_count > 0
 
     # 另一个不匹配的 tenant 应看不到任何数据（越权被按死）。
-    other_count = await _count_projects_with_context(OTHER_TENANT)
+    other_count = await _count_projects_with_context(db_sessionmaker, OTHER_TENANT)
     assert other_count == 0
 
 
-async def test_rls_blocks_cross_tenant_write() -> None:
+async def test_rls_blocks_cross_tenant_write(
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
     """RLS 也约束写入：无 tenant 上下文的会话无法 INSERT（fail-closed）。
 
     用随机的 entity_id，避免与已有数据冲突；RLS 的 USING 策略对 INSERT
     的 WITH CHECK 同样生效，未注入 tenant 上下文的写会被拒绝（0 行影响）。
     """
-    sessionmaker = get_sessionmaker()
     random_id = f"proj_rls_{uuid.uuid4().hex[:8]}"
-    async with sessionmaker() as session:
+    async with db_sessionmaker() as session:
         # 不注入 tenant 上下文，直接 INSERT，RLS 应拒绝（影响 0 行）。
         insert = text(
             """
@@ -107,8 +113,7 @@ async def test_rls_blocks_cross_tenant_write() -> None:
             return
 
     # 若 INSERT 静默成功（0 行影响），无 tenant 上下文查询也看不到它。
-    sessionmaker2 = get_sessionmaker()
-    async with sessionmaker2() as s2:
+    async with db_sessionmaker() as s2:
         result = await s2.execute(
             text(
                 "SELECT count(*) FROM project_planning.projects WHERE entity_id = :eid"

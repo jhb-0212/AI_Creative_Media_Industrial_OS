@@ -13,9 +13,9 @@ import uuid
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.api.main import app
-from packages.shared.database import get_sessionmaker
 from tests.conftest import make_test_token
 
 
@@ -52,8 +52,9 @@ async def _setup_project_and_episode(
     )
 
 
-async def _count_events(aggregate_id: str) -> int:
-    sessionmaker = get_sessionmaker()
+async def _count_events(
+    sessionmaker: async_sessionmaker[AsyncSession], aggregate_id: str
+) -> int:
     async with sessionmaker() as session:
         result = await session.execute(
             text(
@@ -64,7 +65,9 @@ async def _count_events(aggregate_id: str) -> int:
         return result.scalar_one()
 
 
-async def test_import_writes_outbox_event(client: AsyncClient) -> None:
+async def test_import_writes_outbox_event(
+    client: AsyncClient, db_sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
     """导入剧本产生 SCRIPT_IMPORTED 事件。"""
     project_id = f"proj_ob_{uuid.uuid4().hex[:8]}"
     await _setup_project_and_episode(client, project_id=project_id, episode_ref="EP001")
@@ -82,10 +85,12 @@ async def test_import_writes_outbox_event(client: AsyncClient) -> None:
     assert resp.status_code == 201
 
     # 事件已落库（与状态同事务提交）。
-    assert await _count_events(script_id) == 1
+    assert await _count_events(db_sessionmaker, script_id) == 1
 
 
-async def test_lock_writes_outbox_event_append_only(client: AsyncClient) -> None:
+async def test_lock_writes_outbox_event_append_only(
+    client: AsyncClient, db_sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
     """导入 + 两步锁定产生多条事件（append-only，非覆盖），证明 R7 可追溯。"""
     project_id = f"proj_ob2_{uuid.uuid4().hex[:8]}"
     await _setup_project_and_episode(client, project_id=project_id, episode_ref="EP001")
@@ -101,7 +106,7 @@ async def test_lock_writes_outbox_event_append_only(client: AsyncClient) -> None
         },
     )
     assert resp.status_code == 201
-    assert await _count_events(script_id) == 1  # SCRIPT_IMPORTED
+    assert await _count_events(db_sessionmaker, script_id) == 1  # SCRIPT_IMPORTED
 
     # 两步审批流：申请（writer）→ 批准（director），各追加一条事件。
     writer_headers = {"Authorization": f"Bearer {make_test_token(subject_id='writer_001')}"}
@@ -113,11 +118,10 @@ async def test_lock_writes_outbox_event_append_only(client: AsyncClient) -> None
     assert resp3.status_code == 200  # SCRIPT_LOCK_APPROVED
 
     # 三条事件都保留（append-only，不覆盖），可完整追溯导入→申请→批准历史。
-    assert await _count_events(script_id) == 3
+    assert await _count_events(db_sessionmaker, script_id) == 3
 
     # 验证事件类型正确。
-    sessionmaker = get_sessionmaker()
-    async with sessionmaker() as session:
+    async with db_sessionmaker() as session:
         result = await session.execute(
             text(
                 "SELECT event_type FROM outbox.outbox_events "

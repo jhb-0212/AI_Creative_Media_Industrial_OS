@@ -13,9 +13,9 @@ import uuid
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.api.main import app
-from packages.shared.database import get_sessionmaker
 from services.project_planning.domain.script import ScriptRevision
 from services.project_planning.repository._versioning import ConcurrentModificationError
 from services.project_planning.repository.script_sqlalchemy_repo import (
@@ -69,7 +69,9 @@ async def _set_rls_context(session: object) -> None:
     )
 
 
-async def test_optimistic_lock_prevents_lost_update(client: AsyncClient) -> None:
+async def test_optimistic_lock_prevents_lost_update(
+    client: AsyncClient, db_sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
     """两个并发会话基于同一旧版本推进，第二个必须抛并发冲突。
 
     模拟真实并发：会话 A 与 B 各自在独立事务中读到 entity_version=1 的同一
@@ -92,10 +94,8 @@ async def test_optimistic_lock_prevents_lost_update(client: AsyncClient) -> None
     assert resp.status_code == 201
     script_id = resp.json()["entity_id"]
 
-    sessionmaker = get_sessionmaker()
-
     # 会话 A：读取 -> 迁移（DRAFT→LOCK_PENDING）-> 保存（version 1 -> 2）。
-    async with sessionmaker() as session_a:
+    async with db_sessionmaker() as session_a:
         await _set_rls_context(session_a)
         repo_a = SqlAlchemyScriptRepository(session_a)
         script_a = await repo_a.get_by_id(script_id)
@@ -107,7 +107,7 @@ async def test_optimistic_lock_prevents_lost_update(client: AsyncClient) -> None
 
     # 会话 B：读取到已被 A 推进的版本（version=2），基于陈旧版本号 save
     # 必须抛 ConcurrentModificationError。
-    async with sessionmaker() as session_b:
+    async with db_sessionmaker() as session_b:
         await _set_rls_context(session_b)
         repo_b = SqlAlchemyScriptRepository(session_b)
         script_b = await repo_b.get_by_id(script_id)
