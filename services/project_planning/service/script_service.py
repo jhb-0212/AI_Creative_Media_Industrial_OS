@@ -125,13 +125,17 @@ class ScriptService:
         # INSERT 语义新增；并发下唯一约束兜底 check-then-act 竞态。
         try:
             await self._repository.add(script)
-        except IntegrityError:
+        except IntegrityError as exc:
             if entity_id is None:
-                raise
+                raise DomainError(
+                    ErrorRegistry.INTERNAL_ERROR, detail="剧本版本写入冲突"
+                ) from exc
             existing = await self._repository.get_by_id(entity_id)
             if existing is not None:
                 return existing
-            raise
+            raise DomainError(
+                ErrorRegistry.INTERNAL_ERROR, detail="剧本版本写入冲突"
+            ) from exc
 
         # 审计事件（决策 3）：剧本导入与状态落库同事务原子记录，不可变。
         self._outbox_writer.record(
@@ -224,8 +228,14 @@ class ScriptService:
         # 归属验证（批准前要求归属合法）。
         await self._assert_episode_ownership(script.project_id, script.episode_ref)
 
-        # 红线：申请人与批准职责分离，禁止自锁（运行时真实主体比对）。
-        if script.requested_by is not None and script.requested_by == approved_by:
+        # 红线：职责分离 fail-closed。缺少申请人说明审批链不完整，直接拒绝；
+        # 不能因 requested_by 为空就跳过比对（否则任意主体都能批准空申请）。
+        if script.requested_by is None:
+            raise DomainError(
+                ErrorRegistry.STATE_TRANSITION_DENIED,
+                detail="缺少锁定申请人，禁止批准（职责分离不可绕过）",
+            )
+        if script.requested_by == approved_by:
             raise DomainError(
                 ErrorRegistry.STATE_TRANSITION_DENIED,
                 detail="申请人与批准人不得为同一主体（职责分离红线）",
@@ -306,6 +316,9 @@ class ScriptService:
         # 先行取代（版本被推进），save 抛 ConcurrentModificationError——此时
         # 幂等跳过（终态已达成，无需二次 transition，也避免对终态报错）。
         expected_version = latest.entity_version
+        # 先固化旧状态再迁移：迁移后 latest.status 已是 SUPERSEDED，
+        # 再用它做 from_status 会记成 SUPERSEDED→SUPERSEDED，丢掉真实来源态。
+        previous_status = latest.status.value
         latest.transition_to(
             ScriptStatus.SUPERSEDED, audit_ref=f"superseded_by:{new_entity_id}"
         )
@@ -325,7 +338,7 @@ class ScriptService:
                 "project_id": project_id,
                 "episode_ref": episode_ref,
                 "superseded_by": new_entity_id,
-                "from_status": latest.status.value,
+                "from_status": previous_status,
                 "to_status": ScriptStatus.SUPERSEDED.value,
             },
         )

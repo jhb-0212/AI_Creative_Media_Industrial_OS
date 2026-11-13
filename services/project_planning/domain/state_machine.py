@@ -11,7 +11,7 @@
 契约权威定义（state_machines.yaml → objects）：
     Project:        DRAFT→ACTIVE→ON_HOLD；ACTIVE→COMPLETED；ON_HOLD→ACTIVE；
                     DRAFT/ON_HOLD/COMPLETED→ARCHIVED
-    ScriptRevision: DRAFT→LOCKED；DRAFT/LOCKED→SUPERSEDED
+    ScriptRevision: DRAFT→LOCK_PENDING→LOCKED；DRAFT/LOCKED→SUPERSEDED
     Episode:        DRAFT→ACTIVE→ARCHIVED
 """
 

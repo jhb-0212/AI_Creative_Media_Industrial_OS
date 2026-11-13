@@ -177,7 +177,10 @@ async def test_supersede_concurrent_idempotent_skip() -> None:
         tenant_id=_TENANT,
     )
     await repo.add(active)
-    service = _make_service(repo)
+    writer = _RecordingOutboxWriter()
+    service = ScriptService(
+        repo, _FakeProjectRepository(), _FakeEpisodeRepository(), writer
+    )
 
     # 第一次取代成功：DRAFT -> SUPERSEDED，version 1 -> 2。
     await service._supersede_active_version("proj_s", "EP001", "scr_new", _TENANT)
@@ -186,6 +189,9 @@ async def test_supersede_concurrent_idempotent_skip() -> None:
     assert fetched is not None
     assert fetched.status.value == "SUPERSEDED"
     assert fetched.entity_version == 2
+    # 审计事件必须记录真实来源态，不能在迁移后取已成 SUPERSEDED 的状态。
+    assert writer.events[0]["payload"]["from_status"] == "DRAFT"
+    assert writer.events[0]["payload"]["to_status"] == "SUPERSEDED"
 
     # 第二次取代（并发模拟）：此时活跃版本已是 SUPERSEDED，get_latest 应返回 None
     # （因为 status != SUPERSEDED 过滤），幂等跳过，不抛错。

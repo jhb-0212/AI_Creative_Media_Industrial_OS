@@ -74,14 +74,18 @@ class ProjectService:
         # 冲突时降级为幂等返回既有记录，而非报错或重复插入。
         try:
             await self._repository.add(project)
-        except IntegrityError:
+        except IntegrityError as exc:
             if entity_id is None:
-                # 无显式 id 时 UUID 冲突概率可忽略，向上抛内部错误。
-                raise
+                # 无显式 id 时 UUID 冲突概率可忽略，仍转结构化内部错误。
+                raise DomainError(
+                    ErrorRegistry.INTERNAL_ERROR, detail="项目写入冲突"
+                ) from exc
             existing = await self._repository.get_by_id(entity_id)
             if existing is not None:
                 return existing
-            raise
+            raise DomainError(
+                ErrorRegistry.INTERNAL_ERROR, detail="项目写入冲突"
+            ) from exc
 
         return project
 

@@ -100,16 +100,16 @@ class EpisodeService:
         # INSERT 语义新增；并发下唯一约束（project_id+episode_ref）兜底。
         try:
             await self._repository.add(episode)
-        except IntegrityError:
+        except IntegrityError as exc:
             if entity_id is None:
-                # 无显式 id 时，唯一约束冲突说明同项目已有同 episode_ref，
-                # 降级为查询既有集数返回（幂等）。
                 existing = await self._repository.get_by_project_ref(
                     project_id, episode_ref
                 )
                 if existing is not None:
                     return existing
-            raise
+            raise DomainError(
+                ErrorRegistry.INTERNAL_ERROR, detail="集数写入冲突"
+            ) from exc
 
         return episode
 
