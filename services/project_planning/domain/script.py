@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from packages.errors.error_codes import DomainError, ErrorRegistry
 from services.project_planning.domain.entity import Entity
 from services.project_planning.domain.enums import ScriptStatus
 from services.project_planning.domain.state_machine import assert_transition_script
@@ -56,9 +57,14 @@ class ScriptRevision(Entity):
         ):
             value = getattr(self, name)
             if not value or not value.strip():
-                raise ValueError(f"{name} 不能为空")
+                raise DomainError(
+                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
+                )
             if len(value) > max_len:
-                raise ValueError(f"{name} 长度超过上限 {max_len}")
+                raise DomainError(
+                    ErrorRegistry.VALIDATION_ERROR,
+                    detail=f"{name} 长度超过上限 {max_len}",
+                )
 
     def request_lock(self, requested_by: str) -> ScriptRevision:
         """提交锁定申请（DRAFT→LOCK_PENDING），登记申请人真实主体。

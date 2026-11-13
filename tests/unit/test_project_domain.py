@@ -6,6 +6,7 @@ import uuid
 
 import pytest
 
+from packages.errors.error_codes import DomainError
 from services.project_planning.domain.enums import ProjectStatus, ProjectTier
 from services.project_planning.domain.project import Project
 
@@ -42,7 +43,7 @@ def test_invalid_transition_is_rejected() -> None:
     """未登记转移一律拒绝（31.5 精神，负向优先）。"""
     p = _make_project()
     # DRAFT 不能直接跳 COMPLETED（未登记）
-    with pytest.raises(ValueError, match="非法状态转移"):
+    with pytest.raises(DomainError, match="非法状态转移"):
         p.transition_to(ProjectStatus.COMPLETED, audit_ref="audit_002")
 
 
@@ -53,7 +54,7 @@ def test_terminal_state_cannot_be_revived() -> None:
     p.transition_to(ProjectStatus.COMPLETED, audit_ref="a2")
     p.transition_to(ProjectStatus.ARCHIVED, audit_ref="a3")
     assert p.status == ProjectStatus.ARCHIVED
-    with pytest.raises(ValueError, match="非法状态转移"):
+    with pytest.raises(DomainError, match="非法状态转移"):
         p.transition_to(ProjectStatus.ACTIVE, audit_ref="a4")
 
 

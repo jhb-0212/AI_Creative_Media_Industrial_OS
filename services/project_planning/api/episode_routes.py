@@ -16,7 +16,6 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from packages.errors.error_codes import DomainError, ErrorRegistry
 from services.identity_access.deps import Principal, get_tenant_session, require_role
 from services.project_planning.repository.episode_sqlalchemy_repo import (
     SqlAlchemyEpisodeRepository,
@@ -54,20 +53,14 @@ async def create_episode(
     service: EpisodeService = Depends(_get_service),
 ) -> dict[str, Any]:
     """登记集数（幂等，归属 Project）。created_by / tenant_id 来自 Principal。"""
-    try:
-        episode = await service.create_episode(
-            project_id=body.project_id,
-            episode_ref=body.episode_ref,
-            title=body.title,
-            created_by=principal.subject_id,
-            tenant_id=principal.tenant_id,
-            entity_id=body.entity_id,
-        )
-    except ValueError as exc:
-        raise DomainError(
-            ErrorRegistry.STATE_TRANSITION_DENIED,
-            detail=str(exc),
-        ) from exc
+    episode = await service.create_episode(
+        project_id=body.project_id,
+        episode_ref=body.episode_ref,
+        title=body.title,
+        created_by=principal.subject_id,
+        tenant_id=principal.tenant_id,
+        entity_id=body.entity_id,
+    )
     return episode.to_dict()
 
 

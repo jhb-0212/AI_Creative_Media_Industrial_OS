@@ -14,6 +14,7 @@ import uuid
 
 import pytest
 
+from packages.errors.error_codes import DomainError
 from services.project_planning.domain.enums import ScriptStatus
 from services.project_planning.domain.script import ScriptRevision
 
@@ -55,7 +56,7 @@ def test_two_step_lock_flow() -> None:
 def test_draft_cannot_approve_directly() -> None:
     """DRAFT 不能直接 approve（须先申请，进入 LOCK_PENDING）。"""
     s = _make_script()
-    with pytest.raises(ValueError):
+    with pytest.raises(DomainError):
         s.approve_lock("director_001")
 
 
@@ -77,16 +78,16 @@ def test_locked_cannot_revert_to_draft() -> None:
     s = _make_script()
     s.request_lock("writer_001")
     s.approve_lock("director_001")
-    with pytest.raises(ValueError):
+    with pytest.raises(DomainError):
         s.transition_to(ScriptStatus.DRAFT, audit_ref="revert")
 
 
 def test_superseded_is_terminal() -> None:
     s = _make_script()
     s.transition_to(ScriptStatus.SUPERSEDED, audit_ref="superseded_by:scr_002")
-    with pytest.raises(ValueError):
+    with pytest.raises(DomainError):
         s.transition_to(ScriptStatus.DRAFT, audit_ref="revive")
-    with pytest.raises(ValueError):
+    with pytest.raises(DomainError):
         s.transition_to(ScriptStatus.LOCKED, audit_ref="revive")
 
 

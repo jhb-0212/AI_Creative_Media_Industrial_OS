@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import pytest
 
+from packages.errors.error_codes import DomainError
 from services.project_planning.domain.enums import ProjectStatus
 from services.project_planning.domain.state_machine import (
     ALLOWED_TRANSITIONS,
@@ -62,10 +63,10 @@ def test_archived_is_terminal_and_cannot_revive() -> None:
 
 
 def test_assert_transition_raises_on_illegal() -> None:
-    """assert_transition 对未登记转移抛 ValueError。"""
-    with pytest.raises(ValueError):
+    """assert_transition 对未登记转移抛 DomainError（409）。"""
+    with pytest.raises(DomainError):
         assert_transition(ProjectStatus.ARCHIVED, ProjectStatus.ACTIVE)
-    with pytest.raises(ValueError):
+    with pytest.raises(DomainError):
         assert_transition(ProjectStatus.COMPLETED, ProjectStatus.ACTIVE)
 
 

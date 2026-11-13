@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from packages.errors.error_codes import DomainError, ErrorRegistry
 from services.project_planning.domain.entity import Entity
 from services.project_planning.domain.enums import EpisodeStatus
 from services.project_planning.domain.state_machine import assert_transition_episode
@@ -49,9 +50,14 @@ class Episode(Entity):
         ):
             value = getattr(self, name)
             if not value or not value.strip():
-                raise ValueError(f"{name} 不能为空")
+                raise DomainError(
+                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
+                )
             if len(value) > max_len:
-                raise ValueError(f"{name} 长度超过上限 {max_len}")
+                raise DomainError(
+                    ErrorRegistry.VALIDATION_ERROR,
+                    detail=f"{name} 长度超过上限 {max_len}",
+                )
 
     def transition_to(self, target: EpisodeStatus, audit_ref: str) -> Episode:
         """执行状态迁移，未登记转移拒绝（31.5）。"""

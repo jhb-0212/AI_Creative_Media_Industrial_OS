@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+from packages.errors.error_codes import DomainError, ErrorRegistry
 from services.project_planning.domain.enums import (
     EpisodeStatus,
     ProjectStatus,
@@ -69,8 +70,9 @@ def can_transition(source: ProjectStatus, target: ProjectStatus) -> bool:
 def assert_transition(source: ProjectStatus, target: ProjectStatus) -> None:
     """校验 Project 转移合法性，未登记则抛出 ValueError（31.5 未登记转移一律拒绝）。"""
     if not can_transition(source, target):
-        raise ValueError(
-            f"非法状态转移：{source.value} -> {target.value}（未登记，已拒绝）"
+        raise DomainError(
+            ErrorRegistry.STATE_TRANSITION_DENIED,
+            detail=f"非法状态转移：{source.value} -> {target.value}（未登记，已拒绝）",
         )
 
 
@@ -82,8 +84,9 @@ def can_transition_script(source: ScriptStatus, target: ScriptStatus) -> bool:
 def assert_transition_script(source: ScriptStatus, target: ScriptStatus) -> None:
     """校验 ScriptRevision 转移合法性，未登记则抛出 ValueError。"""
     if not can_transition_script(source, target):
-        raise ValueError(
-            f"非法状态转移：{source.value} -> {target.value}（未登记，已拒绝）"
+        raise DomainError(
+            ErrorRegistry.STATE_TRANSITION_DENIED,
+            detail=f"非法状态转移：{source.value} -> {target.value}（未登记，已拒绝）",
         )
 
 
@@ -95,6 +98,7 @@ def can_transition_episode(source: EpisodeStatus, target: EpisodeStatus) -> bool
 def assert_transition_episode(source: EpisodeStatus, target: EpisodeStatus) -> None:
     """校验 Episode 转移合法性，未登记则抛出 ValueError。"""
     if not can_transition_episode(source, target):
-        raise ValueError(
-            f"非法状态转移：{source.value} -> {target.value}（未登记，已拒绝）"
+        raise DomainError(
+            ErrorRegistry.STATE_TRANSITION_DENIED,
+            detail=f"非法状态转移：{source.value} -> {target.value}（未登记，已拒绝）",
         )

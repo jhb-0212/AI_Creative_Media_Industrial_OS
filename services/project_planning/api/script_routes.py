@@ -21,7 +21,6 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from packages.errors.error_codes import DomainError, ErrorRegistry
 from services.identity_access.deps import Principal, get_tenant_session, require_role
 from services.project_planning.repository.episode_sqlalchemy_repo import (
     SqlAlchemyEpisodeRepository,
@@ -76,19 +75,13 @@ async def import_script(
     service: ScriptService = Depends(_get_service),
 ) -> dict[str, Any]:
     """导入剧本版本（幂等，产出 DRAFT 态）。created_by / tenant_id 来自 Principal。"""
-    try:
-        script = await service.import_script(
-            project_id=body.project_id,
-            episode_ref=body.episode_ref,
-            title=body.title,
-            principal=principal,
-            entity_id=body.entity_id,
-        )
-    except ValueError as exc:
-        raise DomainError(
-            ErrorRegistry.STATE_TRANSITION_DENIED,
-            detail=str(exc),
-        ) from exc
+    script = await service.import_script(
+        project_id=body.project_id,
+        episode_ref=body.episode_ref,
+        title=body.title,
+        principal=principal,
+        entity_id=body.entity_id,
+    )
     return script.to_dict()
 
 
@@ -102,13 +95,7 @@ async def request_lock(
 
     requested_by = 当前 Principal（调用者本人），非客户端字符串。
     """
-    try:
-        script = await service.request_lock(entity_id=entity_id, principal=principal)
-    except ValueError as exc:
-        raise DomainError(
-            ErrorRegistry.STATE_TRANSITION_DENIED,
-            detail=str(exc),
-        ) from exc
+    script = await service.request_lock(entity_id=entity_id, principal=principal)
     return script.to_dict()
 
 
@@ -122,13 +109,7 @@ async def approve_lock(
 
     approved_by = 当前 Principal，服务层做职责分离比对（批准人 != 申请人）。
     """
-    try:
-        script = await service.approve_lock(entity_id=entity_id, principal=principal)
-    except ValueError as exc:
-        raise DomainError(
-            ErrorRegistry.STATE_TRANSITION_DENIED,
-            detail=str(exc),
-        ) from exc
+    script = await service.approve_lock(entity_id=entity_id, principal=principal)
     return script.to_dict()
 
 

@@ -19,6 +19,8 @@ from datetime import UTC, datetime
 from typing import Any, ClassVar
 from uuid import UUID
 
+from packages.errors.error_codes import DomainError, ErrorRegistry
+
 # 契约 C.3.1 通用实体信封的 schema_version 固定值（V2.0.5）。
 SCHEMA_VERSION = 205
 OWNER_MODULE = "project-planning"
@@ -94,9 +96,14 @@ class Entity:
         for name, max_len in _ENVELOPE_MAX_LEN.items():
             value = getattr(self, name)
             if value is None or (isinstance(value, str) and not value.strip()):
-                raise ValueError(f"{name} 不能为空")
+                raise DomainError(
+                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
+                )
             if len(value) > max_len:
-                raise ValueError(f"{name} 长度超过上限 {max_len}")
+                raise DomainError(
+                    ErrorRegistry.VALIDATION_ERROR,
+                    detail=f"{name} 长度超过上限 {max_len}",
+                )
 
     def _advance_version(self, audit_ref: str) -> None:
         """状态迁移后的统一副作用：版本 +1、更新时间戳、登记审计引用。

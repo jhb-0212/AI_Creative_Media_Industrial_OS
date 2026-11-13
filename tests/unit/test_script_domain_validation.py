@@ -12,6 +12,7 @@ import uuid
 
 import pytest
 
+from packages.errors.error_codes import DomainError
 from services.project_planning.domain.enums import ScriptStatus
 from services.project_planning.domain.script import ScriptRevision
 
@@ -32,32 +33,32 @@ def _make(**overrides: object) -> ScriptRevision:
 
 
 def test_rejects_empty_title() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(DomainError):
         _make(title="   ")
 
 
 def test_rejects_empty_episode_ref() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(DomainError):
         _make(episode_ref="")
 
 
 def test_rejects_empty_created_by() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(DomainError):
         _make(created_by="  ")
 
 
 def test_rejects_overlong_title() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(DomainError):
         _make(title="字" * 201)
 
 
 def test_rejects_overlong_created_by() -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(DomainError):
         _make(created_by="u" * 65)
 
 
 def test_superseded_is_terminal_and_not_revivable() -> None:
     """终态不可原地复活（红线），即使构造时已 SUPERSEDED 也不可再迁移。"""
     s = _make(status=ScriptStatus.SUPERSEDED)
-    with pytest.raises(ValueError):
+    with pytest.raises(DomainError):
         s.transition_to(ScriptStatus.DRAFT, audit_ref="revive")
