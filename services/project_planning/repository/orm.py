@@ -1,65 +1,44 @@
 """Project ORM 模型（映射到独立 schema：project_planning）。
 
 数据所有权（14.2）：
-- project_planning 模块拥有 Project 表的写入权。
+- project_planning 模块拥有 Project / Episode / ScriptRevision 表的写入权。
 - 使用独立 schema「project_planning」，避免与其它模块耦合。
-- 表结构严格对齐 C.3.1 通用实体信封字段。
+- 表结构严格对齐 C.3.1 通用实体信封字段（信封列收敛到 EntityMixin）。
+
+设计要点（消除重复机制 R4）：
+- 三个模型重复声明的 C.3.1 信封列（entity_id/entity_type/schema_version/
+  entity_version/status/owner_module/created_at/created_by/updated_at/audit_ref）
+  收敛到 repository/entity_mixin.py 的 EntityMixin。
+- 各模型的业务列（project_name/project_tier/title 等）保留在各自类中。
 """
 
 from __future__ import annotations
 
-from datetime import datetime
-
-from sqlalchemy import DateTime, Index, Integer, String
+from sqlalchemy import Index, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from packages.shared.database import Base
+from services.project_planning.repository.entity_mixin import EntityMixin
 
 # 独立 schema 名称（数据所有权边界）。
 SCHEMA_NAME = "project_planning"
 
 
-class ProjectModel(Base):
+class ProjectModel(EntityMixin, Base):
     """projects 表模型。"""
 
     __tablename__ = "projects"
     __table_args__ = {"schema": SCHEMA_NAME}
-
-    # C.3.1 通用信封字段
-    entity_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    entity_type: Mapped[str] = mapped_column(String(64), nullable=False, default="Project")
-    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
-    entity_version: Mapped[int] = mapped_column(Integer, nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False)
-    owner_module: Mapped[str] = mapped_column(String(64), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    audit_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     # 业务字段
     project_name: Mapped[str] = mapped_column(String(200), nullable=False)
     project_tier: Mapped[str] = mapped_column(String(8), nullable=False)
 
 
-class ScriptModel(Base):
+class ScriptModel(EntityMixin, Base):
     """script_revisions 表模型（剧本版本，同属 project_planning schema）。"""
 
     __tablename__ = "script_revisions"
-
-    # C.3.1 通用信封字段
-    entity_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    entity_type: Mapped[str] = mapped_column(
-        String(64), nullable=False, default="ScriptRevision"
-    )
-    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
-    entity_version: Mapped[int] = mapped_column(Integer, nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False)
-    owner_module: Mapped[str] = mapped_column(String(64), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    audit_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     # 业务字段
     project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
@@ -74,15 +53,13 @@ class ScriptModel(Base):
             "project_id",
             "episode_ref",
             unique=True,
-            postgresql_where=(
-                "status <> 'SUPERSEDED'"
-            ),
+            postgresql_where="status <> 'SUPERSEDED'",
         ),
         {"schema": SCHEMA_NAME},
     )
 
 
-class EpisodeModel(Base):
+class EpisodeModel(EntityMixin, Base):
     """episodes 表模型（集数，归属 Project）。"""
 
     __tablename__ = "episodes"
@@ -97,20 +74,6 @@ class EpisodeModel(Base):
         ),
         {"schema": SCHEMA_NAME},
     )
-
-    # C.3.1 通用信封字段
-    entity_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    entity_type: Mapped[str] = mapped_column(
-        String(64), nullable=False, default="Episode"
-    )
-    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
-    entity_version: Mapped[int] = mapped_column(Integer, nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False)
-    owner_module: Mapped[str] = mapped_column(String(64), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    audit_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     # 业务字段
     project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)

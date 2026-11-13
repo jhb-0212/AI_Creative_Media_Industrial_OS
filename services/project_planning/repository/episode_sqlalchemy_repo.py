@@ -42,7 +42,6 @@ def _to_domain(model: EpisodeModel) -> Episode:
         title=model.title,
         created_by=model.created_by,
         status=status,
-        entity_type=model.entity_type,
         schema_version=model.schema_version,
         entity_version=model.entity_version,
         owner_module=model.owner_module,
@@ -56,7 +55,7 @@ def _to_orm(episode: Episode) -> EpisodeModel:
     """领域模型 -> ORM。"""
     return EpisodeModel(
         entity_id=episode.entity_id,
-        entity_type=episode.entity_type,
+        entity_type=episode.ENTITY_TYPE,
         schema_version=episode.schema_version,
         entity_version=episode.entity_version,
         status=episode.status.value,

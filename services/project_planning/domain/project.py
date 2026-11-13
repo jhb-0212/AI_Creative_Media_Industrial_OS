@@ -3,97 +3,64 @@
 对齐契约：
 - 8.1 核心实体：Project 为项目层级聚合根（Project → Episode → Scene → Shot）
 - 8.2 标识与版本规则：主键 UUID，project_id 不复用，时间存 UTC
-- C.3.1 通用实体信封：entity_id/entity_type/schema_version/entity_version/status/
-  owner_module/created_at/created_by/updated_at/audit_ref
+- C.3.1 通用实体信封（收敛到 domain/entity.py 的 Entity 基类）
 
 设计要点（不屎山代码）：
-- 领域模型为纯数据 + 行为，不依赖 ORM / FastAPI，保证可测试、可演进。
-- 状态变更通过显式方法，未登记转移一律拒绝（31.5 规则精神）。
+- 领域模型为纯数据 + 行为，不依赖 ORM / FastAPI。
+- 状态变更通过显式方法，未登记转移一律拒绝（31.5）。
 - 终态（ARCHIVED）不可原地复活（红线「终态不可原地复活」）。
+- 信封公共字段/校验/序列化继承自 Entity，本类只保留业务字段与行为。
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from dataclasses import dataclass
 from typing import Any
 
+from services.project_planning.domain.entity import Entity
 from services.project_planning.domain.enums import ProjectStatus, ProjectTier
 from services.project_planning.domain.state_machine import assert_transition
 
-# 契约 C.3.1 通用实体信封的 schema_version 固定值（V2.0.5）
-SCHEMA_VERSION = 205
-OWNER_MODULE = "project-planning"
-
-
-def _utcnow() -> datetime:
-    """统一 UTC 时间（8.2 规则：所有时间统一存 UTC）。"""
-    return datetime.now(UTC)
-
 
 @dataclass
-class Project:
+class Project(Entity):
     """项目聚合根。
 
-    「不可变」指版本/状态语义：状态只能沿状态机向前迁移，终态（ARCHIVED）
-    不可原地复活；版本内容不原地覆盖。因 `transition_to` 需原地更新
-    status/entity_version，本类不声明 `@dataclass(frozen=True)`。
+    状态只能沿状态机向前迁移，终态（ARCHIVED）不可原地复活。
     """
 
-    entity_id: str
-    project_name: str
-    project_tier: ProjectTier
-    created_by: str
+    ENTITY_TYPE = "Project"
+
+    # 业务字段（信封字段由 Entity 基类提供）。
+    project_name: str = ""
+    project_tier: ProjectTier = ProjectTier.B
     status: ProjectStatus = ProjectStatus.DRAFT
-    # 统一信封字段
-    entity_type: str = "Project"
-    schema_version: int = SCHEMA_VERSION
-    entity_version: int = 1
-    owner_module: str = OWNER_MODULE
-    created_at: datetime = field(default_factory=_utcnow)
-    updated_at: datetime = field(default_factory=_utcnow)
-    audit_ref: str | None = None
 
     def __post_init__(self) -> None:
-        """防御性校验：必填字段非空、长度不超限（对齐 ORM 列定义）。"""
-        required: tuple[tuple[str, int], ...] = (
-            ("entity_id", 64),
-            ("project_name", 200),
-            ("created_by", 64),
-        )
-        for field_name, max_len in required:
-            value = getattr(self, field_name)
-            if value is None or (isinstance(value, str) and not value.strip()):
-                raise ValueError(f"{field_name} 不能为空")
-            if len(value) > max_len:
-                raise ValueError(f"{field_name} 长度超过上限 {max_len}")
+        """防御性校验：信封公共字段 + 业务字段（对齐 ORM 列定义）。"""
+        super()._validate_envelope()
+        if not self.project_name.strip():
+            raise ValueError("project_name 不能为空")
+        if len(self.project_name) > 200:
+            raise ValueError("project_name 长度超过上限 200")
 
     def transition_to(self, target: ProjectStatus, audit_ref: str) -> Project:
-        """执行状态迁移，未登记转移拒绝（31.5 规则）。
+        """执行状态迁移，未登记转移拒绝（31.5）。
 
-        转移合法性由 domain/state_machine.py 的单一权威转移表校验，
-        避免状态机散落于聚合根内部（单一事实源）。
+        转移合法性由 domain/state_machine.py 的单一权威转移表校验。
         """
         assert_transition(self.status, target)
         self.status = target
-        self.entity_version += 1
-        self.updated_at = _utcnow()
-        self.audit_ref = audit_ref
+        self._advance_version(audit_ref)
         return self
 
     def to_dict(self) -> dict[str, Any]:
         """序列化为契约信封结构。"""
-        return {
-            "entity_id": self.entity_id,
-            "entity_type": self.entity_type,
-            "schema_version": self.schema_version,
-            "entity_version": self.entity_version,
-            "status": self.status.value,
-            "owner_module": self.owner_module,
-            "created_at": self.created_at.isoformat(),
-            "created_by": self.created_by,
-            "updated_at": self.updated_at.isoformat(),
-            "audit_ref": self.audit_ref,
-            "project_name": self.project_name,
-            "project_tier": self.project_tier.value,
-        }
+        data = self._envelope_dict()
+        data.update(
+            {
+                "project_name": self.project_name,
+                "project_tier": self.project_tier.value,
+            }
+        )
+        return data

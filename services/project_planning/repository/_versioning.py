@@ -70,15 +70,16 @@ async def conditional_update(
       口径一致，杜绝「某处 +1、某处忘记 +1」的隐性 bug。
 
     类型说明：SQLAlchemy 声明式模型上 entity_id / entity_version 是运行时
-    才挂载的列属性，静态类型无法在 Base 上声明；此处用 getattr 访问，
-    配合 ``# type: ignore[attr-defined]`` 收窄 mypy 误报（列存在性由模型
-    定义与迁移契约保证，且集成测试覆盖真实落库）。
+    才挂载的列属性（声明于 EntityMixin，静态类型无法在 type[Base] 上表达）。
+    此处用直接属性访问（语义清晰，优于 getattr 常量字符串），配合
+    ``# type: ignore[attr-defined]`` 收窄 mypy 误报；列存在性由模型定义与
+    迁移契约保证，且集成测试覆盖真实落库。
     """
     model = update(model_cls)
     result = await session.execute(
         model.where(
-            getattr(model_cls, "entity_id") == entity_id,
-            getattr(model_cls, "entity_version") == expected_version,
+            model_cls.entity_id == entity_id,  # type: ignore[attr-defined]
+            model_cls.entity_version == expected_version,  # type: ignore[attr-defined]
         ).values(**values, entity_version=expected_version + 1)
     )
     if result.rowcount == 0:  # type: ignore[attr-defined]

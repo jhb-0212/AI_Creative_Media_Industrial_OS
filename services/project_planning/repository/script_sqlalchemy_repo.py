@@ -36,7 +36,6 @@ def _to_domain(model: ScriptModel) -> ScriptRevision:
         title=model.title,
         created_by=model.created_by,
         status=status,
-        entity_type=model.entity_type,
         schema_version=model.schema_version,
         entity_version=model.entity_version,
         owner_module=model.owner_module,
@@ -50,7 +49,7 @@ def _to_orm(script: ScriptRevision) -> ScriptModel:
     """领域模型 -> ORM。"""
     return ScriptModel(
         entity_id=script.entity_id,
-        entity_type=script.entity_type,
+        entity_type=script.ENTITY_TYPE,
         schema_version=script.schema_version,
         entity_version=script.entity_version,
         status=script.status.value,

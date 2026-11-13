@@ -6,107 +6,72 @@
   检查项目写权限、文件安全与导入来源 → SCRIPT_IMPORTED。
 - ADR-032：AI 剧本拆镜输出默认草案，人工确认前不得写入 ScriptLock。
   剧本导入产出 DRAFT 状态的可编辑版本，锁定是独立动作（SCRIPT.LOCK.APPROVE）。
-- C.3.1 通用实体信封。
+- C.3.1 通用实体信封（收敛到 domain/entity.py 的 Entity 基类）。
 
 设计要点（不屎山代码）：
 - 领域模型纯数据 + 行为，不依赖 ORM / FastAPI。
 - 状态变更经显式方法，未登记转移一律拒绝（31.5）。
 - 终态（SUPERSEDED）不可原地复活（红线）。
+- 信封公共字段/校验/序列化继承自 Entity。
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from dataclasses import dataclass
 from typing import Any
 
+from services.project_planning.domain.entity import Entity
 from services.project_planning.domain.enums import ScriptStatus
 from services.project_planning.domain.state_machine import assert_transition_script
 
-# 契约 C.3.1 通用实体信封的 schema_version 固定值（V2.0.5）
-SCHEMA_VERSION = 205
-OWNER_MODULE = "project-planning"
-
-
-def _utcnow() -> datetime:
-    """统一 UTC 时间（8.2 规则：所有时间统一存 UTC）。"""
-    return datetime.now(UTC)
-
 
 @dataclass
-class ScriptRevision:
+class ScriptRevision(Entity):
     """剧本版本聚合根。
 
     一次导入产生一个版本记录；新版本导入使旧版本转 SUPERSEDED（终态）。
     「不可变」语义指**版本内容不可变**（已入库的版本记录不原地覆盖内容，
     状态只能沿状态机向前迁移，终态不可复活），而非 Python frozen dataclass
-    的字段级不可变——`transition_to` 需要原地更新 status/entity_version，
-    故本类不声明 `@dataclass(frozen=True)`。
+    的字段级不可变。
     """
 
-    entity_id: str
-    project_id: str
-    episode_ref: str
-    title: str
-    created_by: str
+    ENTITY_TYPE = "ScriptRevision"
+
+    # 业务字段（信封字段由 Entity 基类提供）。
+    project_id: str = ""
+    episode_ref: str = ""
+    title: str = ""
     status: ScriptStatus = ScriptStatus.DRAFT
-    # 统一信封字段
-    entity_type: str = "ScriptRevision"
-    schema_version: int = SCHEMA_VERSION
-    entity_version: int = 1
-    owner_module: str = OWNER_MODULE
-    created_at: datetime = field(default_factory=_utcnow)
-    updated_at: datetime = field(default_factory=_utcnow)
-    audit_ref: str | None = None
 
     def __post_init__(self) -> None:
-        """防御性校验：必填字段非空、长度不超限（对齐 ORM 列定义）。
-
-        领域模型是聚合根边界，服务层之外（如仓储反序列化、测试构造）
-        同样受此约束，避免脏数据进入领域。
-        """
-        # 字段 -> (最大长度, 是否允许为空)。空字符串视为空。
-        required: tuple[tuple[str, int], ...] = (
-            ("entity_id", 64),
+        """防御性校验：信封公共字段 + 业务字段（对齐 ORM 列定义）。"""
+        super()._validate_envelope()
+        for name, max_len in (
             ("project_id", 64),
             ("episode_ref", 64),
             ("title", 200),
-            ("created_by", 64),
-        )
-        for field_name, max_len in required:
-            value = getattr(self, field_name)
-            if value is None or (isinstance(value, str) and not value.strip()):
-                raise ValueError(f"{field_name} 不能为空")
+        ):
+            value = getattr(self, name)
+            if not value or not value.strip():
+                raise ValueError(f"{name} 不能为空")
             if len(value) > max_len:
-                raise ValueError(f"{field_name} 长度超过上限 {max_len}")
+                raise ValueError(f"{name} 长度超过上限 {max_len}")
 
     def transition_to(self, target: ScriptStatus, audit_ref: str) -> ScriptRevision:
-        """执行状态迁移，未登记转移拒绝（31.5）。
-
-        转移合法性由 domain/state_machine.py 的 SCRIPT_ALLOWED_TRANSITIONS
-        单一权威转移表校验，避免状态机散落于聚合根内部（单一事实源）。
-        """
+        """执行状态迁移，未登记转移拒绝（31.5）。"""
         assert_transition_script(self.status, target)
         self.status = target
-        self.entity_version += 1
-        self.updated_at = _utcnow()
-        self.audit_ref = audit_ref
+        self._advance_version(audit_ref)
         return self
 
     def to_dict(self) -> dict[str, Any]:
         """序列化为契约信封结构。"""
-        return {
-            "entity_id": self.entity_id,
-            "entity_type": self.entity_type,
-            "schema_version": self.schema_version,
-            "entity_version": self.entity_version,
-            "status": self.status.value,
-            "owner_module": self.owner_module,
-            "created_at": self.created_at.isoformat(),
-            "created_by": self.created_by,
-            "updated_at": self.updated_at.isoformat(),
-            "audit_ref": self.audit_ref,
-            "project_id": self.project_id,
-            "episode_ref": self.episode_ref,
-            "title": self.title,
-        }
+        data = self._envelope_dict()
+        data.update(
+            {
+                "project_id": self.project_id,
+                "episode_ref": self.episode_ref,
+                "title": self.title,
+            }
+        )
+        return data

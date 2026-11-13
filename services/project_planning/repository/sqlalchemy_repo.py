@@ -45,7 +45,6 @@ def _to_domain(model: ProjectModel) -> Project:
         project_tier=tier,
         created_by=model.created_by,
         status=status,
-        entity_type=model.entity_type,
         schema_version=model.schema_version,
         entity_version=model.entity_version,
         owner_module=model.owner_module,
@@ -59,7 +58,7 @@ def _to_orm(project: Project) -> ProjectModel:
     """领域模型 -> ORM。"""
     return ProjectModel(
         entity_id=project.entity_id,
-        entity_type=project.entity_type,
+        entity_type=project.ENTITY_TYPE,
         schema_version=project.schema_version,
         entity_version=project.entity_version,
         status=project.status.value,
