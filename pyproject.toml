@@ -17,6 +17,11 @@ dependencies = [
     "uvicorn[standard]>=0.29",
     "pydantic>=2.6",
     "pydantic-settings>=2.2",
+    # 身份治理（P0-3）：RSA 密钥对（cryptography）+ RS256 令牌编解码（PyJWT）。
+    # 二者是 packages/identity 的运行时硬依赖，必须在声明层显式列出，
+    # 避免干净安装时缺失（旧环境靠历史残留掩盖了该缺口）。
+    "cryptography>=42.0",
+    "PyJWT>=2.8",
     "sqlalchemy[asyncio]>=2.0",
     "asyncpg>=0.29",
     "alembic>=1.13",
