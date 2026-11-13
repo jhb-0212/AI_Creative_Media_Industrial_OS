@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from packages.identity.jwks import KeyStore
+from packages.identity.jwks import KeyStore, PublicKeyStore
 from packages.identity.keys import SigningKey, generate_signing_key, load_signing_key
 from packages.shared.config import get_settings
 
@@ -54,6 +54,20 @@ def get_key_store() -> KeyStore:
     # 开发/测试：随机生成一把（不落日志，进程内持有）。
     key = generate_signing_key(kid="current")
     return KeyStore([key])
+
+
+@lru_cache
+def get_public_key_store() -> PublicKeyStore:
+    """获取纯公钥验签仓储（API 进程使用，结构上不含私钥）。
+
+    生产：只从 ``IDENTITY_PUBLIC_KEY_PEM`` 构建，签发私钥不出身份服务。
+    开发/测试：本进程同时承担签发，公钥从进程内临时密钥派生（无私钥边界可言）。
+    """
+    settings = get_settings()
+    public_pem = settings.identity_public_key_pem.get_secret_value()
+    if public_pem:
+        return PublicKeyStore({"current": public_pem.encode("utf-8")})
+    return PublicKeyStore.from_key_store(get_key_store())
 
 
 def issue_token(

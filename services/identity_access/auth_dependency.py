@@ -20,7 +20,7 @@ from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
-from packages.identity.jwks import KeyStore
+from packages.identity.jwks import KeyStore, PublicKeyStore
 from packages.identity.jwt_core import TokenError, decode_token
 from packages.identity.principal import Principal
 
@@ -46,7 +46,7 @@ def _extract_bearer_token(
 
 def build_principal_dependency(
     *,
-    key_store: KeyStore,
+    key_store: KeyStore | PublicKeyStore,
     issuer: str,
     audience: str,
 ) -> PrincipalDependency:

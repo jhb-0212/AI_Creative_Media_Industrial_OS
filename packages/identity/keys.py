@@ -42,20 +42,25 @@ class SigningKey:
     @property
     def public_jwk(self) -> dict[str, str]:
         """导出公钥为 JWK 结构（RSA，含 n/e/kty/kid/alg/use），供 JWKS 文档使用。"""
-        public_key = serialization.load_pem_public_key(self.public_pem)
-        if not isinstance(public_key, RSAPublicKey):
-            raise TypeError("签名密钥必须是 RSA 公钥")
-        numbers = public_key.public_numbers()
-        n_bytes = numbers.n.to_bytes((numbers.n.bit_length() + 7) // 8, "big")
-        e_bytes = numbers.e.to_bytes((numbers.e.bit_length() + 7) // 8, "big")
-        return {
-            "kty": "RSA",
-            "kid": self.kid,
-            "use": "sig",
-            "alg": "RS256",
-            "n": _b64url(n_bytes),
-            "e": _b64url(e_bytes),
-        }
+        return public_jwk_from_pem(self.public_pem, self.kid)
+
+
+def public_jwk_from_pem(public_pem: bytes, kid: str) -> dict[str, str]:
+    """把公钥 PEM 转为 JWK 结构（签发侧与纯公钥验签侧共用，避免两份编码实现）。"""
+    public_key = serialization.load_pem_public_key(public_pem)
+    if not isinstance(public_key, RSAPublicKey):
+        raise TypeError("签名密钥必须是 RSA 公钥")
+    numbers = public_key.public_numbers()
+    n_bytes = numbers.n.to_bytes((numbers.n.bit_length() + 7) // 8, "big")
+    e_bytes = numbers.e.to_bytes((numbers.e.bit_length() + 7) // 8, "big")
+    return {
+        "kty": "RSA",
+        "kid": kid,
+        "use": "sig",
+        "alg": "RS256",
+        "n": _b64url(n_bytes),
+        "e": _b64url(e_bytes),
+    }
 
 
 def _b64url(data: bytes) -> str:

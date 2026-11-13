@@ -19,13 +19,13 @@ from collections.abc import Awaitable, Callable
 from packages.identity.principal import Principal
 from packages.shared.config import get_settings
 from packages.shared.rls import build_tenant_session_dependency
-from services.identity_access import get_key_store
+from services.identity_access import get_public_key_store
 from services.identity_access.auth_dependency import build_principal_dependency
 from services.identity_access.rbac import build_authorize_dependency
 
 # 认证依赖：Bearer → Principal（验签 + issuer/audience 校验）。
 get_principal = build_principal_dependency(
-    key_store=get_key_store(),
+    key_store=get_public_key_store(),
     issuer=get_settings().identity_issuer,
     audience=get_settings().identity_audience,
 )
