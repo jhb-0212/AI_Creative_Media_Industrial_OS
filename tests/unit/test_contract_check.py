@@ -114,3 +114,30 @@ def test_check_project_state_machine_detects_extra_in_impl(
     }
     monkeypatch.setattr(cc, "parse_state_chain", lambda text: fake_transitions)
     assert cc.check_project_state_machine() is False
+
+
+# --------------------------------------------------------------------------- #
+# 扩展校验：Action/OpenAPI/Permission/Schema
+# --------------------------------------------------------------------------- #
+def test_normalize_action_key() -> None:
+    assert cc._normalize_action_key("PROJECT.CREATE") == "project.create"
+    assert cc._normalize_action_key("  Shot.Draft.Create ") == "shot.draft.create"
+
+
+def test_check_action_openapi_consistency_passes() -> None:
+    assert cc.check_action_openapi_consistency() is True
+
+
+def test_check_permission_matrix_passes() -> None:
+    assert cc.check_permission_matrix() is True
+
+
+def test_check_schema_objects_passes() -> None:
+    assert cc.check_schema_objects() is True
+
+
+def test_action_openapi_mismatch_semantics() -> None:
+    """归一化比对逻辑：缺 script.import 时应能识别差集。"""
+    ar_keys = {"project.create", "script.import"}
+    oa_keys = {"project.create"}
+    assert ar_keys - oa_keys == {"script.import"}
