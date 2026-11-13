@@ -46,6 +46,8 @@ packages = [
     "packages/shared",
     "packages/errors",
     "packages/telemetry",
+    "services",
+    "apps",
 ]
 
 [tool.ruff]
