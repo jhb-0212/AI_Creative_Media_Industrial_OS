@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from urllib.parse import quote_plus
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -29,11 +30,15 @@ class Base(DeclarativeBase):
 
 
 def build_database_url() -> str:
-    """构造异步 DSN（asyncpg 驱动）。"""
+    """构造异步 DSN（asyncpg 驱动）。
+
+    用户名与密码均做 URL 编码，避免特殊字符（如 @ : / # 空格）破坏连接串解析。
+    """
     settings = get_settings()
-    password = settings.postgres_password.get_secret_value()
+    user = quote_plus(settings.postgres_user)
+    password = quote_plus(settings.postgres_password.get_secret_value())
     return (
-        f"postgresql+asyncpg://{settings.postgres_user}:{password}"
+        f"postgresql+asyncpg://{user}:{password}"
         f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
     )
 
@@ -75,6 +80,16 @@ def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
-    """依赖注入：提供独立事务会话。"""
+    """依赖注入：提供独立事务会话（事务边界上移到请求层）。
+
+    采用「工作单元」语义：整个请求期间共享同一会话，仓储只做持久化
+    变更（merge/flush）而不再自行 commit；由本依赖在请求成功时统一
+    commit、异常时统一 rollback，保证多步用例的原子性。
+    """
     async with get_sessionmaker()() as session:
-        yield session
+        try:
+            yield session
+            await session.commit()
+        except BaseException:
+            await session.rollback()
+            raise

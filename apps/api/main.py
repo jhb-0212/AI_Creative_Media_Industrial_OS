@@ -16,7 +16,12 @@ import uuid
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from packages.errors.error_codes import DomainError, ErrorRegistry, to_response_payload
+from packages.errors.error_codes import (
+    DomainError,
+    ErrorCode,
+    ErrorRegistry,
+    to_response_payload,
+)
 from packages.shared.config import get_settings
 from packages.shared.logging import get_logger, set_trace_id, setup_logging
 from packages.telemetry.tracing import setup_telemetry
@@ -92,8 +97,15 @@ async def health() -> dict[str, str]:
 @app.get("/errors/{code}", tags=["system"])
 async def error_catalog(code: str) -> dict:
     """错误码探测端点：返回指定错误码的定义（用于契约自检与联调）。"""
-    registry = ErrorRegistry()
-    target = getattr(registry, code, None)
+    # 只允许访问 ErrorCode 注册项（按 code 精确匹配），拒绝 dunder 及类成员。
+    target = next(
+        (
+            member
+            for name, member in vars(ErrorRegistry).items()
+            if not name.startswith("_") and isinstance(member, ErrorCode) and member.code == code
+        ),
+        None,
+    )
     if target is None:
         raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"未知错误码: {code}")
     return {

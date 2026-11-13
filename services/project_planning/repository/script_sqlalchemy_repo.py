@@ -55,9 +55,15 @@ class SqlAlchemyScriptRepository(ScriptRepository):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def add(self, script: ScriptRevision) -> None:
+        # INSERT 语义 + SAVEPOINT：并发重复插入由唯一约束捕获（幂等兜底），
+        # 失败仅回滚本次 INSERT，session 不进入 aborted 态。
+        async with self._session.begin_nested():
+            self._session.add(_to_orm(script))
+
     async def save(self, script: ScriptRevision) -> None:
+        # 仅登记变更，不 commit：事务边界由请求层统一控制（同 Project 仓储）。
         await self._session.merge(_to_orm(script))
-        await self._session.commit()
 
     async def get_by_id(self, entity_id: str) -> ScriptRevision | None:
         stmt = select(ScriptModel).where(ScriptModel.entity_id == entity_id)

@@ -46,7 +46,12 @@ def setup_telemetry(app) -> None:
     endpoint = settings.otel_exporter_otlp_endpoint
     if endpoint:
         # 已配置 OTLP 端点，启用 gRPC exporter（批量导出，异步不阻塞请求）。
-        exporter = OTLPSpanExporter(endpoint=endpoint, insecure=True)
+        # 安全：默认启用 TLS（insecure=False），链路数据加密传输；
+        # 仅当显式配置 insecure 时才走明文（限内网/本机 Collector 联调）。
+        exporter = OTLPSpanExporter(
+            endpoint=endpoint,
+            insecure=settings.otel_exporter_otlp_insecure,
+        )
         provider.add_span_processor(BatchSpanProcessor(exporter))
 
     trace.set_tracer_provider(provider)

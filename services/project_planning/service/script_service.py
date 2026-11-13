@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy.exc import IntegrityError
+
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from services.project_planning.domain.enums import ScriptStatus
 from services.project_planning.domain.script import ScriptRevision
@@ -70,7 +72,18 @@ class ScriptService:
             title=title.strip(),
             created_by=created_by,
         )
-        await self._repository.save(script)
+
+        # INSERT 语义新增；并发下唯一约束兜底 check-then-act 竞态。
+        try:
+            await self._repository.add(script)
+        except IntegrityError:
+            if entity_id is None:
+                raise
+            existing = await self._repository.get_by_id(entity_id)
+            if existing is not None:
+                return existing
+            raise
+
         return script
 
     async def get_script(self, entity_id: str) -> ScriptRevision:

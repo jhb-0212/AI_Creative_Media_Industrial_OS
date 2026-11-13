@@ -11,6 +11,11 @@ class ScriptRepository(ABC):
     """ScriptRevision 仓储抽象接口。"""
 
     @abstractmethod
+    async def add(self, script: ScriptRevision) -> None:
+        """新增剧本版本（INSERT 语义，主键冲突抛 IntegrityError）。"""
+        raise NotImplementedError
+
+    @abstractmethod
     async def save(self, script: ScriptRevision) -> None:
         """保存（新增或更新）剧本版本。"""
         raise NotImplementedError

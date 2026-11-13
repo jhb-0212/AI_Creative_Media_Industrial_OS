@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy.exc import IntegrityError
+
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from services.project_planning.domain.enums import ProjectTier
 from services.project_planning.domain.project import Project
@@ -42,7 +44,7 @@ class ProjectService:
                 detail="project_name 不能为空",
             )
 
-        # 幂等：若已存在同 id，直接返回，不重复创建。
+        # 快速路径：已存在同 id 直接返回（避免无谓的 INSERT）。
         if entity_id is not None:
             existing = await self._repository.get_by_id(entity_id)
             if existing is not None:
@@ -54,7 +56,20 @@ class ProjectService:
             project_tier=project_tier,
             created_by=created_by,
         )
-        await self._repository.save(project)
+
+        # 用 INSERT 语义新增；并发下唯一约束兜底 check-then-act 竞态：
+        # 冲突时降级为幂等返回既有记录，而非报错或重复插入。
+        try:
+            await self._repository.add(project)
+        except IntegrityError:
+            if entity_id is None:
+                # 无显式 id 时 UUID 冲突概率可忽略，向上抛内部错误。
+                raise
+            existing = await self._repository.get_by_id(entity_id)
+            if existing is not None:
+                return existing
+            raise
+
         return project
 
     async def get_project(self, entity_id: str) -> Project:

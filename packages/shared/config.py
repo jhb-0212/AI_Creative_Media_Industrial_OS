@@ -57,6 +57,7 @@ class Settings(BaseSettings):
 
     # 可观测
     otel_exporter_otlp_endpoint: str = ""
+    otel_exporter_otlp_insecure: bool = False
     otel_service_name: str = "ai-film-industrial-platform"
 
 

@@ -22,7 +22,7 @@ from alembic import context
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from packages.shared.config import get_settings  # noqa: E402
-from packages.shared.database import Base  # noqa: E402
+from packages.shared.database import Base, build_database_url  # noqa: E402
 from services.project_planning.repository.orm import ProjectModel, ScriptModel  # noqa: E402,F401
 
 config = context.config
@@ -30,13 +30,9 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# 用应用配置构造 DSN（不含明文密钥）。
+# 用应用配置构造 DSN（不含明文密钥，密码经 URL 编码）。
 settings = get_settings()
-_dsn = (
-    f"postgresql+asyncpg://{settings.postgres_user}:{settings.postgres_password.get_secret_value()}"
-    f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
-)
-config.set_main_option("sqlalchemy.url", _dsn)
+config.set_main_option("sqlalchemy.url", build_database_url())
 
 target_metadata = Base.metadata
 

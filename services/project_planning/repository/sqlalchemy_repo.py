@@ -59,9 +59,17 @@ class SqlAlchemyProjectRepository(ProjectRepository):
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def add(self, project: Project) -> None:
+        # INSERT 语义 + SAVEPOINT：并发重复插入相同主键时由数据库唯一约束
+        # 抛出 IntegrityError；用嵌套事务（savepoint）隔离，失败仅回滚本次
+        # INSERT，使 session 不进入 aborted 态，服务层可安全降级为幂等查询。
+        async with self._session.begin_nested():
+            self._session.add(_to_orm(project))
+
     async def save(self, project: Project) -> None:
+        # 仅登记变更，不 commit：事务边界由请求层（get_session 依赖）统一控制，
+        # 保证多步用例中途失败可整体回滚。
         await self._session.merge(_to_orm(project))
-        await self._session.commit()
 
     async def get_by_id(self, entity_id: str) -> Project | None:
         stmt = select(ProjectModel).where(ProjectModel.entity_id == entity_id)

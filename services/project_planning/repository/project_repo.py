@@ -17,6 +17,15 @@ class ProjectRepository(ABC):
     """Project 仓储抽象接口。"""
 
     @abstractmethod
+    async def add(self, project: Project) -> None:
+        """新增项目（INSERT 语义，主键冲突抛 IntegrityError）。
+
+        与 save（upsert）区分：新增走本方法，使并发重复插入能被数据库
+        唯一约束捕获，配合服务层幂等兜底（见 ProjectService.create_project）。
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     async def save(self, project: Project) -> None:
         """保存（新增或更新）项目。"""
         raise NotImplementedError
