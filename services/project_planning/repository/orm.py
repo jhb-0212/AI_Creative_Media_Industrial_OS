@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Index, String
+from sqlalchemy import ForeignKeyConstraint, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from packages.shared.database import Base
@@ -36,17 +36,24 @@ class ProjectModel(EntityMixin, Base):
 
 
 class ScriptModel(EntityMixin, Base):
-    """script_revisions 表模型（剧本版本，同属 project_planning schema）。"""
+    """script_revisions 表模型（剧本版本，同属 project_planning schema）。
+
+    归属完整性（决策 2）：
+    - 复合外键 ``(project_id, episode_ref) → episodes(project_id, episode_ref)``
+      在数据库层锁死「跨项目乱挂载」——任何写入的 (project_id, episode_ref)
+      必须精确匹配一个真实存在的 Episode，杜绝仅靠 Service 查询校验的
+      归属漏洞（R2 不变量放最可靠层级）。
+    - 部分唯一索引 ux_script_active_version 兜底并发取代（见迁移 facd8d42d07f）。
+    """
 
     __tablename__ = "script_revisions"
 
-    # 业务字段
+    # 业务字段（project_id + episode_ref 是复合外键的自然键列，非裸冗余）。
     project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     episode_ref: Mapped[str] = mapped_column(String(64), nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
 
-    # 部分唯一索引：同项目 + 同集数下最多一个「非 SUPERSEDED」活跃版本，
-    # 作为并发取代的数据库兜底（见迁移 facd8d42d07f）。
+    # 部分唯一索引：同项目 + 同集数下最多一个「非 SUPERSEDED」活跃版本。
     __table_args__ = (
         Index(
             "ux_script_active_version",
@@ -55,22 +62,31 @@ class ScriptModel(EntityMixin, Base):
             unique=True,
             postgresql_where="status <> 'SUPERSEDED'",
         ),
+        # 复合外键：强绑定 episodes(project_id, episode_ref)，防跨项目乱挂载。
+        ForeignKeyConstraint(
+            ["project_id", "episode_ref"],
+            [f"{SCHEMA_NAME}.episodes.project_id", f"{SCHEMA_NAME}.episodes.episode_ref"],
+            name="fk_script_revisions_episode",
+        ),
         {"schema": SCHEMA_NAME},
     )
 
 
 class EpisodeModel(EntityMixin, Base):
-    """episodes 表模型（集数，归属 Project）。"""
+    """episodes 表模型（集数，归属 Project）。
+
+    归属完整性（决策 2）：
+    - ``(project_id, episode_ref)`` 唯一约束（自然键），是 script_revisions
+      复合外键的引用目标，保证「同项目内 episode_ref 唯一、跨项目允许同名」。
+    """
 
     __tablename__ = "episodes"
     __table_args__ = (
-        # 同项目内 episode_ref 唯一（集数归属约束的数据库兜底）。
-        # 跨项目允许相同 episode_ref（如 EP001 在不同项目各自独立）。
-        Index(
-            "ux_episode_ref_per_project",
+        # 自然键唯一约束：同项目内 episode_ref 唯一（复合外键的引用目标）。
+        UniqueConstraint(
             "project_id",
             "episode_ref",
-            unique=True,
+            name="ux_episode_ref_per_project",
         ),
         {"schema": SCHEMA_NAME},
     )
