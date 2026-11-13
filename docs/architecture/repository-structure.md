@@ -23,6 +23,11 @@
 
 ---
 
+> **命名约定（重要）**：目录树中的 `services/` 模块名在正文示意里写作连字符（如 `project-planning`），
+> 但**实际落地的 Python 包目录统一使用下划线**（`project_planning`、`asset_service`、`qc_governance`），
+> 因为连字符在 Python 导入中是非法标识符。`contracts/` 子目录同理（`action_registry`、`state_machines`）。
+> 下方目录树为逻辑示意，物理目录名以下划线为准。
+
 ## 2. 顶层目录结构
 
 ```

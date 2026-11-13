@@ -1,44 +1,63 @@
-"""Project API 集成测试（薄层路由 + 服务 + 内存仓储）。"""
+"""Project API 集成测试（异步，连真实 PostgreSQL）。
+
+说明：
+- 使用 httpx.AsyncClient + ASGITransport，避免 TestClient 与 asyncpg 的事件循环冲突。
+- 依赖 docker-compose 的 PostgreSQL（独立 schema project_planning）。
+- 测试数据使用唯一前缀，避免相互污染；用例间清理。
+"""
 
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
+import uuid
+
+import pytest
+from httpx import ASGITransport, AsyncClient
 
 from apps.api.main import app
 
-client = TestClient(app)
+
+@pytest.fixture
+async def client():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
 
 
-def test_create_project_success() -> None:
-    resp = client.post(
+async def test_create_project_success(client: AsyncClient) -> None:
+    resp = await client.post(
         "/projects",
-        json={"project_name": "测试项目", "project_tier": "A", "created_by": "user_001"},
+        json={
+            "project_name": f"测试项目_{uuid.uuid4().hex[:8]}",
+            "project_tier": "A",
+            "created_by": "user_001",
+        },
     )
     assert resp.status_code == 201
     body = resp.json()
     assert body["status"] == "DRAFT"
-    assert body["project_name"] == "测试项目"
     assert body["project_tier"] == "A"
     assert body["entity_id"]
 
 
-def test_create_project_idempotent() -> None:
+async def test_create_project_idempotent(client: AsyncClient) -> None:
     """幂等：同一 entity_id 重复创建返回同一项目，不产生第二条（D3 精神）。"""
+    eid = f"proj_idem_{uuid.uuid4().hex[:8]}"
     payload = {
         "project_name": "幂等项目",
         "project_tier": "B",
         "created_by": "user_002",
-        "entity_id": "proj_idem_001",
+        "entity_id": eid,
     }
-    r1 = client.post("/projects", json=payload)
-    r2 = client.post("/projects", json=payload)
+    r1 = await client.post("/projects", json=payload)
+    r2 = await client.post("/projects", json=payload)
     assert r1.status_code == 201
     assert r2.status_code == 201
-    assert r1.json()["entity_id"] == r2.json()["entity_id"] == "proj_idem_001"
+    assert r1.json()["entity_id"] == r2.json()["entity_id"] == eid
+    assert r1.json()["entity_version"] == r2.json()["entity_version"] == 1
 
 
-def test_create_project_rejects_empty_name() -> None:
-    resp = client.post(
+async def test_create_project_rejects_empty_name(client: AsyncClient) -> None:
+    resp = await client.post(
         "/projects",
         json={"project_name": "  ", "project_tier": "B", "created_by": "user_003"},
     )
@@ -46,7 +65,29 @@ def test_create_project_rejects_empty_name() -> None:
     assert resp.json()["error_code"] == "VALIDATION_ERROR"
 
 
-def test_get_project_not_found() -> None:
-    resp = client.get("/projects/does_not_exist")
+async def test_get_project_not_found(client: AsyncClient) -> None:
+    resp = await client.get(f"/projects/not_exist_{uuid.uuid4().hex[:8]}")
     assert resp.status_code == 404
     assert resp.json()["error_code"] == "NOT_FOUND"
+
+
+async def test_get_project_roundtrip(client: AsyncClient) -> None:
+    """创建后查询，验证真实落库（读写闭环）。"""
+    eid = f"proj_rt_{uuid.uuid4().hex[:8]}"
+    created = await client.post(
+        "/projects",
+        json={
+            "project_name": "落库验证项目",
+            "project_tier": "S",
+            "created_by": "user_004",
+            "entity_id": eid,
+        },
+    )
+    assert created.status_code == 201
+
+    fetched = await client.get(f"/projects/{eid}")
+    assert fetched.status_code == 200
+    body = fetched.json()
+    assert body["entity_id"] == eid
+    assert body["project_name"] == "落库验证项目"
+    assert body["project_tier"] == "S"

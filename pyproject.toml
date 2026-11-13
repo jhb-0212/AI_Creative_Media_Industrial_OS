@@ -65,3 +65,5 @@ warn_redundant_casts = true
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-ra -q"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"

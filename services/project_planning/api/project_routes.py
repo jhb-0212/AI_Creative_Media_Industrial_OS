@@ -9,10 +9,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.database import get_session
 from services.project_planning.domain.enums import ProjectTier
-from services.project_planning.repository.in_memory_repo import InMemoryProjectRepository
+from services.project_planning.repository.sqlalchemy_repo import SqlAlchemyProjectRepository
 from services.project_planning.service.project_service import ProjectService
 
 router = APIRouter(prefix="/projects", tags=["project-planning"])
@@ -27,9 +29,9 @@ class CreateProjectRequest(BaseModel):
     entity_id: str | None = None
 
 
-def _get_service() -> ProjectService:
-    """服务装配（Phase 1 使用内存仓储，后续替换为 PostgreSQL 实现）。"""
-    repository = InMemoryProjectRepository()
+def _get_service(session: AsyncSession = Depends(get_session)) -> ProjectService:
+    """服务装配：SQLAlchemy 仓储（独立 schema project_planning）。"""
+    repository = SqlAlchemyProjectRepository(session)
     return ProjectService(repository)
 
 
