@@ -60,6 +60,17 @@ jobs:
           POSTGRES_DB: ai_film_industrial
           REDIS_URL: redis://localhost:6379/0
 
+      - name: Migrations sync check (alembic check)
+        run: |
+          alembic upgrade head
+          alembic check
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ai_film_industrial
+
   contract-check:
     runs-on: ubuntu-latest
     steps:

@@ -41,6 +41,17 @@ config.set_main_option("sqlalchemy.url", _dsn)
 target_metadata = Base.metadata
 
 
+def include_object(obj, name, type_, reflected, compare_to):  # noqa: ANN001
+    """过滤 autogenerate 的比对对象。
+
+    排除 Alembic 版本追踪表（alembic_version），避免其被误判为
+    「应移除的表」——该表由 Alembic 自身管理，不属领域模型。
+    """
+    if type_ == "table" and name == "alembic_version":
+        return False
+    return True
+
+
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
@@ -59,6 +70,8 @@ def do_run_migrations(connection: Connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         compare_type=True,
+        include_schemas=True,
+        include_object=include_object,
         version_table_schema="public",
     )
     with context.begin_transaction():
