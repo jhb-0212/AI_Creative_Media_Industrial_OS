@@ -22,6 +22,7 @@ class SqlAlchemyOutboxWriter(OutboxWriter):
         *,
         aggregate_type: str,
         aggregate_id: str,
+        tenant_id: UUID,
         event_type: str,
         payload: dict[str, Any],
     ) -> UUID:
@@ -30,6 +31,7 @@ class SqlAlchemyOutboxWriter(OutboxWriter):
             self._session,
             aggregate_type=aggregate_type,
             aggregate_id=aggregate_id,
+            tenant_id=tenant_id,
             event_type=event_type,
             payload=payload,
         )

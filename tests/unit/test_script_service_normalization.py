@@ -38,11 +38,12 @@ class _RecordingOutboxWriter(OutboxWriter):
     def __init__(self) -> None:
         self.events: list[dict] = []
 
-    def record(self, *, aggregate_type, aggregate_id, event_type, payload):  # type: ignore[override]
+    def record(self, *, aggregate_type, aggregate_id, tenant_id, event_type, payload):  # type: ignore[override]
         self.events.append(
             {
                 "aggregate_type": aggregate_type,
                 "aggregate_id": aggregate_id,
+                "tenant_id": tenant_id,
                 "event_type": event_type,
                 "payload": payload,
             }

@@ -16,7 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.api.main import app
-from tests.conftest import make_test_token
+from tests.conftest import TEST_TENANT_ID, make_test_token
 
 
 @pytest.fixture
@@ -56,6 +56,11 @@ async def _count_events(
     sessionmaker: async_sessionmaker[AsyncSession], aggregate_id: str
 ) -> int:
     async with sessionmaker() as session:
+        # outbox 表启用 RLS：查询前必须注入租户上下文，否则按 RLS 语义看不到任何行。
+        await session.execute(
+            text("SELECT set_config('app.current_tenant_id', :t, true)"),
+            {"t": str(TEST_TENANT_ID)},
+        )
         result = await session.execute(
             text(
                 "SELECT count(*) FROM outbox.outbox_events WHERE aggregate_id = :aid"
@@ -122,6 +127,10 @@ async def test_lock_writes_outbox_event_append_only(
 
     # 验证事件类型正确。
     async with db_sessionmaker() as session:
+        await session.execute(
+            text("SELECT set_config('app.current_tenant_id', :t, true)"),
+            {"t": str(TEST_TENANT_ID)},
+        )
         result = await session.execute(
             text(
                 "SELECT event_type FROM outbox.outbox_events "
@@ -131,3 +140,34 @@ async def test_lock_writes_outbox_event_append_only(
         )
         types = [row[0] for row in result.fetchall()]
     assert types == ["SCRIPT_IMPORTED", "SCRIPT_LOCK_REQUESTED", "SCRIPT_LOCK_APPROVED"]
+
+
+async def test_outbox_events_isolated_by_tenant(
+    client: AsyncClient, db_sessionmaker: async_sessionmaker[AsyncSession]
+) -> None:
+    """Outbox 事件受 RLS 隔离：其他租户上下文看不到本租户的事件。"""
+    project_id = f"proj_ob3_{uuid.uuid4().hex[:8]}"
+    await _setup_project_and_episode(client, project_id=project_id, episode_ref="EP001")
+    script_id = f"scr_ob3_{uuid.uuid4().hex[:8]}"
+    resp = await client.post(
+        "/scripts/import",
+        json={
+            "project_id": project_id,
+            "episode_ref": "EP001",
+            "title": "审计隔离测试剧本",
+            "entity_id": script_id,
+        },
+    )
+    assert resp.status_code == 201
+
+    other_tenant = uuid.uuid4()
+    async with db_sessionmaker() as session:
+        await session.execute(
+            text("SELECT set_config('app.current_tenant_id', :t, true)"),
+            {"t": str(other_tenant)},
+        )
+        count = await session.scalar(
+            text("SELECT count(*) FROM outbox.outbox_events WHERE aggregate_id = :aid"),
+            {"aid": script_id},
+        )
+    assert count == 0

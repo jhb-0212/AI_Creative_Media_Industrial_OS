@@ -109,7 +109,9 @@ class ScriptService:
 
         # 新版本导入：使「同一项目 + 同一集数」下当前未取代的旧版本转 SUPERSEDED。
         # 版本链按 project_id + episode_ref 隔离，避免跨集误替换。
-        await self._supersede_active_version(project_id, episode_ref, new_entity_id)
+        await self._supersede_active_version(
+            project_id, episode_ref, new_entity_id, principal.tenant_id
+        )
 
         script = ScriptRevision(
             entity_id=new_entity_id,
@@ -136,6 +138,7 @@ class ScriptService:
             aggregate_type="ScriptRevision",
             aggregate_id=script.entity_id,
             event_type="SCRIPT_IMPORTED",
+            tenant_id=principal.tenant_id,
             payload={
                 "project_id": project_id,
                 "episode_ref": episode_ref,
@@ -182,6 +185,7 @@ class ScriptService:
             aggregate_type="ScriptRevision",
             aggregate_id=script.entity_id,
             event_type="SCRIPT_LOCK_REQUESTED",
+            tenant_id=principal.tenant_id,
             payload={
                 "project_id": script.project_id,
                 "episode_ref": script.episode_ref,
@@ -237,6 +241,7 @@ class ScriptService:
             aggregate_type="ScriptRevision",
             aggregate_id=script.entity_id,
             event_type="SCRIPT_LOCK_APPROVED",
+            tenant_id=principal.tenant_id,
             payload={
                 "project_id": script.project_id,
                 "episode_ref": script.episode_ref,
@@ -277,7 +282,11 @@ class ScriptService:
             )
 
     async def _supersede_active_version(
-        self, project_id: str, episode_ref: str, new_entity_id: str
+        self,
+        project_id: str,
+        episode_ref: str,
+        new_entity_id: str,
+        tenant_id: uuid.UUID,
     ) -> None:
         """将指定项目 + 集数下的当前活跃版本标记为 SUPERSEDED。
 
@@ -311,6 +320,7 @@ class ScriptService:
             aggregate_type="ScriptRevision",
             aggregate_id=latest.entity_id,
             event_type="SCRIPT_SUPERSEDED",
+            tenant_id=tenant_id,
             payload={
                 "project_id": project_id,
                 "episode_ref": episode_ref,

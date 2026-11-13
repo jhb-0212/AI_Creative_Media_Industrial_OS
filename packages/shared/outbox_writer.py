@@ -26,6 +26,7 @@ def record_event(
     *,
     aggregate_type: str,
     aggregate_id: str,
+    tenant_id: uuid.UUID,
     event_type: str,
     payload: dict[str, Any],
 ) -> uuid.UUID:
@@ -46,6 +47,7 @@ def record_event(
             event_id=event_id,
             aggregate_type=aggregate_type,
             aggregate_id=aggregate_id,
+            tenant_id=tenant_id,
             event_type=event_type,
             payload=payload,
             occurred_at=datetime.now(UTC),

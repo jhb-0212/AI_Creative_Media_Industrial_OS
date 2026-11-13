@@ -37,12 +37,15 @@ class OutboxEventModel(Base):
         # 索引名与迁移 7c8d9e0f1a2b 保持一致，避免 autogenerate 漂移。
         Index("ix_outbox_aggregate", "aggregate_id"),
         Index("ix_outbox_published", "published_at"),
+        Index("ix_outbox_tenant", "tenant_id"),
         {"schema": SCHEMA_NAME},
     )
 
     event_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     aggregate_type: Mapped[str] = mapped_column(String(64), nullable=False)
     aggregate_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    # 租户归属（决策 5 / R06）：事件同样受 RLS 隔离，审计数据不得跨租户读取。
+    tenant_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

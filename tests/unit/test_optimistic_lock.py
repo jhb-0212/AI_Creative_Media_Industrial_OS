@@ -39,11 +39,12 @@ class _RecordingOutboxWriter(OutboxWriter):
     def __init__(self) -> None:
         self.events: list[dict] = []
 
-    def record(self, *, aggregate_type, aggregate_id, event_type, payload):  # type: ignore[override]
+    def record(self, *, aggregate_type, aggregate_id, tenant_id, event_type, payload):  # type: ignore[override]
         self.events.append(
             {
                 "aggregate_type": aggregate_type,
                 "aggregate_id": aggregate_id,
+                "tenant_id": tenant_id,
                 "event_type": event_type,
                 "payload": payload,
             }
@@ -179,7 +180,7 @@ async def test_supersede_concurrent_idempotent_skip() -> None:
     service = _make_service(repo)
 
     # 第一次取代成功：DRAFT -> SUPERSEDED，version 1 -> 2。
-    await service._supersede_active_version("proj_s", "EP001", "scr_new")
+    await service._supersede_active_version("proj_s", "EP001", "scr_new", _TENANT)
 
     fetched = await repo.get_by_id("scr_old")
     assert fetched is not None
@@ -188,7 +189,7 @@ async def test_supersede_concurrent_idempotent_skip() -> None:
 
     # 第二次取代（并发模拟）：此时活跃版本已是 SUPERSEDED，get_latest 应返回 None
     # （因为 status != SUPERSEDED 过滤），幂等跳过，不抛错。
-    await service._supersede_active_version("proj_s", "EP001", "scr_new2")
+    await service._supersede_active_version("proj_s", "EP001", "scr_new2", _TENANT)
 
 
 async def test_concurrent_modification_error_carries_code() -> None:

@@ -23,6 +23,7 @@ class OutboxWriter(ABC):
         *,
         aggregate_type: str,
         aggregate_id: str,
+        tenant_id: UUID,
         event_type: str,
         payload: dict[str, Any],
     ) -> UUID:
