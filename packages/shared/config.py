@@ -30,13 +30,13 @@ class Settings(BaseSettings):
 
     # 数据库（密钥脱敏）
     postgres_host: str = "localhost"
-    postgres_port: int = 5432
+    postgres_port: int = 15432
     postgres_user: str = "postgres"
     postgres_password: SecretStr = SecretStr("")
     postgres_db: str = "ai_film_industrial"
 
     # Redis
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: str = "redis://localhost:16379/0"
 
     # 对象存储
     s3_endpoint_url: str = ""

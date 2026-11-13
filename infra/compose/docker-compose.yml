@@ -1,0 +1,43 @@
+# 本地开发基础设施编排（Phase 1 最小依赖集）
+#
+# 说明：
+# - 仅编排基础设施（PostgreSQL / Redis），应用服务由本机 uvicorn 运行，不在此编排。
+# - 数据卷持久化，重启不丢数据。
+# - 所有口令仅用于本地开发，生产环境一律走密钥管理服务，绝不硬编码。
+
+name: ai-film-industrial
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: ai-film-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ai_film_industrial
+    ports:
+      - "15432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ai_film_industrial"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    container_name: ai-film-redis
+    ports:
+      - "16379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
