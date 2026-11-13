@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,7 +44,7 @@ def _get_service(session: AsyncSession = Depends(get_session)) -> ScriptService:
 async def import_script(
     body: ImportScriptRequest,
     service: ScriptService = Depends(_get_service),
-) -> dict:
+) -> dict[str, Any]:
     """导入剧本版本（幂等，产出 DRAFT 态）。"""
     try:
         script = await service.import_script(
@@ -64,7 +66,7 @@ async def import_script(
 async def get_script(
     entity_id: str,
     service: ScriptService = Depends(_get_service),
-) -> dict:
+) -> dict[str, Any]:
     """按 id 查询剧本版本。"""
     script = await service.get_script(entity_id)
     return script.to_dict()

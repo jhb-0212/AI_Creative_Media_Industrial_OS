@@ -15,7 +15,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 from services.project_planning.domain.enums import ProjectStatus, ProjectTier
 from services.project_planning.domain.state_machine import assert_transition
@@ -27,7 +28,7 @@ OWNER_MODULE = "project-planning"
 
 def _utcnow() -> datetime:
     """统一 UTC 时间（8.2 规则：所有时间统一存 UTC）。"""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @dataclass
@@ -52,7 +53,7 @@ class Project:
     updated_at: datetime = field(default_factory=_utcnow)
     audit_ref: str | None = None
 
-    def transition_to(self, target: ProjectStatus, audit_ref: str) -> "Project":
+    def transition_to(self, target: ProjectStatus, audit_ref: str) -> Project:
         """执行状态迁移，未登记转移拒绝（31.5 规则）。
 
         转移合法性由 domain/state_machine.py 的单一权威转移表校验，
@@ -65,7 +66,7 @@ class Project:
         self.audit_ref = audit_ref
         return self
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """序列化为契约信封结构。"""
         return {
             "entity_id": self.entity_id,

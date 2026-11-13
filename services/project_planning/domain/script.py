@@ -17,7 +17,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 from services.project_planning.domain.enums import ScriptStatus
 
@@ -28,7 +29,7 @@ OWNER_MODULE = "project-planning"
 
 def _utcnow() -> datetime:
     """统一 UTC 时间（8.2 规则：所有时间统一存 UTC）。"""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 # ScriptRevision 状态转移表（对齐 state_machines.yaml → ScriptRevision）。
@@ -63,7 +64,7 @@ class ScriptRevision:
     updated_at: datetime = field(default_factory=_utcnow)
     audit_ref: str | None = None
 
-    def transition_to(self, target: ScriptStatus, audit_ref: str) -> "ScriptRevision":
+    def transition_to(self, target: ScriptStatus, audit_ref: str) -> ScriptRevision:
         """执行状态迁移，未登记转移拒绝（31.5）。"""
         allowed = ALLOWED_TRANSITIONS.get(self.status, frozenset())
         if target not in allowed:
@@ -76,7 +77,7 @@ class ScriptRevision:
         self.audit_ref = audit_ref
         return self
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """序列化为契约信封结构。"""
         return {
             "entity_id": self.entity_id,

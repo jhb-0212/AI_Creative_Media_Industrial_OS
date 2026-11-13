@@ -45,7 +45,7 @@ def check_yaml(path: Path) -> bool:
     try:
         yaml.safe_load(path.read_text(encoding="utf-8"))
         return True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"[FAIL] YAML 解析失败: {path} -> {exc}")
         return False
 
@@ -54,7 +54,7 @@ def check_json(path: Path) -> bool:
     try:
         json.loads(path.read_text(encoding="utf-8"))
         return True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         print(f"[FAIL] JSON 解析失败: {path} -> {exc}")
         return False
 
@@ -196,7 +196,7 @@ def check_action_openapi_consistency() -> bool:
     action_keys = [_normalize_action_key(a["action_key"]) for a in ar.get("actions", [])]
     # openapi 的 path 形如 /actions/project.create，operationId 形如 project.create
     operation_ids = [
-        _normalize_action_key(list(path_item.values())[0]["operationId"])
+        _normalize_action_key(next(iter(path_item.values()))["operationId"])
         for path_item in oa.get("paths", {}).values()
     ]
 

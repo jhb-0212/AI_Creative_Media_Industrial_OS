@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from packages.errors.error_codes import DomainError, ErrorRegistry, to_response_payload
 
 

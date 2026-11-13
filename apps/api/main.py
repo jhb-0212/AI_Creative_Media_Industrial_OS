@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from packages.errors.error_codes import (
     DomainError,
@@ -48,7 +50,10 @@ app.include_router(script_router)
 
 
 @app.middleware("http")
-async def request_logging_middleware(request: Request, call_next):
+async def request_logging_middleware(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
     """统一请求日志 + trace_id 注入（可观测性 A3）。
 
     - trace_id 优先取上游传入的 x-trace-id，否则自动生成，并写入 contextvars，
@@ -95,7 +100,7 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/errors/{code}", tags=["system"])
-async def error_catalog(code: str) -> dict:
+async def error_catalog(code: str) -> dict[str, Any]:
     """错误码探测端点：返回指定错误码的定义（用于契约自检与联调）。"""
     # 只允许访问 ErrorCode 注册项（按 code 精确匹配），拒绝 dunder 及类成员。
     target = next(

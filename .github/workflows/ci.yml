@@ -48,7 +48,9 @@ jobs:
         run: ruff check .
 
       - name: Type check (mypy)
-        run: mypy packages services apps workers agents adapters
+        # 只检查当前有代码的目录；workers/agents/adapters 仍为占位（仅 .gitkeep），
+        # 待其落地 .py 后纳入本步骤，避免 mypy 对空目录报 "no .py files" 而误判失败。
+        run: mypy packages services apps
 
       - name: Unit & integration tests
         run: pytest tests/unit tests/integration -q

@@ -10,23 +10,26 @@
 
 from __future__ import annotations
 
-import os
+from typing import TYPE_CHECKING
 
 from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.sampling import ALWAYS_ON
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 from packages.shared.config import get_settings
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 # 全局单例，避免重复初始化。
 _initialized = False
 
 
-def setup_telemetry(app) -> None:
+def setup_telemetry(app: FastAPI) -> None:
     """初始化 tracer 并装配 FastAPI 自动埋点。
 
     Args:

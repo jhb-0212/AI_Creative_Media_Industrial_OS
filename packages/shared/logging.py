@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextvars
 import logging
 import sys
+from typing import Any, cast
 
 import structlog
 
@@ -21,7 +22,7 @@ trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 )
 
 
-def _redact_sensitive(_: object, __: str, event_dict: dict) -> dict:
+def _redact_sensitive(_: object, __: str, event_dict: dict[str, Any]) -> dict[str, Any]:
     """脱敏处理：剔除敏感键，避免密钥落日志。"""
     sensitive_keys = {
         "password",
@@ -38,7 +39,7 @@ def _redact_sensitive(_: object, __: str, event_dict: dict) -> dict:
     return event_dict
 
 
-def _inject_trace_id(_: object, __: str, event_dict: dict) -> dict:
+def _inject_trace_id(_: object, __: str, event_dict: dict[str, Any]) -> dict[str, Any]:
     """注入当前 trace_id。
 
     优先级：OpenTelemetry 当前 span 的 trace_id > contextvars 显式注入 > unknown。
@@ -49,7 +50,7 @@ def _inject_trace_id(_: object, __: str, event_dict: dict) -> dict:
         from packages.telemetry.tracing import get_current_trace_id
 
         trace_id = get_current_trace_id()
-    except Exception:  # noqa: BLE001 —— 遥测不可用时不影响日志
+    except Exception:
         trace_id = None
 
     if not trace_id:
@@ -59,7 +60,7 @@ def _inject_trace_id(_: object, __: str, event_dict: dict) -> dict:
     return event_dict
 
 
-def _shared_processors() -> list:
+def _shared_processors() -> list[Any]:
     """structlog 与 stdlib 共用的处理器链。"""
     return [
         structlog.contextvars.merge_contextvars,
@@ -110,7 +111,7 @@ def setup_logging(level: str = "INFO") -> None:
 
     # 4) 配置 structlog（应用侧）。
     structlog.configure(
-        processors=_shared_processors() + [structlog.processors.JSONRenderer()],
+        processors=[*_shared_processors(), structlog.processors.JSONRenderer()],
         wrapper_class=structlog.make_filtering_bound_logger(log_level),
         logger_factory=structlog.PrintLoggerFactory(sys.stdout),
         cache_logger_on_first_use=True,
@@ -119,7 +120,7 @@ def setup_logging(level: str = "INFO") -> None:
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:
     """获取绑定 logger。"""
-    return structlog.get_logger(name)
+    return cast(structlog.stdlib.BoundLogger, structlog.get_logger(name))
 
 
 def set_trace_id(trace_id: str | None) -> None:

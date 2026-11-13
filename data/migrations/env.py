@@ -12,18 +12,17 @@ import sys
 from logging.config import fileConfig
 from pathlib import Path
 
+from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from alembic import context
-
 # 将项目根加入 sys.path，便于导入 packages / services。
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from packages.shared.config import get_settings  # noqa: E402
-from packages.shared.database import Base, build_database_url  # noqa: E402
-from services.project_planning.repository.orm import ProjectModel, ScriptModel  # noqa: E402,F401
+from packages.shared.config import get_settings
+from packages.shared.database import Base, build_database_url
+from services.project_planning.repository.orm import ProjectModel, ScriptModel  # noqa: F401
 
 config = context.config
 
@@ -37,15 +36,13 @@ config.set_main_option("sqlalchemy.url", build_database_url())
 target_metadata = Base.metadata
 
 
-def include_object(obj, name, type_, reflected, compare_to):  # noqa: ANN001
+def include_object(obj, name, type_, reflected, compare_to):
     """过滤 autogenerate 的比对对象。
 
     排除 Alembic 版本追踪表（alembic_version），避免其被误判为
     「应移除的表」——该表由 Alembic 自身管理，不属领域模型。
     """
-    if type_ == "table" and name == "alembic_version":
-        return False
-    return True
+    return not (type_ == "table" and name == "alembic_version")
 
 
 def run_migrations_offline() -> None:

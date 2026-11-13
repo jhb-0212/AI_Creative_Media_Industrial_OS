@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,7 +41,7 @@ def _get_service(session: AsyncSession = Depends(get_session)) -> ProjectService
 async def create_project(
     body: CreateProjectRequest,
     service: ProjectService = Depends(_get_service),
-) -> dict:
+) -> dict[str, Any]:
     """创建项目（幂等）。"""
     try:
         project = await service.create_project(
@@ -60,7 +62,7 @@ async def create_project(
 async def get_project(
     entity_id: str,
     service: ProjectService = Depends(_get_service),
-) -> dict:
+) -> dict[str, Any]:
     """按 id 查询项目。"""
     project = await service.get_project(entity_id)
     return project.to_dict()
