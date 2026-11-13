@@ -16,12 +16,18 @@ from sqlalchemy import text
 
 from apps.api.main import app
 from packages.shared.database import get_sessionmaker
+from tests.conftest import make_test_token
 
 
 @pytest.fixture
 async def client() -> AsyncClient:
+    """带认证的 client（身份从 JWT 解析，走真实鉴权路径）。"""
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
+    token = make_test_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    async with AsyncClient(
+        transport=transport, base_url="http://test", headers=headers
+    ) as c:
         yield c
 
 
@@ -33,7 +39,6 @@ async def _setup_project_and_episode(
         json={
             "project_name": f"项目_{project_id}",
             "project_tier": "B",
-            "created_by": "user_owner",
             "entity_id": project_id,
         },
     )
@@ -43,7 +48,6 @@ async def _setup_project_and_episode(
             "project_id": project_id,
             "episode_ref": episode_ref,
             "title": f"集数_{episode_ref}",
-            "created_by": "user_owner",
         },
     )
 
@@ -72,7 +76,6 @@ async def test_import_writes_outbox_event(client: AsyncClient) -> None:
             "project_id": project_id,
             "episode_ref": "EP001",
             "title": "审计测试剧本",
-            "created_by": "user_script",
             "entity_id": script_id,
         },
     )
@@ -83,7 +86,7 @@ async def test_import_writes_outbox_event(client: AsyncClient) -> None:
 
 
 async def test_lock_writes_outbox_event_append_only(client: AsyncClient) -> None:
-    """导入 + 锁定产生两条事件（append-only，非覆盖），证明 R7 可追溯。"""
+    """导入 + 两步锁定产生多条事件（append-only，非覆盖），证明 R7 可追溯。"""
     project_id = f"proj_ob2_{uuid.uuid4().hex[:8]}"
     await _setup_project_and_episode(client, project_id=project_id, episode_ref="EP001")
 
@@ -94,22 +97,23 @@ async def test_lock_writes_outbox_event_append_only(client: AsyncClient) -> None
             "project_id": project_id,
             "episode_ref": "EP001",
             "title": "审计测试剧本2",
-            "created_by": "user_script",
             "entity_id": script_id,
         },
     )
     assert resp.status_code == 201
     assert await _count_events(script_id) == 1  # SCRIPT_IMPORTED
 
-    # 锁定：DRAFT→LOCKED，追加第二条事件（SCRIPT_LOCK_APPROVED）。
-    resp2 = await client.post(
-        f"/scripts/{script_id}/lock",
-        json={"requested_by": "编剧A", "approved_by": "导演B"},
-    )
-    assert resp2.status_code == 200
+    # 两步审批流：申请（writer）→ 批准（director），各追加一条事件。
+    writer_headers = {"Authorization": f"Bearer {make_test_token(subject_id='writer_001')}"}
+    resp2 = await client.post(f"/scripts/{script_id}/lock/request", headers=writer_headers)
+    assert resp2.status_code == 200  # SCRIPT_LOCK_REQUESTED
 
-    # 两条事件都保留（append-only，不覆盖），可完整追溯导入→锁定历史。
-    assert await _count_events(script_id) == 2
+    director_headers = {"Authorization": f"Bearer {make_test_token(subject_id='director_001')}"}
+    resp3 = await client.post(f"/scripts/{script_id}/lock/approve", headers=director_headers)
+    assert resp3.status_code == 200  # SCRIPT_LOCK_APPROVED
+
+    # 三条事件都保留（append-only，不覆盖），可完整追溯导入→申请→批准历史。
+    assert await _count_events(script_id) == 3
 
     # 验证事件类型正确。
     sessionmaker = get_sessionmaker()
@@ -122,4 +126,4 @@ async def test_lock_writes_outbox_event_append_only(client: AsyncClient) -> None
             {"aid": script_id},
         )
         types = [row[0] for row in result.fetchall()]
-    assert types == ["SCRIPT_IMPORTED", "SCRIPT_LOCK_APPROVED"]
+    assert types == ["SCRIPT_IMPORTED", "SCRIPT_LOCK_REQUESTED", "SCRIPT_LOCK_APPROVED"]

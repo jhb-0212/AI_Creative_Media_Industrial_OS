@@ -36,9 +36,14 @@ ALLOWED_TRANSITIONS: dict[ProjectStatus, frozenset[ProjectStatus]] = {
     ProjectStatus.ARCHIVED: frozenset(),
 }
 
-# ScriptRevision 状态转移表（原名 SCRIPT_ALLOWED_TRANSITIONS，现统一到本模块）。
+# ScriptRevision 状态转移表（两步审批流：DRAFT→LOCK_PENDING→LOCKED）。
 SCRIPT_ALLOWED_TRANSITIONS: dict[ScriptStatus, frozenset[ScriptStatus]] = {
-    ScriptStatus.DRAFT: frozenset({ScriptStatus.LOCKED, ScriptStatus.SUPERSEDED}),
+    ScriptStatus.DRAFT: frozenset(
+        {ScriptStatus.LOCK_PENDING, ScriptStatus.SUPERSEDED}
+    ),
+    ScriptStatus.LOCK_PENDING: frozenset(
+        {ScriptStatus.LOCKED, ScriptStatus.SUPERSEDED}
+    ),
     ScriptStatus.LOCKED: frozenset({ScriptStatus.SUPERSEDED}),
     ScriptStatus.SUPERSEDED: frozenset(),  # 终态不可原地复活
 }

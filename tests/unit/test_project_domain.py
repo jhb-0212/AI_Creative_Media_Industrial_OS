@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 
 from services.project_planning.domain.enums import ProjectStatus, ProjectTier
 from services.project_planning.domain.project import Project
+
+_TENANT = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
 
 def _make_project() -> Project:
@@ -14,6 +18,7 @@ def _make_project() -> Project:
         project_name="测试项目",
         project_tier=ProjectTier.B,
         created_by="user_001",
+        tenant_id=_TENANT,
     )
 
 

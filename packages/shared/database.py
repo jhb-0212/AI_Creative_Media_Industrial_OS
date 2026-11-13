@@ -32,9 +32,30 @@ class Base(DeclarativeBase):
 
 
 def build_database_url() -> str:
-    """构造异步 DSN（asyncpg 驱动）。
+    """构造应用连接的异步 DSN（asyncpg 驱动，应用角色 app_role）。
 
-    用户名与密码均做 URL 编码，避免特殊字符（如 @ : / # 空格）破坏连接串解析。
+    RLS 生效前提：应用以非超级用户角色（app_role）连接，否则超级用户
+    BYPASSRLS 导致行级安全失效（决策 5 的终极防呆不设防）。app_role 由
+    迁移 9e3b4c5d6e7f 创建，仅授权 project_planning/outbox 的数据权限，
+    无 DDL 权限（最小权限）。
+
+    用户名与密码均做 URL 编码，避免特殊字符破坏连接串解析。
+    """
+    settings = get_settings()
+    user = quote_plus(settings.postgres_app_user)
+    password = quote_plus(settings.postgres_app_password.get_secret_value())
+    return (
+        f"postgresql+asyncpg://{user}:{password}"
+        f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
+    )
+
+
+def build_migration_url() -> str:
+    """构造迁移（alembic）连接的异步 DSN（超级用户，需 DDL 权限）。
+
+    迁移需要 CREATE/ALTER/DROP schema、表、角色等 DDL 权限，必须用超级
+    用户（postgres）连接；应用运行时才用 app_role（无 DDL 权限）。二者
+    职责分离，避免应用角色拥有过高权限。
     """
     settings = get_settings()
     user = quote_plus(settings.postgres_user)

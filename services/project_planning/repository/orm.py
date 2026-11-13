@@ -52,6 +52,8 @@ class ScriptModel(EntityMixin, Base):
     project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     episode_ref: Mapped[str] = mapped_column(String(64), nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
+    # 锁定申请人（LOCK_PENDING 态写入，批准动作做职责分离比对）。
+    requested_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # 部分唯一索引：同项目 + 同集数下最多一个「非 SUPERSEDED」活跃版本。
     __table_args__ = (

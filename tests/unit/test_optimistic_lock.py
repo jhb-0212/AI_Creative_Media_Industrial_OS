@@ -8,12 +8,14 @@
 
 from __future__ import annotations
 
+import uuid
 from copy import deepcopy
 from uuid import uuid4
 
 import pytest
 
 from packages.errors.error_codes import DomainError
+from packages.identity.principal import Principal
 from services.project_planning.domain.script import ScriptRevision
 from services.project_planning.repository._versioning import (
     ConcurrentModificationError,
@@ -23,6 +25,12 @@ from services.project_planning.repository.outbox_writer import OutboxWriter
 from services.project_planning.repository.project_repo import ProjectRepository
 from services.project_planning.repository.script_repo import ScriptRepository
 from services.project_planning.service.script_service import ScriptService
+
+_TENANT = uuid.UUID("00000000-0000-0000-0000-000000000000")
+
+
+def _principal(subject_id: str) -> Principal:
+    return Principal(subject_id=subject_id, tenant_id=_TENANT, roles=frozenset({"导演", "编剧"}))
 
 
 class _RecordingOutboxWriter(OutboxWriter):
@@ -116,7 +124,7 @@ def _make_service(repo: ScriptRepository) -> ScriptService:
 async def test_lock_script_concurrent_conflict_raises() -> None:
     """并发锁定时，乐观锁冲突应抛 ConcurrentModificationError（409）。
 
-    场景：两个请求都读到 entity_version=1 的 DRAFT 剧本，各自尝试 LOCKED。
+    场景：两个请求都读到 entity_version=1 的 DRAFT 剧本，各自尝试推进。
     第一个 save 成功（version 1→2），第二个 save 因 WHERE version=1 命中 0 行
     抛冲突，杜绝「后写覆盖先写」的丢失更新。
     """
@@ -127,17 +135,16 @@ async def test_lock_script_concurrent_conflict_raises() -> None:
         episode_ref="EP001",
         title="并发剧本",
         created_by="u",
+        tenant_id=_TENANT,
     )
     await repo.add(script)
 
     service = _make_service(repo)
 
-    # 第一个锁定：version 1 -> 2，成功。
-    locked = await service.lock_script(
-        entity_id="scr_c", requested_by="编剧A", approved_by="导演B"
-    )
-    assert locked.status.value == "LOCKED"
-    assert locked.entity_version == 2
+    # 第一个锁定申请：version 1 -> 2，成功。
+    pending = await service.request_lock(entity_id="scr_c", principal=_principal("writer_a"))
+    assert pending.status.value == "LOCK_PENDING"
+    assert pending.entity_version == 2
 
     # 并发请求 B 读取到的是陈旧快照（entity_version=1），
     # 基于该旧版本 save 应抛 ConcurrentModificationError（而非覆盖）。
@@ -147,6 +154,7 @@ async def test_lock_script_concurrent_conflict_raises() -> None:
         episode_ref="EP001",
         title="并发剧本",
         created_by="u",
+        tenant_id=_TENANT,
         entity_version=1,  # 模拟并发请求在迁移前读到的旧版本号
     )
     with pytest.raises(ConcurrentModificationError):
@@ -165,6 +173,7 @@ async def test_supersede_concurrent_idempotent_skip() -> None:
         episode_ref="EP001",
         title="旧版本",
         created_by="u",
+        tenant_id=_TENANT,
     )
     await repo.add(active)
     service = _make_service(repo)

@@ -12,8 +12,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import UUID
 
-from sqlalchemy import DateTime, Integer, String
+from sqlalchemy import DateTime, Integer, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 # 契约 C.3.1 通用实体信封的 schema_version 固定值（V2.0.5）。
@@ -21,10 +22,14 @@ SCHEMA_VERSION = 205
 
 
 class EntityMixin:
-    """C.3.1 通用实体信封列（供各领域 ORM 模型继承）。
+    """C.3.1 通用实体信封列 + 平台级 tenant_id（供各领域 ORM 模型继承）。
 
     注意：本 mixin 不含 __tablename__ / __table_args__，由具体模型声明，
     避免与 SQLAlchemy 声明式基类的 schema 配置冲突。
+
+    tenant_id（决策 5）：多租户行级隔离键，Uuid 类型，配合 PostgreSQL RLS
+    策略 ``USING (tenant_id = current_setting('app.current_tenant_id')::uuid)``
+    在数据库层按死越权。
     """
 
     entity_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -33,6 +38,7 @@ class EntityMixin:
     entity_version: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     owner_module: Mapped[str] = mapped_column(String(64), nullable=False)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_by: Mapped[str] = mapped_column(String(64), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

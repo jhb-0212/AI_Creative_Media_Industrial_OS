@@ -3,6 +3,7 @@
 契约对齐：
 - 请求/响应走统一信封与错误信封。
 - 业务逻辑下沉到 ProjectService，本层不写业务。
+- 身份从可信 Principal 解析（created_by / tenant_id 均来自 JWT，非客户端字符串）。
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
-from packages.shared.database import get_session
+from services.identity_access.deps import Principal, get_principal, get_tenant_session
 from services.project_planning.domain.enums import ProjectTier
 from services.project_planning.repository.sqlalchemy_repo import SqlAlchemyProjectRepository
 from services.project_planning.service.project_service import ProjectService
@@ -23,16 +24,17 @@ router = APIRouter(prefix="/projects", tags=["project-planning"])
 
 
 class CreateProjectRequest(BaseModel):
-    """创建项目请求体。"""
+    """创建项目请求体（身份不在请求体，由 Principal 提供）。"""
 
     project_name: str = Field(..., min_length=1, max_length=200)
     project_tier: ProjectTier = ProjectTier.B
-    created_by: str = Field(..., min_length=1, max_length=64)
     entity_id: str | None = None
 
 
-def _get_service(session: AsyncSession = Depends(get_session)) -> ProjectService:
-    """服务装配：SQLAlchemy 仓储（独立 schema project_planning）。"""
+def _get_service(
+    session: AsyncSession = Depends(get_tenant_session),
+) -> ProjectService:
+    """服务装配：RLS 会话（已注入 tenant 上下文）+ SQLAlchemy 仓储。"""
     repository = SqlAlchemyProjectRepository(session)
     return ProjectService(repository)
 
@@ -40,14 +42,16 @@ def _get_service(session: AsyncSession = Depends(get_session)) -> ProjectService
 @router.post("", status_code=201)
 async def create_project(
     body: CreateProjectRequest,
+    principal: Principal = Depends(get_principal),
     service: ProjectService = Depends(_get_service),
 ) -> dict[str, Any]:
-    """创建项目（幂等）。"""
+    """创建项目（幂等）。created_by / tenant_id 来自可信 Principal。"""
     try:
         project = await service.create_project(
             project_name=body.project_name,
             project_tier=body.project_tier,
-            created_by=body.created_by,
+            created_by=principal.subject_id,
+            tenant_id=principal.tenant_id,
             entity_id=body.entity_id,
         )
     except ValueError as exc:

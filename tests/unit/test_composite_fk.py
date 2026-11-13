@@ -19,12 +19,18 @@ from sqlalchemy.exc import IntegrityError
 
 from apps.api.main import app
 from packages.shared.database import get_sessionmaker
+from tests.conftest import make_test_token
 
 
 @pytest.fixture
 async def client() -> AsyncClient:
+    """带认证的 client（身份从 JWT 解析，走真实鉴权路径）。"""
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
+    token = make_test_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    async with AsyncClient(
+        transport=transport, base_url="http://test", headers=headers
+    ) as c:
         yield c
 
 
@@ -40,16 +46,23 @@ async def test_composite_fk_rejects_dangling_episode(client: AsyncClient) -> Non
 
     sessionmaker = get_sessionmaker()
     async with sessionmaker() as session:
+        # 注入 RLS 上下文（app_role 连接下 RLS 生效，需设置 tenant 才能写）。
+        await session.execute(
+            text(
+                "SELECT set_config('app.current_tenant_id', :tid, true)"
+            ),
+            {"tid": "00000000-0000-0000-0000-000000000000"},
+        )
         # 直接 SQL INSERT 一条悬空的 script_revision（绕过 ORM/Service）。
         insert = text(
             """
             INSERT INTO project_planning.script_revisions
                 (entity_id, entity_type, schema_version, entity_version, status,
-                 owner_module, created_at, created_by, updated_at, audit_ref,
+                 owner_module, tenant_id, created_at, created_by, updated_at, audit_ref,
                  project_id, episode_ref, title)
             VALUES
                 (:entity_id, 'ScriptRevision', 205, 1, 'DRAFT',
-                 'project-planning', now(), :created_by, now(), NULL,
+                 'project-planning', :tenant_id, now(), :created_by, now(), NULL,
                  :project_id, :episode_ref, '悬空剧本')
             """
         )
@@ -58,6 +71,7 @@ async def test_composite_fk_rejects_dangling_episode(client: AsyncClient) -> Non
                 insert,
                 {
                     "entity_id": f"scr_dangling_{uuid.uuid4().hex[:8]}",
+                    "tenant_id": "00000000-0000-0000-0000-000000000000",
                     "created_by": "user_dangling",
                     "project_id": dangling_project,
                     "episode_ref": dangling_ref,
@@ -79,7 +93,6 @@ async def test_composite_fk_allows_valid_episode(client: AsyncClient) -> None:
         json={
             "project_name": f"项目_{project_id}",
             "project_tier": "B",
-            "created_by": "user_owner",
             "entity_id": project_id,
         },
     )
@@ -90,7 +103,6 @@ async def test_composite_fk_allows_valid_episode(client: AsyncClient) -> None:
             "project_id": project_id,
             "episode_ref": "EP001",
             "title": "集数_EP001",
-            "created_by": "user_owner",
         },
     )
     assert re_.status_code == 201
@@ -102,7 +114,6 @@ async def test_composite_fk_allows_valid_episode(client: AsyncClient) -> None:
             "project_id": project_id,
             "episode_ref": "EP001",
             "title": "合法剧本",
-            "created_by": "user_script",
             "entity_id": f"scr_fk_ok_{uuid.uuid4().hex[:8]}",
         },
     )

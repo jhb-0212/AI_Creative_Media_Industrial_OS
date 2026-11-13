@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import uuid
+from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
 
@@ -30,6 +31,7 @@ class ProjectService:
         project_name: str,
         project_tier: ProjectTier,
         created_by: str,
+        tenant_id: UUID,
         entity_id: str | None = None,
     ) -> Project:
         """创建项目（幂等：重复 entity_id 返回既有项目）。
@@ -37,6 +39,8 @@ class ProjectService:
         契约要求：
         - project_id 使用 UUID，不复用（8.2）。
         - project_name、created_by 非空。
+        - tenant_id 来自可信身份上下文（Principal），标识项目所属租户，
+          是 RLS 行级隔离键（决策 5）。
         """
         project_name = project_name.strip()
         created_by = created_by.strip()
@@ -63,6 +67,7 @@ class ProjectService:
             project_name=project_name,
             project_tier=project_tier,
             created_by=created_by,
+            tenant_id=tenant_id,
         )
 
         # 用 INSERT 语义新增；并发下唯一约束兜底 check-then-act 竞态：

@@ -35,6 +35,8 @@ def _to_domain(model: ScriptModel) -> ScriptRevision:
         episode_ref=model.episode_ref,
         title=model.title,
         created_by=model.created_by,
+        tenant_id=model.tenant_id,
+        requested_by=model.requested_by,
         status=status,
         schema_version=model.schema_version,
         entity_version=model.entity_version,
@@ -54,6 +56,7 @@ def _to_orm(script: ScriptRevision) -> ScriptModel:
         entity_version=script.entity_version,
         status=script.status.value,
         owner_module=script.owner_module,
+        tenant_id=script.tenant_id,
         created_at=script.created_at,
         created_by=script.created_by,
         updated_at=script.updated_at,
@@ -61,6 +64,7 @@ def _to_orm(script: ScriptRevision) -> ScriptModel:
         project_id=script.project_id,
         episode_ref=script.episode_ref,
         title=script.title,
+        requested_by=script.requested_by,
     )
 
 

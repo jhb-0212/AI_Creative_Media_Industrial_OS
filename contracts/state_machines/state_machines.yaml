@@ -317,9 +317,9 @@ objects:
   - 8.1 核心实体
   - 8.2 标识与版本规则
 - object: ScriptRevision
-  authoritative_source: 31.6 Action Registry（SCRIPT.IMPORT / SCRIPT.LOCK.APPROVE，主链实现补登）
-  states: DRAFT→LOCKED；DRAFT/LOCKED→SUPERSEDED
-  note: 剧本导入（SCRIPT.IMPORT）产出 DRAFT 状态的可编辑剧本版本（ADR-032：AI 拆镜输出默认草案，人工确认前不得写入 ScriptLock）；锁定由独立动作 SCRIPT.LOCK.APPROVE 完成（申请人与批准职责分离，Agent 不得自锁）；新版本导入使旧版本 SUPERSEDED，终态不可原地复活。主文档未为 ScriptRevision 单列权威状态机，此条目属 Phase 1 主链第二环「剧本导入」实现所需的新增建模，遵循 31.11 启用前复核补登。
+  authoritative_source: 31.6 Action Registry（SCRIPT.IMPORT / SCRIPT.LOCK.REQUEST / SCRIPT.LOCK.APPROVE，主链实现补登）
+  states: DRAFT→LOCK_PENDING→LOCKED；DRAFT/LOCK_PENDING/LOCKED→SUPERSEDED
+  note: 剧本导入（SCRIPT.IMPORT）产出 DRAFT 状态的可编辑剧本版本（ADR-032：AI 拆镜输出默认草案，人工确认前不得写入 ScriptLock）；锁定采用两步审批流——申请人（requested_by）提交锁定申请 DRAFT→LOCK_PENDING（SCRIPT.LOCK.REQUEST），批准人（approved_by）批准 LOCK_PENDING→LOCKED（SCRIPT.LOCK.APPROVE），申请人与批准职责分离（运行时真实主体比对，Agent 不得自锁）；新版本导入使旧版本 SUPERSEDED，终态不可原地复活。主文档未为 ScriptRevision 单列权威状态机，此条目属 Phase 1 主链第二环「剧本导入」实现所需的新增建模，遵循 31.11 启用前复核补登。
   source_kind: text_authority_only
   registration_status: PENDING_PHASE1_REVIEW
   all_sources:

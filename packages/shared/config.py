@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     postgres_user: str = "postgres"
     postgres_password: SecretStr = SecretStr("")
     postgres_db: str = "ai_film_industrial"
+    # 应用角色（RLS 生效前提：非超级用户、NOBYPASSRLS）。应用与测试以该角色
+    # 连接数据库，使 PostgreSQL RLS 行级安全真正执行（postgres 超级用户会
+    # BYPASSRLS 导致 RLS 失效）。迁移 9e3b4c5d6e7f 创建该角色。
+    postgres_app_user: str = "app_role"
+    postgres_app_password: SecretStr = SecretStr("app_dev_password")
 
     # Redis
     redis_url: str = "redis://localhost:16379/0"
@@ -55,6 +60,17 @@ class Settings(BaseSettings):
     # 模型网关（双模式计费）
     model_gateway_billing_mode: str = "USER_OWN_KEY"
     model_gateway_api_key: SecretStr = SecretStr("")
+
+    # 身份治理（决策 4：RS256 JWT）
+    # issuer / audience 严格校验，拒绝跨服务令牌；密钥来源默认从环境变量
+    # 加载 PEM（生产应从密钥管理服务注入，见 services/identity_access/keys.py）。
+    identity_issuer: str = "ai-film-identity"
+    identity_audience: str = "ai-film-api"
+    identity_access_token_ttl_seconds: int = 900
+    # 私钥 PEM（签发用，仅身份服务持有；API 层不接触）。生产环境必填。
+    identity_private_key_pem: SecretStr = SecretStr("")
+    # 公钥 PEM（验签用，可安全分发）。生产环境必填。
+    identity_public_key_pem: SecretStr = SecretStr("")
 
     # 可观测
     otel_exporter_otlp_endpoint: str = ""

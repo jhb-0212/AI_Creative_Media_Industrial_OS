@@ -40,14 +40,17 @@ class ProjectTier(str, Enum):
 class ScriptStatus(str, Enum):
     """剧本版本状态。
 
-    对齐契约：contracts/state_machines/state_machines.yaml → objects → ScriptRevision
-    （DRAFT→LOCKED；DRAFT/LOCKED→SUPERSEDED）。
+    对齐契约：contracts/state_machines/state_machines.yaml → objects → ScriptRevision。
+    两步审批流（身份治理单元）：DRAFT→LOCK_PENDING→LOCKED，其中
+    LOCK_PENDING 是「锁定申请已提交、待批准」的中间态，承载申请人→批准人
+    的职责分离（申请人与批准人必须是两个不同的真实主体）。
     转移表权威定义见 domain/state_machine.py 的 SCRIPT_ALLOWED_TRANSITIONS。
     """
 
-    DRAFT = "DRAFT"            # 草稿：导入的可编辑剧本版本（ADR-032 默认草案）
-    LOCKED = "LOCKED"          # 锁定：经 SCRIPT.LOCK.APPROVE 人工确认
-    SUPERSEDED = "SUPERSEDED"  # 被取代：新版本导入，旧版本终态（不可原地复活）
+    DRAFT = "DRAFT"                # 草稿：导入的可编辑剧本版本（ADR-032 默认草案）
+    LOCK_PENDING = "LOCK_PENDING"  # 锁定申请中：已提交锁定申请，待人工批准
+    LOCKED = "LOCKED"              # 锁定：经 SCRIPT.LOCK.APPROVE 人工确认
+    SUPERSEDED = "SUPERSEDED"      # 被取代：新版本导入，旧版本终态（不可原地复活）
 
 
 class EpisodeStatus(str, Enum):

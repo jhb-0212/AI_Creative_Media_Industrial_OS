@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import uuid
+from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
 
@@ -42,6 +43,7 @@ class EpisodeService:
         episode_ref: str,
         title: str,
         created_by: str,
+        tenant_id: UUID,
         entity_id: str | None = None,
     ) -> Episode:
         """登记集数（幂等，归属 Project）。
@@ -50,6 +52,7 @@ class EpisodeService:
         - episode 必须归属真实存在的 project（归属验证）。
         - 同项目内 episode_ref 唯一（数据库唯一约束兜底）。
         - 输入统一 strip。
+        - tenant_id 来自可信身份上下文（Principal），是 RLS 隔离键。
         """
         project_id = project_id.strip()
         episode_ref = episode_ref.strip()
@@ -91,6 +94,7 @@ class EpisodeService:
             episode_ref=episode_ref,
             title=title,
             created_by=created_by,
+            tenant_id=tenant_id,
         )
 
         # INSERT 语义新增；并发下唯一约束（project_id+episode_ref）兜底。

@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from packages.shared.config import get_settings
-from packages.shared.database import Base, build_database_url
+from packages.shared.database import Base, build_migration_url
 from packages.shared.outbox import OutboxEventModel  # noqa: F401
 from services.project_planning.repository.orm import (  # noqa: F401
     EpisodeModel,
@@ -34,9 +34,9 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# 用应用配置构造 DSN（不含明文密钥，密码经 URL 编码）。
+# 用迁移配置构造 DSN（超级用户，需 DDL 权限；不含明文密钥，密码经 URL 编码）。
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", build_database_url())
+config.set_main_option("sqlalchemy.url", build_migration_url())
 
 target_metadata = Base.metadata
 

@@ -8,22 +8,27 @@
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 
 from services.project_planning.domain.enums import ScriptStatus
 from services.project_planning.domain.script import ScriptRevision
 
+_TENANT = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
-def _make(**overrides: str) -> ScriptRevision:
-    base: dict[str, str] = {
+
+def _make(**overrides: object) -> ScriptRevision:
+    base: dict[str, object] = {
         "entity_id": "scr_001",
         "project_id": "proj_001",
         "episode_ref": "EP001",
         "title": "测试剧本",
         "created_by": "user_001",
+        "tenant_id": _TENANT,
     }
     base.update(overrides)
-    return ScriptRevision(**base)
+    return ScriptRevision(**base)  # type: ignore[arg-type]
 
 
 def test_rejects_empty_title() -> None:

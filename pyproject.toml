@@ -46,6 +46,7 @@ packages = [
     "packages/shared",
     "packages/errors",
     "packages/telemetry",
+    "packages/identity",
     "services",
     "apps",
 ]

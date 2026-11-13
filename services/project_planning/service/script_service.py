@@ -1,19 +1,23 @@
 """ScriptRevision 应用服务（用例编排层）。
 
 职责：
-- 编排领域模型与仓储，实现「剧本导入」（SCRIPT.IMPORT）与「锁定审批」
-  （SCRIPT.LOCK.APPROVE）两个用例。
+- 编排领域模型与仓储，实现「剧本导入」（SCRIPT.IMPORT）、「锁定申请」
+  （SCRIPT.LOCK.REQUEST）、「锁定批准」（SCRIPT.LOCK.APPROVE）三个用例。
 - 归属验证：剧本必须挂到真实存在的项目 + 归属于该项目的集数，杜绝跨项目
   悬空引用（通过注入 ProjectRepository / EpisodeRepository 端口承载）。
 - 幂等：同一 entity_id 重复导入返回既有版本。
 - 新版本导入使旧版本转 SUPERSEDED（终态）。
+- 身份从可信 Principal 解析（非客户端字符串），职责分离是运行时真实主体比对。
 - 抛出结构化 DomainError，不泄漏内部实现细节。
 
 契约对齐（31.6 Action Registry）：
 - SCRIPT.IMPORT：resource_type=ScriptRevision，scope=project/episode，
   MEDIUM 风险，Token=Y，导演/编剧/制片，检查项目写权限与导入来源。
+- SCRIPT.LOCK.REQUEST：申请人提交锁定申请（DRAFT→LOCK_PENDING），
+  requested_by = 当前 Principal（调用者本人，非客户端填字符串）。
 - SCRIPT.LOCK.APPROVE：resource_type=ScriptLock，scope=project/episode，
-  HIGH 风险，Token=Y，导演/授权编剧，申请人与批准职责分离（Agent 不得自锁）。
+  HIGH 风险，Token=Y，导演/授权编剧，批准人 = 当前 Principal，且必须
+  与申请人（requested_by）不同（职责分离红线，Agent 不得自锁）。
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ import uuid
 from sqlalchemy.exc import IntegrityError
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.identity.principal import Principal
 from services.project_planning.domain.enums import ScriptStatus
 from services.project_planning.domain.script import ScriptRevision
 from services.project_planning.repository._versioning import ConcurrentModificationError
@@ -33,7 +38,7 @@ from services.project_planning.repository.script_repo import ScriptRepository
 
 
 class ScriptService:
-    """剧本导入、锁定审批与查询用例。"""
+    """剧本导入、锁定申请/批准与查询用例。"""
 
     def __init__(
         self,
@@ -53,14 +58,15 @@ class ScriptService:
         project_id: str,
         episode_ref: str,
         title: str,
-        created_by: str,
+        principal: Principal,
         entity_id: str | None = None,
     ) -> ScriptRevision:
         """导入剧本版本（幂等，产出 DRAFT 态可编辑版本）。
 
         契约要求：
         - script_revision_id 使用 UUID，不复用（8.2）。
-        - title / project_id / episode_ref / created_by 均非空。
+        - title / project_id / episode_ref 均非空。
+        - created_by 来自 Principal（可信身份），tenant_id 亦来自 Principal。
         - 归属验证：project 存在，且 episode 归属该 project。
         - 新版本导入使旧版本转 SUPERSEDED。
 
@@ -71,7 +77,7 @@ class ScriptService:
         project_id = project_id.strip()
         episode_ref = episode_ref.strip()
         title = title.strip()
-        created_by = created_by.strip()
+        created_by = principal.subject_id.strip()
 
         if not title:
             raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="title 不能为空")
@@ -111,6 +117,7 @@ class ScriptService:
             episode_ref=episode_ref,
             title=title,
             created_by=created_by,
+            tenant_id=principal.tenant_id,
         )
 
         # INSERT 语义新增；并发下唯一约束兜底 check-then-act 竞态。
@@ -134,44 +141,28 @@ class ScriptService:
                 "episode_ref": episode_ref,
                 "title": title,
                 "created_by": created_by,
+                "tenant_id": str(principal.tenant_id),
                 "status": ScriptStatus.DRAFT.value,
             },
         )
         return script
 
-    async def lock_script(
+    async def request_lock(
         self,
         *,
         entity_id: str,
-        requested_by: str,
-        approved_by: str,
+        principal: Principal,
     ) -> ScriptRevision:
-        """锁定剧本版本（SCRIPT.LOCK.APPROVE，DRAFT→LOCKED）。
+        """提交锁定申请（SCRIPT.LOCK.REQUEST，DRAFT→LOCK_PENDING）。
 
-        契约要求（31.6 SCRIPT.LOCK.APPROVE，HIGH 风险）：
-        - 申请人与批准职责分离：requested_by != approved_by（Agent 不得自锁）。
-        - 仅 DRAFT 态可锁定；终态/已锁定态拒绝。
-        - 锁定需归属验证（剧本所属 project/episode 归属合法）。
-
-        职责分离是红线，此处为服务层强制校验；运行时身份认证与 RBAC
-        （第三阶段）落地前，先以显式参数区分申请人与批准人。
+        两步审批流（职责分离）第一步：申请人 = 当前 Principal（调用者本人），
+        写入 requested_by，供批准动作做「批准人 != 申请人」的运行时比对。
+        身份来自可信 Principal，非客户端字符串（根治 P0-3 身份来源不可信）。
         """
-        requested_by = requested_by.strip()
-        approved_by = approved_by.strip()
-
+        requested_by = principal.subject_id.strip()
         if not requested_by:
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR, detail="requested_by 不能为空"
-            )
-        if not approved_by:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="approved_by 不能为空"
-            )
-        # 红线：申请人与批准职责分离，禁止自锁。
-        if requested_by == approved_by:
-            raise DomainError(
-                ErrorRegistry.STATE_TRANSITION_DENIED,
-                detail="申请人与批准人不得为同一主体（职责分离红线）",
             )
 
         script = await self._repository.get_by_id(entity_id)
@@ -180,22 +171,67 @@ class ScriptService:
                 ErrorRegistry.NOT_FOUND, detail=f"剧本版本不存在: {entity_id}"
             )
 
-        # 归属验证（锁定前同样要求归属合法）。
+        # 归属验证（申请前要求归属合法）。
         await self._assert_episode_ownership(script.project_id, script.episode_ref)
 
-        # 乐观锁：捕获读取时的版本号，作为条件更新的期望值。若在 transition
-        # 与 save 之间被并发请求推进，save 会抛 ConcurrentModificationError，
-        # 由调用方（路由层）转换为结构化 409 冲突，杜绝丢失更新。
         expected_version = script.entity_version
-
-        # 状态机转移：仅 DRAFT→LOCKED（终态/已锁定由状态机拒绝）。
-        script.transition_to(
-            ScriptStatus.LOCKED,
-            audit_ref=f"lock_approved_by:{approved_by}",
-        )
+        script.request_lock(requested_by)
         await self._repository.save(script, expected_version)
 
-        # 审计事件（决策 3）：锁定审批与状态变更同事务原子记录，含职责分离
+        self._outbox_writer.record(
+            aggregate_type="ScriptRevision",
+            aggregate_id=script.entity_id,
+            event_type="SCRIPT_LOCK_REQUESTED",
+            payload={
+                "project_id": script.project_id,
+                "episode_ref": script.episode_ref,
+                "requested_by": requested_by,
+                "tenant_id": str(principal.tenant_id),
+                "from_status": ScriptStatus.DRAFT.value,
+                "to_status": ScriptStatus.LOCK_PENDING.value,
+            },
+        )
+        return script
+
+    async def approve_lock(
+        self,
+        *,
+        entity_id: str,
+        principal: Principal,
+    ) -> ScriptRevision:
+        """批准锁定（SCRIPT.LOCK.APPROVE，LOCK_PENDING→LOCKED）。
+
+        两步审批流（职责分离）第二步：批准人 = 当前 Principal（调用者本人），
+        必须与申请人（requested_by，申请时落库的真实主体）不同——职责分离
+        红线在运行时以真实主体比对判定，Agent 不得自锁。
+        """
+        approved_by = principal.subject_id.strip()
+        if not approved_by:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR, detail="approved_by 不能为空"
+            )
+
+        script = await self._repository.get_by_id(entity_id)
+        if script is None:
+            raise DomainError(
+                ErrorRegistry.NOT_FOUND, detail=f"剧本版本不存在: {entity_id}"
+            )
+
+        # 归属验证（批准前要求归属合法）。
+        await self._assert_episode_ownership(script.project_id, script.episode_ref)
+
+        # 红线：申请人与批准职责分离，禁止自锁（运行时真实主体比对）。
+        if script.requested_by is not None and script.requested_by == approved_by:
+            raise DomainError(
+                ErrorRegistry.STATE_TRANSITION_DENIED,
+                detail="申请人与批准人不得为同一主体（职责分离红线）",
+            )
+
+        expected_version = script.entity_version
+        script.approve_lock(approved_by)
+        await self._repository.save(script, expected_version)
+
+        # 审计事件（决策 3）：锁定批准与状态变更同事务原子记录，含职责分离
         # 证据（申请人与批准人），可追溯审批当时的完整上下文（R7）。
         self._outbox_writer.record(
             aggregate_type="ScriptRevision",
@@ -204,9 +240,10 @@ class ScriptService:
             payload={
                 "project_id": script.project_id,
                 "episode_ref": script.episode_ref,
-                "requested_by": requested_by,
+                "requested_by": script.requested_by,
                 "approved_by": approved_by,
-                "from_status": ScriptStatus.DRAFT.value,
+                "tenant_id": str(principal.tenant_id),
+                "from_status": ScriptStatus.LOCK_PENDING.value,
                 "to_status": ScriptStatus.LOCKED.value,
             },
         )

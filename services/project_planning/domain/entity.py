@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, ClassVar
+from uuid import UUID
 
 # 契约 C.3.1 通用实体信封的 schema_version 固定值（V2.0.5）。
 SCHEMA_VERSION = 205
@@ -60,6 +61,7 @@ class Entity:
 
     entity_id: str
     created_by: str
+    tenant_id: UUID
     schema_version: int = SCHEMA_VERSION
     entity_version: int = 1
     owner_module: str = OWNER_MODULE
@@ -107,10 +109,15 @@ class Entity:
         self.audit_ref = audit_ref
 
     def _envelope_dict(self) -> dict[str, Any]:
-        """序列化信封公共字段（业务字段由子类补充）。"""
+        """序列化信封公共字段（业务字段由子类补充）。
+
+        tenant_id 是平台级多租户隔离键，随信封一并序列化，供 RLS 上下文
+        与审计事件引用（对齐决策 5：所有核心表带 tenant_id）。
+        """
         return {
             "entity_id": self.entity_id,
             "entity_type": self.entity_type,
+            "tenant_id": str(self.tenant_id),
             "schema_version": self.schema_version,
             "entity_version": self.entity_version,
             "status": self.status.value,

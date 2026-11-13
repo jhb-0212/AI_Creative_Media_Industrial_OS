@@ -1,18 +1,21 @@
 """ScriptService 输入归一化（strip）与空值校验的单元测试（M2/L3）。
 
 使用内存 fake 仓储，验证：
-- project_id / episode_ref / title / created_by 首尾空格在查询与入库前统一 strip。
+- project_id / episode_ref / title 首尾空格在查询与入库前统一 strip。
 - 空值（纯空格）字段在服务层被拒绝（VALIDATION_ERROR）。
 - 归属验证：project 不存在、episode 不属于该项目时拒绝。
+- 身份从 Principal 解析（created_by = principal.subject_id）。
 """
 
 from __future__ import annotations
 
+import uuid
 from uuid import uuid4
 
 import pytest
 
 from packages.errors.error_codes import DomainError
+from packages.identity.principal import Principal
 from services.project_planning.domain.episode import Episode
 from services.project_planning.domain.project import Project
 from services.project_planning.domain.script import ScriptRevision
@@ -21,6 +24,12 @@ from services.project_planning.repository.outbox_writer import OutboxWriter
 from services.project_planning.repository.project_repo import ProjectRepository
 from services.project_planning.repository.script_repo import ScriptRepository
 from services.project_planning.service.script_service import ScriptService
+
+_TENANT = uuid.UUID("00000000-0000-0000-0000-000000000000")
+
+
+def _principal(subject_id: str = "user_001") -> Principal:
+    return Principal(subject_id=subject_id, tenant_id=_TENANT, roles=frozenset({"编剧"}))
 
 
 class _RecordingOutboxWriter(OutboxWriter):
@@ -91,6 +100,7 @@ class _FakeProjectRepository(ProjectRepository):
             project_name="p",
             project_tier="B",  # type: ignore[arg-type]
             created_by="u",
+            tenant_id=_TENANT,
         )
 
 
@@ -120,6 +130,7 @@ class _FakeEpisodeRepository(EpisodeRepository):
             episode_ref=episode_ref,
             title="e",
             created_by="u",
+            tenant_id=_TENANT,
         )
 
 
@@ -152,7 +163,7 @@ async def test_strip_normalizes_query_and_store() -> None:
         project_id="  proj_001  ",
         episode_ref="  EP001  ",
         title="  测试剧本  ",
-        created_by="  user_001  ",
+        principal=_principal("user_001"),
     )
     # 查询 latest 时用的是 strip 后的值
     assert repo.latest_calls == [("proj_001", "EP001")]
@@ -160,7 +171,7 @@ async def test_strip_normalizes_query_and_store() -> None:
     assert script.project_id == "proj_001"
     assert script.episode_ref == "EP001"
     assert script.title == "测试剧本"
-    assert script.created_by == "user_001"
+    assert script.created_by == "user_001"  # 来自 Principal，非请求体
 
 
 async def test_rejects_whitespace_only_episode_ref() -> None:
@@ -171,22 +182,19 @@ async def test_rejects_whitespace_only_episode_ref() -> None:
             project_id="proj_001",
             episode_ref="   ",
             title="标题",
-            created_by="user_001",
+            principal=_principal(),
         )
     assert exc_info.value.error_code.code == "VALIDATION_ERROR"
 
 
 async def test_rejects_whitespace_only_created_by() -> None:
-    repo = _RecordingRepository()
-    service = _make_service(repo)
-    with pytest.raises(DomainError) as exc_info:
-        await service.import_script(
-            project_id="proj_001",
-            episode_ref="EP001",
-            title="标题",
-            created_by="   ",
-        )
-    assert exc_info.value.error_code.code == "VALIDATION_ERROR"
+    """空 subject_id 在 Principal 构造层即被拒绝（ValueError）。
+
+    身份治理：空主体无法通过 Principal 构造，故服务层不会再收到空 created_by。
+    这是「身份来源可信」的构造级防呆，而非运行时空串校验。
+    """
+    with pytest.raises(ValueError, match="subject_id 不能为空"):
+        Principal(subject_id="  ", tenant_id=_TENANT, roles=frozenset())
 
 
 async def test_rejects_missing_project() -> None:
@@ -198,7 +206,7 @@ async def test_rejects_missing_project() -> None:
             project_id="proj_missing",
             episode_ref="EP001",
             title="标题",
-            created_by="user_001",
+            principal=_principal(),
         )
     assert exc_info.value.error_code.code == "NOT_FOUND"
 
@@ -212,6 +220,6 @@ async def test_rejects_episode_not_owned_by_project() -> None:
             project_id="proj_001",
             episode_ref="EP001",  # 不属于该项目的集数
             title="标题",
-            created_by="user_001",
+            principal=_principal(),
         )
     assert exc_info.value.error_code.code == "VALIDATION_ERROR"

@@ -42,6 +42,9 @@ class ScriptRevision(Entity):
     episode_ref: str = ""
     title: str = ""
     status: ScriptStatus = ScriptStatus.DRAFT
+    # 锁定申请人（LOCK_PENDING 态时写入）：申请锁定动作的调用者真实主体，
+    # 批准动作据此做职责分离比对（approved_by != requested_by）。
+    requested_by: str | None = None
 
     def __post_init__(self) -> None:
         """防御性校验：信封公共字段 + 业务字段（对齐 ORM 列定义）。"""
@@ -56,6 +59,29 @@ class ScriptRevision(Entity):
                 raise ValueError(f"{name} 不能为空")
             if len(value) > max_len:
                 raise ValueError(f"{name} 长度超过上限 {max_len}")
+
+    def request_lock(self, requested_by: str) -> ScriptRevision:
+        """提交锁定申请（DRAFT→LOCK_PENDING），登记申请人真实主体。
+
+        职责分离（红线）的前半：申请人 = 调用本动作的主体，写入 requested_by，
+        供批准动作做「批准人 != 申请人」的运行时比对。
+        """
+        assert_transition_script(self.status, ScriptStatus.LOCK_PENDING)
+        self.requested_by = requested_by
+        self.status = ScriptStatus.LOCK_PENDING
+        self._advance_version(f"lock_requested_by:{requested_by}")
+        return self
+
+    def approve_lock(self, approved_by: str) -> ScriptRevision:
+        """批准锁定（LOCK_PENDING→LOCKED），登记批准人真实主体。
+
+        职责分离（红线）的后半：批准人 = 调用本动作的主体。此处只登记批准人，
+        真正的「批准人 != 申请人」比对由服务层在调用前完成（需查询 requested_by）。
+        """
+        assert_transition_script(self.status, ScriptStatus.LOCKED)
+        self.status = ScriptStatus.LOCKED
+        self._advance_version(f"lock_approved_by:{approved_by}")
+        return self
 
     def transition_to(self, target: ScriptStatus, audit_ref: str) -> ScriptRevision:
         """执行状态迁移，未登记转移拒绝（31.5）。"""
@@ -72,6 +98,7 @@ class ScriptRevision(Entity):
                 "project_id": self.project_id,
                 "episode_ref": self.episode_ref,
                 "title": self.title,
+                "requested_by": self.requested_by,
             }
         )
         return data
