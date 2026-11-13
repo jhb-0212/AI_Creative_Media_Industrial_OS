@@ -22,7 +22,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from packages.shared.config import get_settings
 from packages.shared.database import Base, build_database_url
-from services.project_planning.repository.orm import ProjectModel, ScriptModel  # noqa: F401
+from services.project_planning.repository.orm import (  # noqa: F401
+    EpisodeModel,
+    ProjectModel,
+    ScriptModel,
+)
 
 config = context.config
 

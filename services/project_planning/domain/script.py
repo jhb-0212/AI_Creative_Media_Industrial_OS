@@ -21,6 +21,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from services.project_planning.domain.enums import ScriptStatus
+from services.project_planning.domain.state_machine import assert_transition_script
 
 # 契约 C.3.1 通用实体信封的 schema_version 固定值（V2.0.5）
 SCHEMA_VERSION = 205
@@ -30,16 +31,6 @@ OWNER_MODULE = "project-planning"
 def _utcnow() -> datetime:
     """统一 UTC 时间（8.2 规则：所有时间统一存 UTC）。"""
     return datetime.now(UTC)
-
-
-# ScriptRevision 状态转移表（对齐 state_machines.yaml → ScriptRevision）。
-# DRAFT→LOCKED；DRAFT/LOCKED→SUPERSEDED；SUPERSEDED 为终态。
-# 公开导出，供契约一致性校验脚本反射比对（与 state_machine.py 命名一致）。
-ALLOWED_TRANSITIONS: dict[ScriptStatus, frozenset[ScriptStatus]] = {
-    ScriptStatus.DRAFT: frozenset({ScriptStatus.LOCKED, ScriptStatus.SUPERSEDED}),
-    ScriptStatus.LOCKED: frozenset({ScriptStatus.SUPERSEDED}),
-    ScriptStatus.SUPERSEDED: frozenset(),  # 终态不可原地复活
-}
 
 
 @dataclass
@@ -90,12 +81,12 @@ class ScriptRevision:
                 raise ValueError(f"{field_name} 长度超过上限 {max_len}")
 
     def transition_to(self, target: ScriptStatus, audit_ref: str) -> ScriptRevision:
-        """执行状态迁移，未登记转移拒绝（31.5）。"""
-        allowed = ALLOWED_TRANSITIONS.get(self.status, frozenset())
-        if target not in allowed:
-            raise ValueError(
-                f"非法状态转移：{self.status.value} -> {target.value}（未登记，已拒绝）"
-            )
+        """执行状态迁移，未登记转移拒绝（31.5）。
+
+        转移合法性由 domain/state_machine.py 的 SCRIPT_ALLOWED_TRANSITIONS
+        单一权威转移表校验，避免状态机散落于聚合根内部（单一事实源）。
+        """
+        assert_transition_script(self.status, target)
         self.status = target
         self.entity_version += 1
         self.updated_at = _utcnow()

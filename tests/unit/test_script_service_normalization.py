@@ -3,6 +3,7 @@
 使用内存 fake 仓储，验证：
 - project_id / episode_ref / title / created_by 首尾空格在查询与入库前统一 strip。
 - 空值（纯空格）字段在服务层被拒绝（VALIDATION_ERROR）。
+- 归属验证：project 不存在、episode 不属于该项目时拒绝。
 """
 
 from __future__ import annotations
@@ -10,7 +11,11 @@ from __future__ import annotations
 import pytest
 
 from packages.errors.error_codes import DomainError
+from services.project_planning.domain.episode import Episode
+from services.project_planning.domain.project import Project
 from services.project_planning.domain.script import ScriptRevision
+from services.project_planning.repository.episode_repo import EpisodeRepository
+from services.project_planning.repository.project_repo import ProjectRepository
 from services.project_planning.repository.script_repo import ScriptRepository
 from services.project_planning.service.script_service import ScriptService
 
@@ -45,14 +50,82 @@ class _RecordingRepository(ScriptRepository):
         return None
 
 
-@pytest.fixture
-def repo() -> _RecordingRepository:
-    return _RecordingRepository()
+class _FakeProjectRepository(ProjectRepository):
+    """内存 project 仓储，用于归属验证。"""
+
+    def __init__(self, existing: list[str] | None = None) -> None:
+        self._ids = set(existing or [])
+
+    async def add(self, project: Project) -> None:
+        self._ids.add(project.entity_id)
+
+    async def save(self, project: Project) -> None:
+        self._ids.add(project.entity_id)
+
+    async def get_by_id(self, entity_id: str) -> Project | None:
+        if entity_id not in self._ids:
+            return None
+        return Project(
+            entity_id=entity_id,
+            project_name="p",
+            project_tier="B",  # type: ignore[arg-type]
+            created_by="u",
+        )
 
 
-async def test_strip_normalizes_query_and_store(repo: _RecordingRepository) -> None:
+class _FakeEpisodeRepository(EpisodeRepository):
+    """内存 episode 仓储，用于归属验证。"""
+
+    def __init__(self, owned: list[tuple[str, str]] | None = None) -> None:
+        self._owned = set(owned or [])
+
+    async def add(self, episode: Episode) -> None:
+        self._owned.add((episode.project_id, episode.episode_ref))
+
+    async def save(self, episode: Episode) -> None:
+        self._owned.add((episode.project_id, episode.episode_ref))
+
+    async def get_by_id(self, entity_id: str) -> Episode | None:
+        return None
+
+    async def get_by_project_ref(
+        self, project_id: str, episode_ref: str
+    ) -> Episode | None:
+        if (project_id, episode_ref) not in self._owned:
+            return None
+        return Episode(
+            entity_id="ep1",
+            project_id=project_id,
+            episode_ref=episode_ref,
+            title="e",
+            created_by="u",
+        )
+
+
+def _make_service(
+    script_repo: ScriptRepository,
+    *,
+    projects: list[str] | None = None,
+    episodes: list[tuple[str, str]] | None = None,
+) -> ScriptService:
+    """构造 ScriptService，注入归属验证所需的 project/episode fake。
+
+    默认提供一个「项目 proj_001 + 集数 (proj_001, EP001)」的合法归属，
+    使正常路径测试聚焦 strip 语义本身。
+    """
+    default_projects = ["proj_001"]
+    default_episodes = [("proj_001", "EP001")]
+    return ScriptService(
+        script_repo,
+        _FakeProjectRepository(projects if projects is not None else default_projects),
+        _FakeEpisodeRepository(episodes if episodes is not None else default_episodes),
+    )
+
+
+async def test_strip_normalizes_query_and_store() -> None:
     """带首尾空格的 project_id/episode_ref 应在查询与入库前被 strip。"""
-    service = ScriptService(repo)
+    repo = _RecordingRepository()
+    service = _make_service(repo)
     script = await service.import_script(
         project_id="  proj_001  ",
         episode_ref="  EP001  ",
@@ -68,8 +141,9 @@ async def test_strip_normalizes_query_and_store(repo: _RecordingRepository) -> N
     assert script.created_by == "user_001"
 
 
-async def test_rejects_whitespace_only_episode_ref(repo: _RecordingRepository) -> None:
-    service = ScriptService(repo)
+async def test_rejects_whitespace_only_episode_ref() -> None:
+    repo = _RecordingRepository()
+    service = _make_service(repo)
     with pytest.raises(DomainError) as exc_info:
         await service.import_script(
             project_id="proj_001",
@@ -80,13 +154,42 @@ async def test_rejects_whitespace_only_episode_ref(repo: _RecordingRepository) -
     assert exc_info.value.error_code.code == "VALIDATION_ERROR"
 
 
-async def test_rejects_whitespace_only_created_by(repo: _RecordingRepository) -> None:
-    service = ScriptService(repo)
+async def test_rejects_whitespace_only_created_by() -> None:
+    repo = _RecordingRepository()
+    service = _make_service(repo)
     with pytest.raises(DomainError) as exc_info:
         await service.import_script(
             project_id="proj_001",
             episode_ref="EP001",
             title="标题",
             created_by="   ",
+        )
+    assert exc_info.value.error_code.code == "VALIDATION_ERROR"
+
+
+async def test_rejects_missing_project() -> None:
+    """归属验证：project 不存在时拒绝（NOT_FOUND）。"""
+    repo = _RecordingRepository()
+    service = _make_service(repo, projects=[])
+    with pytest.raises(DomainError) as exc_info:
+        await service.import_script(
+            project_id="proj_missing",
+            episode_ref="EP001",
+            title="标题",
+            created_by="user_001",
+        )
+    assert exc_info.value.error_code.code == "NOT_FOUND"
+
+
+async def test_rejects_episode_not_owned_by_project() -> None:
+    """归属验证：episode 不属于该项目时拒绝（VALIDATION_ERROR）。"""
+    repo = _RecordingRepository()
+    service = _make_service(repo, episodes=[("proj_001", "EP999")])
+    with pytest.raises(DomainError) as exc_info:
+        await service.import_script(
+            project_id="proj_001",
+            episode_ref="EP001",  # 不属于该项目的集数
+            title="标题",
+            created_by="user_001",
         )
     assert exc_info.value.error_code.code == "VALIDATION_ERROR"

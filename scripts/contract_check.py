@@ -97,9 +97,18 @@ def parse_state_chain(text: str) -> set[tuple[str, str]]:
 # 状态机一致性校验（Project + ScriptRevision）
 # --------------------------------------------------------------------------- #
 # 契约对象名 -> 领域转移表来源（模块路径, 变量名）
+# 所有对象的状态机统一集中在 domain/state_machine.py（单一事实源），
+# 避免各聚合根内嵌转移表导致落点不一致。
 _STATE_MACHINE_SOURCES: dict[str, tuple[str, str]] = {
     "Project": ("services.project_planning.domain.state_machine", "ALLOWED_TRANSITIONS"),
-    "ScriptRevision": ("services.project_planning.domain.script", "ALLOWED_TRANSITIONS"),
+    "ScriptRevision": (
+        "services.project_planning.domain.state_machine",
+        "SCRIPT_ALLOWED_TRANSITIONS",
+    ),
+    "Episode": (
+        "services.project_planning.domain.state_machine",
+        "EPISODE_ALLOWED_TRANSITIONS",
+    ),
 }
 
 

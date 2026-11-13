@@ -2,6 +2,7 @@
 
 契约对齐：
 - SCRIPT.IMPORT action：导入剧本版本，产出 DRAFT 态。
+- SCRIPT.LOCK.APPROVE action：锁定剧本版本（DRAFT→LOCKED），职责分离。
 - 请求/响应走统一信封与错误信封。
 - 业务逻辑下沉到 ScriptService，本层不写业务。
 """
@@ -16,8 +17,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.database import get_session
+from services.project_planning.repository.episode_sqlalchemy_repo import (
+    SqlAlchemyEpisodeRepository,
+)
 from services.project_planning.repository.script_sqlalchemy_repo import (
     SqlAlchemyScriptRepository,
+)
+from services.project_planning.repository.sqlalchemy_repo import (
+    SqlAlchemyProjectRepository,
 )
 from services.project_planning.service.script_service import ScriptService
 
@@ -34,10 +41,23 @@ class ImportScriptRequest(BaseModel):
     entity_id: str | None = None
 
 
+class LockScriptRequest(BaseModel):
+    """剧本锁定请求体（SCRIPT.LOCK.APPROVE）。"""
+
+    requested_by: str = Field(..., min_length=1, max_length=64)
+    approved_by: str = Field(..., min_length=1, max_length=64)
+
+
 def _get_service(session: AsyncSession = Depends(get_session)) -> ScriptService:
-    """服务装配：SQLAlchemy 仓储（独立 schema project_planning）。"""
-    repository = SqlAlchemyScriptRepository(session)
-    return ScriptService(repository)
+    """服务装配：三个仓储端口注入（script + project + episode）。
+
+    归属验证需要 ProjectRepository（验证项目存在）与 EpisodeRepository
+    （验证集数归属），作为领域规则端口显式注入，而非服务内拼查询。
+    """
+    script_repository = SqlAlchemyScriptRepository(session)
+    project_repository = SqlAlchemyProjectRepository(session)
+    episode_repository = SqlAlchemyEpisodeRepository(session)
+    return ScriptService(script_repository, project_repository, episode_repository)
 
 
 @router.post("/import", status_code=201)
@@ -53,6 +73,27 @@ async def import_script(
             title=body.title,
             created_by=body.created_by,
             entity_id=body.entity_id,
+        )
+    except ValueError as exc:
+        raise DomainError(
+            ErrorRegistry.STATE_TRANSITION_DENIED,
+            detail=str(exc),
+        ) from exc
+    return script.to_dict()
+
+
+@router.post("/{entity_id}/lock")
+async def lock_script(
+    entity_id: str,
+    body: LockScriptRequest,
+    service: ScriptService = Depends(_get_service),
+) -> dict[str, Any]:
+    """锁定剧本版本（SCRIPT.LOCK.APPROVE，职责分离）。"""
+    try:
+        script = await service.lock_script(
+            entity_id=entity_id,
+            requested_by=body.requested_by,
+            approved_by=body.approved_by,
         )
     except ValueError as exc:
         raise DomainError(

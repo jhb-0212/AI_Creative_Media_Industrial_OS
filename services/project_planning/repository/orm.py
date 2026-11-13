@@ -80,3 +80,39 @@ class ScriptModel(Base):
         ),
         {"schema": SCHEMA_NAME},
     )
+
+
+class EpisodeModel(Base):
+    """episodes 表模型（集数，归属 Project）。"""
+
+    __tablename__ = "episodes"
+    __table_args__ = (
+        # 同项目内 episode_ref 唯一（集数归属约束的数据库兜底）。
+        # 跨项目允许相同 episode_ref（如 EP001 在不同项目各自独立）。
+        Index(
+            "ux_episode_ref_per_project",
+            "project_id",
+            "episode_ref",
+            unique=True,
+        ),
+        {"schema": SCHEMA_NAME},
+    )
+
+    # C.3.1 通用信封字段
+    entity_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    entity_type: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="Episode"
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    entity_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    owner_module: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    audit_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    # 业务字段
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    episode_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)

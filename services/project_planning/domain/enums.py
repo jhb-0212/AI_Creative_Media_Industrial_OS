@@ -42,9 +42,22 @@ class ScriptStatus(str, Enum):
 
     对齐契约：contracts/state_machines/state_machines.yaml → objects → ScriptRevision
     （DRAFT→LOCKED；DRAFT/LOCKED→SUPERSEDED）。
-    转移表权威定义见 domain/script.py 的 _ALLOWED_TRANSITIONS。
+    转移表权威定义见 domain/state_machine.py 的 SCRIPT_ALLOWED_TRANSITIONS。
     """
 
     DRAFT = "DRAFT"            # 草稿：导入的可编辑剧本版本（ADR-032 默认草案）
     LOCKED = "LOCKED"          # 锁定：经 SCRIPT.LOCK.APPROVE 人工确认
     SUPERSEDED = "SUPERSEDED"  # 被取代：新版本导入，旧版本终态（不可原地复活）
+
+
+class EpisodeStatus(str, Enum):
+    """集数状态。
+
+    对齐契约：contracts/state_machines/state_machines.yaml → objects → Episode
+    （DRAFT→ACTIVE→ARCHIVED）。
+    转移表权威定义见 domain/state_machine.py 的 EPISODE_ALLOWED_TRANSITIONS。
+    """
+
+    DRAFT = "DRAFT"            # 草稿：集数已登记，未进入正式生产
+    ACTIVE = "ACTIVE"          # 进行中：集数进入生产流程
+    ARCHIVED = "ARCHIVED"      # 归档（终态，不可原地复活）
