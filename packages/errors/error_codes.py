@@ -126,6 +126,30 @@ class DomainError(Exception):
         super().__init__(self.detail)
 
 
+def _resolve_correlation_id() -> str | None:
+    """从当前请求/链路上下文回填 correlation_id。
+
+    优先级：OpenTelemetry 当前 span 的 trace_id > contextvars 注入的 trace_id。
+    惰性导入 + 异常兜底，避免 errors 包反向依赖 shared/telemetry 造成循环导入，
+    也保证在无 OTel / 无请求上下文的纯单元测试场景下返回 None。
+    """
+    try:
+        from packages.telemetry.tracing import get_current_trace_id
+
+        trace_id = get_current_trace_id()
+        if trace_id:
+            return trace_id
+    except Exception:
+        pass
+
+    try:
+        from packages.shared.logging import trace_id_var
+
+        return trace_id_var.get()
+    except Exception:
+        return None
+
+
 def to_response_payload(exc: DomainError) -> dict[str, Any]:
     """将领域异常转换为稳定的结构化响应体（对齐契约 C.3.2 错误信封）。
 
@@ -137,5 +161,5 @@ def to_response_payload(exc: DomainError) -> dict[str, Any]:
         "retryable": exc.error_code.retryable,
         "message": exc.detail,
         "details": exc.context or None,
-        "correlation_id": None,
+        "correlation_id": _resolve_correlation_id(),
     }

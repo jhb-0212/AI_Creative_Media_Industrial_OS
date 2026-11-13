@@ -76,12 +76,16 @@ class ScriptService:
             if existing is not None:
                 return existing
 
+        # 新版本的实体 id 在此处确定（无显式 id 时生成 UUID），
+        # 使 audit_ref 能引用真实的新版本 id，避免拼出 "superseded_by:None"。
+        new_entity_id = entity_id or uuid.uuid4().hex
+
         # 新版本导入：使「同一项目 + 同一集数」下当前未取代的旧版本转 SUPERSEDED。
         # 版本链按 project_id + episode_ref 隔离，避免跨集误替换。
-        await self._supersede_active_version(project_id, episode_ref, entity_id)
+        await self._supersede_active_version(project_id, episode_ref, new_entity_id)
 
         script = ScriptRevision(
-            entity_id=entity_id or uuid.uuid4().hex,
+            entity_id=new_entity_id,
             project_id=project_id,
             episode_ref=episode_ref,
             title=title,
@@ -102,7 +106,7 @@ class ScriptService:
         return script
 
     async def _supersede_active_version(
-        self, project_id: str, episode_ref: str, new_entity_id: str | None
+        self, project_id: str, episode_ref: str, new_entity_id: str
     ) -> None:
         """将指定项目 + 集数下的当前活跃版本标记为 SUPERSEDED。
 

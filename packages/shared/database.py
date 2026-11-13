@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
 from collections.abc import AsyncIterator
 from urllib.parse import quote_plus
 
@@ -58,25 +60,90 @@ def create_engine() -> AsyncEngine:
 _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 
+# 引擎创建时绑定的事件循环引用。asyncpg 的连接池与其创建时所在的
+# 事件循环强绑定；一旦该循环被关闭（例如测试会话结束、进程复用），
+# 旧连接池会永久挂起。这里记录绑定循环，供 get_session 做亲和性检测。
+_engine_loop: asyncio.AbstractEventLoop | None = None
+
+# 单例初始化锁：保护「engine + sessionmaker 一并构建」这一个原子操作。
+# 注意：必须用 RLock（可重入锁）或保证锁内不再嵌套获取本锁，否则
+# get_sessionmaker 持锁调用 get_engine 会因 threading.Lock 不可重入而死锁。
+# 这里采用「单一原子初始化函数」，锁内直接构建，彻底避免嵌套锁。
+_init_lock = threading.Lock()
+
+
+def _build_engine_and_sessionmaker(loop: asyncio.AbstractEventLoop | None) -> None:
+    """原子构建 engine + sessionmaker（须在 _init_lock 保护下调用）。
+
+    将两者合并为一个初始化单元，避免「sessionmaker 构建时调用 get_engine
+    再拿同一把锁」的嵌套锁死锁。loop 为当前运行循环（可能为 None，表示
+    同步上下文）。
+    """
+    global _engine, _sessionmaker, _engine_loop
+    _engine = create_engine()
+    _engine_loop = loop
+    _sessionmaker = async_sessionmaker(
+        _engine,
+        expire_on_commit=False,
+        autoflush=False,
+    )
+
+
+def _current_loop_or_none() -> asyncio.AbstractEventLoop | None:
+    """返回当前运行循环，若无（同步上下文）返回 None。"""
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return None
+
 
 def get_engine() -> AsyncEngine:
-    """获取全局引擎单例。"""
+    """获取全局引擎单例（线程安全，双重检查锁定）。
+
+    注意：返回的引擎绑定到其首次创建时的事件循环。若调用方在另一个
+    事件循环中复用（典型如测试会话切换），必须通过 get_session 的
+    亲和性检测触发重建，否则 asyncpg 会因跨循环操作而挂起。
+    """
     global _engine
     if _engine is None:
-        _engine = create_engine()
+        with _init_lock:
+            if _engine is None:
+                _build_engine_and_sessionmaker(_current_loop_or_none())
+    assert _engine is not None  # 双重检查锁定后必然已初始化
     return _engine
 
 
 def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
-    """获取会话工厂单例。"""
+    """获取会话工厂单例（线程安全，双重检查锁定）。
+
+    与 get_engine 共用同一个原子初始化：无论先调哪个，都会一次性构建
+    engine + sessionmaker，避免分别初始化时的嵌套锁死锁。
+    """
     global _sessionmaker
     if _sessionmaker is None:
-        _sessionmaker = async_sessionmaker(
-            get_engine(),
-            expire_on_commit=False,
-            autoflush=False,
-        )
+        with _init_lock:
+            if _sessionmaker is None:
+                _build_engine_and_sessionmaker(_current_loop_or_none())
+    assert _sessionmaker is not None  # 双重检查锁定后必然已初始化
     return _sessionmaker
+
+
+async def _reset_engine_for_loop(current_loop: asyncio.AbstractEventLoop) -> None:
+    """当引擎绑定的事件循环已失效时，安全重建引擎与会话工厂。
+
+    这是 async 引擎「事件循环亲和性」的标准处置：asyncpg 连接池不可跨
+    循环复用，必须在旧循环销毁后 dispose 旧池、在新循环上重建。
+    """
+    global _engine, _sessionmaker, _engine_loop
+    if _engine is not None:
+        await _engine.dispose()
+    _engine = create_engine()
+    _engine_loop = current_loop
+    _sessionmaker = async_sessionmaker(
+        _engine,
+        expire_on_commit=False,
+        autoflush=False,
+    )
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
@@ -85,7 +152,22 @@ async def get_session() -> AsyncIterator[AsyncSession]:
     采用「工作单元」语义：整个请求期间共享同一会话，仓储只做持久化
     变更（merge/flush）而不再自行 commit；由本依赖在请求成功时统一
     commit、异常时统一 rollback，保证多步用例的原子性。
+
+    事件循环亲和性：若引擎绑定循环已失效（测试会话切换、进程复用），
+    先安全重建引擎，再创建会话，根治「跨循环复用连接池导致挂起」。
     """
+    current_loop = asyncio.get_running_loop()
+
+    global _engine_loop
+    # 亲和性检测：
+    # 1) 引擎在同步上下文创建、尚未绑定任何循环 → 补记当前循环，
+    #    确保后续切换循环时能正确触发重建。
+    # 2) 引擎绑定的循环与当前循环不一致（旧循环已失效）→ 重建。
+    if _engine_loop is None:
+        _engine_loop = current_loop
+    elif _engine_loop is not current_loop:
+        await _reset_engine_for_loop(current_loop)
+
     async with get_sessionmaker()() as session:
         try:
             yield session

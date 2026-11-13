@@ -36,12 +36,20 @@ class ProjectService:
 
         契约要求：
         - project_id 使用 UUID，不复用（8.2）。
-        - project_name 非空。
+        - project_name、created_by 非空。
         """
-        if not project_name or not project_name.strip():
+        project_name = project_name.strip()
+        created_by = created_by.strip()
+
+        if not project_name:
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,
                 detail="project_name 不能为空",
+            )
+        if not created_by:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail="created_by 不能为空",
             )
 
         # 快速路径：已存在同 id 直接返回（避免无谓的 INSERT）。
@@ -52,7 +60,7 @@ class ProjectService:
 
         project = Project(
             entity_id=entity_id or uuid.uuid4().hex,
-            project_name=project_name.strip(),
+            project_name=project_name,
             project_tier=project_tier,
             created_by=created_by,
         )

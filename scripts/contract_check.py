@@ -193,12 +193,32 @@ def check_action_openapi_consistency() -> bool:
     ar = yaml.safe_load(ar_path.read_text(encoding="utf-8"))
     oa = yaml.safe_load(oa_path.read_text(encoding="utf-8"))
 
-    action_keys = [_normalize_action_key(a["action_key"]) for a in ar.get("actions", [])]
-    # openapi 的 path 形如 /actions/project.create，operationId 形如 project.create
-    operation_ids = [
-        _normalize_action_key(next(iter(path_item.values()))["operationId"])
-        for path_item in oa.get("paths", {}).values()
-    ]
+    # 缺 action_key 的条目视为契约错误：用 .get 取键，缺失时输出定位信息。
+    action_keys: list[str] = []
+    for idx, action in enumerate(ar.get("actions", [])):
+        key = action.get("action_key") if isinstance(action, dict) else None
+        if not key:
+            print(f"[FAIL] action_registry.actions[{idx}] 缺 action_key: {action!r}")
+            return False
+        action_keys.append(_normalize_action_key(key))
+
+    # openapi 的 path 形如 /actions/project.create，operationId 形如 project.create。
+    # 显式遍历已知 HTTP 方法键读取 operationId，避免对路径项结构作脆弱假设
+    # （路径项可能为空、缺 operationId 或含非方法键如 parameters/summary）。
+    http_methods = ("get", "post", "put", "patch", "delete", "options", "head", "trace")
+    operation_ids: list[str] = []
+    for path, path_item in oa.get("paths", {}).items():
+        operation_id: str | None = None
+        if isinstance(path_item, dict):
+            for method in http_methods:
+                method_obj = path_item.get(method)
+                if isinstance(method_obj, dict) and method_obj.get("operationId"):
+                    operation_id = method_obj["operationId"]
+                    break
+        if operation_id is None:
+            print(f"[FAIL] OpenAPI 路径 {path!r} 缺少 operationId（HTTP 方法键缺失）")
+            return False
+        operation_ids.append(_normalize_action_key(operation_id))
 
     ar_set = set(action_keys)
     oa_set = set(operation_ids)
@@ -255,11 +275,23 @@ def check_permission_matrix() -> bool:
             print(f"[FAIL] permission_matrix 缺少非空分区: {section}")
             return False
 
-    action_keys = [_normalize_action_key(a["action_key"]) for a in ar.get("actions", [])]
+    action_keys: list[str] = []
+    for idx, action in enumerate(ar.get("actions", [])):
+        key = action.get("action_key") if isinstance(action, dict) else None
+        if not key:
+            print(f"[FAIL] action_registry.actions[{idx}] 缺 action_key: {action!r}")
+            return False
+        action_keys.append(_normalize_action_key(key))
 
     action_matrix = pm["action_matrix"]
     pm_actions = action_matrix.get("actions", [])
-    pm_keys = [_normalize_action_key(a["action_key"]) for a in pm_actions]
+    pm_keys: list[str] = []
+    for idx, entry in enumerate(pm_actions):
+        key = entry.get("action_key") if isinstance(entry, dict) else None
+        if not key:
+            print(f"[FAIL] permission_matrix.action_matrix.actions[{idx}] 缺 action_key")
+            return False
+        pm_keys.append(_normalize_action_key(key))
 
     # total 计数一致性
     declared_total = action_matrix.get("total")
