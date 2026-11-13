@@ -3,7 +3,7 @@
 # 校验口径：action_key 全局唯一、命名规范、audit_event 与 negative_test_id 一一对应
 registry_source: 'AFS-ARCH-MASTER-V2.0.5 / 31.6 Action Registry'
 registry_version: 'V2.0.5'
-total_actions: 77
+total_actions: 80
 actions:
   - action_key: 'PROJECT.CREATE'
     resource_type: 'Project'
@@ -852,3 +852,36 @@ actions:
     negative_test_id: 'ACT-CR-NEG-008'
     negative_test_desc: '越权/无依据撤销拒绝'
     status: 'PHASE_GATED（Phase 3）'
+  - action_key: 'PROJECT.READ'
+    resource_type: 'Project'
+    scope: 'tenant/organization/project'
+    risk_level: 'LOW'
+    token_required: true
+    allowed_principals: '项目管理员/制片/导演/编剧/QC 审核人'
+    approval_requirement: '读取项目元数据与状态；不得绕过 RLS 租户边界。'
+    audit_event: 'PROJECT_READ'
+    negative_test_id: 'ACT-PROJ-NEG-002'
+    negative_test_desc: '无读取权限角色访问项目拒绝'
+    status: 'ACTIVE'
+  - action_key: 'EPISODE.READ'
+    resource_type: 'Episode'
+    scope: 'project/episode'
+    risk_level: 'LOW'
+    token_required: true
+    allowed_principals: '导演/编剧/制片/QC 审核人'
+    approval_requirement: '读取集数元数据；归属与租户边界由复合外键与 RLS 保证。'
+    audit_event: 'EPISODE_READ'
+    negative_test_id: 'ACT-EPISODE-NEG-002'
+    negative_test_desc: '无读取权限角色访问集数拒绝'
+    status: 'ACTIVE'
+  - action_key: 'SCRIPT.READ'
+    resource_type: 'ScriptRevision'
+    scope: 'project/episode'
+    risk_level: 'LOW'
+    token_required: true
+    allowed_principals: '导演/编剧/制片/QC 审核人/版权合规'
+    approval_requirement: '读取剧本版本元数据；不得绕过 RLS 租户边界。'
+    audit_event: 'SCRIPT_READ'
+    negative_test_id: 'ACT-SCRIPT-NEG-004'
+    negative_test_desc: '无读取权限角色访问剧本版本拒绝'
+    status: 'ACTIVE'

@@ -81,6 +81,9 @@ class Settings(BaseSettings):
     # 约定：这些字段在 production 下必须显式配置真实值，否则拒绝启动。
     _PRODUCTION_REQUIRED_SECRETS: tuple[tuple[str, str], ...] = (
         ("postgres_password", "POSTGRES_PASSWORD"),
+        ("postgres_app_password", "POSTGRES_APP_PASSWORD"),
+        ("identity_private_key_pem", "IDENTITY_PRIVATE_KEY_PEM"),
+        ("identity_public_key_pem", "IDENTITY_PUBLIC_KEY_PEM"),
         ("s3_access_key_id", "S3_ACCESS_KEY_ID"),
         ("s3_secret_access_key", "S3_SECRET_ACCESS_KEY"),
         ("mq_url", "MQ_URL"),
@@ -106,6 +109,13 @@ class Settings(BaseSettings):
             raise ValueError(
                 "生产环境（APP_ENV=production）缺少必需密钥，拒绝启动："
                 + ", ".join(missing)
+            )
+        # 显式拒绝开发默认值：迁移 9e3b4c5d6e7f 创建的 app_dev_password
+        # 只允许本地/测试使用，不得带入生产（否则 RLS 应用角色的口令可预测）。
+        if self.postgres_app_password.get_secret_value() == "app_dev_password":
+            raise ValueError(
+                "生产环境（APP_ENV=production）不得使用开发默认应用数据库密码"
+                " app_dev_password（POSTGRES_APP_PASSWORD），请由部署系统注入独立密码。"
             )
         return self
 

@@ -74,8 +74,9 @@ async def create_episode(
 @router.get("/{entity_id}")
 async def get_episode(
     entity_id: str,
+    _principal: Principal = Depends(require_role("EPISODE.READ")),
     service: EpisodeService = Depends(_get_service),
 ) -> dict[str, Any]:
-    """按 id 查询集数。"""
+    """按 id 查询集数（需 EPISODE.READ 授权；租户边界由 RLS 保证）。"""
     episode = await service.get_episode(entity_id)
     return episode.to_dict()

@@ -65,8 +65,9 @@ async def create_project(
 @router.get("/{entity_id}")
 async def get_project(
     entity_id: str,
+    _principal: Principal = Depends(require_role("PROJECT.READ")),
     service: ProjectService = Depends(_get_service),
 ) -> dict[str, Any]:
-    """按 id 查询项目。"""
+    """按 id 查询项目（需 PROJECT.READ 授权；租户边界由 RLS 保证）。"""
     project = await service.get_project(entity_id)
     return project.to_dict()

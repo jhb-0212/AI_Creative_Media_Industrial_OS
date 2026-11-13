@@ -44,6 +44,13 @@ def get_key_store() -> KeyStore:
         )
         return KeyStore([key])
 
+    # 生产环境绝不随机生成：临时密钥会导致签发方与验签方公钥不匹配、
+    # 进程重启即失效，且破坏 JWKS 的可信链条。配置缺失时直接拒绝启动。
+    if settings.app_env == "production":
+        raise RuntimeError(
+            "生产环境（APP_ENV=production）必须配置 IDENTITY_PRIVATE_KEY_PEM 与 "
+            "IDENTITY_PUBLIC_KEY_PEM；禁止使用进程内随机生成的临时签名密钥。"
+        )
     # 开发/测试：随机生成一把（不落日志，进程内持有）。
     key = generate_signing_key(kid="current")
     return KeyStore([key])

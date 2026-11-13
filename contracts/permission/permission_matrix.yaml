@@ -1,7 +1,7 @@
 # 由 AFS-ARCH-MASTER-V2.0.5 C.5 权限矩阵与 31.6 Action Registry 派生
 # role_matrix 为关键操作摘要；action_matrix 覆盖全部 action_key
 source: AFS-ARCH-MASTER-V2.0.5 权限矩阵与动作主体
-note: role_matrix 为关键操作角色摘要；action_matrix 为 75 项 action_key 级完整条目，由 action_registry.yaml 派生，单一事实源不重复维护。
+note: role_matrix 为关键操作角色摘要；action_matrix 为 80 项 action_key 级完整条目，由 action_registry.yaml 派生，单一事实源不重复维护。
 derived_from: action_registry.yaml
 role_matrix:
   source_section: C.5 RBAC / ABAC / Capability Token 权限矩阵
@@ -97,7 +97,7 @@ role_matrix:
       Agent/Worker: Worker 最小权限；系统管理员操作全审计
 action_matrix:
   source_section: 31.6 Action Registry 唯一注册表
-  total: 77
+  total: 80
   actions:
   - action_key: PROJECT.CREATE
     resource_type: Project
@@ -869,6 +869,36 @@ action_matrix:
     audit_event: CREATOR_RELEASE_REVOKED
     negative_test_id: ACT-CR-NEG-008
     status: PHASE_GATED（Phase 3）
+  - action_key: PROJECT.READ
+    resource_type: Project
+    scope: tenant/organization/project
+    risk_level: LOW
+    token_required: true
+    allowed_principals: 项目管理员/制片/导演/编剧/QC 审核人
+    approval_requirement: 读取项目元数据与状态；不得绕过 RLS 租户边界。
+    audit_event: PROJECT_READ
+    negative_test_id: ACT-PROJ-NEG-002
+    status: ACTIVE
+  - action_key: EPISODE.READ
+    resource_type: Episode
+    scope: project/episode
+    risk_level: LOW
+    token_required: true
+    allowed_principals: 导演/编剧/制片/QC 审核人
+    approval_requirement: 读取集数元数据；归属与租户边界由复合外键与 RLS 保证。
+    audit_event: EPISODE_READ
+    negative_test_id: ACT-EPISODE-NEG-002
+    status: ACTIVE
+  - action_key: SCRIPT.READ
+    resource_type: ScriptRevision
+    scope: project/episode
+    risk_level: LOW
+    token_required: true
+    allowed_principals: 导演/编剧/制片/QC 审核人/版权合规
+    approval_requirement: 读取剧本版本元数据；不得绕过 RLS 租户边界。
+    audit_event: SCRIPT_READ
+    negative_test_id: ACT-SCRIPT-NEG-004
+    status: ACTIVE
 separation_of_duty:
   source_section: C.5.1 Capability Token 最小契约
   rule: 申请人不得审批自己的预算/Canon/Gate 变更；预算管理员不得批准质量 Gate；QC 不得修改权利事实；版权角色不得代替导演决定艺术意图；Agent、Worker 和系统管理员不得通过技术权限绕过业务审批。系统管理员的紧急访问必须限时、双人授权并写入不可篡改审计。

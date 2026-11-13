@@ -16,6 +16,9 @@ from packages.shared.config import Settings
 # 生产环境校验所覆盖的「必需密钥」清单（与 Settings._PRODUCTION_REQUIRED_SECRETS 对齐）。
 REQUIRED_ENV_VARS = [
     "POSTGRES_PASSWORD",
+    "POSTGRES_APP_PASSWORD",
+    "IDENTITY_PRIVATE_KEY_PEM",
+    "IDENTITY_PUBLIC_KEY_PEM",
     "S3_ACCESS_KEY_ID",
     "S3_SECRET_ACCESS_KEY",
     "MQ_URL",
@@ -28,6 +31,9 @@ def _prod_env() -> dict[str, str]:
     return {
         "APP_ENV": "production",
         "POSTGRES_PASSWORD": "s3cret-db",
+        "POSTGRES_APP_PASSWORD": "prod-app-pass",
+        "IDENTITY_PRIVATE_KEY_PEM": "-----BEGIN PRIVATE KEY-----prod-----END PRIVATE KEY-----",
+        "IDENTITY_PUBLIC_KEY_PEM": "-----BEGIN PUBLIC KEY-----prod-----END PUBLIC KEY-----",
         "S3_ACCESS_KEY_ID": "AKIAEXAMPLE",
         "S3_SECRET_ACCESS_KEY": "s3cret-s3",
         "MQ_URL": "amqp://user:pass@mq:5672/",
@@ -91,3 +97,13 @@ def test_secret_fields_do_not_leak_in_repr(monkeypatch: pytest.MonkeyPatch) -> N
     rendered = repr(settings)
     assert "s3cret-db" not in rendered
     assert "s3cret-s3" not in rendered
+
+
+def test_production_rejects_dev_default_app_password(monkeypatch: pytest.MonkeyPatch) -> None:
+    """生产环境显式使用开发默认应用密码 app_dev_password → 拒绝启动。"""
+    for key, value in _prod_env().items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setenv("POSTGRES_APP_PASSWORD", "app_dev_password")
+    with pytest.raises(ValidationError) as exc_info:
+        _make_settings()
+    assert "app_dev_password" in str(exc_info.value)

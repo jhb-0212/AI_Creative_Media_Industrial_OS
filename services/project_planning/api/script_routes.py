@@ -135,8 +135,9 @@ async def approve_lock(
 @router.get("/{entity_id}")
 async def get_script(
     entity_id: str,
+    _principal: Principal = Depends(require_role("SCRIPT.READ")),
     service: ScriptService = Depends(_get_service),
 ) -> dict[str, Any]:
-    """按 id 查询剧本版本。"""
+    """按 id 查询剧本版本（需 SCRIPT.READ 授权；租户边界由 RLS 保证）。"""
     script = await service.get_script(entity_id)
     return script.to_dict()

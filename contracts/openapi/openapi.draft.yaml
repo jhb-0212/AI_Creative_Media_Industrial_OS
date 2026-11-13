@@ -7,7 +7,7 @@ info:
   version: draft
   x-afs-source-document: AFS-ARCH-MASTER-V2.0.5
   x-afs-registry-version: V2.0.5
-  x-afs-total-actions: 77
+  x-afs-total-actions: 80
 servers:
 - url: /api/v1
 tags:
@@ -2690,6 +2690,84 @@ paths:
           description: 幂等键冲突
         '422':
           description: 请求信封或载荷校验失败
+  /actions/project.read:
+    get:
+      operationId: project.read
+      tags:
+      - Project
+      summary: PROJECT.READ（资源 Project，风险 LOW）
+      description: 读取项目元数据与状态；不得绕过 RLS 租户边界。
+      x-afs-action-key: PROJECT.READ
+      x-afs-scope: tenant/organization/project
+      x-afs-risk-level: LOW
+      x-afs-token-required: true
+      x-afs-allowed-principals: 项目管理员/制片/导演/编剧/QC 审核人
+      x-afs-audit-event: PROJECT_READ
+      x-afs-negative-test: ACT-PROJ-NEG-002
+      x-afs-status: ACTIVE
+      responses:
+        '200':
+          description: 返回项目元数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '404':
+          description: 资源不存在
+  /actions/episode.read:
+    get:
+      operationId: episode.read
+      tags:
+      - Episode
+      summary: EPISODE.READ（资源 Episode，风险 LOW）
+      description: 读取集数元数据；归属与租户边界由复合外键与 RLS 保证。
+      x-afs-action-key: EPISODE.READ
+      x-afs-scope: project/episode
+      x-afs-risk-level: LOW
+      x-afs-token-required: true
+      x-afs-allowed-principals: 导演/编剧/制片/QC 审核人
+      x-afs-audit-event: EPISODE_READ
+      x-afs-negative-test: ACT-EPISODE-NEG-002
+      x-afs-status: ACTIVE
+      responses:
+        '200':
+          description: 返回集数元数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '404':
+          description: 资源不存在
+  /actions/script.read:
+    get:
+      operationId: script.read
+      tags:
+      - ScriptRevision
+      summary: SCRIPT.READ（资源 ScriptRevision，风险 LOW）
+      description: 读取剧本版本元数据；不得绕过 RLS 租户边界。
+      x-afs-action-key: SCRIPT.READ
+      x-afs-scope: project/episode
+      x-afs-risk-level: LOW
+      x-afs-token-required: true
+      x-afs-allowed-principals: 导演/编剧/制片/QC 审核人/版权合规
+      x-afs-audit-event: SCRIPT_READ
+      x-afs-negative-test: ACT-SCRIPT-NEG-004
+      x-afs-status: ACTIVE
+      responses:
+        '200':
+          description: 返回剧本版本元数据
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '404':
+          description: 资源不存在
 components:
   schemas:
     ActionRequestEnvelope:
