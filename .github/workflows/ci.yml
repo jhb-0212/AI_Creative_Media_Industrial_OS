@@ -52,6 +52,21 @@ jobs:
         # 待其落地 .py 后纳入本步骤，避免 mypy 对空目录报 "no .py files" 而误判失败。
         run: mypy packages services apps
 
+      - name: Wait for PostgreSQL
+        # GitHub Actions 的 service 容器 health check 不会阻塞主 job 步骤，
+        # 需主动等待端口就绪，否则后续 alembic/pytest 会因连接被拒而失败。
+        run: |
+          for i in $(seq 1 30); do
+            if bash -c "</dev/tcp/localhost/5432" 2>/dev/null; then
+              echo "PostgreSQL is ready"
+              exit 0
+            fi
+            echo "waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+          echo "PostgreSQL not ready after 60s" >&2
+          exit 1
+
       - name: Apply migrations
         # 数据库集成测试依赖真实表结构，必须先建表（全新空库），再跑测试。
         run: alembic upgrade head
