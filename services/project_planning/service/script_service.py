@@ -27,6 +27,7 @@ from services.project_planning.domain.enums import ScriptStatus
 from services.project_planning.domain.script import ScriptRevision
 from services.project_planning.repository._versioning import ConcurrentModificationError
 from services.project_planning.repository.episode_repo import EpisodeRepository
+from services.project_planning.repository.outbox_writer import OutboxWriter
 from services.project_planning.repository.project_repo import ProjectRepository
 from services.project_planning.repository.script_repo import ScriptRepository
 
@@ -39,10 +40,12 @@ class ScriptService:
         repository: ScriptRepository,
         project_repository: ProjectRepository,
         episode_repository: EpisodeRepository,
+        outbox_writer: OutboxWriter,
     ) -> None:
         self._repository = repository
         self._project_repository = project_repository
         self._episode_repository = episode_repository
+        self._outbox_writer = outbox_writer
 
     async def import_script(
         self,
@@ -121,6 +124,19 @@ class ScriptService:
                 return existing
             raise
 
+        # 审计事件（决策 3）：剧本导入与状态落库同事务原子记录，不可变。
+        self._outbox_writer.record(
+            aggregate_type="ScriptRevision",
+            aggregate_id=script.entity_id,
+            event_type="SCRIPT_IMPORTED",
+            payload={
+                "project_id": project_id,
+                "episode_ref": episode_ref,
+                "title": title,
+                "created_by": created_by,
+                "status": ScriptStatus.DRAFT.value,
+            },
+        )
         return script
 
     async def lock_script(
@@ -178,6 +194,22 @@ class ScriptService:
             audit_ref=f"lock_approved_by:{approved_by}",
         )
         await self._repository.save(script, expected_version)
+
+        # 审计事件（决策 3）：锁定审批与状态变更同事务原子记录，含职责分离
+        # 证据（申请人与批准人），可追溯审批当时的完整上下文（R7）。
+        self._outbox_writer.record(
+            aggregate_type="ScriptRevision",
+            aggregate_id=script.entity_id,
+            event_type="SCRIPT_LOCK_APPROVED",
+            payload={
+                "project_id": script.project_id,
+                "episode_ref": script.episode_ref,
+                "requested_by": requested_by,
+                "approved_by": approved_by,
+                "from_status": ScriptStatus.DRAFT.value,
+                "to_status": ScriptStatus.LOCKED.value,
+            },
+        )
         return script
 
     async def _assert_episode_ownership(
@@ -236,6 +268,20 @@ class ScriptService:
         except ConcurrentModificationError:
             # 并发取代竞态：旧版本已被他人标记 SUPERSEDED，幂等跳过。
             return
+
+        # 审计事件（决策 3）：版本取代同事务原子记录，保留取代链。
+        self._outbox_writer.record(
+            aggregate_type="ScriptRevision",
+            aggregate_id=latest.entity_id,
+            event_type="SCRIPT_SUPERSEDED",
+            payload={
+                "project_id": project_id,
+                "episode_ref": episode_ref,
+                "superseded_by": new_entity_id,
+                "from_status": latest.status.value,
+                "to_status": ScriptStatus.SUPERSEDED.value,
+            },
+        )
 
     async def get_script(self, entity_id: str) -> ScriptRevision:
         """查询剧本版本，不存在抛 NOT_FOUND。"""

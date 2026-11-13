@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from uuid import uuid4
 
 import pytest
 
@@ -18,9 +19,28 @@ from services.project_planning.repository._versioning import (
     ConcurrentModificationError,
 )
 from services.project_planning.repository.episode_repo import EpisodeRepository
+from services.project_planning.repository.outbox_writer import OutboxWriter
 from services.project_planning.repository.project_repo import ProjectRepository
 from services.project_planning.repository.script_repo import ScriptRepository
 from services.project_planning.service.script_service import ScriptService
+
+
+class _RecordingOutboxWriter(OutboxWriter):
+    """内存 outbox 写入 fake，记录事件供断言。"""
+
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+
+    def record(self, *, aggregate_type, aggregate_id, event_type, payload):  # type: ignore[override]
+        self.events.append(
+            {
+                "aggregate_type": aggregate_type,
+                "aggregate_id": aggregate_id,
+                "event_type": event_type,
+                "payload": payload,
+            }
+        )
+        return uuid4()
 
 
 class _VersionedScriptRepository(ScriptRepository):
@@ -89,6 +109,7 @@ def _make_service(repo: ScriptRepository) -> ScriptService:
         repo,
         _FakeProjectRepository(),
         _FakeEpisodeRepository(),
+        _RecordingOutboxWriter(),
     )
 
 

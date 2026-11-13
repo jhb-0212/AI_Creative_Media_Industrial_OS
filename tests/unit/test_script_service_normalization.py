@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 import pytest
 
 from packages.errors.error_codes import DomainError
@@ -15,9 +17,28 @@ from services.project_planning.domain.episode import Episode
 from services.project_planning.domain.project import Project
 from services.project_planning.domain.script import ScriptRevision
 from services.project_planning.repository.episode_repo import EpisodeRepository
+from services.project_planning.repository.outbox_writer import OutboxWriter
 from services.project_planning.repository.project_repo import ProjectRepository
 from services.project_planning.repository.script_repo import ScriptRepository
 from services.project_planning.service.script_service import ScriptService
+
+
+class _RecordingOutboxWriter(OutboxWriter):
+    """内存 outbox 写入 fake。"""
+
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+
+    def record(self, *, aggregate_type, aggregate_id, event_type, payload):  # type: ignore[override]
+        self.events.append(
+            {
+                "aggregate_type": aggregate_type,
+                "aggregate_id": aggregate_id,
+                "event_type": event_type,
+                "payload": payload,
+            }
+        )
+        return uuid4()
 
 
 class _RecordingRepository(ScriptRepository):
@@ -119,6 +140,7 @@ def _make_service(
         script_repo,
         _FakeProjectRepository(projects if projects is not None else default_projects),
         _FakeEpisodeRepository(episodes if episodes is not None else default_episodes),
+        _RecordingOutboxWriter(),
     )
 
 

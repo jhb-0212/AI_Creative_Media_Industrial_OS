@@ -23,6 +23,9 @@ from services.project_planning.repository.episode_sqlalchemy_repo import (
 from services.project_planning.repository.script_sqlalchemy_repo import (
     SqlAlchemyScriptRepository,
 )
+from services.project_planning.repository.sqlalchemy_outbox_writer import (
+    SqlAlchemyOutboxWriter,
+)
 from services.project_planning.repository.sqlalchemy_repo import (
     SqlAlchemyProjectRepository,
 )
@@ -49,15 +52,21 @@ class LockScriptRequest(BaseModel):
 
 
 def _get_service(session: AsyncSession = Depends(get_session)) -> ScriptService:
-    """服务装配：三个仓储端口注入（script + project + episode）。
+    """服务装配：三个仓储端口 + Outbox 写入端口注入。
 
     归属验证需要 ProjectRepository（验证项目存在）与 EpisodeRepository
-    （验证集数归属），作为领域规则端口显式注入，而非服务内拼查询。
+    （验证集数归属）；审计事件经 OutboxWriter 端口与状态变更同事务写入。
     """
     script_repository = SqlAlchemyScriptRepository(session)
     project_repository = SqlAlchemyProjectRepository(session)
     episode_repository = SqlAlchemyEpisodeRepository(session)
-    return ScriptService(script_repository, project_repository, episode_repository)
+    outbox_writer = SqlAlchemyOutboxWriter(session)
+    return ScriptService(
+        script_repository,
+        project_repository,
+        episode_repository,
+        outbox_writer,
+    )
 
 
 @router.post("/import", status_code=201)
