@@ -93,6 +93,13 @@ class ErrorRegistry:
         http_status=409,
         message="重复请求冲突，返回原结果",
     )
+    CONCURRENT_MODIFICATION = ErrorCode(
+        code="CONCURRENT_MODIFICATION",
+        category=ErrorCategory.CONFLICT,
+        http_status=409,
+        message="并发修改冲突，实体已被其他请求更新，请基于最新版本重试",
+        retryable=True,
+    )
     NOT_FOUND = ErrorCode(
         code="NOT_FOUND",
         category=ErrorCategory.NOT_FOUND,

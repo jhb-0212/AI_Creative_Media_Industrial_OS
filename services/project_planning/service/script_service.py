@@ -25,6 +25,7 @@ from sqlalchemy.exc import IntegrityError
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from services.project_planning.domain.enums import ScriptStatus
 from services.project_planning.domain.script import ScriptRevision
+from services.project_planning.repository._versioning import ConcurrentModificationError
 from services.project_planning.repository.episode_repo import EpisodeRepository
 from services.project_planning.repository.project_repo import ProjectRepository
 from services.project_planning.repository.script_repo import ScriptRepository
@@ -166,12 +167,17 @@ class ScriptService:
         # 归属验证（锁定前同样要求归属合法）。
         await self._assert_episode_ownership(script.project_id, script.episode_ref)
 
+        # 乐观锁：捕获读取时的版本号，作为条件更新的期望值。若在 transition
+        # 与 save 之间被并发请求推进，save 会抛 ConcurrentModificationError，
+        # 由调用方（路由层）转换为结构化 409 冲突，杜绝丢失更新。
+        expected_version = script.entity_version
+
         # 状态机转移：仅 DRAFT→LOCKED（终态/已锁定由状态机拒绝）。
         script.transition_to(
             ScriptStatus.LOCKED,
             audit_ref=f"lock_approved_by:{approved_by}",
         )
-        await self._repository.save(script)
+        await self._repository.save(script, expected_version)
         return script
 
     async def _assert_episode_ownership(
@@ -218,10 +224,18 @@ class ScriptService:
             return
         if latest.status == ScriptStatus.SUPERSEDED:
             return
+        # 乐观锁：捕获读取时版本，条件更新。并发下若该活跃版本已被另一请求
+        # 先行取代（版本被推进），save 抛 ConcurrentModificationError——此时
+        # 幂等跳过（终态已达成，无需二次 transition，也避免对终态报错）。
+        expected_version = latest.entity_version
         latest.transition_to(
             ScriptStatus.SUPERSEDED, audit_ref=f"superseded_by:{new_entity_id}"
         )
-        await self._repository.save(latest)
+        try:
+            await self._repository.save(latest, expected_version)
+        except ConcurrentModificationError:
+            # 并发取代竞态：旧版本已被他人标记 SUPERSEDED，幂等跳过。
+            return
 
     async def get_script(self, entity_id: str) -> ScriptRevision:
         """查询剧本版本，不存在抛 NOT_FOUND。"""

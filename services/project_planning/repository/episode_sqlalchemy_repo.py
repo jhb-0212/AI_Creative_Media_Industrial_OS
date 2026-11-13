@@ -14,6 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from services.project_planning.domain.enums import EpisodeStatus
 from services.project_planning.domain.episode import Episode
+from services.project_planning.repository._versioning import (
+    _orm_update_values,
+    conditional_update,
+)
 from services.project_planning.repository.episode_repo import EpisodeRepository
 from services.project_planning.repository.orm import EpisodeModel
 
@@ -78,9 +82,15 @@ class SqlAlchemyEpisodeRepository(EpisodeRepository):
         async with self._session.begin_nested():
             self._session.add(_to_orm(episode))
 
-    async def save(self, episode: Episode) -> None:
-        # 仅登记变更，不 commit：事务边界由请求层统一控制。
-        await self._session.merge(_to_orm(episode))
+    async def save(self, episode: Episode, expected_version: int) -> None:
+        # 乐观锁条件更新（语义同 ScriptRepository.save）；仅登记变更，不 commit。
+        await conditional_update(
+            self._session,
+            EpisodeModel,
+            episode.entity_id,
+            expected_version,
+            _orm_update_values(_to_orm(episode)),
+        )
 
     async def get_by_id(self, entity_id: str) -> Episode | None:
         stmt = select(EpisodeModel).where(EpisodeModel.entity_id == entity_id)

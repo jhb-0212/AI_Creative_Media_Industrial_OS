@@ -22,8 +22,8 @@ class EpisodeRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def save(self, episode: Episode) -> None:
-        """保存（新增或更新）集数。"""
+    async def save(self, episode: Episode, expected_version: int) -> None:
+        """以乐观锁保存集数（语义同 ScriptRepository.save，见其文档）。"""
         raise NotImplementedError
 
     @abstractmethod

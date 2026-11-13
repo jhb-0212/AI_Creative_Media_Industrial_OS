@@ -24,7 +24,18 @@ class InMemoryProjectRepository(ProjectRepository):
             raise IntegrityError("INSERT", {}, Exception(f"duplicate key: {project.entity_id}"))
         self._store[project.entity_id] = project
 
-    async def save(self, project: Project) -> None:
+    async def save(self, project: Project, expected_version: int) -> None:
+        # 内存实现模拟乐观锁：版本不匹配时抛 IntegrityError（与 SQLAlchemy
+        # 条件更新命中 0 行的语义对齐，供测试验证并发冲突路径）。
+        existing = self._store.get(project.entity_id)
+        if existing is None or existing.entity_version != expected_version:
+            raise IntegrityError(
+                "UPDATE",
+                {},
+                Exception(
+                    f"optimistic lock: expected_version={expected_version}"
+                ),
+            )
         self._store[project.entity_id] = project
 
     async def get_by_id(self, entity_id: str) -> Project | None:

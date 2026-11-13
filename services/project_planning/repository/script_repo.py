@@ -16,8 +16,15 @@ class ScriptRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def save(self, script: ScriptRevision) -> None:
-        """保存（新增或更新）剧本版本。"""
+    async def save(self, script: ScriptRevision, expected_version: int) -> None:
+        """以乐观锁保存剧本版本。
+
+        - expected_version 是调用方**读取时**的 entity_version（迁移前的旧值）。
+        - 条件更新 ``WHERE entity_version = expected_version``，命中 0 行抛
+          ConcurrentModificationError（并发冲突，须基于最新版本重试）。
+        - 这是根治「丢失更新」的关键：状态迁移（transition_to）虽自增
+          entity_version，但若不校验读取版本，并发下后写覆盖先写。
+        """
         raise NotImplementedError
 
     @abstractmethod

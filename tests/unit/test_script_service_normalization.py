@@ -30,7 +30,7 @@ class _RecordingRepository(ScriptRepository):
     async def add(self, script: ScriptRevision) -> None:
         self._store[script.entity_id] = script
 
-    async def save(self, script: ScriptRevision) -> None:
+    async def save(self, script: ScriptRevision, expected_version: int) -> None:
         self._store[script.entity_id] = script
 
     async def get_by_id(self, entity_id: str) -> ScriptRevision | None:
@@ -59,7 +59,7 @@ class _FakeProjectRepository(ProjectRepository):
     async def add(self, project: Project) -> None:
         self._ids.add(project.entity_id)
 
-    async def save(self, project: Project) -> None:
+    async def save(self, project: Project, expected_version: int) -> None:
         self._ids.add(project.entity_id)
 
     async def get_by_id(self, entity_id: str) -> Project | None:
@@ -82,7 +82,7 @@ class _FakeEpisodeRepository(EpisodeRepository):
     async def add(self, episode: Episode) -> None:
         self._owned.add((episode.project_id, episode.episode_ref))
 
-    async def save(self, episode: Episode) -> None:
+    async def save(self, episode: Episode, expected_version: int) -> None:
         self._owned.add((episode.project_id, episode.episode_ref))
 
     async def get_by_id(self, entity_id: str) -> Episode | None:

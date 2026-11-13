@@ -14,6 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from services.project_planning.domain.enums import ProjectStatus, ProjectTier
 from services.project_planning.domain.project import Project
+from services.project_planning.repository._versioning import (
+    _orm_update_values,
+    conditional_update,
+)
 from services.project_planning.repository.orm import ProjectModel
 from services.project_planning.repository.project_repo import ProjectRepository
 
@@ -82,10 +86,15 @@ class SqlAlchemyProjectRepository(ProjectRepository):
         async with self._session.begin_nested():
             self._session.add(_to_orm(project))
 
-    async def save(self, project: Project) -> None:
-        # 仅登记变更，不 commit：事务边界由请求层（get_session 依赖）统一控制，
-        # 保证多步用例中途失败可整体回滚。
-        await self._session.merge(_to_orm(project))
+    async def save(self, project: Project, expected_version: int) -> None:
+        # 乐观锁条件更新（语义同 ScriptRepository.save）；仅登记变更，不 commit。
+        await conditional_update(
+            self._session,
+            ProjectModel,
+            project.entity_id,
+            expected_version,
+            _orm_update_values(_to_orm(project)),
+        )
 
     async def get_by_id(self, entity_id: str) -> Project | None:
         stmt = select(ProjectModel).where(ProjectModel.entity_id == entity_id)

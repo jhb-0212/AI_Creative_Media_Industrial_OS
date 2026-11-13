@@ -8,6 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from services.project_planning.domain.enums import ScriptStatus
 from services.project_planning.domain.script import ScriptRevision
+from services.project_planning.repository._versioning import (
+    _orm_update_values,
+    conditional_update,
+)
 from services.project_planning.repository.orm import ScriptModel
 from services.project_planning.repository.script_repo import ScriptRepository
 
@@ -73,9 +77,17 @@ class SqlAlchemyScriptRepository(ScriptRepository):
         async with self._session.begin_nested():
             self._session.add(_to_orm(script))
 
-    async def save(self, script: ScriptRevision) -> None:
-        # 仅登记变更，不 commit：事务边界由请求层统一控制（同 Project 仓储）。
-        await self._session.merge(_to_orm(script))
+    async def save(self, script: ScriptRevision, expected_version: int) -> None:
+        # 乐观锁条件更新：WHERE entity_version = expected_version 原子匹配，
+        # 命中 0 行抛 ConcurrentModificationError（丢失更新根治）。仅登记变更，
+        # 不 commit：事务边界由请求层统一控制。
+        await conditional_update(
+            self._session,
+            ScriptModel,
+            script.entity_id,
+            expected_version,
+            _orm_update_values(_to_orm(script)),
+        )
 
     async def get_by_id(self, entity_id: str) -> ScriptRevision | None:
         stmt = select(ScriptModel).where(ScriptModel.entity_id == entity_id)

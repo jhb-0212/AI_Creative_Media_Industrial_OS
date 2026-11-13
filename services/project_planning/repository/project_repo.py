@@ -26,8 +26,8 @@ class ProjectRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def save(self, project: Project) -> None:
-        """保存（新增或更新）项目。"""
+    async def save(self, project: Project, expected_version: int) -> None:
+        """以乐观锁保存项目（语义同 ScriptRepository.save，见其文档）。"""
         raise NotImplementedError
 
     @abstractmethod
