@@ -71,12 +71,18 @@ class SqlAlchemyScriptRepository(ScriptRepository):
         model = result.scalar_one_or_none()
         return _to_domain(model) if model is not None else None
 
-    async def get_latest_by_project(self, project_id: str) -> ScriptRevision | None:
-        """查询项目最新的未取代版本（DRAFT/LOCKED 态）。"""
+    async def get_latest_by_episode(
+        self, project_id: str, episode_ref: str
+    ) -> ScriptRevision | None:
+        """查询指定项目 + 集数的最新未取代版本（DRAFT/LOCKED 态）。
+
+        按 project_id + episode_ref 双键隔离版本链（见接口契约）。
+        """
         stmt = (
             select(ScriptModel)
             .where(
                 ScriptModel.project_id == project_id,
+                ScriptModel.episode_ref == episode_ref,
                 ScriptModel.status != ScriptStatus.SUPERSEDED.value,
             )
             .order_by(ScriptModel.created_at.desc())

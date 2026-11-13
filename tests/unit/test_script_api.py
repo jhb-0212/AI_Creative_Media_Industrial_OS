@@ -112,6 +112,57 @@ async def test_import_script_supersedes_old(client: AsyncClient) -> None:
     assert fetched_new.json()["status"] == "DRAFT"
 
 
+async def test_import_script_isolates_episodes(client: AsyncClient) -> None:
+    """版本链按集数隔离：导入 EP002 不得将 EP001 标为 SUPERSEDED（P1 跨集误替换回归）。"""
+    project_id = f"proj_epi_{uuid.uuid4().hex[:8]}"
+
+    # 第一集第一版
+    r1 = await client.post(
+        "/scripts/import",
+        json={
+            "project_id": project_id,
+            "episode_ref": "EP001",
+            "title": "EP001 第一版",
+            "created_by": "user_script",
+        },
+    )
+    assert r1.status_code == 201
+    ep1_id = r1.json()["entity_id"]
+
+    # 第二集第一版（不应影响 EP001）
+    r2 = await client.post(
+        "/scripts/import",
+        json={
+            "project_id": project_id,
+            "episode_ref": "EP002",
+            "title": "EP002 第一版",
+            "created_by": "user_script",
+        },
+    )
+    assert r2.status_code == 201
+
+    # EP001 仍应为 DRAFT（未被跨集替换）
+    fetched_ep1 = await client.get(f"/scripts/{ep1_id}")
+    assert fetched_ep1.status_code == 200
+    assert fetched_ep1.json()["status"] == "DRAFT"
+
+    # 第三集（也不应影响 EP001/EP002）
+    r3 = await client.post(
+        "/scripts/import",
+        json={
+            "project_id": project_id,
+            "episode_ref": "EP003",
+            "title": "EP003 第一版",
+            "created_by": "user_script",
+        },
+    )
+    assert r3.status_code == 201
+
+    fetched_ep2 = await client.get(f"/scripts/{r2.json()['entity_id']}")
+    assert fetched_ep2.status_code == 200
+    assert fetched_ep2.json()["status"] == "DRAFT"
+
+
 async def test_get_script_not_found(client: AsyncClient) -> None:
     resp = await client.get(f"/scripts/not_exist_{uuid.uuid4().hex[:8]}")
     assert resp.status_code == 404

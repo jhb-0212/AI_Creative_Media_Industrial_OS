@@ -52,6 +52,16 @@ jobs:
         # 待其落地 .py 后纳入本步骤，避免 mypy 对空目录报 "no .py files" 而误判失败。
         run: mypy packages services apps
 
+      - name: Apply migrations
+        # 数据库集成测试依赖真实表结构，必须先建表（全新空库），再跑测试。
+        run: alembic upgrade head
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ai_film_industrial
+
       - name: Unit & integration tests
         run: pytest tests/unit tests/integration -q
         env:
@@ -63,9 +73,7 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
 
       - name: Migrations sync check (alembic check)
-        run: |
-          alembic upgrade head
-          alembic check
+        run: alembic check
         env:
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432

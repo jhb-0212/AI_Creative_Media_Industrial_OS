@@ -82,5 +82,9 @@ warn_redundant_casts = true
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-ra -q"
+# 显式将项目根目录加入 sys.path，确保 services/apps 等顶层包在任意
+# 工作目录（含 CI 的 pip install -e 环境）下都能被 pytest 正确 import，
+# 不依赖 editable 安装的路径映射是否完整。
+pythonpath = ["."]
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"

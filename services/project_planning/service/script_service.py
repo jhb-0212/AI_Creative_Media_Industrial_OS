@@ -59,8 +59,9 @@ class ScriptService:
             if existing is not None:
                 return existing
 
-        # 新版本导入：使当前未取代的旧版本转 SUPERSEDED。
-        latest = await self._repository.get_latest_by_project(project_id)
+        # 新版本导入：使「同一项目 + 同一集数」下当前未取代的旧版本转 SUPERSEDED。
+        # 版本链按 project_id + episode_ref 隔离，避免跨集误替换。
+        latest = await self._repository.get_latest_by_episode(project_id, episode_ref)
         if latest is not None and latest.entity_id != entity_id:
             latest.transition_to(ScriptStatus.SUPERSEDED, audit_ref=f"superseded_by:{entity_id}")
             await self._repository.save(latest)

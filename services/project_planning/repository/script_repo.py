@@ -26,6 +26,12 @@ class ScriptRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def get_latest_by_project(self, project_id: str) -> ScriptRevision | None:
-        """查询项目最新的未取代剧本版本（DRAFT/LOCKED 态）。"""
+    async def get_latest_by_episode(
+        self, project_id: str, episode_ref: str
+    ) -> ScriptRevision | None:
+        """查询指定项目 + 集数的最新未取代剧本版本（DRAFT/LOCKED 态）。
+
+        版本链必须按「项目 + 集数」隔离：不同集各自维护独立版本链，
+        避免导入 EP002 时误将 EP001 标记为 SUPERSEDED。
+        """
         raise NotImplementedError
