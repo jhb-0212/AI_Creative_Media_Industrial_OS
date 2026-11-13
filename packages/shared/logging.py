@@ -39,8 +39,22 @@ def _redact_sensitive(_: object, __: str, event_dict: dict) -> dict:
 
 
 def _inject_trace_id(_: object, __: str, event_dict: dict) -> dict:
-    """注入当前 trace_id（若无则标记为 unknown）。"""
-    trace_id = trace_id_var.get()
+    """注入当前 trace_id。
+
+    优先级：OpenTelemetry 当前 span 的 trace_id > contextvars 显式注入 > unknown。
+    这样日志与链路共用同一 trace_id，实现「日志-链路」一体化。
+    """
+    trace_id = None
+    try:
+        from packages.telemetry.tracing import get_current_trace_id
+
+        trace_id = get_current_trace_id()
+    except Exception:  # noqa: BLE001 —— 遥测不可用时不影响日志
+        trace_id = None
+
+    if not trace_id:
+        trace_id = trace_id_var.get()
+
     event_dict["trace_id"] = trace_id or "unknown"
     return event_dict
 
