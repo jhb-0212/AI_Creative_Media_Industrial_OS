@@ -50,16 +50,21 @@
 - 通过 `app.openapi()` 自动导出 JSON Schema，用 CI 跑 `openapi-generator` 自动生成前端（TypeScript）与测试端 SDK。
 - **收益**：彻底消灭前后端"字段拼写不一致"的 bug；代码即文档、代码即契约，单点修改全局生效。
 
-### 决策 2：ScriptRevision 冗余 project_id —— 坚决不冗余，用复合外键防越权
+### 决策 2：ScriptRevision 归属列 —— 由复合外键承载，不存无约束副本
 
-- 保持 **3NF**，`script_revisions` 表只存 `episode_id`。
-- `episodes` 表主键设计为 `(project_id, episode_ref)` 复合主键（或唯一索引）。
-- `script_revisions` 通过 `(project_id, episode_ref)` **复合外键**强绑定 Episode。
-- **收益**：数据库直接锁死"跨项目乱挂载"，无需在代码里写一堆 if-else 校验。
+- `episodes` 表主键为 `(project_id, episode_ref)` 复合主键。
+- `script_revisions` **保留** `project_id` 与 `episode_ref` 两列，作为复合外键
+  `(project_id, episode_ref) → episodes(project_id, episode_ref)` 的引用列。
+  这两列是数据库引用完整性的必需组成，**不是业务冗余**；删除它们等于删掉约束本身。
+- 明确禁止的是另一种冗余：只存 `episode_ref`、再由 Service 查 `episodes` 推导
+  `project_id` 的「无约束归属副本」——那会让跨项目乱挂载退回代码 if-else 校验。
+- **收益**：跨项目挂载由数据库直接拒绝，Service 不再承担归属防越权。
+- **防呆**：`tests/unit/test_adr_schema_invariants.py` 断言复合外键存在，
+  任何删除归属列的改动会先红，迫使改动者显式修订本决策而非暗中打补丁。
 
 ### 决策 3：审计与审批 —— Transactional Outbox（事务发件箱）
 
-- 建一张 `outbox_events` 表（event_id、聚合根 ID、event_type、payload、occurred_at）。
+- 建一张 `outbox_events` 表（event_id、tenant_id、aggregate_type、aggregate_id、event_type、payload、occurred_at），`tenant_id` 非空并参与 RLS。
 - 状态变更与审计事件**在同一数据库事务**中原子完成（例：导演审批通过 → ①更新 script_revisions 为 LOCKED；②插入 SCRIPT_LOCKED 到 outbox_events）。
 - 后续后台 Worker 读 Outbox，异步发送到 Kafka/RabbitMQ 或写入分析型审计表。
 - **收益**：业务状态与审计事件绝对原子；主库轻量 + 100% 可追溯。
@@ -115,7 +120,7 @@ Project (1) ──┬── (N) Episode (1) ── (N) ScriptRevision
               └── (N) outbox_events（审计事件，append-only）
 ```
 
-- **复合外键**：`Episode` 主键 `(project_id, episode_ref)`；`ScriptRevision` 通过 `(project_id, episode_ref)` 复合外键绑定，**删除冗余 project_id**。
+- **复合外键**：`Episode` 主键 `(project_id, episode_ref)`；`ScriptRevision` 通过 `(project_id, episode_ref)` 复合外键绑定，**归属列由外键承载，禁止无约束归属副本**（见决策 2）。
 - **tenant_id**：所有核心表加 `tenant_id`，配置 RLS。
 - **Outbox**：`audit_ref` 单字段覆盖 → 独立不可变 `outbox_events` 表。
 - **统一信封**：C.3.1 信封字段收敛到统一 mixin（ORM）+ 统一 dataclass 基类（领域）。
