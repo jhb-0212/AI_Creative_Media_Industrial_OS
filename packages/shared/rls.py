@@ -22,7 +22,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.identity.principal import Principal
-from packages.shared.database import get_session
+from packages.shared.unit_of_work import UnitOfWork
 
 # RLS 上下文配置键（单一事实源，与迁移中的 RLS 策略 USING 子句对齐）。
 RLS_TENANT_SETTING = "app.current_tenant_id"
@@ -44,22 +44,22 @@ async def set_tenant_context(session: AsyncSession, tenant_id: object) -> None:
     )
 
 
-def build_tenant_session_dependency(get_principal: PrincipalDependency) -> Callable[..., AsyncIterator[AsyncSession]]:
-    """构造 ``get_tenant_session`` 依赖：解析 Principal → 注入 RLS 上下文 → 提供会话。
+def build_tenant_uow_dependency(
+    get_principal: PrincipalDependency,
+    uow_dependency: Callable[..., AsyncIterator[UnitOfWork]],
+) -> Callable[..., AsyncIterator[UnitOfWork]]:
+    """构造 tenant-aware 工作单元依赖：解析 Principal → 注入 RLS 上下文 → 提供 UoW。
 
-    依赖顺序：先解析 Principal（认证），再注入其 tenant_id 到会话的 RLS
-    上下文，最后返回会话。业务路由用此会话读写，RLS 自动隔离租户数据。
-
-    参数：
-    - get_principal：认证依赖（由 auth_dependency.build_principal_dependency 构造）。
+    读写共用同一装配逻辑：传 ``get_uow`` 得写单元，传 ``get_read_uow`` 得只读
+    单元（数据库层拒绝写语句）。RLS 上下文与事务同生命周期，事务结束自动清除。
     """
 
-    async def get_tenant_session(
+    async def get_tenant_uow(
         principal: Principal = Depends(get_principal),
-        session: AsyncSession = Depends(get_session),
-    ) -> AsyncIterator[AsyncSession]:
-        """注入 RLS 租户上下文后提供会话。"""
-        await set_tenant_context(session, principal.tenant_id)
-        yield session
+        uow: UnitOfWork = Depends(uow_dependency),
+    ) -> AsyncIterator[UnitOfWork]:
+        """注入 RLS 租户上下文后提供工作单元。"""
+        await set_tenant_context(uow.session, principal.tenant_id)
+        yield uow
 
-    return get_tenant_session
+    return get_tenant_uow

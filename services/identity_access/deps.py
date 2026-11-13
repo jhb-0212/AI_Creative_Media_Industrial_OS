@@ -1,15 +1,15 @@
 """身份治理依赖统一装配（供各 API 路由复用）。
 
-职责：把「认证（Principal）+ RLS 会话（tenant 上下文）」组装为可直接注入
+职责：把「认证（Principal）+ RLS 租户上下文 + 工作单元」组装为可直接注入
 FastAPI 路由的依赖对象，避免每个路由重复拼装 KeyStore / 依赖工厂。
 
 依赖链（单向，无循环）：
-    get_principal     —— Authorization Bearer → Principal（验签）
-    get_tenant_session —— Principal → SET LOCAL app.current_tenant_id → session
-    get_service       —— get_tenant_session → 业务 Service（各路由自行装配仓储）
+    get_principal        —— Authorization Bearer → Principal（验签）
+    get_tenant_uow       —— Principal → SET LOCAL app.current_tenant_id → 写工作单元
+    get_read_tenant_uow  —— 同上，只读工作单元（数据库层拒绝写语句）
 
-路由只做两件事：注入 principal / tenant_session，把身份与租户上下文交给
-服务层，绝不从请求体读身份字符串。
+事务约定（R07）：写用例在返回响应前显式 ``await uow.commit()``；
+不依赖 yield 依赖退出码提交（退出码在响应发出之后执行）。
 """
 
 from __future__ import annotations
@@ -18,7 +18,8 @@ from collections.abc import Awaitable, Callable
 
 from packages.identity.principal import Principal
 from packages.shared.config import get_settings
-from packages.shared.rls import build_tenant_session_dependency
+from packages.shared.rls import build_tenant_uow_dependency
+from packages.shared.unit_of_work import get_read_uow, get_uow
 from services.identity_access import get_public_key_store
 from services.identity_access.auth_dependency import build_principal_dependency
 from services.identity_access.rbac import build_authorize_dependency
@@ -30,8 +31,9 @@ get_principal = build_principal_dependency(
     audience=get_settings().identity_audience,
 )
 
-# RLS 会话依赖：Principal → 注入 tenant 上下文 → session。
-get_tenant_session = build_tenant_session_dependency(get_principal)
+# RLS 工作单元：Principal → 注入 tenant 上下文 → UoW（写 / 只读两种）。
+get_tenant_uow = build_tenant_uow_dependency(get_principal, get_uow)
+get_read_tenant_uow = build_tenant_uow_dependency(get_principal, get_read_uow)
 
 
 def require_role(action_key: str) -> Callable[..., Awaitable[Principal]]:
@@ -47,6 +49,7 @@ def require_role(action_key: str) -> Callable[..., Awaitable[Principal]]:
 __all__ = [
     "Principal",
     "get_principal",
-    "get_tenant_session",
+    "get_read_tenant_uow",
+    "get_tenant_uow",
     "require_role",
 ]

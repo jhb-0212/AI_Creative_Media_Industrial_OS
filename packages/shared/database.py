@@ -3,8 +3,8 @@
 设计要点（P0-4 根治，ADR 3.4）：
 - 引擎与会话工厂由 FastAPI Lifespan 统一管理，挂到 ``app.state``，随应用
   启动/关闭创建/释放 asyncpg 连接池；不再使用全局单例 + 事件循环动态重建。
-- ``get_session`` 依赖从 ``request.app.state.sessionmaker`` 取会话工厂，
-  不做任何事件循环亲和性判断——循环生命周期归还给运行框架负责。
+- 事务边界由 ``packages.shared.unit_of_work`` 统一提供（API 与 Worker 同一实现），
+  本模块只负责引擎/会话工厂与声明基类，不参与提交语义。
 - 测试由 conftest 注入独立引擎/会话工厂，生产代码零测试感知。
 - 密钥不落日志：DSN 中的密码来自 SecretStr，仅用于连接，不打印。
 - 连接池与超时参数显式配置，为高并发预留（pool_size / max_overflow）。
@@ -16,7 +16,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from urllib.parse import quote_plus
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -114,26 +114,3 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         await engine.dispose()
-
-
-async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
-    """依赖注入：提供独立事务会话（事务边界上移到请求层）。
-
-    采用「工作单元」语义：整个请求期间共享同一会话，仓储只做持久化
-    变更（merge/flush）而不再自行 commit；由本依赖在请求成功时统一
-    commit、异常时统一 rollback，保证多步用例的原子性。
-
-    会话工厂由 lifespan 在应用启动时挂到 ``request.app.state.sessionmaker``，
-    本依赖仅读取、不再判断事件循环亲和性（该职责归还给运行框架生命周期）。
-    """
-    sessionmaker = request.app.state.sessionmaker
-    async with sessionmaker() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            # 只对「业务异常」显式回滚并保留原始异常；取消/关闭（CancelledError、
-            # GeneratorExit 属 BaseException）不在此 await，交由 async with 退出时
-            # close() 隐式回滚，避免在取消态里再次 await 触发二次取消。
-            await session.rollback()
-            raise

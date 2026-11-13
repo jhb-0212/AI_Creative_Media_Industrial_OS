@@ -4,8 +4,8 @@
 - 各领域服务在状态迁移后，需「在同一事务内追加一条不可变审计事件」。
   若让每个服务手写 ``OutboxEventModel(...) + session.add(...)``，会散落
   重复构造逻辑；收敛为单一 ``record_event`` 函数。
-- 不 commit：事务边界仍由请求层（get_session 依赖）统一控制，本函数仅
-  ``session.add``，保证「业务状态变更 + 事件」在同一事务原子提交/回滚。
+- 不 commit：事务边界由调用方的工作单元（``packages.shared.unit_of_work``）统一
+  控制，本函数仅 ``session.add``，随工作单元一起提交/回滚。
 - 事件类型（event_type）对齐契约 action_registry.yaml 的 audit_event 字段
   （如 SCRIPT_IMPORTED / SCRIPT_LOCK_APPROVED / SCRIPT_SUPERSEDED）。
 """

@@ -16,7 +16,13 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from services.identity_access.deps import Principal, get_tenant_session, require_role
+from packages.shared.unit_of_work import UnitOfWork
+from services.identity_access.deps import (
+    Principal,
+    get_read_tenant_uow,
+    get_tenant_uow,
+    require_role,
+)
 from services.project_planning.repository.episode_sqlalchemy_repo import (
     SqlAlchemyEpisodeRepository,
 )
@@ -37,19 +43,28 @@ class CreateEpisodeRequest(BaseModel):
     entity_id: str | None = None
 
 
-def _get_service(
-    session: AsyncSession = Depends(get_tenant_session),
-) -> EpisodeService:
+def _build_service(session: AsyncSession) -> EpisodeService:
     """服务装配：RLS 会话 + episode/project 仓储端口注入。"""
     episode_repository = SqlAlchemyEpisodeRepository(session)
     project_repository = SqlAlchemyProjectRepository(session)
     return EpisodeService(episode_repository, project_repository)
 
 
+def _get_service(uow: UnitOfWork = Depends(get_tenant_uow)) -> EpisodeService:
+    """写用例服务装配（提交点由路由显式控制）。"""
+    return _build_service(uow.session)
+
+
+def _get_read_service(uow: UnitOfWork = Depends(get_read_tenant_uow)) -> EpisodeService:
+    """只读用例服务装配（只读事务，数据库层拒绝写入）。"""
+    return _build_service(uow.session)
+
+
 @router.post("", status_code=201)
 async def create_episode(
     body: CreateEpisodeRequest,
     principal: Principal = Depends(require_role("EPISODE.CREATE")),
+    uow: UnitOfWork = Depends(get_tenant_uow),
     service: EpisodeService = Depends(_get_service),
 ) -> dict[str, Any]:
     """登记集数（幂等，归属 Project）。created_by / tenant_id 来自 Principal。"""
@@ -61,6 +76,7 @@ async def create_episode(
         tenant_id=principal.tenant_id,
         entity_id=body.entity_id,
     )
+    await uow.commit()
     return episode.to_dict()
 
 
@@ -68,7 +84,7 @@ async def create_episode(
 async def get_episode(
     entity_id: str,
     _principal: Principal = Depends(require_role("EPISODE.READ")),
-    service: EpisodeService = Depends(_get_service),
+    service: EpisodeService = Depends(_get_read_service),
 ) -> dict[str, Any]:
     """按 id 查询集数（需 EPISODE.READ 授权；租户边界由 RLS 保证）。"""
     episode = await service.get_episode(entity_id)

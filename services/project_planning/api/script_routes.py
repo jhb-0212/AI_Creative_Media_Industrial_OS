@@ -21,7 +21,13 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from services.identity_access.deps import Principal, get_tenant_session, require_role
+from packages.shared.unit_of_work import UnitOfWork
+from services.identity_access.deps import (
+    Principal,
+    get_read_tenant_uow,
+    get_tenant_uow,
+    require_role,
+)
 from services.project_planning.repository.episode_sqlalchemy_repo import (
     SqlAlchemyEpisodeRepository,
 )
@@ -48,9 +54,7 @@ class ImportScriptRequest(BaseModel):
     entity_id: str | None = None
 
 
-def _get_service(
-    session: AsyncSession = Depends(get_tenant_session),
-) -> ScriptService:
+def _build_service(session: AsyncSession) -> ScriptService:
     """服务装配：RLS 会话 + 三个仓储端口 + Outbox 写入端口注入。
 
     归属验证需要 ProjectRepository（验证项目存在）与 EpisodeRepository
@@ -68,10 +72,21 @@ def _get_service(
     )
 
 
+def _get_service(uow: UnitOfWork = Depends(get_tenant_uow)) -> ScriptService:
+    """写用例服务装配（提交点由路由显式控制）。"""
+    return _build_service(uow.session)
+
+
+def _get_read_service(uow: UnitOfWork = Depends(get_read_tenant_uow)) -> ScriptService:
+    """只读用例服务装配（只读事务，数据库层拒绝写入）。"""
+    return _build_service(uow.session)
+
+
 @router.post("/import", status_code=201)
 async def import_script(
     body: ImportScriptRequest,
     principal: Principal = Depends(require_role("SCRIPT.IMPORT")),
+    uow: UnitOfWork = Depends(get_tenant_uow),
     service: ScriptService = Depends(_get_service),
 ) -> dict[str, Any]:
     """导入剧本版本（幂等，产出 DRAFT 态）。created_by / tenant_id 来自 Principal。"""
@@ -82,6 +97,8 @@ async def import_script(
         principal=principal,
         entity_id=body.entity_id,
     )
+    # 状态变更与 Outbox 事件在同一工作单元内提交，先落库再返回响应。
+    await uow.commit()
     return script.to_dict()
 
 
@@ -89,6 +106,7 @@ async def import_script(
 async def request_lock(
     entity_id: str,
     principal: Principal = Depends(require_role("SCRIPT.LOCK.REQUEST")),
+    uow: UnitOfWork = Depends(get_tenant_uow),
     service: ScriptService = Depends(_get_service),
 ) -> dict[str, Any]:
     """提交锁定申请（SCRIPT.LOCK.REQUEST，DRAFT→LOCK_PENDING）。
@@ -96,6 +114,7 @@ async def request_lock(
     requested_by = 当前 Principal（调用者本人），非客户端字符串。
     """
     script = await service.request_lock(entity_id=entity_id, principal=principal)
+    await uow.commit()
     return script.to_dict()
 
 
@@ -103,6 +122,7 @@ async def request_lock(
 async def approve_lock(
     entity_id: str,
     principal: Principal = Depends(require_role("SCRIPT.LOCK.APPROVE")),
+    uow: UnitOfWork = Depends(get_tenant_uow),
     service: ScriptService = Depends(_get_service),
 ) -> dict[str, Any]:
     """批准锁定（SCRIPT.LOCK.APPROVE，LOCK_PENDING→LOCKED）。
@@ -110,6 +130,7 @@ async def approve_lock(
     approved_by = 当前 Principal，服务层做职责分离比对（批准人 != 申请人）。
     """
     script = await service.approve_lock(entity_id=entity_id, principal=principal)
+    await uow.commit()
     return script.to_dict()
 
 
@@ -117,7 +138,7 @@ async def approve_lock(
 async def get_script(
     entity_id: str,
     _principal: Principal = Depends(require_role("SCRIPT.READ")),
-    service: ScriptService = Depends(_get_service),
+    service: ScriptService = Depends(_get_read_service),
 ) -> dict[str, Any]:
     """按 id 查询剧本版本（需 SCRIPT.READ 授权；租户边界由 RLS 保证）。"""
     script = await service.get_script(entity_id)
