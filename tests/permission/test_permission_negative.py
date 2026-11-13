@@ -19,13 +19,16 @@ from pathlib import Path
 import yaml
 
 CONTRACTS = Path(__file__).resolve().parents[2] / "contracts"
+# Action Registry 是 action_key 级权限属性的唯一权威源；
+# permission_matrix 已改为派生视图（不再保存 77/80 条副本）。
+ACTION_REGISTRY = CONTRACTS / "action_registry" / "action_registry.yaml"
 PERMISSION_MATRIX = CONTRACTS / "permission" / "permission_matrix.yaml"
 
 
 def _load_action_matrix() -> list[dict]:
-    """加载 permission_matrix.yaml 的 action_matrix.actions。"""
-    data = yaml.safe_load(PERMISSION_MATRIX.read_text(encoding="utf-8"))
-    return data["action_matrix"]["actions"]
+    """加载 action_registry.yaml 的 actions（单一事实源）。"""
+    data = yaml.safe_load(ACTION_REGISTRY.read_text(encoding="utf-8"))
+    return data["actions"]
 
 
 def _actions() -> list[dict]:

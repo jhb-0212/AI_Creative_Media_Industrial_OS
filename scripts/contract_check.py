@@ -284,6 +284,34 @@ def check_permission_matrix() -> bool:
             print(f"[FAIL] permission_matrix 缺少非空分区: {section}")
             return False
 
+    action_matrix = pm["action_matrix"]
+    # 派生视图模式（推荐）：action_matrix 不保存 action_key 副本，仅声明
+    # 权威源与总数；覆盖完整性由 action_registry 单一事实源保证。
+    if action_matrix.get("generated_from"):
+        if action_matrix["generated_from"] != "action_registry.yaml":
+            print(
+                "[FAIL] action_matrix.generated_from 必须为 action_registry.yaml，"
+                f"实际为 {action_matrix['generated_from']!r}"
+            )
+            return False
+        if action_matrix.get("actions"):
+            print(
+                "[FAIL] action_matrix 声明为派生视图，但仍保存 actions 副本（重复事实源）"
+            )
+            return False
+        expected_total = len(ar.get("actions", []))
+        declared_total = action_matrix.get("total")
+        if declared_total != expected_total:
+            print(
+                f"[FAIL] action_matrix total={declared_total} 与 action_registry "
+                f"条目数 {expected_total} 不符"
+            )
+            return False
+        print(
+            f"[PASS] Permission Matrix 为派生视图（无重复维护）：覆盖 {expected_total} 个 action"
+        )
+        return True
+
     action_keys: list[str] = []
     for idx, action in enumerate(ar.get("actions", [])):
         key = action.get("action_key") if isinstance(action, dict) else None
