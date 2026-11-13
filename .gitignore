@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+
+# 依赖锁文件可选提交（推荐提交用于可复现，见 README）
+poetry.lock
+uv.lock
+Pipfile.lock
+
+# 测试与覆盖率
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 环境变量（密钥绝不入库）
+.env
+.env.*
+!.env.example
+
+# 密钥与凭证
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+credentials.json
+
+# 日志
+*.log
+logs/
+
+# 本地数据
+data/local/
+*.db
+*.sqlite3
+
+# 对象存储本地缓存
+storage/
+tmp/
+temp/
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 构建产物
+node_modules/
+dist/

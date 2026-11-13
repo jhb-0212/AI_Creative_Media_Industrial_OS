@@ -1,0 +1,2662 @@
+# 由 action_registry.yaml 派生的 OpenAPI 3.0 草案
+# 每个 Action 一条 POST 路径；未注册 Action 不得暴露端点
+openapi: 3.0.3
+info:
+  title: AFS-ARCH-MASTER-V2.0.5 / 31.6 Action Registry 统一 Action SPI 草案
+  description: Phase 0 契约冻结用草案：只冻结操作标识、权限属性与审计事件，具体载荷 Schema 由 Phase 1 按对象契约补齐。路径与 Action Registry 一一对应，未注册 Action 不得暴露端点。
+  version: draft
+  x-afs-source-document: AFS-ARCH-MASTER-V2.0.5
+  x-afs-registry-version: V2.0.5
+  x-afs-total-actions: 75
+servers:
+- url: /api/v1
+tags:
+- name: Project
+- name: ScriptRevision
+- name: ScriptLock
+- name: ShotDraft
+- name: ShotRevision
+- name: ShotSpec
+- name: ConstraintPack
+- name: ProductionRoute
+- name: GenerationTask
+- name: AssetVersion
+- name: QCReport
+- name: GateDecision
+- name: CharacterCanon/CanonRevision
+- name: RightsCase/RightsManifest
+- name: ShotBudgetRequest
+- name: ShotBudgetRequest/BudgetLedger
+- name: BudgetTransferRequest
+- name: BudgetTransferRequest/BudgetLedger
+- name: ShowcaseSnapshot
+- name: ShareLink
+- name: CommunityPost
+- name: PublicationReview
+- name: CommunityComment
+- name: Favorite
+- name: CommunityReport
+- name: ModerationCase
+- name: Appeal
+- name: ReuseRequest
+- name: ReverseAnalysisReport
+- name: ClientReviewPortal
+- name: ReviewAnnotation
+- name: DeliverySpec
+- name: DeliveryManifest
+- name: ExternalToolAdapterManifest
+- name: AdapterCapabilityEvidence
+- name: ExternalToolAdapterManifest/AdapterCredential
+- name: ExternalToolConnection
+- name: ExternalToolConnection/AdapterVerificationEvidence
+- name: ToolExchangePackage
+- name: ExternalToolArtifact/ToolExchangeSession
+- name: ToolMetadataSnapshot/ReviewAnnotation
+- name: ExternalToolEvent
+- name: CreatorDeliveryManifest
+- name: CreatorGate
+- name: FullWorkspace
+- name: CreatorRelease/CommunityPost
+- name: CreatorRelease
+- name: CreatorWorkspace
+- name: ExportPackage
+- name: ToolExchangeSession/ExportPackage
+- name: ExportManifest/ExportPackage
+- name: ExternalToolArtifact/AssetVersion
+- name: TimelineDraft
+- name: TimelineDraftVersion
+- name: TimelineDraft/TimelineValidationReport
+- name: TimelinePreviewSession
+- name: TimelinePreset/TimelineDraft
+- name: CreatorPublicationCheck
+- name: CreatorRelease/ShareLink
+paths:
+  /actions/project.create:
+    post:
+      operationId: project.create
+      tags:
+      - Project
+      summary: PROJECT.CREATE（资源 Project，风险 MEDIUM）
+      description: 成员资格与配额校验，无自批权限。
+      x-afs-action-key: PROJECT.CREATE
+      x-afs-scope: tenant+organization
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 项目管理员/制片
+      x-afs-audit-event: PROJECT_CREATED
+      x-afs-negative-test: ACT-PROJ-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/script.import:
+    post:
+      operationId: script.import
+      tags:
+      - ScriptRevision
+      summary: SCRIPT.IMPORT（资源 ScriptRevision，风险 MEDIUM）
+      description: 检查项目写权限、文件安全与导入来源。
+      x-afs-action-key: SCRIPT.IMPORT
+      x-afs-scope: project/episode
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 导演/编剧/制片
+      x-afs-audit-event: SCRIPT_IMPORTED
+      x-afs-negative-test: ACT-SCRIPT-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/script.lock.approve:
+    post:
+      operationId: script.lock.approve
+      tags:
+      - ScriptLock
+      summary: SCRIPT.LOCK.APPROVE（资源 ScriptLock，风险 HIGH）
+      description: 人工确认，申请人与批准职责分离。
+      x-afs-action-key: SCRIPT.LOCK.APPROVE
+      x-afs-scope: project/episode
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 导演/授权编剧
+      x-afs-audit-event: SCRIPT_LOCK_APPROVED
+      x-afs-negative-test: ACT-SCRIPT-NEG-002
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/shot.draft.create:
+    post:
+      operationId: shot.draft.create
+      tags:
+      - ShotDraft
+      summary: SHOT.DRAFT.CREATE（资源 ShotDraft，风险 LOW）
+      description: Agent 仅生成 DRAFT，不写正式 ShotRevision。
+      x-afs-action-key: SHOT.DRAFT.CREATE
+      x-afs-scope: project/episode/scene
+      x-afs-risk-level: LOW
+      x-afs-token-required: true
+      x-afs-allowed-principals: Agent/编剧/导演
+      x-afs-audit-event: SHOT_DRAFT_CREATED
+      x-afs-negative-test: ACT-SHOT-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/shot.revision.confirm:
+    post:
+      operationId: shot.revision.confirm
+      tags:
+      - ShotRevision
+      summary: SHOT.REVISION.CONFIRM（资源 ShotRevision，风险 HIGH）
+      description: 人类确认，版本冲突必须拒绝。
+      x-afs-action-key: SHOT.REVISION.CONFIRM
+      x-afs-scope: project/episode/scene/shot
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 导演/镜头负责人
+      x-afs-audit-event: SHOT_REVISION_CONFIRMED
+      x-afs-negative-test: ACT-SHOT-NEG-002
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/shotspec.lock:
+    post:
+      operationId: shotspec.lock
+      tags:
+      - ShotSpec
+      summary: SHOTSPEC.LOCK（资源 ShotSpec，风险 HIGH）
+      description: 锁定维度、依据、版本和审批事件齐备。
+      x-afs-action-key: SHOTSPEC.LOCK
+      x-afs-scope: project/shot
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 导演/授权 TD
+      x-afs-audit-event: SHOTSPEC_LOCKED
+      x-afs-negative-test: ACT-SPEC-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/constraint.pack.create:
+    post:
+      operationId: constraint.pack.create
+      tags:
+      - ConstraintPack
+      summary: CONSTRAINT.PACK.CREATE（资源 ConstraintPack，风险 MEDIUM）
+      description: Agent 仅能创建 DRAFT；无锁定约束标记 NOT_APPLICABLE。
+      x-afs-action-key: CONSTRAINT.PACK.CREATE
+      x-afs-scope: project/shot
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: Agent/TD/导演
+      x-afs-audit-event: CONSTRAINT_PACK_CREATED
+      x-afs-negative-test: ACT-CNST-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/constraint.pack.lock:
+    post:
+      operationId: constraint.pack.lock
+      tags:
+      - ConstraintPack
+      summary: CONSTRAINT.PACK.LOCK（资源 ConstraintPack，风险 HIGH）
+      description: 仅锁定经批准的 BASELINE 维度；审批与版本固定。
+      x-afs-action-key: CONSTRAINT.PACK.LOCK
+      x-afs-scope: project/shot
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 导演/授权 TD
+      x-afs-audit-event: CONSTRAINT_PACK_LOCKED
+      x-afs-negative-test: ACT-CNST-NEG-002
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/production.route.select:
+    post:
+      operationId: production.route.select
+      tags:
+      - ProductionRoute
+      summary: PRODUCTION.ROUTE.SELECT（资源 ProductionRoute，风险 MEDIUM）
+      description: 路线须处于 VERIFIED 且满足 rights/capability。
+      x-afs-action-key: PRODUCTION.ROUTE.SELECT
+      x-afs-scope: project/shot/task
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 制片/TD/授权调度器
+      x-afs-audit-event: PRODUCTION_ROUTE_SELECTED
+      x-afs-negative-test: ACT-ROUTE-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/generation.request:
+    post:
+      operationId: generation.request
+      tags:
+      - GenerationTask
+      summary: GENERATION.REQUEST（资源 GenerationTask，风险 MEDIUM）
+      description: 预算、配额、依赖与约束快照通过。
+      x-afs-action-key: GENERATION.REQUEST
+      x-afs-scope: project/shot
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 导演/制片/Agent（授权范围内）
+      x-afs-audit-event: GENERATION_REQUESTED
+      x-afs-negative-test: ACT-GEN-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/asset.version.create:
+    post:
+      operationId: asset.version.create
+      tags:
+      - AssetVersion
+      summary: ASSET.VERSION.CREATE（资源 AssetVersion，风险 MEDIUM）
+      description: 仅新增不可变版本，不覆盖旧版本或改变 GOLD。
+      x-afs-action-key: ASSET.VERSION.CREATE
+      x-afs-scope: project/shot/asset
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: Worker/Model Adapter
+      x-afs-audit-event: ASSET_VERSION_CREATED
+      x-afs-negative-test: ACT-ASSET-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/asset.version.approve:
+    post:
+      operationId: asset.version.approve
+      tags:
+      - AssetVersion
+      summary: ASSET.VERSION.APPROVE（资源 AssetVersion，风险 HIGH）
+      description: 权利、QC 和证据通过。
+      x-afs-action-key: ASSET.VERSION.APPROVE
+      x-afs-scope: project/shot/asset
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 授权审核人/QC/导演按职责
+      x-afs-audit-event: ASSET_VERSION_APPROVED
+      x-afs-negative-test: ACT-ASSET-NEG-002
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/qc.report.create:
+    post:
+      operationId: qc.report.create
+      tags:
+      - QCReport
+      summary: QC.REPORT.CREATE（资源 QCReport，风险 MEDIUM）
+      description: 只写检测结果与证据，不改变 Gate。
+      x-afs-action-key: QC.REPORT.CREATE
+      x-afs-scope: project/shot/asset_version
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: QC Worker/受信检测服务
+      x-afs-audit-event: QC_REPORT_CREATED
+      x-afs-negative-test: ACT-QC-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/production.gate.approve:
+    post:
+      operationId: production.gate.approve
+      tags:
+      - GateDecision
+      summary: PRODUCTION.GATE.APPROVE（资源 GateDecision，风险 CRITICAL）
+      description: 强制角色分离、证据与审批记录。
+      x-afs-action-key: PRODUCTION.GATE.APPROVE
+      x-afs-scope: project/shot/delivery
+      x-afs-risk-level: CRITICAL
+      x-afs-token-required: true
+      x-afs-allowed-principals: 对应 Gate 授权人类职责主体
+      x-afs-audit-event: PRODUCTION_GATE_APPROVED
+      x-afs-negative-test: ACT-GATE-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/canon.change.approve:
+    post:
+      operationId: canon.change.approve
+      tags:
+      - CharacterCanon/CanonRevision
+      summary: CANON.CHANGE.APPROVE（资源 CharacterCanon/CanonRevision，风险 CRITICAL）
+      description: 变更理由、影响范围、版本和回滚关系齐备。
+      x-afs-action-key: CANON.CHANGE.APPROVE
+      x-afs-scope: project/character
+      x-afs-risk-level: CRITICAL
+      x-afs-token-required: true
+      x-afs-allowed-principals: 导演/Canon Owner
+      x-afs-audit-event: CANON_CHANGE_APPROVED
+      x-afs-negative-test: ACT-CANON-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/rights.status.change:
+    post:
+      operationId: rights.status.change
+      tags:
+      - RightsCase/RightsManifest
+      summary: RIGHTS.STATUS.CHANGE（资源 RightsCase/RightsManifest，风险 CRITICAL）
+      description: 双人或职责分离审批；权利证据必须可追溯。
+      x-afs-action-key: RIGHTS.STATUS.CHANGE
+      x-afs-scope: tenant/project/asset
+      x-afs-risk-level: CRITICAL
+      x-afs-token-required: true
+      x-afs-allowed-principals: 版权/法务授权人
+      x-afs-audit-event: RIGHTS_STATUS_CHANGED
+      x-afs-negative-test: ACT-RIGHTS-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/budget.shot.request:
+    post:
+      operationId: budget.shot.request
+      tags:
+      - ShotBudgetRequest
+      summary: BUDGET.SHOT.REQUEST（资源 ShotBudgetRequest，风险 MEDIUM）
+      description: 必须指定账户、用途、成本类别和上限。
+      x-afs-action-key: BUDGET.SHOT.REQUEST
+      x-afs-scope: project/shot/account
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 项目成员/Agent 可提交草案
+      x-afs-audit-event: SHOT_BUDGET_REQUESTED
+      x-afs-negative-test: ACT-BUDGET-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/budget.shot.approve:
+    post:
+      operationId: budget.shot.approve
+      tags:
+      - ShotBudgetRequest/BudgetLedger
+      summary: BUDGET.SHOT.APPROVE（资源 ShotBudgetRequest/BudgetLedger，风险 HIGH）
+      description: 申请人与审批人分离；不得改变 QualityReserve 用途。
+      x-afs-action-key: BUDGET.SHOT.APPROVE
+      x-afs-scope: project/account
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 预算管理员/制片
+      x-afs-audit-event: SHOT_BUDGET_APPROVED
+      x-afs-negative-test: ACT-BUDGET-NEG-002
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/budget.transfer.request:
+    post:
+      operationId: budget.transfer.request
+      tags:
+      - BudgetTransferRequest
+      summary: BUDGET.TRANSFER.REQUEST（资源 BudgetTransferRequest，风险 HIGH）
+      description: Phase 1 仅登记/不执行跨账户转拨。
+      x-afs-action-key: BUDGET.TRANSFER.REQUEST
+      x-afs-scope: tenant/project/accounts
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 预算管理员/制片提交
+      x-afs-audit-event: BUDGET_TRANSFER_REQUESTED
+      x-afs-negative-test: ACT-TRANSFER-NEG-001
+      x-afs-status: PHASE_GATED（Phase 2+）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/budget.transfer.approve:
+    post:
+      operationId: budget.transfer.approve
+      tags:
+      - BudgetTransferRequest/BudgetLedger
+      summary: BUDGET.TRANSFER.APPROVE（资源 BudgetTransferRequest/BudgetLedger，风险 CRITICAL）
+      description: 原子记账与幂等校验。
+      x-afs-action-key: BUDGET.TRANSFER.APPROVE
+      x-afs-scope: tenant/project/accounts
+      x-afs-risk-level: CRITICAL
+      x-afs-token-required: true
+      x-afs-allowed-principals: 双人职责分离的预算审批人
+      x-afs-audit-event: BUDGET_TRANSFER_APPROVED
+      x-afs-negative-test: ACT-TRANSFER-NEG-002
+      x-afs-status: PHASE_GATED（Phase 2+）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/showcase.snapshot.create:
+    post:
+      operationId: showcase.snapshot.create
+      tags:
+      - ShowcaseSnapshot
+      summary: SHOWCASE.SNAPSHOT.CREATE（资源 ShowcaseSnapshot，风险 MEDIUM）
+      description: Agent 仅创建 DRAFT，引用必须精确且可见。
+      x-afs-action-key: SHOWCASE.SNAPSHOT.CREATE
+      x-afs-scope: project/shot/asset_version
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 项目成员/Agent
+      x-afs-audit-event: SHOWCASE_SNAPSHOT_CREATED
+      x-afs-negative-test: ACT-SHOWCASE-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/showcase.snapshot.revoke:
+    post:
+      operationId: showcase.snapshot.revoke
+      tags:
+      - ShowcaseSnapshot
+      summary: SHOWCASE.SNAPSHOT.REVOKE（资源 ShowcaseSnapshot，风险 HIGH）
+      description: 记录原因、范围、证据和影响快照。
+      x-afs-action-key: SHOWCASE.SNAPSHOT.REVOKE
+      x-afs-scope: snapshot/audience
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 版权/安全/组织授权人
+      x-afs-audit-event: SHOWCASE_SNAPSHOT_REVOKED
+      x-afs-negative-test: ACT-SHOWCASE-NEG-002
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/showcase.share.create:
+    post:
+      operationId: showcase.share.create
+      tags:
+      - ShareLink
+      summary: SHOWCASE.SHARE.CREATE（资源 ShareLink，风险 MEDIUM）
+      description: 只读、下载默认关闭、有效期/水印/受众必填。
+      x-afs-action-key: SHOWCASE.SHARE.CREATE
+      x-afs-scope: snapshot/audience
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 导演/制片/项目管理员
+      x-afs-audit-event: SHARE_LINK_CREATED
+      x-afs-negative-test: ACT-SHARE-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/showcase.share.revoke:
+    post:
+      operationId: showcase.share.revoke
+      tags:
+      - ShareLink
+      summary: SHOWCASE.SHARE.REVOKE（资源 ShareLink，风险 HIGH）
+      description: 撤销理由留痕。
+      x-afs-action-key: SHOWCASE.SHARE.REVOKE
+      x-afs-scope: share_link/audience
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 链接创建授权人/组织管理员/版权安全人员
+      x-afs-audit-event: SHARE_LINK_REVOKED
+      x-afs-negative-test: ACT-SHARE-NEG-002
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/community.post.submit:
+    post:
+      operationId: community.post.submit
+      tags:
+      - CommunityPost
+      summary: COMMUNITY.POST.SUBMIT（资源 CommunityPost，风险 MEDIUM）
+      description: 绑定有效快照、内容类型、受众和权利证据。
+      x-afs-action-key: COMMUNITY.POST.SUBMIT
+      x-afs-scope: organization/post
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 作者/内容权利人
+      x-afs-audit-event: COMMUNITY_POST_SUBMITTED
+      x-afs-negative-test: ACT-COMM-NEG-001
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/community.post.approve:
+    post:
+      operationId: community.post.approve
+      tags:
+      - PublicationReview
+      summary: COMMUNITY.POST.APPROVE（资源 PublicationReview，风险 HIGH）
+      description: 提交人与审批人分离，证据审查并留决定。
+      x-afs-action-key: COMMUNITY.POST.APPROVE
+      x-afs-scope: organization/post
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 组织审核员/版主
+      x-afs-audit-event: COMMUNITY_POST_APPROVED
+      x-afs-negative-test: ACT-COMM-NEG-002
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/community.post.publish.org:
+    post:
+      operationId: community.post.publish.org
+      tags:
+      - CommunityPost
+      summary: COMMUNITY.POST.PUBLISH.ORG（资源 CommunityPost，风险 HIGH）
+      description: PG0—PG3 通过并核验组织受众。
+      x-afs-action-key: COMMUNITY.POST.PUBLISH.ORG
+      x-afs-scope: organization/post
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 组织授权发布人
+      x-afs-audit-event: COMMUNITY_POST_PUBLISHED_ORG
+      x-afs-negative-test: ACT-COMM-NEG-003
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/community.post.publish.public:
+    post:
+      operationId: community.post.publish.public
+      tags:
+      - CommunityPost
+      summary: COMMUNITY.POST.PUBLISH.PUBLIC（资源 CommunityPost，风险 CRITICAL）
+      description: PG0—PG3 完整通过，权利范围含公开传播。
+      x-afs-action-key: COMMUNITY.POST.PUBLISH.PUBLIC
+      x-afs-scope: public/post
+      x-afs-risk-level: CRITICAL
+      x-afs-token-required: true
+      x-afs-allowed-principals: 平台版主/公开发布授权人
+      x-afs-audit-event: COMMUNITY_POST_PUBLISHED_PUBLIC
+      x-afs-negative-test: ACT-COMM-NEG-004
+      x-afs-status: PHASE_GATED（Phase 3）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/community.post.unlist:
+    post:
+      operationId: community.post.unlist
+      tags:
+      - CommunityPost
+      summary: COMMUNITY.POST.UNLIST（资源 CommunityPost，风险 MEDIUM）
+      description: 记录原因、受众、影响和通知。
+      x-afs-action-key: COMMUNITY.POST.UNLIST
+      x-afs-scope: organization/public/post
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 作者/组织管理员/版主
+      x-afs-audit-event: COMMUNITY_POST_UNLISTED
+      x-afs-negative-test: ACT-COMM-NEG-005
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/community.post.takedown:
+    post:
+      operationId: community.post.takedown
+      tags:
+      - CommunityPost
+      summary: COMMUNITY.POST.TAKEDOWN（资源 CommunityPost，风险 HIGH）
+      description: 依据、范围、通知和证据必填。
+      x-afs-action-key: COMMUNITY.POST.TAKEDOWN
+      x-afs-scope: organization/public/post
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 版主/版权/安全授权人
+      x-afs-audit-event: COMMUNITY_POST_TAKEN_DOWN
+      x-afs-negative-test: ACT-COMM-NEG-006
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/community.comment.create:
+    post:
+      operationId: community.comment.create
+      tags:
+      - CommunityComment
+      summary: COMMUNITY.COMMENT.CREATE（资源 CommunityComment，风险 LOW）
+      description: 评论开关、内容安全、速率限制和帖子状态校验。
+      x-afs-action-key: COMMUNITY.COMMENT.CREATE
+      x-afs-scope: organization/post/comment
+      x-afs-risk-level: LOW
+      x-afs-token-required: true
+      x-afs-allowed-principals: 在帖子受众范围内的登录用户/获邀访客
+      x-afs-audit-event: COMMUNITY_COMMENT_CREATED
+      x-afs-negative-test: ACT-COMMENT-NEG-001
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/community.favorite.create:
+    post:
+      operationId: community.favorite.create
+      tags:
+      - Favorite
+      summary: COMMUNITY.FAVORITE.CREATE（资源 Favorite，风险 LOW）
+      description: 校验可见性、账号状态和幂等唯一键。
+      x-afs-action-key: COMMUNITY.FAVORITE.CREATE
+      x-afs-scope: organization/post/user
+      x-afs-risk-level: LOW
+      x-afs-token-required: true
+      x-afs-allowed-principals: 在帖子受众范围内的登录用户
+      x-afs-audit-event: COMMUNITY_FAVORITE_CREATED
+      x-afs-negative-test: ACT-FAVORITE-NEG-001
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/community.favorite.remove:
+    post:
+      operationId: community.favorite.remove
+      tags:
+      - Favorite
+      summary: COMMUNITY.FAVORITE.REMOVE（资源 Favorite，风险 LOW）
+      description: 只能移除本人收藏，要求幂等。
+      x-afs-action-key: COMMUNITY.FAVORITE.REMOVE
+      x-afs-scope: organization/post/user
+      x-afs-risk-level: LOW
+      x-afs-token-required: true
+      x-afs-allowed-principals: 收藏关系所属用户
+      x-afs-audit-event: COMMUNITY_FAVORITE_REMOVED
+      x-afs-negative-test: ACT-FAVORITE-NEG-002
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/community.report.create:
+    post:
+      operationId: community.report.create
+      tags:
+      - CommunityReport
+      summary: COMMUNITY.REPORT.CREATE（资源 CommunityReport，风险 LOW）
+      description: 举报不自动构成事实裁决。
+      x-afs-action-key: COMMUNITY.REPORT.CREATE
+      x-afs-scope: post/comment/user
+      x-afs-risk-level: LOW
+      x-afs-token-required: true
+      x-afs-allowed-principals: 可见范围内用户
+      x-afs-audit-event: COMMUNITY_REPORT_CREATED
+      x-afs-negative-test: ACT-COMM-NEG-007
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/community.report.handle:
+    post:
+      operationId: community.report.handle
+      tags:
+      - ModerationCase
+      summary: COMMUNITY.REPORT.HANDLE（资源 ModerationCase，风险 HIGH）
+      description: 独立调查、证据、处理时限与通知。
+      x-afs-action-key: COMMUNITY.REPORT.HANDLE
+      x-afs-scope: post/comment/user
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 版主/版权/安全人员
+      x-afs-audit-event: COMMUNITY_REPORT_HANDLED
+      x-afs-negative-test: ACT-COMM-NEG-008
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/community.appeal.submit:
+    post:
+      operationId: community.appeal.submit
+      tags:
+      - Appeal
+      summary: COMMUNITY.APPEAL.SUBMIT（资源 Appeal，风险 MEDIUM）
+      description: 须引用原处置与申诉理由/证据。
+      x-afs-action-key: COMMUNITY.APPEAL.SUBMIT
+      x-afs-scope: takedown/post
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 作者/权利主体
+      x-afs-audit-event: COMMUNITY_APPEAL_SUBMITTED
+      x-afs-negative-test: ACT-APPEAL-NEG-001
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/community.appeal.review:
+    post:
+      operationId: community.appeal.review
+      tags:
+      - Appeal
+      summary: COMMUNITY.APPEAL.REVIEW（资源 Appeal，风险 HIGH）
+      description: 必须与原处置人分离，决定码固定。
+      x-afs-action-key: COMMUNITY.APPEAL.REVIEW
+      x-afs-scope: takedown/post
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 独立复核人
+      x-afs-audit-event: COMMUNITY_APPEAL_DECIDED
+      x-afs-negative-test: ACT-APPEAL-NEG-002
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/community.reuse.request:
+    post:
+      operationId: community.reuse.request
+      tags:
+      - ReuseRequest
+      summary: COMMUNITY.REUSE.REQUEST（资源 ReuseRequest，风险 MEDIUM）
+      description: 只可申请明确资产/信息/用途范围。
+      x-afs-action-key: COMMUNITY.REUSE.REQUEST
+      x-afs-scope: source_snapshot/target_project
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 申请人
+      x-afs-audit-event: COMMUNITY_REUSE_REQUESTED
+      x-afs-negative-test: ACT-REUSE-NEG-001
+      x-afs-status: ACTIVE（Phase 1 人工申请）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/community.reuse.approve:
+    post:
+      operationId: community.reuse.approve
+      tags:
+      - ReuseRequest
+      summary: COMMUNITY.REUSE.APPROVE（资源 ReuseRequest，风险 CRITICAL）
+      description: Agent 只建草案。
+      x-afs-action-key: COMMUNITY.REUSE.APPROVE
+      x-afs-scope: source_asset/target_project
+      x-afs-risk-level: CRITICAL
+      x-afs-token-required: true
+      x-afs-allowed-principals: 源权利人+目标项目负责人+相关职责审批
+      x-afs-audit-event: COMMUNITY_REUSE_APPROVED
+      x-afs-negative-test: ACT-REUSE-NEG-002
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/reverse.analysis.create:
+    post:
+      operationId: reverse.analysis.create
+      tags:
+      - ReverseAnalysisReport
+      summary: REVERSE.ANALYSIS.CREATE（资源 ReverseAnalysisReport，风险 MEDIUM）
+      description: 结果默认为 REFERENCE_ONLY。
+      x-afs-action-key: REVERSE.ANALYSIS.CREATE
+      x-afs-scope: source_video/project
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 已获源素材上传/分析/截帧权利的成员
+      x-afs-audit-event: REVERSE_ANALYSIS_CREATED
+      x-afs-negative-test: ACT-REV-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/reverse.analysis.confirm:
+    post:
+      operationId: reverse.analysis.confirm
+      tags:
+      - ReverseAnalysisReport
+      summary: REVERSE.ANALYSIS.CONFIRM（资源 ReverseAnalysisReport，风险 HIGH）
+      description: 只确认参考报告，不锁定 ShotSpec/ConstraintPack/Canon。
+      x-afs-action-key: REVERSE.ANALYSIS.CONFIRM
+      x-afs-scope: report/project
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 导演/授权审核人
+      x-afs-audit-event: REVERSE_ANALYSIS_CONFIRMED
+      x-afs-negative-test: ACT-REV-NEG-002
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/client.review.create:
+    post:
+      operationId: client.review.create
+      tags:
+      - ClientReviewPortal
+      summary: CLIENT.REVIEW.CREATE（资源 ClientReviewPortal，风险 MEDIUM）
+      description: 指定版本、受众、有效期、水印与只读权限。
+      x-afs-action-key: CLIENT.REVIEW.CREATE
+      x-afs-scope: project/asset_version/audience
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 制片/项目负责人
+      x-afs-audit-event: CLIENT_REVIEW_CREATED
+      x-afs-negative-test: ACT-CLIENT-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/client.review.annotate:
+    post:
+      operationId: client.review.annotate
+      tags:
+      - ReviewAnnotation
+      summary: CLIENT.REVIEW.ANNOTATE（资源 ReviewAnnotation，风险 LOW）
+      description: 批注锚定精确版本与时间码，不改 QC/Gate。
+      x-afs-action-key: CLIENT.REVIEW.ANNOTATE
+      x-afs-scope: asset_version/timecode
+      x-afs-risk-level: LOW
+      x-afs-token-required: true
+      x-afs-allowed-principals: 受邀客户/委托方
+      x-afs-audit-event: CLIENT_REVIEW_ANNOTATED
+      x-afs-negative-test: ACT-CLIENT-NEG-002
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/delivery.spec.approve:
+    post:
+      operationId: delivery.spec.approve
+      tags:
+      - DeliverySpec
+      summary: DELIVERY.SPEC.APPROVE（资源 DeliverySpec，风险 HIGH）
+      description: 确认规格，不替代内部终检。
+      x-afs-action-key: DELIVERY.SPEC.APPROVE
+      x-afs-scope: project/delivery
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 交付负责人/合同授权客户代表
+      x-afs-audit-event: DELIVERY_SPEC_APPROVED
+      x-afs-negative-test: ACT-DELIVERY-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/delivery.manifest.create:
+    post:
+      operationId: delivery.manifest.create
+      tags:
+      - DeliveryManifest
+      summary: DELIVERY.MANIFEST.CREATE（资源 DeliveryManifest，风险 MEDIUM）
+      description: 仅生成 DRAFT 并绑定完整证据引用。
+      x-afs-action-key: DELIVERY.MANIFEST.CREATE
+      x-afs-scope: project/asset_version/delivery
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 交付服务/授权制片
+      x-afs-audit-event: DELIVERY_MANIFEST_CREATED
+      x-afs-negative-test: ACT-DELIVERY-NEG-002
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/delivery.manifest.approve:
+    post:
+      operationId: delivery.manifest.approve
+      tags:
+      - DeliveryManifest
+      summary: DELIVERY.MANIFEST.APPROVE（资源 DeliveryManifest，风险 HIGH）
+      description: Gate4、PictureLock、权利证据和终检报告齐备。
+      x-afs-action-key: DELIVERY.MANIFEST.APPROVE
+      x-afs-scope: project/delivery
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 交付负责人+内部 QC/权利职责
+      x-afs-audit-event: DELIVERY_MANIFEST_APPROVED
+      x-afs-negative-test: ACT-DELIVERY-NEG-003
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/delivery.manifest.release:
+    post:
+      operationId: delivery.manifest.release
+      tags:
+      - DeliveryManifest
+      summary: DELIVERY.MANIFEST.RELEASE（资源 DeliveryManifest，风险 CRITICAL）
+      description: 只释放已 VALIDATED 的不可变版本。
+      x-afs-action-key: DELIVERY.MANIFEST.RELEASE
+      x-afs-scope: project/delivery/package
+      x-afs-risk-level: CRITICAL
+      x-afs-token-required: true
+      x-afs-allowed-principals: 交付负责人/授权发行主体
+      x-afs-audit-event: DELIVERY_MANIFEST_RELEASED
+      x-afs-negative-test: ACT-DELIVERY-NEG-004
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/external_tool.adapter.register:
+    post:
+      operationId: external_tool.adapter.register
+      tags:
+      - ExternalToolAdapterManifest
+      summary: EXTERNAL_TOOL.ADAPTER.REGISTER（资源 ExternalToolAdapterManifest，风险 HIGH）
+      description: 签名、来源、沙箱、权限范围和供应商版本信息齐备；登记人不得单独批准生产启用。
+      x-afs-action-key: EXTERNAL_TOOL.ADAPTER.REGISTER
+      x-afs-scope: tenant/organization
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 平台集成管理员/安全负责人
+      x-afs-audit-event: EXTERNAL_TOOL_ADAPTER_REGISTERED
+      x-afs-negative-test: ACT-EXT-NEG-001
+      x-afs-status: PHASE_GATED（Phase 0 契约/注册能力）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/external_tool.adapter.verify:
+    post:
+      operationId: external_tool.adapter.verify
+      tags:
+      - AdapterCapabilityEvidence
+      summary: EXTERNAL_TOOL.ADAPTER.VERIFY（资源 AdapterCapabilityEvidence，风险 HIGH）
+      description: 必须提交格式往返、权限、回调、隔离和回滚证据；不得手工将未测试能力标为 VERIFIED。
+      x-afs-action-key: EXTERNAL_TOOL.ADAPTER.VERIFY
+      x-afs-scope: adapter/version/capability
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 集成工程负责人执行验证，安全/QC职责独立复核
+      x-afs-audit-event: EXTERNAL_TOOL_ADAPTER_VERIFIED
+      x-afs-negative-test: ACT-EXT-NEG-002
+      x-afs-status: PHASE_GATED（Phase 0 验证规范）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/external_tool.adapter.revoke:
+    post:
+      operationId: external_tool.adapter.revoke
+      tags:
+      - ExternalToolAdapterManifest/AdapterCredential
+      summary: EXTERNAL_TOOL.ADAPTER.REVOKE（资源 ExternalToolAdapterManifest/AdapterCredential，风险 CRITICAL）
+      description: 可紧急暂停或撤销；必须吊销短期 Token、连接凭证和回调密钥并记录影响范围。
+      x-afs-action-key: EXTERNAL_TOOL.ADAPTER.REVOKE
+      x-afs-scope: tenant/adapter
+      x-afs-risk-level: CRITICAL
+      x-afs-token-required: true
+      x-afs-allowed-principals: 平台安全负责人/授权管理员
+      x-afs-audit-event: EXTERNAL_TOOL_ADAPTER_REVOKED
+      x-afs-negative-test: ACT-EXT-NEG-003
+      x-afs-status: PHASE_GATED（Phase 0 安全控制）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/external_tool.connection.create:
+    post:
+      operationId: external_tool.connection.create
+      tags:
+      - ExternalToolConnection
+      summary: EXTERNAL_TOOL.CONNECTION.CREATE（资源 ExternalToolConnection，风险 MEDIUM）
+      description: 只能引用 Secrets Manager credential_ref，不接收或回显明文密钥；明确租户、项目、工具实例和授权范围。
+      x-afs-action-key: EXTERNAL_TOOL.CONNECTION.CREATE
+      x-afs-scope: organization/project/adapter
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 项目管理员/TD
+      x-afs-audit-event: EXTERNAL_TOOL_CONNECTION_CREATED
+      x-afs-negative-test: ACT-EXT-NEG-004
+      x-afs-status: PHASE_GATED（Phase 1）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/external_tool.connection.validate:
+    post:
+      operationId: external_tool.connection.validate
+      tags:
+      - ExternalToolConnection/AdapterVerificationEvidence
+      summary: EXTERNAL_TOOL.CONNECTION.VALIDATE（资源 ExternalToolConnection/AdapterVerificationEvidence，风险 MEDIUM）
+      description: 验证工具版本、连接、权限、格式和能力声明；验证失败不得创建生产可用连接。
+      x-afs-action-key: EXTERNAL_TOOL.CONNECTION.VALIDATE
+      x-afs-scope: organization/project
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: TD/集成 Worker
+      x-afs-audit-event: EXTERNAL_TOOL_CONNECTION_VALIDATED
+      x-afs-negative-test: ACT-EXT-NEG-005
+      x-afs-status: PHASE_GATED（Phase 1）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/external_tool.export.create:
+    post:
+      operationId: external_tool.export.create
+      tags:
+      - ToolExchangePackage
+      summary: EXTERNAL_TOOL.EXPORT.CREATE（资源 ToolExchangePackage，风险 MEDIUM）
+      description: 必须固定源 AssetVersion、导出范围、Rights/Policy 快照和有效期；不得导出密钥、私有提示词或未授权素材。
+      x-afs-action-key: EXTERNAL_TOOL.EXPORT.CREATE
+      x-afs-scope: project/shot/asset_version
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 具有导出权的项目成员/制片
+      x-afs-audit-event: EXTERNAL_TOOL_EXPORT_CREATED
+      x-afs-negative-test: ACT-EXT-NEG-006
+      x-afs-status: PHASE_GATED（Phase 1）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/external_tool.import.submit:
+    post:
+      operationId: external_tool.import.submit
+      tags:
+      - ExternalToolArtifact/ToolExchangeSession
+      summary: EXTERNAL_TOOL.IMPORT.SUBMIT（资源 ExternalToolArtifact/ToolExchangeSession，风险 MEDIUM）
+      description: 只进入隔离暂存和验证流程；必须校验哈希、格式、来源血缘、恶意文件和版权，不得直接创建 APPROVED/GOLD 版本。
+      x-afs-action-key: EXTERNAL_TOOL.IMPORT.SUBMIT
+      x-afs-scope: project/asset
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 项目成员/授权工具回调
+      x-afs-audit-event: EXTERNAL_TOOL_IMPORT_SUBMITTED
+      x-afs-negative-test: ACT-EXT-NEG-007
+      x-afs-status: PHASE_GATED（Phase 1）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/external_tool.metadata.sync:
+    post:
+      operationId: external_tool.metadata.sync
+      tags:
+      - ToolMetadataSnapshot/ReviewAnnotation
+      summary: EXTERNAL_TOOL.METADATA.SYNC（资源 ToolMetadataSnapshot/ReviewAnnotation，风险 MEDIUM）
+      description: 只同步可映射元数据和批注建议；不得覆盖 QCReport、GateDecision、Canon 或 Rights 状态。
+      x-afs-action-key: EXTERNAL_TOOL.METADATA.SYNC
+      x-afs-scope: project/shot/asset_version/timecode
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 项目成员/QC/客户审片受邀主体按字段授权
+      x-afs-audit-event: EXTERNAL_TOOL_METADATA_SYNCED
+      x-afs-negative-test: ACT-EXT-NEG-008
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/external_tool.event.ingest:
+    post:
+      operationId: external_tool.event.ingest
+      tags:
+      - ExternalToolEvent
+      summary: EXTERNAL_TOOL.EVENT.INGEST（资源 ExternalToolEvent，风险 HIGH）
+      description: 校验签名、时间窗、nonce、幂等键和 allowlist；事件只可触发白名单领域命令，不得直写业务状态。
+      x-afs-action-key: EXTERNAL_TOOL.EVENT.INGEST
+      x-afs-scope: tenant/organization/project/adapter
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 受信 Adapter Runtime/签名回调服务
+      x-afs-audit-event: EXTERNAL_TOOL_EVENT_INGESTED
+      x-afs-negative-test: ACT-EXT-NEG-009
+      x-afs-status: PHASE_GATED（Phase 3）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/creator.delivery.manifest.create:
+    post:
+      operationId: creator.delivery.manifest.create
+      tags:
+      - CreatorDeliveryManifest
+      summary: CREATOR.DELIVERY.MANIFEST.CREATE（资源 CreatorDeliveryManifest，风险 MEDIUM）
+      description: 要求外部渲染回流、新 AssetVersion、CreatorGate PASS 和 Rights 通过；不得创建工业 DeliveryManifest。
+      x-afs-action-key: CREATOR.DELIVERY.MANIFEST.CREATE
+      x-afs-scope: creator_workspace/render_asset
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: Creator Delivery Service
+      x-afs-audit-event: CREATOR_DELIVERY_MANIFEST_CREATED
+      x-afs-negative-test: ACT-CR-NEG-003
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/creator.gate.evaluate:
+    post:
+      operationId: creator.gate.evaluate
+      tags:
+      - CreatorGate
+      summary: CREATOR.GATE.EVALUATE（资源 CreatorGate，风险 HIGH）
+      description: 只生成 PASS/BLOCKED/NEEDS_USER_INPUT 评估证据，不授予发布权、不改变工业 Gate。
+      x-afs-action-key: CREATOR.GATE.EVALUATE
+      x-afs-scope: creator_workspace/creator_asset
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 受信 Creator Policy Worker
+      x-afs-audit-event: CREATOR_GATE_EVALUATED
+      x-afs-negative-test: ACT-CR-NEG-002
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/creator.mode.upgrade:
+    post:
+      operationId: creator.mode.upgrade
+      tags:
+      - FullWorkspace
+      summary: CREATOR.MODE.UPGRADE（资源 FullWorkspace，风险 HIGH）
+      description: 创建 FULL_MODE 后继工作区；旧 Creator 资产仅作 DRAFT 参考，不继承 Gate4/DELIVERED_FINAL。
+      x-afs-action-key: CREATOR.MODE.UPGRADE
+      x-afs-scope: project/creator_workspace
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 创作者本人/项目管理员显式发起
+      x-afs-audit-event: CREATOR_MODE_UPGRADED
+      x-afs-negative-test: ACT-CR-NEG-006
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/creator.release.publish:
+    post:
+      operationId: creator.release.publish
+      tags:
+      - CreatorRelease/CommunityPost
+      summary: CREATOR.RELEASE.PUBLISH（资源 CreatorRelease/CommunityPost，风险 CRITICAL）
+      description: 必须绑定 user_intent_id 和短时 CapabilityToken；自动 CREATOR_PUBLICATION_CHECK=PASSES 后发布；Agent/Skill/Plugin 不得代发。
+      x-afs-action-key: CREATOR.RELEASE.PUBLISH
+      x-afs-scope: creator_workspace/publication
+      x-afs-risk-level: CRITICAL
+      x-afs-token-required: true
+      x-afs-allowed-principals: 仅允许 CreatorWorkspace 所有者本人显式点击发布
+      x-afs-audit-event: CREATOR_RELEASE_PUBLISHED
+      x-afs-negative-test: ACT-CR-NEG-005
+      x-afs-status: PHASE_GATED（Phase 3 公开）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/creator.release.submit:
+    post:
+      operationId: creator.release.submit
+      tags:
+      - CreatorRelease
+      summary: CREATOR.RELEASE.SUBMIT（资源 CreatorRelease，风险 MEDIUM）
+      description: 绑定 CREATOR_DELIVERY、受众及 Rights 证据；提交仅形成发布候选，不公开。
+      x-afs-action-key: CREATOR.RELEASE.SUBMIT
+      x-afs-scope: creator_workspace/snapshot
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 创作者/作品权利主体
+      x-afs-audit-event: CREATOR_RELEASE_SUBMITTED
+      x-afs-negative-test: ACT-CR-NEG-004
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/creator.workspace.create:
+    post:
+      operationId: creator.workspace.create
+      tags:
+      - CreatorWorkspace
+      summary: CREATOR.WORKSPACE.CREATE（资源 CreatorWorkspace，风险 MEDIUM）
+      description: 创建时固化 workspace_mode=CREATOR_MODE 和策略版本；禁止跨租户创建。
+      x-afs-action-key: CREATOR.WORKSPACE.CREATE
+      x-afs-scope: tenant/organization/account
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 账号所有者/项目管理员
+      x-afs-audit-event: CREATOR_WORKSPACE_CREATED
+      x-afs-negative-test: ACT-CR-NEG-001
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/export.package.create:
+    post:
+      operationId: export.package.create
+      tags:
+      - ExportPackage
+      summary: EXPORT.PACKAGE.CREATE（资源 ExportPackage，风险 MEDIUM）
+      description: 固定素材版本、受众、Format Profile 与 Rights/Policy 快照。
+      x-afs-action-key: EXPORT.PACKAGE.CREATE
+      x-afs-scope: project/timeline/asset
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 有导出权限的创作者/导演/制片
+      x-afs-audit-event: EXPORT_PACKAGE_CREATED
+      x-afs-negative-test: ACT-EXP-NEG-001
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/export.package.export:
+    post:
+      operationId: export.package.export
+      tags:
+      - ExportPackage
+      summary: EXPORT.PACKAGE.EXPORT（资源 ExportPackage，风险 HIGH）
+      description: 仅允许导出 VALIDATED 不可变包；记录受众、下载范围与审计。
+      x-afs-action-key: EXPORT.PACKAGE.EXPORT
+      x-afs-scope: project/package/audience
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 包所有者/获授权项目成员
+      x-afs-audit-event: EXPORT_PACKAGE_EXPORTED
+      x-afs-negative-test: ACT-EXP-NEG-003
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/export.package.import.ack:
+    post:
+      operationId: export.package.import.ack
+      tags:
+      - ToolExchangeSession/ExportPackage
+      summary: EXPORT.PACKAGE.IMPORT.ACK（资源 ToolExchangeSession/ExportPackage，风险 LOW）
+      description: 只登记“用户确认已导入”事实，不代表工具能力验证成功。
+      x-afs-action-key: EXPORT.PACKAGE.IMPORT.ACK
+      x-afs-scope: project/package
+      x-afs-risk-level: LOW
+      x-afs-token-required: true
+      x-afs-allowed-principals: 创作者手动确认/可信适配器
+      x-afs-audit-event: EXPORT_PACKAGE_IMPORT_ACKED
+      x-afs-negative-test: ACT-EXP-NEG-004
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/export.package.validate:
+    post:
+      operationId: export.package.validate
+      tags:
+      - ExportManifest/ExportPackage
+      summary: EXPORT.PACKAGE.VALIDATE（资源 ExportManifest/ExportPackage，风险 HIGH）
+      description: 校验文件、哈希、时间码、字幕、音轨、格式与 CRITICAL 权利状态。
+      x-afs-action-key: EXPORT.PACKAGE.VALIDATE
+      x-afs-scope: project/package
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: Export Validator/版权合规 Worker
+      x-afs-audit-event: EXPORT_PACKAGE_VALIDATED
+      x-afs-negative-test: ACT-EXP-NEG-002
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/external_tool.return.ingest:
+    post:
+      operationId: external_tool.return.ingest
+      tags:
+      - ExternalToolArtifact/AssetVersion
+      summary: EXTERNAL_TOOL.RETURN.INGEST（资源 ExternalToolArtifact/AssetVersion，风险 HIGH）
+      description: 先进入 Staging/Quarantine；扫描、Rights、血缘通过后创建新 AssetVersion 并重新 QC/Gate。
+      x-afs-action-key: EXTERNAL_TOOL.RETURN.INGEST
+      x-afs-scope: project/asset
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 授权用户/受信 Adapter Runtime
+      x-afs-audit-event: EXTERNAL_TOOL_RETURN_INGESTED
+      x-afs-negative-test: ACT-EXT-NEG-010
+      x-afs-status: PHASE_GATED（Phase 2 手动/Phase 3 插件）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/timeline.draft.create:
+    post:
+      operationId: timeline.draft.create
+      tags:
+      - TimelineDraft
+      summary: TIMELINE.DRAFT.CREATE（资源 TimelineDraft，风险 LOW）
+      description: Agent 仅创建 DRAFT；project/workspace scope 必须匹配。
+      x-afs-action-key: TIMELINE.DRAFT.CREATE
+      x-afs-scope: organization/project/episode
+      x-afs-risk-level: LOW
+      x-afs-token-required: true
+      x-afs-allowed-principals: Creator/导演/授权 Agent
+      x-afs-audit-event: TIMELINE_DRAFT_CREATED
+      x-afs-negative-test: ACT-TL-NEG-001
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/timeline.draft.revise:
+    post:
+      operationId: timeline.draft.revise
+      tags:
+      - TimelineDraftVersion
+      summary: TIMELINE.DRAFT.REVISE（资源 TimelineDraftVersion，风险 MEDIUM）
+      description: expected_version 必填；每次修改生成新版本，不覆盖历史。
+      x-afs-action-key: TIMELINE.DRAFT.REVISE
+      x-afs-scope: project/timeline
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 时间线所有者/导演/授权协作者
+      x-afs-audit-event: TIMELINE_DRAFT_REVISED
+      x-afs-negative-test: ACT-TL-NEG-002
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/timeline.draft.validate:
+    post:
+      operationId: timeline.draft.validate
+      tags:
+      - TimelineDraft/TimelineValidationReport
+      summary: TIMELINE.DRAFT.VALIDATE（资源 TimelineDraft/TimelineValidationReport，风险 MEDIUM）
+      description: 只生成验证报告；不得绕过 Rights、素材完整性、帧率/时间码错误。
+      x-afs-action-key: TIMELINE.DRAFT.VALIDATE
+      x-afs-scope: project/timeline
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 验证 Worker/授权用户
+      x-afs-audit-event: TIMELINE_DRAFT_VALIDATED
+      x-afs-negative-test: ACT-TL-NEG-003
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/timeline.preview.start:
+    post:
+      operationId: timeline.preview.start
+      tags:
+      - TimelinePreviewSession
+      summary: TIMELINE.PREVIEW.START（资源 TimelinePreviewSession，风险 LOW）
+      description: 只播放低清代理片段序列；无文件导出、无拼接媒体生成。
+      x-afs-action-key: TIMELINE.PREVIEW.START
+      x-afs-scope: project/timeline/asset_version
+      x-afs-risk-level: LOW
+      x-afs-token-required: true
+      x-afs-allowed-principals: 项目授权成员/创作者
+      x-afs-audit-event: TIMELINE_PREVIEW_STARTED
+      x-afs-negative-test: ACT-TL-NEG-004
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/timeline.draft.archive:
+    post:
+      operationId: timeline.draft.archive
+      tags:
+      - TimelineDraft
+      summary: TIMELINE.DRAFT.ARCHIVE（资源 TimelineDraft，风险 MEDIUM）
+      description: 只能归档本人有权管理的非当前活动版本；保留血缘与审计。
+      x-afs-action-key: TIMELINE.DRAFT.ARCHIVE
+      x-afs-scope: workspace/project/timeline
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 时间线所有者/导演/Creator Workspace 所有者
+      x-afs-audit-event: TIMELINE_DRAFT_ARCHIVED
+      x-afs-negative-test: ACT-TL-NEG-006
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/timeline.template.apply:
+    post:
+      operationId: timeline.template.apply
+      tags:
+      - TimelinePreset/TimelineDraft
+      summary: TIMELINE.TEMPLATE.APPLY（资源 TimelinePreset/TimelineDraft，风险 LOW）
+      description: 仅把短视频/短剧/口播预设应用为可编辑草案；不得锁定表达或覆盖旧版本。
+      x-afs-action-key: TIMELINE.TEMPLATE.APPLY
+      x-afs-scope: workspace/project/timeline
+      x-afs-risk-level: LOW
+      x-afs-token-required: true
+      x-afs-allowed-principals: 创作者/导演/授权协作者
+      x-afs-audit-event: TIMELINE_TEMPLATE_APPLIED
+      x-afs-negative-test: ACT-TL-NEG-005
+      x-afs-status: PHASE_GATED（Phase 2）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/creator.publication.check:
+    post:
+      operationId: creator.publication.check
+      tags:
+      - CreatorPublicationCheck
+      summary: CREATOR.PUBLICATION.CHECK（资源 CreatorPublicationCheck，风险 HIGH）
+      description: 自动执行适用 PG0—PG3 规则、Rights/Privacy/Safety 检查；只能输出 PASSED/BLOCKED/NEEDS_HUMAN_REVIEW 与证据。
+      x-afs-action-key: CREATOR.PUBLICATION.CHECK
+      x-afs-scope: creator_release/audience
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 受信 Publication Policy Worker
+      x-afs-audit-event: CREATOR_PUBLICATION_CHECKED
+      x-afs-negative-test: ACT-CR-NEG-007
+      x-afs-status: PHASE_GATED（Phase 3）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/creator.release.revoke:
+    post:
+      operationId: creator.release.revoke
+      tags:
+      - CreatorRelease/ShareLink
+      summary: CREATOR.RELEASE.REVOKE（资源 CreatorRelease/ShareLink，风险 CRITICAL）
+      description: 撤销须有原因/依据/范围，吊销访问与下载凭证并生成影响清单。
+      x-afs-action-key: CREATOR.RELEASE.REVOKE
+      x-afs-scope: creator_release/audience
+      x-afs-risk-level: CRITICAL
+      x-afs-token-required: true
+      x-afs-allowed-principals: 创作者本人、版权/安全职责人或受信 Rights Revocation Worker
+      x-afs-audit-event: CREATOR_RELEASE_REVOKED
+      x-afs-negative-test: ACT-CR-NEG-008
+      x-afs-status: PHASE_GATED（Phase 3）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+components:
+  schemas:
+    ActionRequestEnvelope:
+      type: object
+      required:
+      - actor_ref
+      - idempotency_key
+      properties:
+        actor_ref:
+          type: string
+          description: 调用主体引用
+        capability_token:
+          type: string
+          description: token_required=true 时必填的最小权限凭据
+        idempotency_key:
+          type: string
+          description: 幂等键；重复提交必须返回同一结果
+        payload:
+          type: object
+          description: 具体 Action 载荷，Phase 1 按对象契约定义
+      additionalProperties: true
+    ActionAccepted:
+      type: object
+      required:
+      - status
+      properties:
+        status:
+          type: string
+          enum:
+          - ACCEPTED
+          - REJECTED
+          - PHASE_NOT_ENABLED
+        audit_event:
+          type: string
+        audit_ref:
+          type: string
+        idempotency_key:
+          type: string
+      additionalProperties: true

@@ -1,0 +1,253 @@
+# 由 AFS-ARCH-MASTER-V2.0.5 指标字典表派生
+source: AFS-ARCH-MASTER-V2.0.5 指标字典表与 Creator Mode 指标表
+note: metric_id 与计算口径取自正文表格；注册模板字段正文未逐项给出，统一标 null 表示待登记，不得视为已定义。采样不足时统一显示 NOT_ENOUGH_DATA，不排名。
+registration_required_fields:
+- definition
+- formula
+- data_source
+- window
+- dimensions
+- filter_rules
+- owner
+- data_freshness
+- baseline_version
+- target_version
+metrics:
+- domain: 核心生产
+  metric_id: DELIVERY_PROJECTS_G4
+  caliber: 月度有效 Gate4 PASS 且绑定有效 DeliveryManifest 的项目数；来源 GateDecision/DeliveryManifest。
+  governance: 按项目类型和规格分层；质量护栏不得省略。
+  definition: null
+  formula: null
+  data_source: null
+  window: null
+  dimensions: null
+  filter_rules: null
+  owner: null
+  data_freshness: null
+  baseline_version: null
+  target_version: null
+- domain: 质量护栏
+  metric_id: DELIVERY_ESCAPE_RATE
+  caliber: 确认的交付后严重缺陷数/已交付资产数；来源 EscapeReport。
+  governance: 按严重级别分层，报告统计窗口和样本量。
+  definition: null
+  formula: null
+  data_source: null
+  window: null
+  dimensions: null
+  filter_rules: null
+  owner: null
+  data_freshness: null
+  baseline_version: null
+  target_version: null
+- domain: 社区
+  metric_id: COMMUNITY_REUSE_CONVERSION
+  caliber: 获批 ReuseRequest 中实际创建目标 Project/ShotRevision 的比例。
+  governance: 同时统计复用后 Gate4 通过率和权利违规率。
+  definition: null
+  formula: null
+  data_source: null
+  window: null
+  dimensions: null
+  filter_rules: null
+  owner: null
+  data_freshness: null
+  baseline_version: null
+  target_version: null
+- domain: 社区治理
+  metric_id: COMMUNITY_TAKEDOWN_RESPONSE_P80
+  caliber: 有效举报/版权投诉到实际限制访问的时长 P80。
+  governance: 按严重级别和组织/公开范围分层。
+  definition: null
+  formula: null
+  data_source: null
+  window: null
+  dimensions: null
+  filter_rules: null
+  owner: null
+  data_freshness: null
+  baseline_version: null
+  target_version: null
+- domain: 反推
+  metric_id: REVERSE_HUMAN_EDIT_RATE
+  caliber: 人工确认前被实质修改的反推字段比例。
+  governance: 不得单独优化为越低越好；同时统计关键帧覆盖率和采纳率。
+  definition: null
+  formula: null
+  data_source: null
+  window: null
+  dimensions: null
+  filter_rules: null
+  owner: null
+  data_freshness: null
+  baseline_version: null
+  target_version: null
+- domain: 客户审片
+  metric_id: CLIENT_REVIEW_TURNAROUND_P80
+  caliber: ClientReviewPortal 由 SENT 到 APPROVED/CHANGES_REQUESTED 的时长 P80。
+  governance: 区分客户等待和内部处理时间。
+  definition: null
+  formula: null
+  data_source: null
+  window: null
+  dimensions: null
+  filter_rules: null
+  owner: null
+  data_freshness: null
+  baseline_version: null
+  target_version: null
+- domain: 资产复用
+  metric_id: REUSE_POST_G4_RATE
+  caliber: 由复用资产启动的目标项目中通过 Gate4 的比例。
+  governance: 按镜头复杂度、模型版本和资产类别归一化。
+  definition: null
+  formula: null
+  data_source: null
+  window: null
+  dimensions: null
+  filter_rules: null
+  owner: null
+  data_freshness: null
+  baseline_version: null
+  target_version: null
+- domain: 成本
+  metric_id: COMMUNITY_OPS_COST
+  caliber: 从 CostLedger 按 COMMUNITY_OPS_COST 成本分类汇总；来源 CostLedger。
+  governance: 不得计入 Exploration Reserve 或 Quality Reserve。
+  definition: null
+  formula: null
+  data_source: null
+  window: null
+  dimensions: null
+  filter_rules: null
+  owner: null
+  data_freshness: null
+  baseline_version: null
+  target_version: null
+- domain: 成本
+  metric_id: REVERSE_ANALYSIS_COST
+  caliber: 从 CostLedger 按 REVERSE_ANALYSIS_COST 成本分类汇总；来源 CostLedger。
+  governance: 不得计入 Exploration Reserve 或 Quality Reserve。
+  definition: null
+  formula: null
+  data_source: null
+  window: null
+  dimensions: null
+  filter_rules: null
+  owner: null
+  data_freshness: null
+  baseline_version: null
+  target_version: null
+- domain: 成本
+  metric_id: CLIENT_REVIEW_COST
+  caliber: 从 CostLedger 按 CLIENT_REVIEW_COST 成本分类汇总；来源 CostLedger。
+  governance: 不得计入 Exploration Reserve 或 Quality Reserve。
+  definition: null
+  formula: null
+  data_source: null
+  window: null
+  dimensions: null
+  filter_rules: null
+  owner: null
+  data_freshness: null
+  baseline_version: null
+  target_version: null
+- domain: Creator Mode
+  metric_id: creator_workspace_activation
+  caliber: 完成 CreatorWorkspace 创建且首次成功生成素材的工作区数。
+  governance: 单独统计，不与工业项目数混计。
+  definition: null
+  formula: null
+  data_source: null
+  window: null
+  dimensions: null
+  filter_rules: null
+  owner: null
+  data_freshness: null
+  baseline_version: null
+  target_version: null
+- domain: Creator Mode
+  metric_id: timeline_export_success_rate
+  caliber: 成功导出的 ExportPackage 数 / 完成验证的导出请求数。
+  governance: 按 format_profile_id、工具版本和 adapter_version 分层。
+  definition: null
+  formula: null
+  data_source: null
+  window: null
+  dimensions: null
+  filter_rules: null
+  owner: null
+  data_freshness: null
+  baseline_version: null
+  target_version: null
+- domain: Creator Mode
+  metric_id: creator_gate_block_rate
+  caliber: BLOCKED/NEEDS_USER_INPUT 的 CreatorGate 评估数 / 总评估数。
+  governance: 按版权、安全、隐私分类；不以降低阻断率为优化目标。
+  definition: null
+  formula: null
+  data_source: null
+  window: null
+  dimensions: null
+  filter_rules: null
+  owner: null
+  data_freshness: null
+  baseline_version: null
+  target_version: null
+- domain: Creator Mode
+  metric_id: creator_publication_check_rate
+  caliber: PASSED/BLOCKED/NEEDS_HUMAN_REVIEW 数量及原因分布。
+  governance: 区分自动通过、风险升级和明确阻断；不将自动通过等同内容审核人工通过。
+  definition: null
+  formula: null
+  data_source: null
+  window: null
+  dimensions: null
+  filter_rules: null
+  owner: null
+  data_freshness: null
+  baseline_version: null
+  target_version: null
+- domain: Creator Mode
+  metric_id: creator_release_count
+  caliber: 有效 CreatorDeliveryManifest 对应的已发布 CREATOR_RELEASE 数。
+  governance: 不计入 Gate4、DELIVERED_FINAL 和工业交付北极星指标。
+  definition: null
+  formula: null
+  data_source: null
+  window: null
+  dimensions: null
+  filter_rules: null
+  owner: null
+  data_freshness: null
+  baseline_version: null
+  target_version: null
+- domain: Creator Mode
+  metric_id: creator_mode_cost
+  caliber: CREATOR_MODE_COST 子类别成本及每工作区/每分钟内容估算成本。
+  governance: 区分 BYOK 估算与可信账单；不占 Quality Reserve。
+  definition: null
+  formula: null
+  data_source: null
+  window: null
+  dimensions: null
+  filter_rules: null
+  owner: null
+  data_freshness: null
+  baseline_version: null
+  target_version: null
+- domain: Creator Mode
+  metric_id: upgrade_to_full_rate
+  caliber: 成功创建 FULL_MODE successor workspace 的 Creator 工作区比例。
+  governance: 不能作为诱导用户接受未经确认迁移的目标。
+  definition: null
+  formula: null
+  data_source: null
+  window: null
+  dimensions: null
+  filter_rules: null
+  owner: null
+  data_freshness: null
+  baseline_version: null
+  target_version: null

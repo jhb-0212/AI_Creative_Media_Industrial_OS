@@ -1,0 +1,6676 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "AFS-ARCH-MASTER-V2.0.5/object_schemas.schema.json",
+  "title": "AFS V2.0.5 Phase 0 对象契约草案",
+  "description": "由基线正文派生。字段一律取自正文表格或“至少包含”句；正文未给出的字段不在此虚构。",
+  "x-afs-type-inference": "字段类型优先取正文“类型”列声明（7.6/7.9/8.15/34.1/34.5/34.8 的字段契约表）；正文未声明类型时按命名推断。",
+  "x-afs-envelope": [
+    "entity_id",
+    "entity_type",
+    "schema_version",
+    "entity_version",
+    "status",
+    "owner_module",
+    "created_at",
+    "created_by",
+    "updated_at",
+    "audit_ref"
+  ],
+  "x-afs-p0-coverage": {
+    "note": "已建模对象与显式登记为待补的对象之并集，构成 P0 契约对象全集。待补项按缺口性质分类，不把“正文有字段表但派生未覆盖”与“正文缺字段标识”混为一类。",
+    "total": 76,
+    "modeled": [
+      "Appeal",
+      "AssetReference",
+      "AssetVersion",
+      "BlockingAsset",
+      "BudgetLedgerTransaction",
+      "BudgetTransferRequest",
+      "CameraRig",
+      "CapabilityToken",
+      "CharacterAppearance",
+      "CharacterCanon",
+      "CharacterCard",
+      "CharacterReferenceSet",
+      "CharacterVoiceProfile",
+      "ClientAnnotation",
+      "ClientReviewPortal",
+      "Comment",
+      "CommunityPost",
+      "ConstraintPack",
+      "ContinuityConstraint",
+      "ControlSignalAsset",
+      "CreativeProposal",
+      "CreatorDeliveryManifest",
+      "CreatorGate",
+      "CreatorPublicationCheck",
+      "CreatorRelease",
+      "CreatorWorkspace",
+      "DeliveryManifest",
+      "DeliverySpec",
+      "DomainCommand",
+      "ErrorEnvelope",
+      "EscapeReport",
+      "Event",
+      "ExplorationBranch",
+      "ExportPackage",
+      "ExternalToolAdapterManifest",
+      "ExternalToolArtifact",
+      "ExternalToolConnection",
+      "GateDecision",
+      "IntentContract",
+      "MemoryRecord",
+      "ModelInvocation",
+      "ModelInvocationContext",
+      "PatternRecord",
+      "PolicyResolution",
+      "PrevizVersion",
+      "ProjectProductionProfile",
+      "QCIssue",
+      "QCReport",
+      "QCReviewSession",
+      "QuotaReservation",
+      "Report",
+      "ReuseRequest",
+      "ReverseAnalysisReport",
+      "ReverseAudioDescription",
+      "ReverseKeyframeRef",
+      "ReversePromptPair",
+      "ReverseShotSegment",
+      "ReviewAnnotation",
+      "ReworkTask",
+      "ShareLink",
+      "ShotBudgetLedger",
+      "ShotProductionProfile",
+      "ShotResourceAllocation",
+      "ShotSpec",
+      "ShotTierChangeRequest",
+      "ShotVisualPlan",
+      "ShowcaseSnapshot",
+      "ShowcaseVersionTree",
+      "SkillManifest",
+      "TakeDown",
+      "Task",
+      "TierChangeAudit",
+      "TimelineDraft",
+      "TimelineManifest",
+      "ToolExchangePackage",
+      "ToolExchangeSession"
+    ],
+    "p0_freeze_scope": {
+      "decision": "AFS-P0-FREEZE-2026-11-13-01",
+      "total": 70,
+      "modeled": 70,
+      "pending": 0,
+      "excluded_supplement_objects": [
+        "Appeal",
+        "Comment",
+        "Report",
+        "ReviewAnnotation",
+        "ShowcaseVersionTree",
+        "TakeDown"
+      ],
+      "note": "全集口径 = 冻结范围 + 6 个展示域附属对象；6 个附属对象经冻结评审裁决不计入 Phase 0 冻结范围，随展示域在 Phase 1 另行冻结。"
+    },
+    "pending_category_legend": {
+      "FIELD_IDENTIFIERS_ABSENT": "正文只以中文记录项或状态机条目描述，未给出任何字段标识，须先补正文",
+      "FIELD_LIST_PRESENT_SCHEMA_PENDING": "正文以条款列举了部分字段标识，但未成组、未给类型与必填规则，仍须先补正文",
+      "FIELD_TABLE_PRESENT_SCHEMA_PENDING": "正文已有成组字段表，但派生 Schema 尚未覆盖，属派生器缺口"
+    },
+    "promoted_from_pending": [
+      {
+        "object": "ConstraintPack",
+        "source": "C.4 节点与 8.5 跨镜头约束条款；正文以中文记录项描述，未给出字段标识",
+        "reason": "正文已为该对象补成组字段契约（字段标识、类型、必填），派生器据表建模"
+      },
+      {
+        "object": "CameraRig",
+        "source": "8.15 以中文段落描述记录项，未给出字段标识",
+        "reason": "正文已为该对象补成组字段契约（字段标识、类型、必填），派生器据表建模"
+      },
+      {
+        "object": "BlockingAsset",
+        "source": "8.15 以中文段落描述记录项，未给出字段标识",
+        "reason": "正文已为该对象补成组字段契约（字段标识、类型、必填），派生器据表建模"
+      },
+      {
+        "object": "TimelineDraft",
+        "source": "33.3 状态机",
+        "reason": "正文已为该对象补成组字段契约（字段标识、类型、必填），派生器据表建模"
+      },
+      {
+        "object": "ExportPackage",
+        "source": "33.3 状态机",
+        "reason": "正文已为该对象补成组字段契约（字段标识、类型、必填），派生器据表建模"
+      },
+      {
+        "object": "GateDecision",
+        "source": "Gate 决定条款",
+        "reason": "正文已为该对象补成组字段契约（字段标识、类型、必填），派生器据表建模"
+      },
+      {
+        "object": "QCIssue",
+        "source": "QC 缺陷与返工条款",
+        "reason": "正文已为该对象补成组字段契约（字段标识、类型、必填），派生器据表建模"
+      },
+      {
+        "object": "ReworkTask",
+        "source": "7.6 返工单条款（除 issue_id 外均为中文记录项）",
+        "reason": "正文已为该对象补成组字段契约（字段标识、类型、必填），派生器据表建模"
+      },
+      {
+        "object": "ReuseRequest",
+        "source": "31.5 状态机与社区复用",
+        "reason": "正文已为该对象补成组字段契约（字段标识、类型、必填），派生器据表建模"
+      },
+      {
+        "object": "ShowcaseSnapshot",
+        "source": "31.5 状态机",
+        "reason": "正文已为该对象补成组字段契约（字段标识、类型、必填），派生器据表建模"
+      },
+      {
+        "object": "CommunityPost",
+        "source": "31.5 状态机",
+        "reason": "正文已为该对象补成组字段契约（字段标识、类型、必填），派生器据表建模"
+      },
+      {
+        "object": "ShareLink",
+        "source": "31.5 状态机",
+        "reason": "正文已为该对象补成组字段契约（字段标识、类型、必填），派生器据表建模"
+      },
+      {
+        "object": "CreatorWorkspace",
+        "source": "34 章工作区条款",
+        "reason": "正文已为该对象补成组字段契约（字段标识、类型、必填），派生器据表建模"
+      },
+      {
+        "object": "CreatorGate",
+        "source": "34 章 Gate 条款",
+        "reason": "正文已为该对象补成组字段契约（字段标识、类型、必填），派生器据表建模"
+      },
+      {
+        "object": "CreatorPublicationCheck",
+        "source": "34.8 状态机",
+        "reason": "正文已为该对象补成组字段契约（字段标识、类型、必填），派生器据表建模"
+      },
+      {
+        "object": "CreatorDeliveryManifest",
+        "source": "34.7 状态机",
+        "reason": "正文已为该对象补成组字段契约（字段标识、类型、必填），派生器据表建模"
+      },
+      {
+        "object": "CreatorRelease",
+        "source": "34.8 状态机",
+        "reason": "正文已为该对象补成组字段契约（字段标识、类型、必填），派生器据表建模"
+      },
+      {
+        "object": "ExternalToolAdapterManifest",
+        "source": "32 章适配器登记",
+        "reason": "正文已为该对象补成组字段契约（字段标识、类型、必填），派生器据表建模"
+      }
+    ],
+    "explicit_supplement_objects": {
+      "note": "由 24.3 等补充字段表派生、但原本不在 70 个 P0 契约对象清单内的展示域附属对象；计入 modeled 便于全量校验，是否纳入 P0 冻结范围由评审会裁定。",
+      "objects": [
+        "Appeal",
+        "Comment",
+        "Report",
+        "ReviewAnnotation",
+        "ShowcaseVersionTree",
+        "TakeDown"
+      ]
+    },
+    "pending": []
+  },
+  "definitions": {
+    "ProjectProductionProfile": {
+      "type": "object",
+      "description": "权威所有者：项目生产策略与默认值。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "budget_pool_id": {
+          "type": "string"
+        },
+        "default_shot_tier": {
+          "type": "string"
+        },
+        "policy_version": {
+          "type": "integer"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "project_tier": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "17.10 核心数据实体与字段（关键字段建议（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "ShotProductionProfile": {
+      "type": "object",
+      "description": "权威所有者：镜头生产策略。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "effective_tier": {
+          "type": "string"
+        },
+        "profile_version": {
+          "type": "integer"
+        },
+        "requested_tier": {
+          "type": "string"
+        },
+        "shot_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "17.10 核心数据实体与字段（关键字段建议（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "PolicyResolution": {
+      "type": "object",
+      "description": "权威所有者：字段级策略解析快照。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "resolution_id": {
+          "type": "string"
+        },
+        "resolved_fields": {
+          "type": "array"
+        },
+        "shot_id": {
+          "type": "string"
+        },
+        "source_versions": {
+          "type": "string"
+        },
+        "validation_result": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "17.10 核心数据实体与字段（关键字段建议（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "ShotResourceAllocation": {
+      "type": "object",
+      "description": "权威所有者：镜头资源分配。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "allocated_amount": {
+          "type": "string"
+        },
+        "approval_id": {
+          "type": "string"
+        },
+        "reserved_amount": {
+          "type": "string"
+        },
+        "resource_type": {
+          "type": "string"
+        },
+        "shot_id": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "17.10 核心数据实体与字段（关键字段建议（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "ShotBudgetLedger": {
+      "type": "object",
+      "description": "权威所有者：镜头成本流水。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "account_type": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "number"
+        },
+        "approval_id": {
+          "type": "string"
+        },
+        "shot_id": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "transaction_id": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "17.10 核心数据实体与字段（关键字段建议（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "ShotTierChangeRequest": {
+      "type": "object",
+      "description": "权威所有者：镜头等级变更申请。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "approver": {
+          "type": "string"
+        },
+        "cost_delta": {
+          "type": "string"
+        },
+        "from_tier": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "requester": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "to_tier": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "17.10 核心数据实体与字段（关键字段建议（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "TierChangeAudit": {
+      "type": "object",
+      "description": "权威所有者：变更审计。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "actor": {
+          "type": "string"
+        },
+        "after_snapshot": {
+          "type": "string"
+        },
+        "audit_id": {
+          "type": "string"
+        },
+        "before_snapshot": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "17.10 核心数据实体与字段（关键字段建议（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "ReverseAnalysisReport": {
+      "type": "object",
+      "description": "权威所有者：必须绑定源视频不可变版本、许可状态、分析模型版本和分析时间。。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "analysis_model": {
+          "type": "string"
+        },
+        "analyzed_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "report_id": {
+          "type": "string"
+        },
+        "review_ref": {
+          "type": "string"
+        },
+        "segments[]": {
+          "type": "string"
+        },
+        "source_asset_version": {
+          "type": "integer"
+        },
+        "source_rights_ref": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "timebase": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "25.1 核心实体与数据契约（关键字段（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "ReverseShotSegment": {
+      "type": "object",
+      "description": "权威所有者：支持逐秒/逐镜头片段；时间码必须明确 FPS 分子/分母；区间不得越界或重叠冲突；光影与运动描述应记录置信度。。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "camera_description": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "string"
+        },
+        "den": {
+          "type": "string"
+        },
+        "end_tc": {
+          "type": "string"
+        },
+        "fps_num": {
+          "type": "string"
+        },
+        "keyframe_refs": {
+          "type": "array"
+        },
+        "lighting_description": {
+          "type": "string"
+        },
+        "motion_description": {
+          "type": "string"
+        },
+        "scene_ref": {
+          "type": "string"
+        },
+        "segment_granularity": {
+          "type": "string"
+        },
+        "segment_id": {
+          "type": "string"
+        },
+        "shot_type": {
+          "type": "string"
+        },
+        "start_tc": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "25.1 核心实体与数据契约（关键字段（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "ReversePromptPair": {
+      "type": "object",
+      "description": "权威所有者：图像提示词与运动提示词分离；不得把推测写成确定事实。。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "confidence": {
+          "type": "string"
+        },
+        "image_prompt": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        },
+        "motion_prompt": {
+          "type": "string"
+        },
+        "negative_prompt": {
+          "type": "string"
+        },
+        "source_segment_ref": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "25.1 核心实体与数据契约（关键字段（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "ReverseKeyframeRef": {
+      "type": "object",
+      "description": "权威所有者：关键帧仅引用受控源资产；导出/分享前重新校验权利和脱敏。。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "asset_version_ref": {
+          "type": "string"
+        },
+        "crop_ref": {
+          "type": "string"
+        },
+        "frame_hash": {
+          "type": "string"
+        },
+        "rights_status": {
+          "type": "string"
+        },
+        "timecode": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "25.1 核心实体与数据契约（关键字段（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "ReverseAudioDescription": {
+      "type": "object",
+      "description": "权威所有者：不得默认转录或公开未授权音乐/人声；必要时仅存摘要和时间码。。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "ambience": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "string"
+        },
+        "dialogue_summary": {
+          "type": "string"
+        },
+        "music_description": {
+          "type": "string"
+        },
+        "sound_events": {
+          "type": "string"
+        },
+        "time_range": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "25.1 核心实体与数据契约（关键字段（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "ClientReviewPortal": {
+      "type": "object",
+      "description": "权威所有者：只读、受邀、可撤销；默认禁止下载工程文件和源资产。。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "access_policy": {
+          "type": "string"
+        },
+        "audience": {
+          "type": "string"
+        },
+        "expiry": {
+          "type": "string"
+        },
+        "portal_id": {
+          "type": "string"
+        },
+        "project_ref": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "watermark_policy": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "27.1 核心实体与边界（核心字段（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "ClientAnnotation": {
+      "type": "object",
+      "description": "权威所有者：批注必须锚定精确版本和时间位置；不得直接改 Gate。。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "annotation_id": {
+          "type": "string"
+        },
+        "asset_version": {
+          "type": "integer"
+        },
+        "author": {
+          "type": "string"
+        },
+        "comment": {
+          "type": "string"
+        },
+        "disposition": {
+          "type": "string"
+        },
+        "frame_range": {
+          "type": "string"
+        },
+        "timecode": {
+          "type": "string"
+        },
+        "visibility": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "27.1 核心实体与边界（核心字段（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "DeliverySpec": {
+      "type": "object",
+      "description": "权威所有者：按客户/平台/发行渠道定义交付要求，审批后冻结版本。。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "audio_layout": {
+          "type": "string"
+        },
+        "caption": {
+          "type": "string"
+        },
+        "codec": {
+          "type": "string"
+        },
+        "color_space": {
+          "type": "string"
+        },
+        "container": {
+          "type": "string"
+        },
+        "fps": {
+          "type": "string"
+        },
+        "naming": {
+          "type": "string"
+        },
+        "resolution": {
+          "type": "string"
+        },
+        "spec_id": {
+          "type": "string"
+        },
+        "subtitle": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "27.1 核心实体与边界（核心字段（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "DeliveryManifest": {
+      "type": "object",
+      "description": "权威所有者：可追溯、可校验、可重建；记录每个文件来源与批准链。。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "asset_refs": {
+          "type": "array"
+        },
+        "checksum": {
+          "type": "string"
+        },
+        "manifest_id": {
+          "type": "string"
+        },
+        "picture_lock_ref": {
+          "type": "string"
+        },
+        "qc_final_ref": {
+          "type": "string"
+        },
+        "rebuild_recipe": {
+          "type": "string"
+        },
+        "rights_evidence_refs": {
+          "type": "array"
+        },
+        "spec_ref": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "27.1 核心实体与边界（核心字段（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "EscapeReport": {
+      "type": "object",
+      "description": "权威所有者：记录交付后质量逃逸，关联 RCA、返工、通知和关闭证据。。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "delivery_manifest_ref": {
+          "type": "string"
+        },
+        "discovered_at": {
+          "type": "string"
+        },
+        "escape_id": {
+          "type": "string"
+        },
+        "impact_scope": {
+          "type": "string"
+        },
+        "issue_type": {
+          "type": "string"
+        },
+        "rca_ref": {
+          "type": "string"
+        },
+        "resolution": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "27.1 核心实体与边界（核心字段（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "ExternalToolConnection": {
+      "type": "object",
+      "description": "权威所有者：由 Integration/Connection Domain 管理；DRAFT→VALIDATING→ACTIVE→SUSPENDED/REVOKED；按租户/组织/项目隔离。。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "adapter_id": {
+          "type": "string"
+        },
+        "connection_id": {
+          "type": "string"
+        },
+        "credential_ref": {
+          "type": "string"
+        },
+        "external_project_ref": {
+          "type": "string"
+        },
+        "organization_id": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "object"
+        },
+        "status": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "validated_at": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "32.5 工程资产模型与 AssetVersion 统一治理（核心字段（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "ToolExchangePackage": {
+      "type": "object",
+      "description": "权威所有者：由 Asset/Integration Domain 管理；源版本固定不可变；下载链接短时有效，过期/撤销可追溯。。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "exchange_id": {
+          "type": "string"
+        },
+        "expires_at": {
+          "type": "string"
+        },
+        "file_manifest": {
+          "type": "array"
+        },
+        "format_profile_id": {
+          "type": "string"
+        },
+        "policy_snapshot_ref": {
+          "type": "string"
+        },
+        "rights_snapshot_ref": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "source_asset_version_ids": {
+          "type": "array"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "32.5 工程资产模型与 AssetVersion 统一治理（核心字段（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "ToolExchangeSession": {
+      "type": "object",
+      "description": "权威所有者：由 Orchestrator 管理；状态只描述工具交互，不替代 Asset/QC/Gate 状态。。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "connection_id": {
+          "type": "string"
+        },
+        "ended_at": {
+          "type": "string"
+        },
+        "exchange_id": {
+          "type": "string"
+        },
+        "external_operation_id": {
+          "type": "string"
+        },
+        "operator_principal": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "tool_version": {
+          "type": "integer"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "32.5 工程资产模型与 AssetVersion 统一治理（核心字段（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "ExternalToolArtifact": {
+      "type": "object",
+      "description": "权威所有者：由 Staging/Asset Intake 管理；先隔离和验证，合格后再创建正式 AssetVersion。。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "artifact_id": {
+          "type": "string"
+        },
+        "file_name": {
+          "type": "string"
+        },
+        "media_type": {
+          "type": "string"
+        },
+        "scan_results": {
+          "type": "array"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "size_bytes": {
+          "type": "number"
+        },
+        "source_refs": {
+          "type": "array"
+        },
+        "staging_ref": {
+          "type": "object"
+        },
+        "tool_metadata": {
+          "type": "array"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "32.5 工程资产模型与 AssetVersion 统一治理（核心字段（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "TimelineManifest": {
+      "type": "object",
+      "description": "权威所有者：作为版本化时间线描述；时间以整数帧/有理帧率表达，避免浮点秒数造成偏移。。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "clip_in": {
+          "type": "string"
+        },
+        "clips": {
+          "type": "array"
+        },
+        "den": {
+          "type": "string"
+        },
+        "drop_frame": {
+          "type": "string"
+        },
+        "frame_rate_num": {
+          "type": "string"
+        },
+        "mapping_profile": {
+          "type": "object"
+        },
+        "out_frames": {
+          "type": "string"
+        },
+        "sequence_id": {
+          "type": "string"
+        },
+        "source_asset_version_ids": {
+          "type": "array"
+        },
+        "timebase": {
+          "type": "string"
+        },
+        "timeline_id": {
+          "type": "string"
+        },
+        "tracks": {
+          "type": "array"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "32.5 工程资产模型与 AssetVersion 统一治理（核心字段（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "AssetVersion": {
+      "type": "object",
+      "description": "权威所有者：仍由 Asset Service 创建；新回流生成新版本，不覆盖原版本，不自动设为 APPROVED/GOLD。。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "adapter_id": {
+          "type": "string"
+        },
+        "asset_type": {
+          "type": "string"
+        },
+        "asset_version_id": {
+          "type": "string"
+        },
+        "operator_ref": {
+          "type": "string"
+        },
+        "rights_manifest_ref": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "source_asset_version_ids": {
+          "type": "array"
+        },
+        "storage_ref": {
+          "type": "object"
+        },
+        "tool_product": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "32.5 工程资产模型与 AssetVersion 统一治理（核心字段（未声明必需性））"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "CharacterCard": {
+      "type": "object",
+      "description": "权威所有者：Asset Service / Character Domain。",
+      "required": [
+        "appearance_refs",
+        "card_version",
+        "character_id",
+        "negative_constraints",
+        "reference_set_refs",
+        "rights_manifest_ref",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "appearance_refs": {
+          "type": "array"
+        },
+        "card_version": {
+          "type": "integer"
+        },
+        "character_id": {
+          "type": "string"
+        },
+        "negative_constraints": {
+          "type": "array"
+        },
+        "reference_set_refs": {
+          "type": "array"
+        },
+        "rights_manifest_ref": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "C.3 新增领域对象的数据契约与所有权（C.3 必需业务字段（核心））"
+      ],
+      "additionalProperties": true,
+      "x-afs-lifecycle": "DRAFT→IN_REVIEW→APPROVED→ACTIVE→SUPERSEDED/REVOKED；生成结果只能创建更新提案"
+    },
+    "CharacterCanon": {
+      "type": "object",
+      "description": "权威所有者：Script/Canon Domain。",
+      "required": [
+        "approved_by",
+        "authority",
+        "canon_id",
+        "canon_version",
+        "character_id",
+        "facts",
+        "relationships",
+        "timeline_state",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "approved_by": {
+          "type": "string"
+        },
+        "authority": {
+          "type": "string"
+        },
+        "canon_id": {
+          "type": "string"
+        },
+        "canon_version": {
+          "type": "integer"
+        },
+        "character_id": {
+          "type": "string"
+        },
+        "facts": {
+          "type": "array"
+        },
+        "relationships": {
+          "type": "array"
+        },
+        "timeline_state": {
+          "type": "object"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "C.3 新增领域对象的数据契约与所有权（C.3 必需业务字段（核心））"
+      ],
+      "additionalProperties": true,
+      "x-afs-lifecycle": "DRAFT→IN_REVIEW→APPROVED→ACTIVE→SUPERSEDED；事实冲突必须显式标记，不得由模型自动裁定"
+    },
+    "CharacterAppearance": {
+      "type": "object",
+      "description": "权威所有者：Character Asset Domain。",
+      "required": [
+        "appearance_id",
+        "character_id",
+        "scene_scope",
+        "source_refs",
+        "time_scope",
+        "visual_refs",
+        "wardrobe_state",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "appearance_id": {
+          "type": "string"
+        },
+        "character_id": {
+          "type": "string"
+        },
+        "scene_scope": {
+          "type": "string"
+        },
+        "source_refs": {
+          "type": "array"
+        },
+        "time_scope": {
+          "type": "string"
+        },
+        "visual_refs": {
+          "type": "array"
+        },
+        "wardrobe_state": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "C.3 新增领域对象的数据契约与所有权（C.3 必需业务字段（核心））"
+      ],
+      "additionalProperties": true,
+      "x-afs-lifecycle": "独立版本化；必须绑定适用时间/场景/状态，不得覆盖其他造型状态"
+    },
+    "CharacterVoiceProfile": {
+      "type": "object",
+      "description": "权威所有者：Audio/Character Asset Domain。",
+      "required": [
+        "character_id",
+        "license_scope",
+        "voice_asset_refs",
+        "voice_attributes",
+        "voice_profile_id",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "character_id": {
+          "type": "string"
+        },
+        "license_scope": {
+          "type": "string"
+        },
+        "voice_asset_refs": {
+          "type": "array"
+        },
+        "voice_attributes": {
+          "type": "object"
+        },
+        "voice_profile_id": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "C.3 新增领域对象的数据契约与所有权（C.3 必需业务字段（核心））"
+      ],
+      "additionalProperties": true,
+      "x-afs-lifecycle": "独立版本化；声音素材、合成许可和可用范围可审计"
+    },
+    "CharacterReferenceSet": {
+      "type": "object",
+      "description": "权威所有者：Asset Service。",
+      "required": [
+        "character_id",
+        "reference_items",
+        "reference_set_id",
+        "rights_manifest_ref",
+        "source_refs",
+        "view_type",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "character_id": {
+          "type": "string"
+        },
+        "reference_items": {
+          "type": "array"
+        },
+        "reference_set_id": {
+          "type": "string"
+        },
+        "rights_manifest_ref": {
+          "type": "string"
+        },
+        "source_refs": {
+          "type": "array"
+        },
+        "view_type": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "C.3 新增领域对象的数据契约与所有权（C.3 必需业务字段（核心））"
+      ],
+      "additionalProperties": true,
+      "x-afs-lifecycle": "集合不可变版本；每项参考素材保留来源、角色和用途标签"
+    },
+    "ShotVisualPlan": {
+      "type": "object",
+      "description": "权威所有者：Shot Planning Domain。",
+      "required": [
+        "camera_language",
+        "intent_summary",
+        "lens_range",
+        "lighting_intent",
+        "locked_fields",
+        "motion_intent",
+        "open_fields",
+        "revision",
+        "shot_id",
+        "shot_size",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "camera_language": {
+          "type": "string"
+        },
+        "intent_summary": {
+          "type": "string"
+        },
+        "lens_range": {
+          "type": "string"
+        },
+        "lighting_intent": {
+          "type": "string"
+        },
+        "locked_fields": {
+          "type": "array"
+        },
+        "motion_intent": {
+          "type": "string"
+        },
+        "open_fields": {
+          "type": "array"
+        },
+        "revision": {
+          "type": "integer"
+        },
+        "shot_id": {
+          "type": "string"
+        },
+        "shot_size": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "C.3 新增领域对象的数据契约与所有权（C.3 必需业务字段（核心））"
+      ],
+      "additionalProperties": true,
+      "x-afs-lifecycle": "DRAFT→REVIEW→APPROVED/REJECTED；变更生成新 revision，锁定字段逐字段授权"
+    },
+    "SkillManifest": {
+      "type": "object",
+      "description": "权威所有者：Agent Runtime / Skill Registry。",
+      "required": [
+        "allowed_commands",
+        "budget_scope",
+        "failure_codes",
+        "input_schema",
+        "output_schema",
+        "required_capabilities",
+        "retry_policy",
+        "skill_id",
+        "skill_version",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "allowed_commands": {
+          "type": "string"
+        },
+        "budget_scope": {
+          "type": "object"
+        },
+        "failure_codes": {
+          "type": "array"
+        },
+        "input_schema": {
+          "type": "string"
+        },
+        "output_schema": {
+          "type": "string"
+        },
+        "required_capabilities": {
+          "type": "string"
+        },
+        "retry_policy": {
+          "type": "object"
+        },
+        "skill_id": {
+          "type": "string"
+        },
+        "skill_version": {
+          "type": "integer"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "C.3 新增领域对象的数据契约与所有权（C.3 必需业务字段（核心））"
+      ],
+      "additionalProperties": true,
+      "x-afs-lifecycle": "DRAFT→VALIDATED→PUBLISHED→DEPRECATED/REVOKED；运行时只执行已发布版本"
+    },
+    "PatternRecord": {
+      "type": "object",
+      "description": "权威所有者：PMS / Pattern Library。",
+      "required": [
+        "applicability",
+        "evidence_refs",
+        "failure_boundaries",
+        "pattern_id",
+        "pattern_type",
+        "pattern_version",
+        "rights_manifest_ref",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "applicability": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "type": "array"
+        },
+        "failure_boundaries": {
+          "type": "string"
+        },
+        "pattern_id": {
+          "type": "string"
+        },
+        "pattern_type": {
+          "type": "string"
+        },
+        "pattern_version": {
+          "type": "integer"
+        },
+        "rights_manifest_ref": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "C.3 新增领域对象的数据契约与所有权（C.3 必需业务字段（核心））"
+      ],
+      "additionalProperties": true,
+      "x-afs-lifecycle": "EXPERIMENT_RECORD → IN_REVIEW → REUSABLE_PATTERN / REJECTED / FAILURE_CASE；REUSABLE_PATTERN → DEPRECATED → RETIRED"
+    },
+    "ExplorationBranch": {
+      "type": "object",
+      "description": "权威所有者：Creative Exploration Service。",
+      "required": [
+        "base_shot_revision",
+        "branch_id",
+        "candidate_refs",
+        "exploration_budget_ref",
+        "proposal_refs",
+        "shot_id",
+        "stop_reason",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "base_shot_revision": {
+          "type": "string"
+        },
+        "branch_id": {
+          "type": "string"
+        },
+        "candidate_refs": {
+          "type": "array"
+        },
+        "exploration_budget_ref": {
+          "type": "string"
+        },
+        "proposal_refs": {
+          "type": "array"
+        },
+        "shot_id": {
+          "type": "string"
+        },
+        "stop_reason": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "C.3 新增领域对象的数据契约与所有权（C.3 必需业务字段（核心））"
+      ],
+      "additionalProperties": true,
+      "x-afs-lifecycle": "DRAFT→RUNNING→CANDIDATES_READY→REVIEW→PROMOTED/REJECTED/STOPPED/EXPIRED"
+    },
+    "QCReviewSession": {
+      "type": "object",
+      "description": "权威所有者：QC Governance。",
+      "required": [
+        "asset_version_id",
+        "decisions",
+        "findings",
+        "qc_report_ref",
+        "reference_set",
+        "reviewers",
+        "session_id",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "asset_version_id": {
+          "type": "string"
+        },
+        "decisions": {
+          "type": "array"
+        },
+        "findings": {
+          "type": "array"
+        },
+        "qc_report_ref": {
+          "type": "string"
+        },
+        "reference_set": {
+          "type": "object"
+        },
+        "reviewers": {
+          "type": "array"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "C.3 新增领域对象的数据契约与所有权（C.3 必需业务字段（核心））"
+      ],
+      "additionalProperties": true,
+      "x-afs-lifecycle": "OPEN→IN_REVIEW→DECISION_PENDING→RESOLVED→GATE_ELIGIBLE/CLOSED；结果固定指向资产版本"
+    },
+    "QuotaReservation": {
+      "type": "object",
+      "description": "权威所有者：Budget/Quota Service。",
+      "required": [
+        "idempotency_key",
+        "lease_expiry",
+        "quantity",
+        "reservation_id",
+        "resource_type",
+        "scope",
+        "task_id",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "idempotency_key": {
+          "type": "string"
+        },
+        "lease_expiry": {
+          "type": "string"
+        },
+        "quantity": {
+          "type": "number"
+        },
+        "reservation_id": {
+          "type": "string"
+        },
+        "resource_type": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "object"
+        },
+        "task_id": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "C.3 新增领域对象的数据契约与所有权（C.3 必需业务字段（核心））"
+      ],
+      "additionalProperties": true,
+      "x-afs-lifecycle": "REQUESTED→RESERVED→COMMITTED/RELEASED/EXPIRED/FAILED；不可超卖，过期需核验任务状态"
+    },
+    "BudgetLedgerTransaction": {
+      "type": "object",
+      "description": "权威所有者：Budget/Quota Service。",
+      "required": [
+        "account_id",
+        "amount",
+        "approval_ref",
+        "currency",
+        "idempotency_key",
+        "reservation_id",
+        "transaction_id",
+        "transaction_type",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "account_id": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "number"
+        },
+        "approval_ref": {
+          "type": "string"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "reservation_id": {
+          "type": "string"
+        },
+        "transaction_id": {
+          "type": "string"
+        },
+        "transaction_type": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "C.3 新增领域对象的数据契约与所有权（C.3 必需业务字段（核心））"
+      ],
+      "additionalProperties": true,
+      "x-afs-lifecycle": "APPENDED 追加式记录；修正只能新增反向/调整流水，不得覆盖原流水"
+    },
+    "IntentContract": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "approval",
+        "assumptions",
+        "creative_space",
+        "hard_constraints",
+        "intent_id",
+        "interpretation",
+        "scope",
+        "source",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "approval": {
+          "type": "string"
+        },
+        "assumptions": {
+          "type": "string"
+        },
+        "creative_space": {
+          "type": "string"
+        },
+        "hard_constraints": {
+          "type": "string"
+        },
+        "intent_id": {
+          "type": "string"
+        },
+        "interpretation": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "object"
+        },
+        "source": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "2.5 导演意图理解引擎（Director Intent Engine）（YAML 契约块）"
+      ],
+      "additionalProperties": true
+    },
+    "ShotSpec": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "aspect_ratio",
+        "camera_path",
+        "control_signal_refs",
+        "coordinate_system",
+        "cut_points_frames",
+        "duration_ms",
+        "fps",
+        "locked_dimensions",
+        "previz_ref",
+        "shot_revision_id",
+        "shot_size_changes",
+        "shot_spec_id",
+        "subject_paths",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "aspect_ratio": {
+          "type": "string"
+        },
+        "camera_path": {
+          "type": "string"
+        },
+        "control_signal_refs": {
+          "type": "array"
+        },
+        "coordinate_system": {
+          "type": "string"
+        },
+        "cut_points_frames": {
+          "type": "string"
+        },
+        "duration_ms": {
+          "type": "string"
+        },
+        "fps": {
+          "type": "string"
+        },
+        "locked_dimensions": {
+          "type": "string"
+        },
+        "previz_ref": {
+          "type": "string"
+        },
+        "shot_revision_id": {
+          "type": "string"
+        },
+        "shot_size_changes": {
+          "type": "string"
+        },
+        "shot_spec_id": {
+          "type": "string"
+        },
+        "subject_paths": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "8.12 ShotSpec 契约（YAML 契约块）"
+      ],
+      "additionalProperties": true
+    },
+    "PrevizVersion": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "approved_at",
+        "approved_by",
+        "blocking_asset_refs",
+        "camera_rig_id",
+        "control_signal_refs",
+        "created_by",
+        "geometry_validation",
+        "locked_dimensions",
+        "previz_id",
+        "previz_type",
+        "purity_check_status",
+        "render_manifest",
+        "rights_manifest_ref",
+        "shot_revision_id",
+        "shot_spec_ref",
+        "status",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "owner_module",
+        "created_at",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "approved_at": {
+          "type": "string"
+        },
+        "approved_by": {
+          "type": "string"
+        },
+        "blocking_asset_refs": {
+          "type": "array"
+        },
+        "camera_rig_id": {
+          "type": "string"
+        },
+        "control_signal_refs": {
+          "type": "array"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "geometry_validation": {
+          "type": "string"
+        },
+        "locked_dimensions": {
+          "type": "string"
+        },
+        "previz_id": {
+          "type": "string"
+        },
+        "previz_type": {
+          "type": "string"
+        },
+        "purity_check_status": {
+          "type": "string"
+        },
+        "render_manifest": {
+          "type": "string"
+        },
+        "rights_manifest_ref": {
+          "type": "string"
+        },
+        "shot_revision_id": {
+          "type": "string"
+        },
+        "shot_spec_ref": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "8.13 PrevizVersion 契约（YAML 契约块）"
+      ],
+      "additionalProperties": true
+    },
+    "ControlSignalAsset": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "control_signal_id",
+        "controlled_dimensions",
+        "coordinate_system_ref",
+        "purity_check_ref",
+        "reference_role",
+        "rights_manifest_ref",
+        "sha256",
+        "signal_type",
+        "source_asset_version_id",
+        "source_previz_id",
+        "storage_uri",
+        "timebase",
+        "uncontrolled_dimensions",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "control_signal_id": {
+          "type": "string"
+        },
+        "controlled_dimensions": {
+          "type": "string"
+        },
+        "coordinate_system_ref": {
+          "type": "string"
+        },
+        "purity_check_ref": {
+          "type": "string"
+        },
+        "reference_role": {
+          "type": "string"
+        },
+        "rights_manifest_ref": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "signal_type": {
+          "type": "string"
+        },
+        "source_asset_version_id": {
+          "type": "string"
+        },
+        "source_previz_id": {
+          "type": "string"
+        },
+        "storage_uri": {
+          "type": "string"
+        },
+        "timebase": {
+          "type": "string"
+        },
+        "uncontrolled_dimensions": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "8.14 ControlSignalAsset 契约（YAML 契约块）"
+      ],
+      "additionalProperties": true
+    },
+    "CreativeProposal": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "created_by",
+        "creative_direction",
+        "decision_reason",
+        "difference_from_baseline",
+        "episode_id",
+        "estimated_cost",
+        "expected_quality_gain",
+        "hard_constraints_snapshot",
+        "intent_summary",
+        "project_id",
+        "prompt_manifest",
+        "proposal_id",
+        "reviewed_by",
+        "risk_assessment",
+        "scene_id",
+        "shot_id",
+        "shot_revision",
+        "status",
+        "uncertainty",
+        "visual_plan",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "owner_module",
+        "created_at",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "created_by": {
+          "type": "string"
+        },
+        "creative_direction": {
+          "type": "string"
+        },
+        "decision_reason": {
+          "type": "string"
+        },
+        "difference_from_baseline": {
+          "type": "string"
+        },
+        "episode_id": {
+          "type": "string"
+        },
+        "estimated_cost": {
+          "type": "string"
+        },
+        "expected_quality_gain": {
+          "type": "string"
+        },
+        "hard_constraints_snapshot": {
+          "type": "string"
+        },
+        "intent_summary": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "prompt_manifest": {
+          "type": "string"
+        },
+        "proposal_id": {
+          "type": "string"
+        },
+        "reviewed_by": {
+          "type": "string"
+        },
+        "risk_assessment": {
+          "type": "string"
+        },
+        "scene_id": {
+          "type": "string"
+        },
+        "shot_id": {
+          "type": "string"
+        },
+        "shot_revision": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "uncertainty": {
+          "type": "string"
+        },
+        "visual_plan": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "正文段落列举（至少包含）"
+      ],
+      "additionalProperties": true
+    },
+    "ContinuityConstraint": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "approval_ref": {
+          "type": "string"
+        },
+        "authority": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "string"
+        },
+        "constraint_id": {
+          "type": "string"
+        },
+        "constraint_type": {
+          "type": "string"
+        },
+        "dependency_edge_refs": {
+          "type": "array"
+        },
+        "expected_state": {
+          "type": "string"
+        },
+        "scope_shot_refs": {
+          "type": "array"
+        },
+        "source_refs": {
+          "type": "array"
+        },
+        "subject_ref": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "valid_from": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "正文段落列举（建议字段）"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "ModelInvocation": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "billing_status",
+        "duplicate_charge_risk",
+        "idempotency_key",
+        "provider_job_id",
+        "provider_request_id",
+        "result_status",
+        "submission_status",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "billing_status": {
+          "type": "string"
+        },
+        "duplicate_charge_risk": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "provider_job_id": {
+          "type": "string"
+        },
+        "provider_request_id": {
+          "type": "string"
+        },
+        "result_status": {
+          "type": "string"
+        },
+        "submission_status": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "正文段落列举（至少包含）"
+      ],
+      "additionalProperties": true
+    },
+    "ReworkTask": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "affected_asset_version_ids",
+        "created_at",
+        "defect_category",
+        "downstream_task_ids",
+        "issue_id",
+        "owner",
+        "return_node",
+        "rework_task_id",
+        "root_cause",
+        "severity",
+        "status",
+        "target_ref",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "owner_module",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "affected_asset_version_ids": {
+          "type": "array"
+        },
+        "constraint_pack_ref": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "defect_category": {
+          "type": "string"
+        },
+        "downstream_task_ids": {
+          "type": "array"
+        },
+        "issue_id": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "return_node": {
+          "type": "string"
+        },
+        "rework_task_id": {
+          "type": "string"
+        },
+        "root_cause": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "target_ref": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "7.6 精准返工（字段）"
+      ],
+      "additionalProperties": true,
+      "x-afs-enum-note": "正文“类型”列声明为 enum 的字段：defect_category、return_node、severity、status；取值以正文该行说明列与对应状态机/枚举注册表为准，Schema 记 string 以允许后续扩展。"
+    },
+    "ConstraintPack": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "applicability",
+        "approved_at",
+        "approved_by",
+        "constraint_pack_id",
+        "constraints",
+        "locked_dimensions",
+        "project_id",
+        "shot_ids",
+        "status",
+        "version",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "applicability": {
+          "type": "string"
+        },
+        "approved_at": {
+          "type": "string"
+        },
+        "approved_by": {
+          "type": "string"
+        },
+        "constraint_pack_id": {
+          "type": "string"
+        },
+        "constraints": {
+          "type": "array"
+        },
+        "locked_dimensions": {
+          "type": "array"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "scene_id": {
+          "type": "string"
+        },
+        "shot_group_ids": {
+          "type": "array"
+        },
+        "shot_ids": {
+          "type": "array"
+        },
+        "source_previz_revision": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "7.9 隐式连续性依赖登记（字段）"
+      ],
+      "additionalProperties": true,
+      "x-afs-enum-note": "正文“类型”列声明为 enum 的字段：applicability、status；取值以正文该行说明列与对应状态机/枚举注册表为准，Schema 记 string 以允许后续扩展。"
+    },
+    "CameraRig": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "camera_rig_id",
+        "coordinate_system",
+        "extrinsics",
+        "intrinsics",
+        "keyframes",
+        "motion_curve",
+        "previz_revision_ref",
+        "sensor_format",
+        "time_base",
+        "unit",
+        "version",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "camera_manifest_ref": {
+          "type": "string"
+        },
+        "camera_rig_id": {
+          "type": "string"
+        },
+        "coordinate_system": {
+          "type": "string"
+        },
+        "crop": {
+          "type": "object"
+        },
+        "equivalent_fov": {
+          "type": "number"
+        },
+        "extrinsics": {
+          "type": "object"
+        },
+        "intrinsics": {
+          "type": "object"
+        },
+        "keyframes": {
+          "type": "array"
+        },
+        "motion_curve": {
+          "type": "array"
+        },
+        "previz_revision_ref": {
+          "type": "string"
+        },
+        "sensor_format": {
+          "type": "string"
+        },
+        "time_base": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "8.15 CameraRig 与 BlockingAsset（对象）"
+      ],
+      "additionalProperties": true
+    },
+    "BlockingAsset": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "asset_version_ref",
+        "axis_convention",
+        "blocking_asset_id",
+        "bounding_box",
+        "license_type",
+        "mesh_source",
+        "preview_only",
+        "rights_manifest_ref",
+        "unit_scale",
+        "version",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "asset_version_ref": {
+          "type": "string"
+        },
+        "axis_convention": {
+          "type": "string"
+        },
+        "blocking_asset_id": {
+          "type": "string"
+        },
+        "bounding_box": {
+          "type": "object"
+        },
+        "license_type": {
+          "type": "string"
+        },
+        "mesh_source": {
+          "type": "string"
+        },
+        "parent_asset_version_ref": {
+          "type": "string"
+        },
+        "preview_only": {
+          "type": "boolean"
+        },
+        "proxy_source": {
+          "type": "string"
+        },
+        "rights_manifest_ref": {
+          "type": "string"
+        },
+        "topology_summary": {
+          "type": "object"
+        },
+        "unit_scale": {
+          "type": "number"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "8.15 CameraRig 与 BlockingAsset（对象）"
+      ],
+      "additionalProperties": true
+    },
+    "ShowcaseSnapshot": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "at",
+        "audience_scope",
+        "canon_visibility_profile",
+        "content_type",
+        "created_by",
+        "delivery_package_ref",
+        "display_asset_refs",
+        "policy_resolution_ref",
+        "privacy_scan_ref",
+        "redaction_profile_ref",
+        "revoked_at",
+        "rights_manifest_refs",
+        "schema_version",
+        "snapshot_hash",
+        "snapshot_id",
+        "snapshot_version",
+        "source_episode_id",
+        "source_gate_state",
+        "source_project_id",
+        "source_scene_refs",
+        "stale_reason_codes",
+        "stale_state",
+        "watermark_profile_ref",
+        "entity_id",
+        "entity_type",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "at": {
+          "type": "string"
+        },
+        "audience_scope": {
+          "type": "string"
+        },
+        "canon_visibility_profile": {
+          "type": "string"
+        },
+        "content_type": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "delivery_package_ref": {
+          "type": "string"
+        },
+        "display_asset_refs": {
+          "type": "array"
+        },
+        "policy_resolution_ref": {
+          "type": "string"
+        },
+        "privacy_scan_ref": {
+          "type": "string"
+        },
+        "redaction_profile_ref": {
+          "type": "string"
+        },
+        "revoked_at": {
+          "type": "string"
+        },
+        "rights_manifest_refs": {
+          "type": "array"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "snapshot_hash": {
+          "type": "string"
+        },
+        "snapshot_id": {
+          "type": "string"
+        },
+        "snapshot_version": {
+          "type": "integer"
+        },
+        "source_episode_id": {
+          "type": "string"
+        },
+        "source_gate_state": {
+          "type": "string"
+        },
+        "source_project_id": {
+          "type": "string"
+        },
+        "source_scene_refs": {
+          "type": "array"
+        },
+        "stale_reason_codes": {
+          "type": "array"
+        },
+        "stale_state": {
+          "type": "string"
+        },
+        "watermark_profile_ref": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "24.3 核心数据契约：不可变快照与帖子分离（对象（权威实体））"
+      ],
+      "additionalProperties": true
+    },
+    "CommunityPost": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "audience_scope",
+        "audit_ref",
+        "author_id",
+        "category",
+        "content_type",
+        "description",
+        "interaction_policy",
+        "moderation_status",
+        "organization_id",
+        "post_id",
+        "publication_gate_ref",
+        "published_at",
+        "reuse_policy",
+        "schema_version",
+        "snapshot_id",
+        "status",
+        "tags",
+        "taken_down_at",
+        "title",
+        "unlisted_at",
+        "entity_id",
+        "entity_type",
+        "entity_version",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at"
+      ],
+      "properties": {
+        "audience_scope": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        },
+        "author_id": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "content_type": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "interaction_policy": {
+          "type": "string"
+        },
+        "moderation_status": {
+          "type": "string"
+        },
+        "organization_id": {
+          "type": "string"
+        },
+        "post_id": {
+          "type": "string"
+        },
+        "publication_gate_ref": {
+          "type": "string"
+        },
+        "published_at": {
+          "type": "string"
+        },
+        "reuse_policy": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "snapshot_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "string"
+        },
+        "taken_down_at": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "unlisted_at": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "24.3 核心数据契约：不可变快照与帖子分离（对象（权威实体））"
+      ],
+      "additionalProperties": true
+    },
+    "ShareLink": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "access_policy_ref",
+        "audience_scope",
+        "created_at",
+        "created_by",
+        "expires_at",
+        "permission_set",
+        "revoked_at",
+        "share_link_id",
+        "snapshot_id",
+        "token_hash",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "access_policy_ref": {
+          "type": "string"
+        },
+        "audience_scope": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "expires_at": {
+          "type": "string"
+        },
+        "permission_set": {
+          "type": "string"
+        },
+        "revoked_at": {
+          "type": "string"
+        },
+        "share_link_id": {
+          "type": "string"
+        },
+        "snapshot_id": {
+          "type": "string"
+        },
+        "token_hash": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "24.3 核心数据契约：不可变快照与帖子分离（对象（权威实体））"
+      ],
+      "additionalProperties": true
+    },
+    "ReuseRequest": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "approved_by",
+        "budget_check_ref",
+        "canon_check_ref",
+        "created_at",
+        "decision",
+        "request_id",
+        "requested_assets",
+        "requested_scope",
+        "requester_id",
+        "rights_check_ref",
+        "source_post_id",
+        "source_snapshot_id",
+        "target_project_id",
+        "target_shot_revision_id",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "approved_by": {
+          "type": "string"
+        },
+        "budget_check_ref": {
+          "type": "string"
+        },
+        "canon_check_ref": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "decision": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "requested_assets": {
+          "type": "string"
+        },
+        "requested_scope": {
+          "type": "string"
+        },
+        "requester_id": {
+          "type": "string"
+        },
+        "rights_check_ref": {
+          "type": "string"
+        },
+        "source_post_id": {
+          "type": "string"
+        },
+        "source_snapshot_id": {
+          "type": "string"
+        },
+        "target_project_id": {
+          "type": "string"
+        },
+        "target_shot_revision_id": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "24.3 核心数据契约：不可变快照与帖子分离（对象（权威实体））"
+      ],
+      "additionalProperties": true
+    },
+    "ShowcaseVersionTree": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "active_snapshot_ref",
+        "audit_ref",
+        "created_at",
+        "edges",
+        "nodes",
+        "root_snapshot_id",
+        "tree_id",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_by",
+        "updated_at"
+      ],
+      "properties": {
+        "active_snapshot_ref": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "edges": {
+          "type": "string"
+        },
+        "nodes": {
+          "type": "string"
+        },
+        "root_snapshot_id": {
+          "type": "string"
+        },
+        "tree_id": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "24.3 核心数据契约：不可变快照与帖子分离（对象（权威实体））"
+      ],
+      "additionalProperties": true
+    },
+    "Comment": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "audit_ref",
+        "author_id",
+        "body_ref",
+        "comment_id",
+        "created_at",
+        "parent_comment_id",
+        "post_id",
+        "status",
+        "visibility",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "owner_module",
+        "created_by",
+        "updated_at"
+      ],
+      "properties": {
+        "audit_ref": {
+          "type": "string"
+        },
+        "author_id": {
+          "type": "string"
+        },
+        "body_ref": {
+          "type": "string"
+        },
+        "comment_id": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "parent_comment_id": {
+          "type": "string"
+        },
+        "post_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "visibility": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "24.3 核心数据契约：不可变快照与帖子分离（对象（权威实体））"
+      ],
+      "additionalProperties": true
+    },
+    "Report": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "category",
+        "created_at",
+        "decision_ref",
+        "evidence_refs",
+        "report_id",
+        "reporter_id",
+        "status",
+        "target_id",
+        "target_type",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "owner_module",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "category": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "decision_ref": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "type": "array"
+        },
+        "report_id": {
+          "type": "string"
+        },
+        "reporter_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "target_id": {
+          "type": "string"
+        },
+        "target_type": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "24.3 核心数据契约：不可变快照与帖子分离（对象（权威实体））"
+      ],
+      "additionalProperties": true
+    },
+    "TakeDown": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "appeal_ref",
+        "authority_ref",
+        "evidence_refs",
+        "notice_ref",
+        "reason_code",
+        "scope",
+        "takedown_id",
+        "taken_down_at",
+        "target_ref",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "appeal_ref": {
+          "type": "string"
+        },
+        "authority_ref": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "type": "array"
+        },
+        "notice_ref": {
+          "type": "string"
+        },
+        "reason_code": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "object"
+        },
+        "takedown_id": {
+          "type": "string"
+        },
+        "taken_down_at": {
+          "type": "string"
+        },
+        "target_ref": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "24.3 核心数据契约：不可变快照与帖子分离（对象（权威实体））"
+      ],
+      "additionalProperties": true
+    },
+    "Appeal": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "appeal_id",
+        "appellant_ref",
+        "decided_at",
+        "evidence_refs",
+        "grounds",
+        "reviewer_ref",
+        "takedown_ref",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "appeal_id": {
+          "type": "string"
+        },
+        "appellant_ref": {
+          "type": "string"
+        },
+        "decided_at": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "type": "array"
+        },
+        "grounds": {
+          "type": "string"
+        },
+        "reviewer_ref": {
+          "type": "string"
+        },
+        "takedown_ref": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "24.3 核心数据契约：不可变快照与帖子分离（对象（权威实体））"
+      ],
+      "additionalProperties": true
+    },
+    "ReviewAnnotation": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "annotation_id",
+        "asset_version_ref",
+        "author_ref",
+        "dimension",
+        "frame_range",
+        "note",
+        "snapshot_id",
+        "timecode",
+        "visibility",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "annotation_id": {
+          "type": "string"
+        },
+        "asset_version_ref": {
+          "type": "string"
+        },
+        "author_ref": {
+          "type": "string"
+        },
+        "dimension": {
+          "type": "string"
+        },
+        "frame_range": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "snapshot_id": {
+          "type": "string"
+        },
+        "timecode": {
+          "type": "string"
+        },
+        "visibility": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "24.3 核心数据契约：不可变快照与帖子分离（对象（权威实体））"
+      ],
+      "additionalProperties": true
+    },
+    "ExternalToolAdapterManifest": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "adapter_id",
+        "adapter_type",
+        "adapter_version",
+        "auth_modes",
+        "callback_auth",
+        "capability_levels",
+        "credential_ref_policy",
+        "data_residency",
+        "deployment_modes",
+        "egress_policy",
+        "event_schema_versions",
+        "format_profiles",
+        "idempotency_policy",
+        "lifecycle_status",
+        "media_types",
+        "min_platform_version",
+        "network_policy",
+        "permission_scopes",
+        "product",
+        "provider",
+        "revocation_ref",
+        "sandbox_profile",
+        "signature_ref",
+        "supported_operations",
+        "supported_product_versions",
+        "verification_evidence_refs",
+        "verified_capabilities",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "adapter_id": {
+          "type": "string"
+        },
+        "adapter_type": {
+          "type": "string"
+        },
+        "adapter_version": {
+          "type": "integer"
+        },
+        "auth_modes": {
+          "type": "string"
+        },
+        "callback_auth": {
+          "type": "string"
+        },
+        "capability_levels": {
+          "type": "string"
+        },
+        "credential_ref_policy": {
+          "type": "string"
+        },
+        "data_residency": {
+          "type": "string"
+        },
+        "deployment_modes": {
+          "type": "string"
+        },
+        "egress_policy": {
+          "type": "string"
+        },
+        "event_schema_versions": {
+          "type": "string"
+        },
+        "format_profiles": {
+          "type": "string"
+        },
+        "idempotency_policy": {
+          "type": "string"
+        },
+        "lifecycle_status": {
+          "type": "string"
+        },
+        "media_types": {
+          "type": "string"
+        },
+        "min_platform_version": {
+          "type": "integer"
+        },
+        "network_policy": {
+          "type": "string"
+        },
+        "permission_scopes": {
+          "type": "string"
+        },
+        "product": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "revocation_ref": {
+          "type": "string"
+        },
+        "sandbox_profile": {
+          "type": "string"
+        },
+        "signature_ref": {
+          "type": "string"
+        },
+        "supported_operations": {
+          "type": "string"
+        },
+        "supported_product_versions": {
+          "type": "string"
+        },
+        "verification_evidence_refs": {
+          "type": "array"
+        },
+        "verified_capabilities": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "32.4 ExternalToolAdapter 统一 Manifest 与 SPI 契约（字段组）"
+      ],
+      "additionalProperties": true
+    },
+    "TimelineDraft": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "audio_alignment",
+        "audio_sample_rate",
+        "change_summary",
+        "clip_in_frame",
+        "clip_out_frame",
+        "color_space",
+        "created_at",
+        "created_by",
+        "duration_frames",
+        "duration_per_shot_frames{}",
+        "end_frame",
+        "episode_id",
+        "fps_den",
+        "fps_num",
+        "height",
+        "intent_note",
+        "language",
+        "marker_type",
+        "offset_frames",
+        "parent_version_id",
+        "pixel_aspect_ratio",
+        "policy_snapshot_ref",
+        "project_id",
+        "rights_snapshot_ref",
+        "sequence_id",
+        "shot_order",
+        "source_asset_version_ids",
+        "source_rights_snapshot_ref",
+        "source_shot_revision_ids",
+        "stale_state",
+        "start_frame",
+        "status",
+        "style_profile_ref",
+        "subtitle_cues",
+        "text",
+        "timeline_draft_id",
+        "track_ref",
+        "transition_markers",
+        "validation_report_ref",
+        "version",
+        "width",
+        "workspace_id",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "owner_module",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "audio_alignment": {
+          "type": "string"
+        },
+        "audio_sample_rate": {
+          "type": "string"
+        },
+        "change_summary": {
+          "type": "string"
+        },
+        "clip_in_frame": {
+          "type": "string"
+        },
+        "clip_out_frame": {
+          "type": "string"
+        },
+        "color_space": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "duration_frames": {
+          "type": "string"
+        },
+        "duration_per_shot_frames{}": {
+          "type": "string"
+        },
+        "end_frame": {
+          "type": "string"
+        },
+        "episode_id": {
+          "type": "string"
+        },
+        "fps_den": {
+          "type": "string"
+        },
+        "fps_num": {
+          "type": "string"
+        },
+        "height": {
+          "type": "string"
+        },
+        "intent_note": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        },
+        "marker_type": {
+          "type": "string"
+        },
+        "offset_frames": {
+          "type": "string"
+        },
+        "parent_version_id": {
+          "type": "string"
+        },
+        "pixel_aspect_ratio": {
+          "type": "string"
+        },
+        "policy_snapshot_ref": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "rights_snapshot_ref": {
+          "type": "string"
+        },
+        "sequence_id": {
+          "type": "string"
+        },
+        "shot_order": {
+          "type": "string"
+        },
+        "source_asset_version_ids": {
+          "type": "array"
+        },
+        "source_rights_snapshot_ref": {
+          "type": "string"
+        },
+        "source_shot_revision_ids": {
+          "type": "array"
+        },
+        "stale_state": {
+          "type": "string"
+        },
+        "start_frame": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "style_profile_ref": {
+          "type": "string"
+        },
+        "subtitle_cues": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "timeline_draft_id": {
+          "type": "string"
+        },
+        "track_ref": {
+          "type": "string"
+        },
+        "transition_markers": {
+          "type": "string"
+        },
+        "validation_report_ref": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "width": {
+          "type": "string"
+        },
+        "workspace_id": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "33.2 TimelineDraft / EditDecisionList 权威对象（字段组）"
+      ],
+      "additionalProperties": true
+    },
+    "ExportPackage": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "expires_at",
+        "export_package_id",
+        "export_status",
+        "export_type",
+        "format_profile_id",
+        "project_id",
+        "timeline_draft_ref",
+        "version",
+        "workspace_id",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "expires_at": {
+          "type": "string"
+        },
+        "export_package_id": {
+          "type": "string"
+        },
+        "export_status": {
+          "type": "string"
+        },
+        "export_type": {
+          "type": "string"
+        },
+        "format_profile_id": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "timeline_draft_ref": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "workspace_id": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "33.5 ExportPackage / ExportManifest 契约（对象/字段）"
+      ],
+      "additionalProperties": true
+    },
+    "CreatorWorkspace": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "created_at",
+        "owner_principal_id",
+        "policy_snapshot_ref",
+        "quota_scope",
+        "status",
+        "tenant_id",
+        "workspace_id",
+        "workspace_mode",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "owner_module",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "created_at": {
+          "type": "string"
+        },
+        "derived_from_workspace_id": {
+          "type": "string"
+        },
+        "organization_id": {
+          "type": "string"
+        },
+        "owner_principal_id": {
+          "type": "string"
+        },
+        "parent_workspace_id": {
+          "type": "string"
+        },
+        "policy_snapshot_ref": {
+          "type": "string"
+        },
+        "quota_scope": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "workspace_id": {
+          "type": "string"
+        },
+        "workspace_mode": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "34.1 模式定位与隔离原则（对象）"
+      ],
+      "additionalProperties": true,
+      "x-afs-enum-note": "正文“类型”列声明为 enum 的字段：status、workspace_mode；取值以正文该行说明列与对应状态机/枚举注册表为准，Schema 记 string 以允许后续扩展。"
+    },
+    "CreatorGate": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "creator_asset_version_id",
+        "creator_gate_id",
+        "creator_workspace_id",
+        "decision",
+        "evaluated_at",
+        "evaluated_by",
+        "policy_snapshot_ref",
+        "rights_snapshot_ref",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "creator_asset_version_id": {
+          "type": "string"
+        },
+        "creator_gate_id": {
+          "type": "string"
+        },
+        "creator_workspace_id": {
+          "type": "string"
+        },
+        "decision": {
+          "type": "string"
+        },
+        "evaluated_at": {
+          "type": "string"
+        },
+        "evaluated_by": {
+          "type": "string"
+        },
+        "policy_snapshot_ref": {
+          "type": "string"
+        },
+        "reason_codes": {
+          "type": "array"
+        },
+        "rights_snapshot_ref": {
+          "type": "string"
+        },
+        "safety_report_ref": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "34.5 CREATOR_GATE 与工业 Gate0—4 隔离（对象）"
+      ],
+      "additionalProperties": true,
+      "x-afs-enum-note": "正文“类型”列声明为 enum 的字段：decision；取值以正文该行说明列与对应状态机/枚举注册表为准，Schema 记 string 以允许后续扩展。"
+    },
+    "CreatorDeliveryManifest": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "creator_delivery_manifest_id",
+        "creator_workspace_id",
+        "manifest_type",
+        "source_export_package_id",
+        "timeline_draft_ref",
+        "version",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "creator_delivery_manifest_id": {
+          "type": "string"
+        },
+        "creator_workspace_id": {
+          "type": "string"
+        },
+        "manifest_type": {
+          "type": "string"
+        },
+        "source_export_package_id": {
+          "type": "string"
+        },
+        "timeline_draft_ref": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "34.7 CreatorDeliveryManifest 与 CREATOR_RELEASE 定义（对象/字段）"
+      ],
+      "additionalProperties": true
+    },
+    "CreatorPublicationCheck": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "audience_scope",
+        "checked_at",
+        "creator_release_id",
+        "decision",
+        "evidence_refs",
+        "pg_rules_applied",
+        "policy_version",
+        "publication_check_id",
+        "rights_snapshot_ref",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "audience_scope": {
+          "type": "string"
+        },
+        "checked_at": {
+          "type": "string"
+        },
+        "creator_release_id": {
+          "type": "string"
+        },
+        "decision": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "type": "array"
+        },
+        "pg_rules_applied": {
+          "type": "array"
+        },
+        "policy_version": {
+          "type": "string"
+        },
+        "privacy_report_ref": {
+          "type": "string"
+        },
+        "publication_check_id": {
+          "type": "string"
+        },
+        "rights_snapshot_ref": {
+          "type": "string"
+        },
+        "safety_report_ref": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "34.8 分享、社区发布与公开权限（对象）"
+      ],
+      "additionalProperties": true,
+      "x-afs-enum-note": "正文“类型”列声明为 enum 的字段：audience_scope、decision；取值以正文该行说明列与对应状态机/枚举注册表为准，Schema 记 string 以允许后续扩展。"
+    },
+    "CreatorRelease": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "audience_scope",
+        "capability_token_jti",
+        "content_type",
+        "creator_delivery_manifest_id",
+        "creator_release_id",
+        "creator_workspace_id",
+        "publication_check_ref",
+        "status",
+        "user_intent_id",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "audience_scope": {
+          "type": "string"
+        },
+        "capability_token_jti": {
+          "type": "string"
+        },
+        "content_type": {
+          "type": "string"
+        },
+        "creator_delivery_manifest_id": {
+          "type": "string"
+        },
+        "creator_release_id": {
+          "type": "string"
+        },
+        "creator_workspace_id": {
+          "type": "string"
+        },
+        "publication_check_ref": {
+          "type": "string"
+        },
+        "published_at": {
+          "type": "string"
+        },
+        "revoke_reason": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "user_intent_id": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "34.8 分享、社区发布与公开权限（对象）"
+      ],
+      "additionalProperties": true,
+      "x-afs-enum-note": "正文“类型”列声明为 enum 的字段：audience_scope、content_type、status；取值以正文该行说明列与对应状态机/枚举注册表为准，Schema 记 string 以允许后续扩展。"
+    },
+    "GateDecision": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "comment",
+        "constraint_snapshot_id",
+        "decided_at",
+        "decided_by",
+        "decision",
+        "entry_criteria",
+        "evidence_refs",
+        "gate_instance_id",
+        "gate_key",
+        "project_id",
+        "reason_code",
+        "required_artifacts",
+        "reviewers",
+        "ruleset_version",
+        "scope",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "comment": {
+          "type": "string"
+        },
+        "constraint_snapshot_id": {
+          "type": "string"
+        },
+        "decided_at": {
+          "type": "string"
+        },
+        "decided_by": {
+          "type": "string"
+        },
+        "decision": {
+          "type": "string"
+        },
+        "entry_criteria": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "type": "array"
+        },
+        "gate_instance_id": {
+          "type": "string"
+        },
+        "gate_key": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "reason_code": {
+          "type": "string"
+        },
+        "required_artifacts": {
+          "type": "string"
+        },
+        "reviewers": {
+          "type": "array"
+        },
+        "ruleset_version": {
+          "type": "integer"
+        },
+        "scope": {
+          "type": "object"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "条款字段列举（每个 Gate 必须包含）"
+      ],
+      "additionalProperties": true
+    },
+    "QCIssue": {
+      "type": "object",
+      "description": "",
+      "required": [
+        "asset_version",
+        "detector_version",
+        "disposition",
+        "evidence",
+        "frame_range",
+        "human_decision",
+        "severity",
+        "timecode",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "asset_version": {
+          "type": "integer"
+        },
+        "detector_version": {
+          "type": "integer"
+        },
+        "disposition": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "string"
+        },
+        "frame_range": {
+          "type": "string"
+        },
+        "human_decision": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string"
+        },
+        "timecode": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "条款字段列举（每条问题必须绑定）"
+      ],
+      "additionalProperties": true
+    },
+    "Task": {
+      "type": "object",
+      "description": "8.6 规定的 Task 最小字段集与权威状态机。",
+      "required": [
+        "task_id",
+        "workflow_run_id",
+        "task_type",
+        "status",
+        "priority",
+        "idempotency_key",
+        "attempt",
+        "max_attempts"
+      ],
+      "properties": {
+        "task_id": {
+          "type": "string"
+        },
+        "workflow_run_id": {
+          "type": "string"
+        },
+        "task_type": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "BLOCKED",
+            "READY",
+            "QUEUED",
+            "RUNNING",
+            "SUCCEEDED",
+            "FAILED",
+            "CANCELLED",
+            "CANCEL_REQUESTED",
+            "RETRY_WAIT",
+            "NEEDS_REPLAN",
+            "WAITING_FOR_HUMAN",
+            "WAITING_FOR_RESOURCE",
+            "WAITING_FOR_PROVIDER",
+            "SUBMISSION_UNKNOWN"
+          ]
+        },
+        "priority": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "attempt": {
+          "type": "integer"
+        },
+        "max_attempts": {
+          "type": "integer"
+        },
+        "input_snapshot": {
+          "type": "object"
+        },
+        "output_ref": {
+          "type": "string"
+        },
+        "error_code": {
+          "type": "string"
+        },
+        "lease_owner": {
+          "type": "string"
+        },
+        "lease_expires_at": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "8.6 状态机 / 任务契约"
+      ],
+      "additionalProperties": true
+    },
+    "Event": {
+      "type": "object",
+      "description": "事件信封。8.7 与 C.3.2 各有一份定义，此处取并集；差异见 x-afs-conflicts。",
+      "required": [
+        "event_id",
+        "event_type",
+        "occurred_at"
+      ],
+      "properties": {
+        "event_id": {
+          "type": "string"
+        },
+        "event_type": {
+          "type": "string"
+        },
+        "event_version": {
+          "type": "string"
+        },
+        "occurred_at": {
+          "type": "string"
+        },
+        "producer": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "aggregate_type": {
+          "type": "string"
+        },
+        "aggregate_id": {
+          "type": "string"
+        },
+        "aggregate_version": {
+          "type": "integer"
+        },
+        "trace_id": {
+          "type": "string"
+        },
+        "correlation_id": {
+          "type": "string"
+        },
+        "causation_id": {
+          "type": "string"
+        },
+        "actor_ref": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "object"
+        },
+        "payload_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "8.7 事件契约",
+        "C.3.2 契约类型表"
+      ],
+      "x-afs-conflicts": "8.7 含 producer/tenant_id/project_id/payload；C.3.2 含 event_version/causation_id/actor_ref/payload_ref。两者不互为子集。",
+      "additionalProperties": true
+    },
+    "QCReport": {
+      "type": "object",
+      "description": "8.9 QCReport 扩展契约；无 ControlSignalAsset 或无锁定控制要求时控制维度标 NOT_APPLICABLE。",
+      "required": [
+        "qc_report_id",
+        "asset_version_id",
+        "quality_profile_version",
+        "detector_versions",
+        "findings"
+      ],
+      "properties": {
+        "qc_report_id": {
+          "type": "string"
+        },
+        "asset_version_id": {
+          "type": "string"
+        },
+        "quality_profile_version": {
+          "type": "string"
+        },
+        "benchmark_version": {
+          "type": "string"
+        },
+        "detector_versions": {
+          "type": "object"
+        },
+        "deviation_intent_ref": {
+          "type": "object"
+        },
+        "deviation_class": {
+          "type": "string",
+          "enum": [
+            "INTENTIONAL",
+            "UNINTENTIONAL",
+            "UNCERTAIN"
+          ]
+        },
+        "intent_match_status": {
+          "type": "string",
+          "enum": [
+            "MATCH",
+            "CONFLICT",
+            "NOT_ASSESSED"
+          ]
+        },
+        "findings": {
+          "type": "array"
+        },
+        "human_decision": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "8.9 QCReport 扩展契约"
+      ],
+      "additionalProperties": true
+    },
+    "MemoryRecord": {
+      "type": "object",
+      "description": "记忆记录最小字段集；记忆是辅助决策数据，不自动成为硬约束。",
+      "required": [
+        "memory_id",
+        "memory_type",
+        "content",
+        "confidence",
+        "authority",
+        "scope",
+        "status"
+      ],
+      "properties": {
+        "memory_id": {
+          "type": "string"
+        },
+        "memory_type": {
+          "type": "string",
+          "enum": [
+            "Project",
+            "Story",
+            "Character",
+            "Location",
+            "Creative",
+            "Production"
+          ]
+        },
+        "content": {
+          "type": "string"
+        },
+        "source_refs": {
+          "type": "array"
+        },
+        "confidence": {
+          "type": "number"
+        },
+        "authority": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "object"
+        },
+        "valid_from": {
+          "type": "string"
+        },
+        "valid_to": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "supersedes": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "记忆记录章节"
+      ],
+      "additionalProperties": true
+    },
+    "BudgetTransferRequest": {
+      "type": "object",
+      "description": "预算转拨请求；Phase 1 仅允许登记需求或返回 PHASE_NOT_ENABLED。",
+      "required": [
+        "transfer_id",
+        "source_account_id",
+        "target_account_id",
+        "amount",
+        "currency",
+        "reason_code",
+        "requested_by",
+        "idempotency_key",
+        "status"
+      ],
+      "properties": {
+        "transfer_id": {
+          "type": "string"
+        },
+        "source_account_id": {
+          "type": "string"
+        },
+        "target_account_id": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "number"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "reason_code": {
+          "type": "string"
+        },
+        "requested_by": {
+          "type": "string"
+        },
+        "approved_by": {
+          "type": "string"
+        },
+        "approval_ref": {
+          "type": "string"
+        },
+        "source_balance_snapshot": {
+          "type": "object"
+        },
+        "target_balance_snapshot": {
+          "type": "object"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "ledger_transaction_ref": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "DRAFT",
+            "SUBMITTED",
+            "IN_REVIEW",
+            "APPROVED",
+            "EXECUTING",
+            "EXECUTED",
+            "REJECTED",
+            "FAILED"
+          ]
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "executed_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "预算转拨契约章节"
+      ],
+      "additionalProperties": true
+    },
+    "ModelInvocationContext": {
+      "type": "object",
+      "description": "Model Gateway 调用上下文；只保存 credential_ref，不得存明文密钥。",
+      "required": [
+        "project_id",
+        "provider",
+        "model",
+        "model_version",
+        "billing_mode",
+        "credential_ref",
+        "idempotency_key",
+        "task_id"
+      ],
+      "properties": {
+        "project_id": {
+          "type": "string"
+        },
+        "shot_id": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "model_version": {
+          "type": "string"
+        },
+        "billing_mode": {
+          "type": "string",
+          "enum": [
+            "USER_OWN_KEY",
+            "PLATFORM_PAID"
+          ]
+        },
+        "credential_ref": {
+          "type": "string"
+        },
+        "endpoint_ref": {
+          "type": "string"
+        },
+        "price_version": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "task_id": {
+          "type": "string"
+        },
+        "data_policy_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "Model Gateway 调用上下文"
+      ],
+      "additionalProperties": true
+    },
+    "CapabilityToken": {
+      "type": "object",
+      "description": "C.5.1 Capability Token 最小契约；短时有效、可撤销、不可扩大权限。",
+      "required": [
+        "subject",
+        "issuer",
+        "allowed_actions",
+        "issued_at",
+        "expires_at",
+        "jti"
+      ],
+      "properties": {
+        "subject": {
+          "type": "string"
+        },
+        "issuer": {
+          "type": "string"
+        },
+        "project_scope": {
+          "type": "object"
+        },
+        "episode_scope": {
+          "type": "object"
+        },
+        "shot_scope": {
+          "type": "object"
+        },
+        "asset_scope": {
+          "type": "object"
+        },
+        "allowed_actions": {
+          "type": "array"
+        },
+        "denied_actions": {
+          "type": "array"
+        },
+        "budget_scope": {
+          "type": "object"
+        },
+        "max_amount": {
+          "type": "number"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "resource_quota": {
+          "type": "object"
+        },
+        "delegation_chain": {
+          "type": "array"
+        },
+        "approval_ref": {
+          "type": "string"
+        },
+        "issued_at": {
+          "type": "string"
+        },
+        "not_before": {
+          "type": "string"
+        },
+        "expires_at": {
+          "type": "string"
+        },
+        "jti": {
+          "type": "string"
+        },
+        "revocation_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "C.5.1 Capability Token 最小契约"
+      ],
+      "additionalProperties": true
+    },
+    "DomainCommand": {
+      "type": "object",
+      "description": "C.3.2 命令信封；幂等键按 principal + command + target scope 唯一。",
+      "required": [
+        "command_id",
+        "command_type",
+        "idempotency_key",
+        "actor_context",
+        "scope",
+        "target_ref",
+        "expected_entity_version"
+      ],
+      "properties": {
+        "command_id": {
+          "type": "string"
+        },
+        "command_type": {
+          "type": "string"
+        },
+        "command_version": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "actor_context": {
+          "type": "object"
+        },
+        "scope": {
+          "type": "object"
+        },
+        "target_ref": {
+          "type": "string"
+        },
+        "expected_entity_version": {
+          "type": "integer"
+        },
+        "payload": {
+          "type": "object"
+        },
+        "trace_id": {
+          "type": "string"
+        },
+        "requested_at": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "C.3.2 API 命令、事件信封与错误码"
+      ],
+      "additionalProperties": true
+    },
+    "AssetReference": {
+      "type": "object",
+      "description": "C.3.2 资产引用；下游引用必须指向不可变版本。",
+      "required": [
+        "asset_id",
+        "asset_version_id",
+        "sha256",
+        "media_type",
+        "storage_ref"
+      ],
+      "properties": {
+        "asset_id": {
+          "type": "string"
+        },
+        "asset_version_id": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "media_type": {
+          "type": "string"
+        },
+        "storage_ref": {
+          "type": "string"
+        },
+        "rights_manifest_ref": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "C.3.2 API 命令、事件信封与错误码"
+      ],
+      "additionalProperties": true
+    },
+    "ErrorEnvelope": {
+      "type": "object",
+      "description": "C.3.2 错误信封；按结构化 error_code 处理，不得依赖 message 判断重试。",
+      "required": [
+        "error_code",
+        "category",
+        "retryable"
+      ],
+      "properties": {
+        "error_code": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object"
+        },
+        "correlation_id": {
+          "type": "string"
+        },
+        "retry_after": {
+          "type": "integer"
+        }
+      },
+      "x-afs-sources": [
+        "C.3.2 API 命令、事件信封与错误码"
+      ],
+      "additionalProperties": true
+    }
+  }
+}

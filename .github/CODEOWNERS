@@ -1,0 +1,21 @@
+# 模块代码所有权（对应 14.2 数据所有权矩阵，审批人与申请人职责分离）
+# 说明：以下为占位，需替换为实际团队 GitHub 用户名
+
+*                           @jhb-0212
+
+# 领域服务模块
+/services/orchestrator/      @jhb-0212
+/services/project-planning/  @jhb-0212
+/services/asset-service/     @jhb-0212
+/services/rights-governance/ @jhb-0212
+/services/qc-governance/     @jhb-0212
+/services/model-gateway/     @jhb-0212
+/services/identity-access/   @jhb-0212
+/services/budget-quota/      @jhb-0212
+
+# 契约层（单一事实源，变更需文档管理员复核）
+/contracts/                  @jhb-0212
+
+# 基础设施与 CI
+/infra/                      @jhb-0212
+/.github/                    @jhb-0212

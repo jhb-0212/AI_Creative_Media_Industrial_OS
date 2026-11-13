@@ -1,0 +1,37 @@
+# 由 AFS-ARCH-MASTER-V2.0.5 第 31.2 节派生
+# 唯一权威阶段表；其余章节阶段表为非权威摘要
+source: AFS-ARCH-MASTER-V2.0.5 31.2 平台 Phase 0—4 唯一阶段总表
+authority: 唯一权威阶段映射；第 7 章、13 章、23—30 章与附录中的阶段说明均为工序说明或非权威摘要。P0/P1/P2 是功能优先级，与 Phase 0—4 分离。
+phase_count: 5
+phases:
+- id: Phase 0
+  core_production: 冻结核心 Schema、ShotSpec/AssetVersion、DAG/Gate、权限、预算、STALE、Action Registry；冻结 ExternalToolAdapter、TimelineDraft、ExportPackage/ExportManifest、CreatorWorkspace.workspace_mode、CREATOR_DEFAULT_POLICY、CREATOR_GATE、CREATOR_PUBLICATION_CHECK、CREATOR_DELIVERY、CREATOR_RELEASE、权限动作、审计与
+    CRITICAL 阻断契约。只冻结接口和数据结构，不开发 UI。
+  community: 只冻结 ShowcaseSnapshot、ShareLink、CommunityPost、PublicationGate、审计、撤销与申诉契约。
+  other_domain: 冻结 ReverseAnalysisReport、ReuseRequest、ClientReviewPortal、DeliveryManifest、学习内容引用、Agent/Plugin/Adapter Manifest、签名/沙箱/权限契约；详细领域契约见第 32—34 章。
+  authoritative_source: 31.2 平台 Phase 0—4 唯一阶段总表
+- id: Phase 1
+  core_production: 核心主链：项目创建→剧本导入→AI 拆镜草案→人工确认→ShotSpec/ShotVisualPlan→ConstraintPack（如适用；无锁定约束标 NOT_APPLICABLE）→单一路线生成→核心 QC→人工 Gate→DeliveryManifest。CREATOR_MODE、Timeline UI、Preview、ExportPackage UI 全部
+    NOT_ENABLED。
+  community: 只读分享/审片链接最小版；仅内部审核记录或组织内封闭灰度；不开放公开社区发布。
+  other_domain: 反推、组织内只读资产目录、客户审片和作品拆解最小版；外部工具仅开放已验证 L1 文件互通；Creator Mode 不得借用工业 Gate/DELIVERED_FINAL。
+  authoritative_source: 31.2 平台 Phase 0—4 唯一阶段总表
+- id: Phase 2
+  core_production: CEE 受控探索、PMS/记忆、动态调度与资产复用治理；启用 Creator Mode MVP：极简输入、默认策略、TimelineDraft 元数据编排、TimelinePreview 代理片段顺序预览、模板预设、已验证 Profile 的剪映草稿/FCPXML/EDL 工程包导出、一键升级 FULL_MODE。严禁平台帧级剪辑/渲染/混音。
+  community: 组织内社区 MVP、发布审批、举报/下架/申诉、ReuseRequest；Creator Release 仅限私有与组织内受众，且必须经组织内发布审批（PublicationReview）；Creator 自动发布资格检查通道（CREATOR.PUBLICATION.CHECK）与公开发布均属 Phase 3，Phase 2 不得启用自动通道。
+  other_domain: 模板市场灰度、学习/交付增强；外部工具 L2 元数据同步；Creator 公开发布能力先限于获准试点与自动化发布资格检查。
+  authoritative_source: 31.2 平台 Phase 0—4 唯一阶段总表
+- id: Phase 3
+  core_production: RCA、团队协作、运营优化；启用外部工具插件/签名回调/工程和成片回传；插件不得直接写权威状态。
+  community: 公开社区、TV Show 首页、创作者主页、公开作品发现；符合资格的 Creator Release 可由用户显式发起并通过自动化检查后发布，Agent 不得代发。
+  other_domain: 发行适配、多语言、受控生态；外部工具 L3 插件/L4 签名事件回调，只能触发白名单 DAG，不直写 Gate/Canon/Rights/账本。
+  authoritative_source: 31.2 平台 Phase 0—4 唯一阶段总表
+- id: Phase 4
+  core_production: 高可用、灾备、供应商容错和规模化可靠性；扩展 Creator Mode 模板与更多格式 Profile。
+  community: 社区商业化能力按法律/运营准备度开放。
+  other_domain: 扩展 Audio/3D/VFX 适配器、模板市场与生态；收益分成、二创授权和交易市场另行完成商业、资金、版权与隐私评审。
+  authoritative_source: 31.2 平台 Phase 0—4 唯一阶段总表
+non_authoritative_phase_tables:
+- line: 2719
+  section: 23.1 P0/P1/P2 与 Phase 0—4 的定义
+  note: 非权威摘要，须引用 31.2

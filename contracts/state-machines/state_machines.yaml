@@ -1,0 +1,309 @@
+# 由 AFS-ARCH-MASTER-V2.0.5 Markdown 基线派生
+# 未登记状态的转移一律拒绝（31.5 规则）
+source: AFS-ARCH-MASTER-V2.0.5 各章节状态机定义（由 Markdown 基线派生）
+authority_rule: 同一对象多处定义时，按 31.5 唯一权威状态机 > 32.6/C.7 > 34.x > 33.3 > C.3 取权威；24.11 为摘要不计入权威；差异不静默合并，见 conflict 字段。
+total_objects: 35
+conflict_count: 5
+conflict_rulings:
+- object: CharacterCanon
+  ruled_by: AFS-P0-FREEZE-2026-11-13-01
+  authority: C.7 关键状态机与版本不可变规则
+  ruling: CONFLICT_REVIEW 为合法状态；事实冲突未裁决前相关镜头不得自动合并。C.3 未列该状态属描述省略，不构成第二套状态集。
+- object: ShotVisualPlan
+  ruled_by: AFS-P0-FREEZE-2026-11-13-01
+  authority: C.7 关键状态机与版本不可变规则
+  ruling: PARTIALLY_LOCKED、LOCKED 为合法状态，须记录锁定人/时间/理由/版本；C.3 的 DRAFT→REVIEW→APPROVED/REJECTED 为其子集。
+- object: ExplorationBranch
+  ruled_by: AFS-P0-FREEZE-2026-11-13-01
+  authority: C.7 关键状态机与版本不可变规则
+  ruling: FAILED 为合法终态，生成失败不得并入 REJECTED：REJECTED 指候选被否，FAILED 指分支执行失败，语义不同。
+- object: QCReviewSession
+  ruled_by: AFS-P0-FREEZE-2026-11-13-01
+  authority: C.7 关键状态机与版本不可变规则
+  ruling: RESOLVED 之后必须先经 GATE_ELIGIBLE 才可到 CLOSED；禁止 RESOLVED→CLOSED 跳关，跳过 Gate 资格校验等同绕过 Gate 门禁，一律拒绝。
+- object: PatternRecord
+  ruled_by: AFS-P0-FREEZE-2026-11-13-01
+  authority: C.3 对象总表（PatternRecord 行）
+  ruling: 以 C.3 为准：EXPERIMENT_RECORD→IN_REVIEW→REUSABLE_PATTERN/REJECTED/FAILURE_CASE，REUSABLE_PATTERN→DEPRECATED→RETIRED。26.2 的 REJECTED_PROPOSAL 与 REJECTED 同义，按 C.3 记 REJECTED；26.2 未列 DEPRECATED、RETIRED 属描述省略，不构成第二套状态集。26.2
+    的晋升条件（质量证据、版权审查、适用边界说明、责任人审批）为准入规则，与状态转移并行适用。
+text_authority_only:
+- object: SharedReferenceAsset
+  source_sections:
+  - 26.2 资产生命周期和权威边界
+  kind: paragraph_authority_unmodeled_object
+  note: 26.2 给出了共享参考资产状态链（DRAFT→RIGHTS_CHECK→VALIDATED→AVAILABLE→DEPRECATED/REVOKED/QUARANTINED），属跨项目共享条目治理；该对象尚未进入 object_schemas.schema.json，P0 期间以 26.2 正文为权威（有状态链、只是未建模，不属“无状态机”），建模后须按 31.11 启用前复核补登状态机。
+objects:
+- object: Appeal
+  authoritative_source: 31.5 社区对象状态机最终定义
+  states: SUBMITTED → IN_REVIEW → DECISION_UPHELD / DECISION_OVERTURNED → CLOSED
+  note: DECISION_UPHELD 表示原处置决定维持；DECISION_OVERTURNED 表示原决定被撤销或改判；申诉不自动恢复内容，恢复须单独执行并审计。
+  all_sources:
+  - 24.11 社区状态机、分享链接与复用状态机
+  - 31.5 社区对象状态机最终定义
+- object: AssetVersion
+  authoritative_source: 8.5 Asset 生命周期
+  states: GENERATED→TECHNICAL_QC→HUMAN_REVIEW→APPROVED→GOLD；可进入 REJECTED / QUARANTINED / REWORK / SUPERSEDED / ARCHIVED
+  note: 8.5 标题写“Asset 生命周期”，对应受控资产版本对象 AssetVersion。QUARANTINED 不得直接转 GOLD，必须补齐证据并经授权复核；分支进入各旁支的具体前置条件正文未逐条给出，未登记的状态转移一律拒绝。
+  source_kind: paragraph_state_machine
+  all_sources:
+  - 8.5 Asset 生命周期
+  note_states: false
+- object: BudgetLedgerTransaction
+  authoritative_source: C.7 关键状态机与版本不可变规则
+  states: APPENDED；后续通过新流水 REFUND / ADJUST / REVERSAL（原文无箭头，状态为流水类型）
+  note: 不可修改/删除；交易 ID 与幂等键唯一；账户余额通过流水计算。
+  source_kind: text_only_definition
+  all_sources:
+  - C.7 关键状态机与版本不可变规则
+- object: CharacterCanon
+  authoritative_source: C.7 关键状态机与版本不可变规则
+  states: DRAFT→IN_REVIEW→APPROVED→ACTIVE→SUPERSEDED；冲突进入 CONFLICT_REVIEW
+  note: Canon 事实只由授权人确认；冲突期间相关镜头不得自动合并事实
+  conflict: true
+  conflict_kind: state_set_diff
+  other_definitions:
+  - source_section: C.3 新增领域对象的数据契约与所有权
+    states: DRAFT→IN_REVIEW→APPROVED→ACTIVE→SUPERSEDED；事实冲突必须显式标记，不得由模型自动裁定
+    kind: state_set_diff
+  all_sources:
+  - C.3 新增领域对象的数据契约与所有权
+  - C.7 关键状态机与版本不可变规则
+- object: CharacterCard
+  authoritative_source: C.3 新增领域对象的数据契约与所有权
+  states: DRAFT→IN_REVIEW→APPROVED→ACTIVE→SUPERSEDED/REVOKED；生成结果只能创建更新提案
+  note: Asset Service / Character Domain
+  all_sources:
+  - C.3 新增领域对象的数据契约与所有权
+- object: CharacterCard / CharacterAppearance
+  authoritative_source: C.7 关键状态机与版本不可变规则
+  states: DRAFT→IN_REVIEW→APPROVED→ACTIVE→SUPERSEDED；也可 REJECTED/REVOKED
+  note: 批准后版本不可覆盖；变更创建新版本；Rights 不合格进入 QUARANTINED
+  all_sources:
+  - C.7 关键状态机与版本不可变规则
+- object: ClientReviewPortal
+  authoritative_source: 27.2 客户审片状态机与意见处理
+  states: DRAFT→SENT→IN_REVIEW→COMMENTED→APPROVED / CHANGES_REQUESTED→CLOSED
+  note: 客户审片门户实例的生命周期；ClientAnnotation 为其下挂批注对象，不是独立领域对象。客户批准只代表业务审阅结论，不得直接改变 ShotRevision、PictureLock、Gate 状态或 DeliveryManifest。
+  source_kind: paragraph_state_machine
+  all_sources:
+  - 27.2 客户审片状态机与意见处理
+  note_states: false
+- object: CommunityPost
+  authoritative_source: 31.5 社区对象状态机最终定义
+  states: DRAFT → SUBMITTED → PENDING_REVIEW → APPROVED → PUBLISHED；发布后可 UNLISTED / TAKEN_DOWN / ARCHIVED
+  note: PUBLISHED 必须校验并引用 PG0—PG3 全部通过的 PublicationReview/PublicationGate 决定；Phase 1 不开放公开审核发布。
+  all_sources:
+  - 24.11 社区状态机、分享链接与复用状态机
+  - 31.5 社区对象状态机最终定义
+- object: ConstraintPack
+  authoritative_source: 7.9 隐式连续性依赖登记
+  states: DRAFT→ACTIVE；ACTIVE→STALE/SUPERSEDED/REVOKED
+  note: 只有 ACTIVE 可作为生成输入；NOT_APPLICABLE 包同样须经 ACTIVE，以证明“无锁定约束”是授权人判断而非默认值；REVOKED 立即阻断相关路线。
+  source_kind: field_contract_status
+  all_sources:
+  - 7.9 隐式连续性依赖登记
+  note_states: false
+- object: CreatorDeliveryManifest
+  authoritative_source: 34.7 CreatorDeliveryManifest 与 CREATOR_RELEASE 定义
+  states: DRAFT→VALIDATING→VALIDATED；旁路治理态 STALE / REVOKED / SUPERSEDED
+  note: 不包含 PUBLISHED——发布状态属于 CreatorRelease，不得混写；必须引用外部渲染回流产生的新 AssetVersion，不声明 Gate4 PASS。
+  source_kind: table_conflict_row
+  all_sources:
+  - 34.7 CreatorDeliveryManifest 与 CREATOR_RELEASE 定义
+- object: CreatorGate
+  authoritative_source: 34.5 CREATOR_GATE 与工业 Gate0—4 隔离
+  states: PENDING→PASS/BLOCKED/NEEDS_USER_INPUT
+  note: 三者为终态结论，不得原地改写，条件变化须新建评估记录；只属 Creator 策略层，不进入工业 Gate 状态机。
+  source_kind: field_contract_status
+  all_sources:
+  - 34.5 CREATOR_GATE 与工业 Gate0—4 隔离
+  note_states: false
+- object: CreatorPublicationCheck
+  authoritative_source: 34.8 分享、社区发布与公开权限
+  states: PENDING → PASSED / BLOCKED / NEEDS_HUMAN_REVIEW
+  note: 由受信策略 Worker 自动执行适用 PG0—PG3 自动检查、Rights/Privacy/Safety/平台规则；只产生证据和结论，不自行发布。
+  all_sources:
+  - 34.8 分享、社区发布与公开权限
+- object: CreatorRelease
+  authoritative_source: 34.8 分享、社区发布与公开权限
+  states: DRAFT → PUBLISH_REQUESTED → AUTO_CHECKING → PUBLISHED / HELD_FOR_REVIEW / BLOCKED；发布后可 UNLISTED / TAKEN_DOWN / REVOKED / ARCHIVED
+  note: 发布必须由 CreatorWorkspace 所有者/权利主体本人显式点击；低风险且权利明确、自动检查 PASSED 时可直接发布，不要求前置人工内容审核；有不确定/敏感/第三方权利风险时转 HELD_FOR_REVIEW，不得公开。
+  all_sources:
+  - 34.8 分享、社区发布与公开权限
+- object: CreatorShareLink
+  authoritative_source: 34.8 分享、社区发布与公开权限
+  states: ACTIVE → EXPIRED / REVOKED
+  note: 只读、默认禁止下载；水印、有效期、受众限制和访问审计。
+  all_sources:
+  - 34.8 分享、社区发布与公开权限
+- object: CreatorWorkspace
+  authoritative_source: 34.1 模式定位与隔离原则
+  states: ACTIVE→SUSPENDED→ARCHIVED
+  note: ARCHIVED 为终态不得恢复；升级 FULL_MODE 不是状态迁移，而是新建 successor 工作区，旧工作区标记 ARCHIVED 并保留派生关系。
+  source_kind: field_contract_status
+  all_sources:
+  - 34.1 模式定位与隔离原则
+  note_states: false
+- object: DeliveryManifest
+  authoritative_source: 31.5 社区对象状态机最终定义
+  states: DRAFT → VALIDATING → VALIDATED → RELEASED；异常/失效：INVALID / STALE / REVOKED / SUPERSEDED
+  note: 每个 Manifest 版本不可变；VALIDATED/RELEASED 需 Gate4 PASS、PictureLock、权利证据、终检报告、规格和校验和齐备；源或规格变化标记 STALE；权利/安全撤销标记 REVOKED。
+  all_sources:
+  - 31.5 社区对象状态机最终定义
+- object: ExplorationBranch
+  authoritative_source: C.7 关键状态机与版本不可变规则
+  states: DRAFT→RUNNING→CANDIDATES_READY→REVIEW→PROMOTED/REJECTED；或 STOPPED/EXPIRED/FAILED
+  note: PROMOTED 产生新的正式 ShotRevision；STOPPED 仅停该分支；不可覆盖正式基线
+  conflict: true
+  conflict_kind: state_set_diff
+  other_definitions:
+  - source_section: C.3 新增领域对象的数据契约与所有权
+    states: DRAFT→RUNNING→CANDIDATES_READY→REVIEW→PROMOTED/REJECTED/STOPPED/EXPIRED
+    kind: state_set_diff
+  all_sources:
+  - C.3 新增领域对象的数据契约与所有权
+  - C.7 关键状态机与版本不可变规则
+- object: ExportPackage
+  authoritative_source: 33.3 状态机、编辑与 STALE 传播
+  states: DRAFT → VALIDATING → VALIDATED → EXPORTED；异常为 REJECTED/EXPIRED/REVOKED
+  note: 每次导出形成不可变包和 ExportManifest；VALIDATED 不代表软件已成功导入。
+  all_sources:
+  - 33.3 状态机、编辑与 STALE 传播
+- object: ExternalToolConnection
+  authoritative_source: 31.5 社区对象状态机最终定义
+  states: DRAFT → VALIDATING → ACTIVE → SUSPENDED / REVOKED（权威定义见 32.5）
+  note: 只引用 Secrets Manager 的 credential_ref，不保存密钥值；按租户/组织/项目隔离；验证未通过不得进入 ACTIVE；SUSPENDED/REVOKED 后不得再执行生产导出或回流。
+  all_sources:
+  - 31.5 社区对象状态机最终定义
+- object: Pattern
+  authoritative_source: 31.5 社区对象状态机最终定义
+  states: EXPERIMENT_RECORD → IN_REVIEW → REUSABLE_PATTERN / REJECTED / FAILURE_CASE；REUSABLE_PATTERN → DEPRECATED → RETIRED
+  note: Pattern 晋升必须有证据、适用边界、来源权利和人工审核；社区热度不能改变权威状态；DEPRECATED 停止新推荐，RETIRED 禁止新复用。
+  all_sources:
+  - 31.5 社区对象状态机最终定义
+- object: PatternRecord
+  authoritative_source: C.3 新增领域对象的数据契约与所有权
+  states: EXPERIMENT_RECORD → IN_REVIEW → REUSABLE_PATTERN / REJECTED / FAILURE_CASE；REUSABLE_PATTERN → DEPRECATED → RETIRED
+  note: PMS / Pattern Library
+  all_sources:
+  - C.3 新增领域对象的数据契约与所有权
+  conflict: true
+  conflict_kind: state_set_diff
+  other_definitions:
+  - source_section: 26.2 资产生命周期和权威边界
+    states: EXPERIMENT_RECORD、IN_REVIEW、REUSABLE_PATTERN、REJECTED_PROPOSAL、FAILURE_CASE（无箭头）
+    kind: state_set_diff
+- object: PublicationReview
+  authoritative_source: 31.5 社区对象状态机最终定义
+  states: QUEUED → IN_REVIEW → APPROVED / REJECTED / RETURNED
+  note: 独立审核对象；保存审核人、规则版本、证据、原因和决定时间；审核人与提交人分离。
+  all_sources:
+  - 24.11 社区状态机、分享链接与复用状态机
+  - 31.5 社区对象状态机最终定义
+- object: QCReviewSession
+  authoritative_source: C.7 关键状态机与版本不可变规则
+  states: OPEN→IN_REVIEW→DECISION_PENDING→RESOLVED→GATE_ELIGIBLE→CLOSED
+  note: 多人冲突触发裁决；WAIVE_WITH_AUTHORITY 记录授权与理由；法律/版权/安全不允许豁免
+  conflict: true
+  conflict_kind: transition_diff
+  other_definitions:
+  - source_section: C.3 新增领域对象的数据契约与所有权
+    states: OPEN→IN_REVIEW→DECISION_PENDING→RESOLVED→GATE_ELIGIBLE/CLOSED；结果固定指向资产版本
+    kind: transition_diff
+  all_sources:
+  - C.3 新增领域对象的数据契约与所有权
+  - C.7 关键状态机与版本不可变规则
+- object: QuotaReservation
+  authoritative_source: C.7 关键状态机与版本不可变规则
+  states: REQUESTED→RESERVED→COMMITTED/RELEASED/EXPIRED/FAILED
+  note: 同一 reservation 幂等；过期释放前需核验任务和供应商状态
+  conflict: false
+  conflict_kind: text_only
+  other_definitions:
+  - source_section: C.3 新增领域对象的数据契约与所有权
+    states: REQUESTED→RESERVED→COMMITTED/RELEASED/EXPIRED/FAILED；不可超卖，过期需核验任务状态
+    kind: text_only
+  all_sources:
+  - C.3 新增领域对象的数据契约与所有权
+  - C.7 关键状态机与版本不可变规则
+- object: ReuseRequest
+  authoritative_source: 31.5 社区对象状态机最终定义
+  states: REQUESTED → ELIGIBILITY_CHECK → RIGHTS_CHECK → APPROVED → EXECUTING → CREATED；异常终态/分支：REJECTED / FAILED / ROLLED_BACK
+  note: 审批后进入 EXECUTING；仅完成目标项目/镜头新对象创建并完成权利/Canon/预算/质量校验后进入 CREATED；失败、重试和补偿必须留痕。
+  all_sources:
+  - 24.11 社区状态机、分享链接与复用状态机
+  - 31.5 社区对象状态机最终定义
+- object: ReverseAnalysisReport
+  authoritative_source: 25.2 状态机与人工确认
+  states: DRAFT→ANALYZED→NEEDS_HUMAN_CONFIRM→CONFIRMED / REJECTED→ARCHIVED
+  note: CONFIRMED 只表示分析结果可作参考材料，不代表其成为 ShotSpec、ConstraintPack 或 CharacterCanon。REVERSE_STALE 与 REVOKED_BLOCKED 是跨域失效标记，不是生命周期状态，标记失效不改写状态、也不静默替换既有分析结果。
+  source_kind: paragraph_state_machine
+  all_sources:
+  - 25.2 状态机与人工确认
+  note_states: false
+- object: ReworkTask
+  authoritative_source: 7.6 精准返工
+  states: OPEN→IN_PROGRESS→DONE→VERIFYING→CLOSED；VERIFYING 复核不通过退回 IN_PROGRESS；任一未关闭状态可转 REJECTED
+  note: VERIFYING 须有复核人且不得为返工执行人本人；CLOSED 为终态。
+  source_kind: field_contract_status
+  all_sources:
+  - 7.6 精准返工
+  note_states: false
+- object: ShareLink
+  authoritative_source: 31.5 社区对象状态机最终定义
+  states: ACTIVE → EXPIRED / REVOKED
+  note: 只读、默认禁止下载；具有访问范围、水印、有效期、撤销和访问审计。
+  all_sources:
+  - 24.11 社区状态机、分享链接与复用状态机
+  - 31.5 社区对象状态机最终定义
+- object: ShotVisualPlan
+  authoritative_source: C.7 关键状态机与版本不可变规则
+  states: DRAFT→REVIEW→APPROVED；可 PARTIALLY_LOCKED/LOCKED；拒绝为 REJECTED
+  note: 锁定字段单独记录锁定人/时间/理由/版本；变更创建新 revision，并评估 ShotSpec/ConstraintPack 影响
+  conflict: true
+  conflict_kind: state_set_diff
+  other_definitions:
+  - source_section: C.3 新增领域对象的数据契约与所有权
+    states: DRAFT→REVIEW→APPROVED/REJECTED；变更生成新 revision，锁定字段逐字段授权
+    kind: state_set_diff
+  all_sources:
+  - C.3 新增领域对象的数据契约与所有权
+  - C.7 关键状态机与版本不可变规则
+- object: ShowcaseSnapshot
+  authoritative_source: 31.5 社区对象状态机最终定义
+  states: PREPARING → READY → REFERENCED；另可 OUTDATED / TAKEN_DOWN / REVOKED / EXPIRED
+  note: 精确引用 AssetVersion、ShotRevision、PolicyResolution 和 Rights Manifest；不可变；OUTDATED 不自动替换内容；TAKEN_DOWN 与 REVOKED 均为终态，前者表示运营/合规下架、后者表示权利/隐私/安全失效，两者不得互相替代；终态不得原地恢复，恢复展示必须新建 snapshot_version 并重走 Publication Gate；REVOKED 阻断访问。
+  all_sources:
+  - 24.11 社区状态机、分享链接与复用状态机
+  - 31.5 社区对象状态机最终定义
+- object: SkillManifest
+  authoritative_source: C.3 新增领域对象的数据契约与所有权
+  states: DRAFT→VALIDATED→PUBLISHED→DEPRECATED/REVOKED；运行时只执行已发布版本
+  note: Agent Runtime / Skill Registry
+  all_sources:
+  - C.3 新增领域对象的数据契约与所有权
+- object: Task
+  authoritative_source: 8.6 Task 状态机
+  states: BLOCKED→READY→QUEUED→RUNNING→SUCCEEDED；RUNNING→FAILED/RETRY_WAIT/CANCEL_REQUESTED；RETRY_WAIT→QUEUED；CANCEL_REQUESTED→CANCELLED
+  note: READY/QUEUED 允许取消；依赖失败时下游转 BLOCKED 或 NEEDS_REPLAN；等待态 WAITING_FOR_HUMAN/WAITING_FOR_RESOURCE/WAITING_FOR_PROVIDER/SUBMISSION_UNKNOWN 纳入同一状态机且不产生权威业务结果；本节未列出的状态及其转移一律拒绝。
+  source_kind: ascii_diagram
+  all_sources:
+  - 8.6 Task 状态机
+- object: TimelineDraft
+  authoritative_source: 33.3 状态机、编辑与 STALE 传播
+  states: DRAFT → VALIDATED；编辑产生新版本；旧版本 → SUPERSEDED/STALE/ARCHIVED
+  note: TimelineDraft 不承担外部导入/回流状态；VALIDATED 只代表元数据、引用、时间码及目标 Profile 预检通过。
+  all_sources:
+  - 33.3 状态机、编辑与 STALE 传播
+- object: TimelineFlowStatus（UI 投影）
+  authoritative_source: 33.3 状态机、编辑与 STALE 传播
+  states: DRAFT → VALIDATED → EXPORTED → IMPORTED → RETURNED
+  note: 仅用于进度展示，不是新的权威状态表；IMPORTED/RETURNED 分别来自 ToolExchangeSession 事件。
+  all_sources:
+  - 33.3 状态机、编辑与 STALE 传播
+- object: ToolExchangeSession
+  authoritative_source: 32.6 文件导出、工程执行与成片回流闭环
+  states: REQUESTED→AUTHORIZED→EXPORTED→IN_PROGRESS→IMPORT_PENDING→VALIDATING→COMPLETED
+  note: 只描述一次工具交换；AUTHORIZED 前不得导出；VALIDATING 完成前不得视为回流完成。
+  all_sources:
+  - 32.6 文件导出、工程执行与成片回流闭环
