@@ -123,7 +123,13 @@ def decode_token(
         raise TokenError(f"tenant_id 不是合法 UUID: {tenant_id_raw!r}") from exc
 
     roles_raw = payload.get(CLAIM_ROLES, [])
-    roles = frozenset(r for r in roles_raw if isinstance(r, str))
+    # fail-closed：roles 必须是字符串数组。字符串会被迭代成单字（"导演" →
+    # {"导","演"}），导致 RBAC 角色集错误；非法类型一律拒绝而非静默降级。
+    if not isinstance(roles_raw, list) or any(
+        not isinstance(r, str) for r in roles_raw
+    ):
+        raise TokenError("roles claim 必须是字符串数组")
+    roles = frozenset(roles_raw)
 
     return Principal(
         subject_id=subject_id,

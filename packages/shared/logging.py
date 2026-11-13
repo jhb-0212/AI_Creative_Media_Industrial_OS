@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextvars
 import logging
+import re
 import sys
 from typing import Any, cast
 
@@ -21,9 +22,19 @@ trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "trace_id", default=None
 )
 
+# URL/DSN 中的 userinfo（``scheme://user:pass@host``）→ 只保留 scheme 与 @。
+_URL_CREDENTIALS = re.compile(r"(?P<scheme>[a-zA-Z][a-zA-Z0-9+.-]*://)[^/@\s]+@")
+
 
 def _redact_sensitive(_: object, __: str, event_dict: dict[str, Any]) -> dict[str, Any]:
-    """脱敏处理：剔除敏感键，避免密钥落日志。"""
+    """脱敏处理：剔除敏感键与连接串内嵌口令，避免密钥落日志。
+
+    两道路径，缺一不可：
+    - 键名命中敏感词（password/secret/token…）→ 整值替换；
+    - 值形态是 URL/DSN（``scheme://user:pass@host``）→ 只替换 userinfo，
+      因为 ``database_url`` / ``dsn`` / ``mq_url`` 这类键名不含敏感词，
+      但连接串里嵌着口令。
+    """
     sensitive_keys = {
         "password",
         "secret",
@@ -34,8 +45,13 @@ def _redact_sensitive(_: object, __: str, event_dict: dict[str, Any]) -> dict[st
         "credential",
     }
     for key in list(event_dict.keys()):
+        value = event_dict[key]
         if any(s in key.lower() for s in sensitive_keys):
             event_dict[key] = "***REDACTED***"
+        elif isinstance(value, str):
+            event_dict[key] = _URL_CREDENTIALS.sub(
+                lambda m: f"{m.group('scheme')}***REDACTED***@", value
+            )
     return event_dict
 
 

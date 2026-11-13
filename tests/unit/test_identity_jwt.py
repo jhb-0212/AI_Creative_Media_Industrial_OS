@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import uuid
 
+import jwt
 import pytest
 
 from packages.identity.jwks import KeyStore
@@ -189,3 +190,29 @@ def test_principal_immutable_and_roles() -> None:
     assert not p.has_role("制片")
     with pytest.raises(AttributeError):
         p.subject_id = "hacked"  # type: ignore[misc]
+
+
+def test_signing_key_repr_never_exposes_private_pem(key: SigningKey) -> None:
+    """红线「密钥不落日志」：对象 repr/str 不得包含私钥 PEM。"""
+    assert "PRIVATE KEY" not in repr(key)
+    assert "PRIVATE KEY" not in str(key)
+
+
+def test_roles_claim_must_be_string_array(key: SigningKey) -> None:
+    """roles 若为字符串会被按字符拆成 {"导","演"}，必须 fail-closed 拒绝。"""
+    token = jwt.encode(
+        {
+            "sub": "user-001",
+            "tenant_id": TENANT_ID,
+            "roles": "导演",
+            "iss": ISSUER,
+            "aud": AUDIENCE,
+        },
+        key.private_pem,
+        algorithm="RS256",
+        headers={"kid": key.kid},
+    )
+    with pytest.raises(TokenError, match="roles"):
+        decode_token(
+            token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE
+        )

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
+import jwt
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -70,9 +71,7 @@ def build_principal_dependency(
         任一失败抛 401 AUTH_UNAUTHENTICATED（不泄漏内部细节）。
         """
         try:
-            import jwt as _pyjwt
-
-            kid = _pyjwt.get_unverified_header(token).get("kid")
+            kid = jwt.get_unverified_header(token).get("kid")
         except Exception as exc:
             raise DomainError(
                 ErrorRegistry.AUTH_UNAUTHENTICATED, detail="令牌格式非法"

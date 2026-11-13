@@ -68,7 +68,18 @@ async def request_logging_middleware(
     set_trace_id(trace_id)
 
     start = time.perf_counter()
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception:
+        # 未处理异常路径也必须留痕：否则错误请求没有访问日志、没有 trace 回写。
+        logger.error(
+            "http_request_error",
+            method=request.method,
+            path=request.url.path,
+            duration_ms=round((time.perf_counter() - start) * 1000, 2),
+            exc_info=True,
+        )
+        raise
     duration_ms = round((time.perf_counter() - start) * 1000, 2)
 
     logger.info(

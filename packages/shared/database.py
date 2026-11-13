@@ -131,6 +131,9 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
         try:
             yield session
             await session.commit()
-        except BaseException:
+        except Exception:
+            # 只对「业务异常」显式回滚并保留原始异常；取消/关闭（CancelledError、
+            # GeneratorExit 属 BaseException）不在此 await，交由 async with 退出时
+            # close() 隐式回滚，避免在取消态里再次 await 触发二次取消。
             await session.rollback()
             raise

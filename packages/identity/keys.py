@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import base64
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -35,7 +35,8 @@ class SigningKey:
     """
 
     kid: str
-    private_pem: bytes
+    # repr=False：防止日志/调试打印对象时把完整私钥 PEM 落盘（红线「密钥不落日志」）。
+    private_pem: bytes = field(repr=False)
     public_pem: bytes
 
     @property
