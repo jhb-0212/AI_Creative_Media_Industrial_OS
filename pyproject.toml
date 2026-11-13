@@ -73,7 +73,7 @@ ignore = [
 ]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.13"
 strict = true
 warn_unused_ignores = true
 warn_redundant_casts = true

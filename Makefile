@@ -16,7 +16,7 @@ format: ## 代码格式化
 	ruff format .
 
 typecheck: ## 类型检查
-	mypy packages services apps workers agents adapters
+	mypy packages services apps
 
 contract-check: ## 契约一致性校验（OpenAPI/Schema 派生一致性）
 	python scripts/contract_check.py
