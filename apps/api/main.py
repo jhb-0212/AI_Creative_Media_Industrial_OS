@@ -34,6 +34,11 @@ app = FastAPI(
 # 接入 OpenTelemetry 分布式追踪（未配置 OTLP endpoint 时优雅降级）。
 setup_telemetry(app)
 
+# 挂载领域模块路由。
+from services.project_planning.api.project_routes import router as project_router  # noqa: E402
+
+app.include_router(project_router)
+
 
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):

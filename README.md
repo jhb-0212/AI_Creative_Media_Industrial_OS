@@ -17,7 +17,7 @@ AI 影视工业化生产平台的工程实现仓库（monorepo）。
 
 ```
 apps/          # 进程入口薄层（api、console）
-services/      # 领域服务内核（按数据所有权分模块）
+services/      # 领域服务内核（按数据所有权分模块，目录名下划线命名）
 workers/       # 异步执行层（generation/qc/delivery/notifications）
 agents/        # Agent 运行时（runtime/planners/evaluators）
 adapters/      # 外部适配层（模型/ComfyUI/白模/存储/外部工具）
@@ -30,6 +30,9 @@ scripts/       # CI/开发辅助脚本
 docs/          # 架构/ADR/runbook/SOP
 .github/       # CI 流水线、CODEOWNERS、议题模板
 ```
+
+> **命名约定**：Python 包/模块目录一律使用下划线（`project_planning`、`asset_service`），
+> 禁止连字符（连字符在 Python 导入中是非法标识符）。
 
 详细设计见仓库内 `docs/architecture/repository-structure.md`。
 

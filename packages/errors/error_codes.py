@@ -127,11 +127,15 @@ class DomainError(Exception):
 
 
 def to_response_payload(exc: DomainError) -> dict[str, Any]:
-    """将领域异常转换为稳定的结构化响应体。"""
+    """将领域异常转换为稳定的结构化响应体（对齐契约 C.3.2 错误信封）。
+
+    字段口径：error_code / category / retryable / message / details / correlation_id。
+    """
     return {
-        "code": exc.error_code.code,
+        "error_code": exc.error_code.code,
         "category": exc.error_code.category.value,
-        "message": exc.detail,
         "retryable": exc.error_code.retryable,
-        "context": exc.context,
+        "message": exc.detail,
+        "details": exc.context or None,
+        "correlation_id": None,
     }

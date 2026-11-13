@@ -30,4 +30,4 @@ def test_error_catalog_returns_known_code() -> None:
 def test_error_catalog_unknown_code_returns_404() -> None:
     resp = client.get("/errors/UNKNOWN_CODE")
     assert resp.status_code == 404
-    assert resp.json()["code"] == "NOT_FOUND"
+    assert resp.json()["error_code"] == "NOT_FOUND"

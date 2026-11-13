@@ -17,7 +17,7 @@ def test_error_code_is_stable_and_categorizable() -> None:
 def test_domain_error_to_response_payload() -> None:
     exc = DomainError(ErrorRegistry.PHASE_NOT_ENABLED, detail="该能力未启用")
     payload = to_response_payload(exc)
-    assert payload["code"] == "PHASE_NOT_ENABLED"
+    assert payload["error_code"] == "PHASE_NOT_ENABLED"
     assert payload["category"] == "PHASE"
     assert payload["message"] == "该能力未启用"
     assert payload["retryable"] is False
