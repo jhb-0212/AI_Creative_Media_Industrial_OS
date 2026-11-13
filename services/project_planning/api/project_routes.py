@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
-from services.identity_access.deps import Principal, get_principal, get_tenant_session
+from services.identity_access.deps import Principal, get_tenant_session, require_role
 from services.project_planning.domain.enums import ProjectTier
 from services.project_planning.repository.sqlalchemy_repo import SqlAlchemyProjectRepository
 from services.project_planning.service.project_service import ProjectService
@@ -42,7 +42,7 @@ def _get_service(
 @router.post("", status_code=201)
 async def create_project(
     body: CreateProjectRequest,
-    principal: Principal = Depends(get_principal),
+    principal: Principal = Depends(require_role("PROJECT.CREATE")),
     service: ProjectService = Depends(_get_service),
 ) -> dict[str, Any]:
     """创建项目（幂等）。created_by / tenant_id 来自可信 Principal。"""

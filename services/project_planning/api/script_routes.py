@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
-from services.identity_access.deps import Principal, get_principal, get_tenant_session
+from services.identity_access.deps import Principal, get_tenant_session, require_role
 from services.project_planning.repository.episode_sqlalchemy_repo import (
     SqlAlchemyEpisodeRepository,
 )
@@ -72,7 +72,7 @@ def _get_service(
 @router.post("/import", status_code=201)
 async def import_script(
     body: ImportScriptRequest,
-    principal: Principal = Depends(get_principal),
+    principal: Principal = Depends(require_role("SCRIPT.IMPORT")),
     service: ScriptService = Depends(_get_service),
 ) -> dict[str, Any]:
     """导入剧本版本（幂等，产出 DRAFT 态）。created_by / tenant_id 来自 Principal。"""
@@ -95,7 +95,7 @@ async def import_script(
 @router.post("/{entity_id}/lock/request")
 async def request_lock(
     entity_id: str,
-    principal: Principal = Depends(get_principal),
+    principal: Principal = Depends(require_role("SCRIPT.LOCK.REQUEST")),
     service: ScriptService = Depends(_get_service),
 ) -> dict[str, Any]:
     """提交锁定申请（SCRIPT.LOCK.REQUEST，DRAFT→LOCK_PENDING）。
@@ -115,7 +115,7 @@ async def request_lock(
 @router.post("/{entity_id}/lock/approve")
 async def approve_lock(
     entity_id: str,
-    principal: Principal = Depends(get_principal),
+    principal: Principal = Depends(require_role("SCRIPT.LOCK.APPROVE")),
     service: ScriptService = Depends(_get_service),
 ) -> dict[str, Any]:
     """批准锁定（SCRIPT.LOCK.APPROVE，LOCK_PENDING→LOCKED）。

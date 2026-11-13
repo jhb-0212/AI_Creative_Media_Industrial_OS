@@ -14,11 +14,14 @@ FastAPI 路由的依赖对象，避免每个路由重复拼装 KeyStore / 依赖
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+
 from packages.identity.principal import Principal
 from packages.shared.config import get_settings
 from packages.shared.rls import build_tenant_session_dependency
 from services.identity_access import get_key_store
 from services.identity_access.auth_dependency import build_principal_dependency
+from services.identity_access.rbac import build_authorize_dependency
 
 # 认证依赖：Bearer → Principal（验签 + issuer/audience 校验）。
 get_principal = build_principal_dependency(
@@ -30,8 +33,20 @@ get_principal = build_principal_dependency(
 # RLS 会话依赖：Principal → 注入 tenant 上下文 → session。
 get_tenant_session = build_tenant_session_dependency(get_principal)
 
+
+def require_role(action_key: str) -> Callable[..., Awaitable[Principal]]:
+    """构造绑定 ``get_principal`` 的角色授权依赖（所有写入口的统一授权闸门）。
+
+    每个写路由按自身动作注入，例如 ``Depends(require_role("PROJECT.CREATE"))``。
+    依赖先复用 ``get_principal`` 解析可信 Principal，再用其 roles 与
+    ``action_registry[action_key].allowed_principals`` 求交，越权抛 403。
+    """
+    return build_authorize_dependency(get_principal, action_key)
+
+
 __all__ = [
     "Principal",
     "get_principal",
     "get_tenant_session",
+    "require_role",
 ]

@@ -7,11 +7,12 @@ info:
   version: draft
   x-afs-source-document: AFS-ARCH-MASTER-V2.0.5
   x-afs-registry-version: V2.0.5
-  x-afs-total-actions: 75
+  x-afs-total-actions: 77
 servers:
 - url: /api/v1
 tags:
 - name: Project
+- name: Episode
 - name: ScriptRevision
 - name: ScriptLock
 - name: ShotDraft
@@ -105,6 +106,40 @@ paths:
           description: 幂等键冲突
         '422':
           description: 请求信封或载荷校验失败
+  /actions/episode.create:
+    post:
+      operationId: episode.create
+      tags:
+      - Episode
+      summary: EPISODE.CREATE（资源 Episode，风险 MEDIUM）
+      description: Episode 必须归属已存在 Project（复合归属校验），杜绝悬空引用。
+      x-afs-action-key: EPISODE.CREATE
+      x-afs-scope: project
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 导演/编剧/制片
+      x-afs-audit-event: EPISODE_CREATED
+      x-afs-negative-test: ACT-EPISODE-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
   /actions/script.import:
     post:
       operationId: script.import
@@ -119,6 +154,40 @@ paths:
       x-afs-allowed-principals: 导演/编剧/制片
       x-afs-audit-event: SCRIPT_IMPORTED
       x-afs-negative-test: ACT-SCRIPT-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/script.lock.request:
+    post:
+      operationId: script.lock.request
+      tags:
+      - ScriptLock
+      summary: SCRIPT.LOCK.REQUEST（资源 ScriptLock，风险 MEDIUM）
+      description: 仅提交锁定申请（DRAFT→LOCK_PENDING）；申请人与批准人职责分离。
+      x-afs-action-key: SCRIPT.LOCK.REQUEST
+      x-afs-scope: project/episode
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 导演/编剧
+      x-afs-audit-event: SCRIPT_LOCK_REQUESTED
+      x-afs-negative-test: ACT-SCRIPT-NEG-003
       x-afs-status: ACTIVE
       requestBody:
         required: true

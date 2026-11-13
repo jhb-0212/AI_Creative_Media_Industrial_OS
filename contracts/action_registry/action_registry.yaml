@@ -3,7 +3,7 @@
 # 校验口径：action_key 全局唯一、命名规范、audit_event 与 negative_test_id 一一对应
 registry_source: 'AFS-ARCH-MASTER-V2.0.5 / 31.6 Action Registry'
 registry_version: 'V2.0.5'
-total_actions: 75
+total_actions: 77
 actions:
   - action_key: 'PROJECT.CREATE'
     resource_type: 'Project'
@@ -16,6 +16,17 @@ actions:
     negative_test_id: 'ACT-PROJ-NEG-001'
     negative_test_desc: '跨组织创建拒绝'
     status: 'ACTIVE'
+  - action_key: 'EPISODE.CREATE'
+    resource_type: 'Episode'
+    scope: 'project'
+    risk_level: 'MEDIUM'
+    token_required: true
+    allowed_principals: '导演/编剧/制片'
+    approval_requirement: 'Episode 必须归属已存在 Project（复合归属校验），杜绝悬空引用。'
+    audit_event: 'EPISODE_CREATED'
+    negative_test_id: 'ACT-EPISODE-NEG-001'
+    negative_test_desc: '越权登记集数拒绝'
+    status: 'ACTIVE'
   - action_key: 'SCRIPT.IMPORT'
     resource_type: 'ScriptRevision'
     scope: 'project/episode'
@@ -26,6 +37,17 @@ actions:
     audit_event: 'SCRIPT_IMPORTED'
     negative_test_id: 'ACT-SCRIPT-NEG-001'
     negative_test_desc: '越权导入拒绝'
+    status: 'ACTIVE'
+  - action_key: 'SCRIPT.LOCK.REQUEST'
+    resource_type: 'ScriptLock'
+    scope: 'project/episode'
+    risk_level: 'MEDIUM'
+    token_required: true
+    allowed_principals: '导演/编剧'
+    approval_requirement: '仅提交锁定申请（DRAFT→LOCK_PENDING）；申请人与批准人职责分离。'
+    audit_event: 'SCRIPT_LOCK_REQUESTED'
+    negative_test_id: 'ACT-SCRIPT-NEG-003'
+    negative_test_desc: '无提交权角色申请锁定拒绝'
     status: 'ACTIVE'
   - action_key: 'SCRIPT.LOCK.APPROVE'
     resource_type: 'ScriptLock'

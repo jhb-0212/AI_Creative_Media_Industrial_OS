@@ -97,7 +97,7 @@ role_matrix:
       Agent/Worker: Worker 最小权限；系统管理员操作全审计
 action_matrix:
   source_section: 31.6 Action Registry 唯一注册表
-  total: 75
+  total: 77
   actions:
   - action_key: PROJECT.CREATE
     resource_type: Project
@@ -109,6 +109,16 @@ action_matrix:
     audit_event: PROJECT_CREATED
     negative_test_id: ACT-PROJ-NEG-001
     status: ACTIVE
+  - action_key: EPISODE.CREATE
+    resource_type: Episode
+    scope: project
+    risk_level: MEDIUM
+    token_required: true
+    allowed_principals: 导演/编剧/制片
+    approval_requirement: Episode 必须归属已存在 Project（复合归属校验），杜绝悬空引用。
+    audit_event: EPISODE_CREATED
+    negative_test_id: ACT-EPISODE-NEG-001
+    status: ACTIVE
   - action_key: SCRIPT.IMPORT
     resource_type: ScriptRevision
     scope: project/episode
@@ -118,6 +128,16 @@ action_matrix:
     approval_requirement: 检查项目写权限、文件安全与导入来源。
     audit_event: SCRIPT_IMPORTED
     negative_test_id: ACT-SCRIPT-NEG-001
+    status: ACTIVE
+  - action_key: SCRIPT.LOCK.REQUEST
+    resource_type: ScriptLock
+    scope: project/episode
+    risk_level: MEDIUM
+    token_required: true
+    allowed_principals: 导演/编剧
+    approval_requirement: 仅提交锁定申请（DRAFT→LOCK_PENDING）；申请人与批准人职责分离。
+    audit_event: SCRIPT_LOCK_REQUESTED
+    negative_test_id: ACT-SCRIPT-NEG-003
     status: ACTIVE
   - action_key: SCRIPT.LOCK.APPROVE
     resource_type: ScriptLock

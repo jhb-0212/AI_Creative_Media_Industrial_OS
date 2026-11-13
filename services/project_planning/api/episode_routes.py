@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
-from services.identity_access.deps import Principal, get_principal, get_tenant_session
+from services.identity_access.deps import Principal, get_tenant_session, require_role
 from services.project_planning.repository.episode_sqlalchemy_repo import (
     SqlAlchemyEpisodeRepository,
 )
@@ -50,7 +50,7 @@ def _get_service(
 @router.post("", status_code=201)
 async def create_episode(
     body: CreateEpisodeRequest,
-    principal: Principal = Depends(get_principal),
+    principal: Principal = Depends(require_role("EPISODE.CREATE")),
     service: EpisodeService = Depends(_get_service),
 ) -> dict[str, Any]:
     """登记集数（幂等，归属 Project）。created_by / tenant_id 来自 Principal。"""
