@@ -11,6 +11,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from packages.errors.error_codes import DomainError, ErrorRegistry
 from services.project_planning.domain.enums import ProjectStatus, ProjectTier
 from services.project_planning.domain.project import Project
 from services.project_planning.repository.orm import ProjectModel
@@ -18,13 +19,28 @@ from services.project_planning.repository.project_repo import ProjectRepository
 
 
 def _to_domain(model: ProjectModel) -> Project:
-    """ORM -> 领域模型。"""
+    """ORM -> 领域模型。
+
+    枚举反序列化做防御：存量数据若出现契约外非法值，降级为结构化
+    DomainError（数据一致性），而非裸 ValueError 导致 500。
+    """
+    try:
+        tier = ProjectTier(model.project_tier)
+        status = ProjectStatus(model.status)
+    except ValueError as exc:
+        raise DomainError(
+            ErrorRegistry.INTERNAL_ERROR,
+            detail=(
+                f"projects 存量枚举非法: tier={model.project_tier!r}, "
+                f"status={model.status!r}"
+            ),
+        ) from exc
     return Project(
         entity_id=model.entity_id,
         project_name=model.project_name,
-        project_tier=ProjectTier(model.project_tier),
+        project_tier=tier,
         created_by=model.created_by,
-        status=ProjectStatus(model.status),
+        status=status,
         entity_type=model.entity_type,
         schema_version=model.schema_version,
         entity_version=model.entity_version,

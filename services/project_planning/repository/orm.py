@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String
+from sqlalchemy import DateTime, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from packages.shared.database import Base
@@ -46,7 +46,6 @@ class ScriptModel(Base):
     """script_revisions 表模型（剧本版本，同属 project_planning schema）。"""
 
     __tablename__ = "script_revisions"
-    __table_args__ = {"schema": SCHEMA_NAME}
 
     # C.3.1 通用信封字段
     entity_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -66,3 +65,18 @@ class ScriptModel(Base):
     project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     episode_ref: Mapped[str] = mapped_column(String(64), nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
+
+    # 部分唯一索引：同项目 + 同集数下最多一个「非 SUPERSEDED」活跃版本，
+    # 作为并发取代的数据库兜底（见迁移 facd8d42d07f）。
+    __table_args__ = (
+        Index(
+            "ux_script_active_version",
+            "project_id",
+            "episode_ref",
+            unique=True,
+            postgresql_where=(
+                "status <> 'SUPERSEDED'"
+            ),
+        ),
+        {"schema": SCHEMA_NAME},
+    )

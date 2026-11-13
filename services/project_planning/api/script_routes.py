@@ -30,7 +30,7 @@ class ImportScriptRequest(BaseModel):
     project_id: str = Field(..., min_length=1, max_length=64)
     episode_ref: str = Field(..., min_length=1, max_length=64)
     title: str = Field(..., min_length=1, max_length=200)
-    created_by: str = Field(..., min_length=1)
+    created_by: str = Field(..., min_length=1, max_length=64)
     entity_id: str | None = None
 
 

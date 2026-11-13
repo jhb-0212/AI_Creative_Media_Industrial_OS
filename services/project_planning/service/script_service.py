@@ -43,14 +43,31 @@ class ScriptService:
 
         契约要求：
         - script_revision_id 使用 UUID，不复用（8.2）。
-        - title 非空；project_id 非空（归属校验）。
+        - title / project_id / episode_ref / created_by 均非空。
         - 新版本导入使旧版本转 SUPERSEDED。
+
+        输入归一化：所有字符串字段在方法入口统一 strip，后续查询与
+        入库使用同一份归一化值，消除「查询带空格查不到旧版本」的口径
+        不一致问题（见 M2）。
         """
-        if not title or not title.strip():
+        project_id = project_id.strip()
+        episode_ref = episode_ref.strip()
+        title = title.strip()
+        created_by = created_by.strip()
+
+        if not title:
             raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="title 不能为空")
-        if not project_id or not project_id.strip():
+        if not project_id:
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR, detail="project_id 不能为空"
+            )
+        if not episode_ref:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR, detail="episode_ref 不能为空"
+            )
+        if not created_by:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR, detail="created_by 不能为空"
             )
 
         # 幂等：若已存在同 id，直接返回。
@@ -61,16 +78,13 @@ class ScriptService:
 
         # 新版本导入：使「同一项目 + 同一集数」下当前未取代的旧版本转 SUPERSEDED。
         # 版本链按 project_id + episode_ref 隔离，避免跨集误替换。
-        latest = await self._repository.get_latest_by_episode(project_id, episode_ref)
-        if latest is not None and latest.entity_id != entity_id:
-            latest.transition_to(ScriptStatus.SUPERSEDED, audit_ref=f"superseded_by:{entity_id}")
-            await self._repository.save(latest)
+        await self._supersede_active_version(project_id, episode_ref, entity_id)
 
         script = ScriptRevision(
             entity_id=entity_id or uuid.uuid4().hex,
-            project_id=project_id.strip(),
-            episode_ref=episode_ref.strip(),
-            title=title.strip(),
+            project_id=project_id,
+            episode_ref=episode_ref,
+            title=title,
             created_by=created_by,
         )
 
@@ -86,6 +100,28 @@ class ScriptService:
             raise
 
         return script
+
+    async def _supersede_active_version(
+        self, project_id: str, episode_ref: str, new_entity_id: str | None
+    ) -> None:
+        """将指定项目 + 集数下的当前活跃版本标记为 SUPERSEDED。
+
+        并发安全设计：
+        - 部分唯一索引（ux_script_active_version）保证同一 (project_id, episode_ref)
+          最多一个活跃版本，数据库层兜底并发取代。
+        - 若查询到的活跃版本已是 SUPERSEDED（被并发请求先行取代），幂等跳过，
+          避免对终态二次 transition 抛 ValueError。
+        - 仅当活跃版本与待插入的新版本不是同一条记录时才取代。
+        """
+        latest = await self._repository.get_latest_by_episode(project_id, episode_ref)
+        if latest is None or latest.entity_id == new_entity_id:
+            return
+        if latest.status == ScriptStatus.SUPERSEDED:
+            return
+        latest.transition_to(
+            ScriptStatus.SUPERSEDED, audit_ref=f"superseded_by:{new_entity_id}"
+        )
+        await self._repository.save(latest)
 
     async def get_script(self, entity_id: str) -> ScriptRevision:
         """查询剧本版本，不存在抛 NOT_FOUND。"""

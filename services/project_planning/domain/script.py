@@ -46,7 +46,11 @@ ALLOWED_TRANSITIONS: dict[ScriptStatus, frozenset[ScriptStatus]] = {
 class ScriptRevision:
     """剧本版本聚合根。
 
-    一次导入产生一个不可变版本；新版本导入使旧版本转 SUPERSEDED。
+    一次导入产生一个版本记录；新版本导入使旧版本转 SUPERSEDED（终态）。
+    「不可变」语义指**版本内容不可变**（已入库的版本记录不原地覆盖内容，
+    状态只能沿状态机向前迁移，终态不可复活），而非 Python frozen dataclass
+    的字段级不可变——`transition_to` 需要原地更新 status/entity_version，
+    故本类不声明 `@dataclass(frozen=True)`。
     """
 
     entity_id: str
@@ -63,6 +67,27 @@ class ScriptRevision:
     created_at: datetime = field(default_factory=_utcnow)
     updated_at: datetime = field(default_factory=_utcnow)
     audit_ref: str | None = None
+
+    def __post_init__(self) -> None:
+        """防御性校验：必填字段非空、长度不超限（对齐 ORM 列定义）。
+
+        领域模型是聚合根边界，服务层之外（如仓储反序列化、测试构造）
+        同样受此约束，避免脏数据进入领域。
+        """
+        # 字段 -> (最大长度, 是否允许为空)。空字符串视为空。
+        required: tuple[tuple[str, int], ...] = (
+            ("entity_id", 64),
+            ("project_id", 64),
+            ("episode_ref", 64),
+            ("title", 200),
+            ("created_by", 64),
+        )
+        for field_name, max_len in required:
+            value = getattr(self, field_name)
+            if value is None or (isinstance(value, str) and not value.strip()):
+                raise ValueError(f"{field_name} 不能为空")
+            if len(value) > max_len:
+                raise ValueError(f"{field_name} 长度超过上限 {max_len}")
 
     def transition_to(self, target: ScriptStatus, audit_ref: str) -> ScriptRevision:
         """执行状态迁移，未登记转移拒绝（31.5）。"""

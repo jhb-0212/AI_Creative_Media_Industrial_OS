@@ -27,7 +27,7 @@ class CreateProjectRequest(BaseModel):
 
     project_name: str = Field(..., min_length=1, max_length=200)
     project_tier: ProjectTier = ProjectTier.B
-    created_by: str = Field(..., min_length=1)
+    created_by: str = Field(..., min_length=1, max_length=64)
     entity_id: str | None = None
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from packages.errors.error_codes import DomainError, ErrorRegistry
 from services.project_planning.domain.enums import ScriptStatus
 from services.project_planning.domain.script import ScriptRevision
 from services.project_planning.repository.orm import ScriptModel
@@ -12,14 +13,25 @@ from services.project_planning.repository.script_repo import ScriptRepository
 
 
 def _to_domain(model: ScriptModel) -> ScriptRevision:
-    """ORM -> 领域模型。"""
+    """ORM -> 领域模型。
+
+    枚举反序列化做防御：存量数据中若出现契约外的非法状态值，
+    降级为结构化 DomainError（数据一致性），而非裸 ValueError 导致 500。
+    """
+    try:
+        status = ScriptStatus(model.status)
+    except ValueError as exc:
+        raise DomainError(
+            ErrorRegistry.INTERNAL_ERROR,
+            detail=f"script_revisions 存量状态非法: {model.status!r}",
+        ) from exc
     return ScriptRevision(
         entity_id=model.entity_id,
         project_id=model.project_id,
         episode_ref=model.episode_ref,
         title=model.title,
         created_by=model.created_by,
-        status=ScriptStatus(model.status),
+        status=status,
         entity_type=model.entity_type,
         schema_version=model.schema_version,
         entity_version=model.entity_version,

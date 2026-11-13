@@ -35,8 +35,9 @@ def _utcnow() -> datetime:
 class Project:
     """项目聚合根。
 
-    不可变核心字段用 frozen 语义约束；状态迁移返回新实例或显式变更，
-    避免外部随意篡改。
+    「不可变」指版本/状态语义：状态只能沿状态机向前迁移，终态（ARCHIVED）
+    不可原地复活；版本内容不原地覆盖。因 `transition_to` 需原地更新
+    status/entity_version，本类不声明 `@dataclass(frozen=True)`。
     """
 
     entity_id: str
@@ -52,6 +53,20 @@ class Project:
     created_at: datetime = field(default_factory=_utcnow)
     updated_at: datetime = field(default_factory=_utcnow)
     audit_ref: str | None = None
+
+    def __post_init__(self) -> None:
+        """防御性校验：必填字段非空、长度不超限（对齐 ORM 列定义）。"""
+        required: tuple[tuple[str, int], ...] = (
+            ("entity_id", 64),
+            ("project_name", 200),
+            ("created_by", 64),
+        )
+        for field_name, max_len in required:
+            value = getattr(self, field_name)
+            if value is None or (isinstance(value, str) and not value.strip()):
+                raise ValueError(f"{field_name} 不能为空")
+            if len(value) > max_len:
+                raise ValueError(f"{field_name} 长度超过上限 {max_len}")
 
     def transition_to(self, target: ProjectStatus, audit_ref: str) -> Project:
         """执行状态迁移，未登记转移拒绝（31.5 规则）。
