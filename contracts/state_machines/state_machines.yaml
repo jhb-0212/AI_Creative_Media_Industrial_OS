@@ -2,7 +2,7 @@
 # 未登记状态的转移一律拒绝（31.5 规则）
 source: AFS-ARCH-MASTER-V2.0.5 各章节状态机定义（由 Markdown 基线派生）
 authority_rule: 同一对象多处定义时，按 31.5 唯一权威状态机 > 32.6/C.7 > 34.x > 33.3 > C.3 取权威；24.11 为摘要不计入权威；差异不静默合并，见 conflict 字段。
-total_objects: 35
+total_objects: 36
 conflict_count: 5
 conflict_rulings:
 - object: CharacterCanon
@@ -307,3 +307,12 @@ objects:
   note: 只描述一次工具交换；AUTHORIZED 前不得导出；VALIDATING 完成前不得视为回流完成。
   all_sources:
   - 32.6 文件导出、工程执行与成片回流闭环
+- object: Project
+  authoritative_source: 8.1 核心实体（项目层级聚合根，主链实现补登）
+  states: DRAFT→ACTIVE→ON_HOLD；ACTIVE→COMPLETED；ON_HOLD→ACTIVE；DRAFT/ON_HOLD/COMPLETED→ARCHIVED
+  note: ARCHIVED 为终态，不可原地复活（红线「终态不可原地复活」）；未登记转移一律拒绝（31.5）。主文档未为 Project 单列权威状态机，此条目属 Phase 1 主链第一环「项目创建」实现所需的新增建模，遵循 31.11 启用前复核补登；待 Phase 1 验收时以本文档为唯一权威复核后固化。
+  source_kind: text_authority_only
+  registration_status: PENDING_PHASE1_REVIEW
+  all_sources:
+  - 8.1 核心实体
+  - 8.2 标识与版本规则

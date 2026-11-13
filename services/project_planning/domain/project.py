@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from services.project_planning.domain.enums import ProjectStatus, ProjectTier
+from services.project_planning.domain.state_machine import assert_transition
 
 # 契约 C.3.1 通用实体信封的 schema_version 固定值（V2.0.5）
 SCHEMA_VERSION = 205
@@ -51,26 +52,13 @@ class Project:
     updated_at: datetime = field(default_factory=_utcnow)
     audit_ref: str | None = None
 
-    # 允许的状态转移表（未登记转移一律拒绝）
-    _ALLOWED_TRANSITIONS: dict[ProjectStatus, frozenset[ProjectStatus]] = field(
-        default_factory=lambda: {
-            ProjectStatus.DRAFT: frozenset({ProjectStatus.ACTIVE, ProjectStatus.ARCHIVED}),
-            ProjectStatus.ACTIVE: frozenset({ProjectStatus.ON_HOLD, ProjectStatus.COMPLETED}),
-            ProjectStatus.ON_HOLD: frozenset({ProjectStatus.ACTIVE, ProjectStatus.ARCHIVED}),
-            ProjectStatus.COMPLETED: frozenset({ProjectStatus.ARCHIVED}),
-            ProjectStatus.ARCHIVED: frozenset(),  # 终态不可原地复活
-        },
-        init=False,
-        repr=False,
-    )
-
     def transition_to(self, target: ProjectStatus, audit_ref: str) -> "Project":
-        """执行状态迁移，未登记转移拒绝。"""
-        allowed = self._ALLOWED_TRANSITIONS.get(self.status, frozenset())
-        if target not in allowed:
-            raise ValueError(
-                f"非法状态转移：{self.status.value} -> {target.value}（未登记，已拒绝）"
-            )
+        """执行状态迁移，未登记转移拒绝（31.5 规则）。
+
+        转移合法性由 domain/state_machine.py 的单一权威转移表校验，
+        避免状态机散落于聚合根内部（单一事实源）。
+        """
+        assert_transition(self.status, target)
         self.status = target
         self.entity_version += 1
         self.updated_at = _utcnow()
