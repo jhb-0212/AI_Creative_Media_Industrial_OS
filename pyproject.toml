@@ -43,6 +43,9 @@ dev = [
     "httpx>=0.27",
     "ruff>=0.4",
     "mypy>=1.9",
+    # mypy 严格模式需要 yaml 的类型桩（action_registry.py 的 import yaml），
+    # 否则 CI 的 type check 步骤会因 import-untyped 失败。
+    "types-PyYAML>=6.0",
     "pre-commit>=3.7",
 ]
 
