@@ -1,0 +1,62 @@
+# ============================================================
+# AI 影视工业化生产平台 API 镜像（多阶段构建）
+# 目标：可运行 alembic 迁移 + uvicorn 的运行时镜像，交付层不携带源码依赖缓存。
+# ============================================================
+
+# ---------- Stage 1: 依赖解析与安装（使用 uv 保证锁文件可复现） ----------
+FROM ghcr.io/astral-sh/uv:0.5.24 AS builder
+
+WORKDIR /app
+
+# 先拷贝依赖清单与锁文件，最大化利用 Docker layer cache。
+COPY pyproject.toml uv.lock ./
+
+# 仅安装运行依赖到目标前缀（--no-dev 排除 dev extra），
+# 使用锁文件锁定版本，保证构建可复现。
+RUN uv sync --frozen --no-dev --no-install-project
+
+# ---------- Stage 2: 源码拷贝（薄层，便于增量构建） ----------
+FROM builder AS source
+
+WORKDIR /app
+COPY apps/ ./apps/
+COPY services/ ./services/
+COPY packages/ ./packages/
+COPY data/ ./data/
+COPY contracts/ ./contracts/
+COPY alembic.ini ./
+
+# 将项目本体以 editable 方式安装进虚拟环境。
+RUN uv sync --frozen --no-dev
+
+# ---------- Stage 3: 运行时镜像 ----------
+FROM python:3.12-slim AS runtime
+
+# 非 root 运行（最小权限，红线：最小权限原则）。
+RUN useradd --create-home --uid 10001 appuser
+
+WORKDIR /app
+
+# 从 builder 复制已解析的虚拟环境（含已安装的依赖与项目本体）。
+COPY --from=source /app/.venv /app/.venv
+ENV PATH="/app/.venv/bin:$PATH"
+
+# 复制源码（运行时不需要 uv / 编译工具链）。
+COPY --from=source /app/apps ./apps
+COPY --from=source /app/services ./services
+COPY --from=source /app/packages ./packages
+COPY --from=source /app/data ./data
+COPY --from=source /app/contracts ./contracts
+COPY --from=source /app/alembic.ini ./
+
+# 切换到非 root 用户。
+USER appuser
+
+# 健康检查（uvicorn 默认端口 8000）。
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)" || exit 1
+
+EXPOSE 8000
+
+# 默认启动 uvicorn；迁移由部署编排在启动前单独执行 `alembic upgrade head`。
+CMD ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

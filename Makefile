@@ -3,8 +3,8 @@
 help: ## 显示可用命令
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
-install: ## 安装依赖
-	pip install -e ".[dev]"
+install: ## 安装依赖（uv 锁文件可复现）
+	uv sync --frozen --extra dev
 
 test: ## 运行测试
 	pytest

@@ -39,18 +39,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
 
-      - name: Install dependencies
-        run: pip install -e ".[dev]"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies (uv sync, 锁文件可复现)
+        run: uv sync --frozen --extra dev
 
       - name: Lint (ruff)
-        run: ruff check .
+        run: uv run ruff check .
 
       - name: Type check (mypy)
         # 只检查当前有代码的目录；workers/agents/adapters 仍为占位（仅 .gitkeep），
         # 待其落地 .py 后纳入本步骤，避免 mypy 对空目录报 "no .py files" 而误判失败。
-        run: mypy packages services apps
+        run: uv run mypy packages services apps
 
       - name: Wait for PostgreSQL
         # GitHub Actions 的 service 容器 health check 不会阻塞主 job 步骤，
@@ -69,7 +73,7 @@ jobs:
 
       - name: Apply migrations
         # 数据库集成测试依赖真实表结构，必须先建表（全新空库），再跑测试。
-        run: alembic upgrade head
+        run: uv run alembic upgrade head
         env:
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
@@ -78,7 +82,7 @@ jobs:
           POSTGRES_DB: ai_film_industrial
 
       - name: Unit & integration tests
-        run: pytest tests/unit tests/integration -q
+        run: uv run pytest tests/unit tests/integration -q
         env:
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
@@ -88,7 +92,7 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
 
       - name: Migrations sync check (alembic check)
-        run: alembic check
+        run: uv run alembic check
         env:
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
@@ -103,10 +107,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: uv sync --frozen --extra dev
       - name: Contract consistency check
-        run: python scripts/contract_check.py
+        run: uv run python scripts/contract_check.py
 
   permission-negative-tests:
     runs-on: ubuntu-latest
@@ -115,7 +123,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: uv sync --frozen --extra dev
       - name: Permission negative tests
-        run: pytest tests/permission -q
+        run: uv run pytest tests/permission -q

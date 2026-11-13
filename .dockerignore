@@ -1,0 +1,42 @@
+# Docker 构建上下文排除清单（禁止将敏感信息与本地产物带入镜像）
+
+# ---- 版本控制 ----
+.git
+.gitignore
+
+# ---- 本地虚拟环境与缓存 ----
+.venv
+venv
+__pycache__
+*.py[cod]
+*.egg-info
+.mypy_cache
+.pytest_cache
+.ruff_cache
+
+# ---- 敏感信息（密钥绝不进入镜像） ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+credentials.json
+
+# ---- 本地数据与日志 ----
+*.log
+logs/
+data/local/
+*.db
+*.sqlite3
+storage/
+tmp/
+temp/
+
+# ---- IDE 与系统 ----
+.idea
+.vscode
+.DS_Store
+Thumbs.db
