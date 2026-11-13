@@ -94,54 +94,81 @@ def parse_state_chain(text: str) -> set[tuple[str, str]]:
 
 
 # --------------------------------------------------------------------------- #
-# Project 状态机一致性校验
+# 状态机一致性校验（Project + ScriptRevision）
 # --------------------------------------------------------------------------- #
+# 契约对象名 -> 领域转移表来源（模块路径, 变量名）
+_STATE_MACHINE_SOURCES: dict[str, tuple[str, str]] = {
+    "Project": ("services.project_planning.domain.state_machine", "ALLOWED_TRANSITIONS"),
+    "ScriptRevision": ("services.project_planning.domain.script", "ALLOWED_TRANSITIONS"),
+}
+
+
+def _load_impl_transitions(module_path: str, var_name: str) -> set[tuple[str, str]]:
+    """从领域模块反射加载转移表，归一化为 (source, target) 字符串对集合。"""
+    import importlib
+
+    module = importlib.import_module(module_path)
+    transitions_map = getattr(module, var_name)
+    result: set[tuple[str, str]] = set()
+    for src, targets in transitions_map.items():
+        src_value = src.value if hasattr(src, "value") else str(src)
+        for tgt in targets:
+            tgt_value = tgt.value if hasattr(tgt, "value") else str(tgt)
+            result.add((src_value, tgt_value))
+    return result
+
+
 def check_project_state_machine() -> bool:
-    """校验 Project 状态机：契约 state_machines.yaml ↔ 领域 state_machine.py。"""
+    """校验 Project 状态机：契约 state_machines.yaml ↔ 领域 state_machine.py。
+
+    保留函数名以兼容既有测试；内部委托给 check_state_machines。
+    """
+    return check_state_machines()
+
+
+def check_state_machines() -> bool:
+    """校验所有已实现的状态机（Project / ScriptRevision）与契约一致。
+
+    遍历 state_machines.yaml 中登记为 PENDING_PHASE1_REVIEW 且已提供领域实现
+    的对象，双向比对契约状态链与领域转移表。
+    """
     sm_path = CONTRACTS / "state_machines" / "state_machines.yaml"
     data = yaml.safe_load(sm_path.read_text(encoding="utf-8"))
 
-    project_entry = None
-    for obj in data.get("objects", []):
-        if obj.get("object") == "Project":
-            project_entry = obj
-            break
+    objects = data.get("objects", [])
+    all_ok = True
 
-    if project_entry is None:
-        print("[FAIL] state_machines.yaml 中未找到 Project 状态机条目")
-        return False
+    for obj_name, (module_path, var_name) in _STATE_MACHINE_SOURCES.items():
+        entry = next((o for o in objects if o.get("object") == obj_name), None)
+        if entry is None:
+            print(f"[FAIL] state_machines.yaml 中未找到 {obj_name} 状态机条目")
+            all_ok = False
+            continue
 
-    contract_states = project_entry.get("states", "")
-    contract_transitions = parse_state_chain(contract_states)
+        contract_states = entry.get("states", "")
+        contract_transitions = parse_state_chain(contract_states)
+        impl_transitions = _load_impl_transitions(module_path, var_name)
 
-    # 领域实现转移表
-    from services.project_planning.domain.state_machine import ALLOWED_TRANSITIONS
+        only_contract = contract_transitions - impl_transitions
+        only_impl = impl_transitions - contract_transitions
 
-    impl_transitions: set[tuple[str, str]] = set()
-    for src, targets in ALLOWED_TRANSITIONS.items():
-        for tgt in targets:
-            impl_transitions.add((src.value, tgt.value))
+        if only_contract or only_impl:
+            if only_contract:
+                print(f"[FAIL] {obj_name} 契约有、实现缺的转移: {sorted(only_contract)}")
+            if only_impl:
+                print(f"[FAIL] {obj_name} 实现有、契约缺的转移: {sorted(only_impl)}")
+            all_ok = False
+            continue
 
-    # 双向比对：契约转移 == 实现转移
-    only_contract = contract_transitions - impl_transitions
-    only_impl = impl_transitions - contract_transitions
+        status = entry.get("registration_status", "")
+        if status == "PENDING_PHASE1_REVIEW":
+            print(
+                f"[WARN] {obj_name} 状态机已一致，但契约为 PENDING_PHASE1_REVIEW"
+                "（待 Phase 1 验收复核固化），请勿在生产环境修改其状态集。"
+            )
+        print(f"[PASS] {obj_name} 状态机一致：{len(contract_transitions)} 条转移")
 
-    if only_contract or only_impl:
-        if only_contract:
-            print(f"[FAIL] 契约有、实现缺的转移: {sorted(only_contract)}")
-        if only_impl:
-            print(f"[FAIL] 实现有、契约缺的转移: {sorted(only_impl)}")
-        return False
-
-    # 一致，但若登记状态为待复核，给出提示（不阻断）。
-    status = project_entry.get("registration_status", "")
-    if status == "PENDING_PHASE1_REVIEW":
-        print(
-            "[WARN] Project 状态机已一致，但契约为 PENDING_PHASE1_REVIEW"
-            "（待 Phase 1 验收复核固化），请勿在生产环境修改其状态集。"
-        )
-    print(f"[PASS] Project 状态机一致：{len(contract_transitions)} 条转移")
-    return True
+    return all_ok
 
 
 # --------------------------------------------------------------------------- #
@@ -308,7 +335,7 @@ def main() -> int:
 
     print(f"已校验 YAML {len(yaml_files)} 个，JSON {len(json_files)} 个")
 
-    ok &= check_project_state_machine()
+    ok &= check_state_machines()
     ok &= check_action_openapi_consistency()
     ok &= check_permission_matrix()
     ok &= check_schema_objects()

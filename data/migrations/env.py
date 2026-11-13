@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from packages.shared.config import get_settings  # noqa: E402
 from packages.shared.database import Base  # noqa: E402
-from services.project_planning.repository.orm import ProjectModel  # noqa: E402,F401
+from services.project_planning.repository.orm import ProjectModel, ScriptModel  # noqa: E402,F401
 
 config = context.config
 

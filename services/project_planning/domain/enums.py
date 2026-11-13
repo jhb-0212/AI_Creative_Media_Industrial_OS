@@ -35,3 +35,16 @@ class ProjectTier(str, Enum):
     S = "S"
     A = "A"
     B = "B"
+
+
+class ScriptStatus(str, Enum):
+    """剧本版本状态。
+
+    对齐契约：contracts/state_machines/state_machines.yaml → objects → ScriptRevision
+    （DRAFT→LOCKED；DRAFT/LOCKED→SUPERSEDED）。
+    转移表权威定义见 domain/script.py 的 _ALLOWED_TRANSITIONS。
+    """
+
+    DRAFT = "DRAFT"            # 草稿：导入的可编辑剧本版本（ADR-032 默认草案）
+    LOCKED = "LOCKED"          # 锁定：经 SCRIPT.LOCK.APPROVE 人工确认
+    SUPERSEDED = "SUPERSEDED"  # 被取代：新版本导入，旧版本终态（不可原地复活）

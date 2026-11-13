@@ -40,3 +40,29 @@ class ProjectModel(Base):
     # 业务字段
     project_name: Mapped[str] = mapped_column(String(200), nullable=False)
     project_tier: Mapped[str] = mapped_column(String(8), nullable=False)
+
+
+class ScriptModel(Base):
+    """script_revisions 表模型（剧本版本，同属 project_planning schema）。"""
+
+    __tablename__ = "script_revisions"
+    __table_args__ = {"schema": SCHEMA_NAME}
+
+    # C.3.1 通用信封字段
+    entity_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    entity_type: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="ScriptRevision"
+    )
+    schema_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    entity_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    owner_module: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    audit_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    # 业务字段
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    episode_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
