@@ -231,7 +231,7 @@ def test_missing_resource_schemas_all_exempted_is_empty() -> None:
 
 
 def test_check_resource_schemas_passes_on_current_contract() -> None:
-    """当前台账（8 个已实现 + 4 条豁免）应通过。"""
+    """当前台账（12 个已实现 + 4 条豁免）应通过。"""
     assert cc.check_implemented_resource_schemas() is True
 
 
@@ -261,3 +261,71 @@ def test_check_resource_schemas_fails_for_orphan_exemption(
     )
     monkeypatch.setattr(cc, "RESOURCE_EXEMPTIONS_PATH", exempt)
     assert cc.check_implemented_resource_schemas() is False
+
+
+# --------------------------------------------------------------------------- #
+# 状态可达性闸门（静默不可达 = 契约债务必须显式登记）
+# --------------------------------------------------------------------------- #
+def test_contract_state_names_extracts_asset_states() -> None:
+    text = (
+        "GENERATED→TECHNICAL_QC→HUMAN_REVIEW→APPROVED→GOLD；"
+        "可进入 REJECTED / QUARANTINED / REWORK / SUPERSEDED / ARCHIVED"
+    )
+    assert cc._contract_state_names(text) == {
+        "GENERATED",
+        "TECHNICAL_QC",
+        "HUMAN_REVIEW",
+        "APPROVED",
+        "GOLD",
+        "REJECTED",
+        "QUARANTINED",
+        "REWORK",
+        "SUPERSEDED",
+        "ARCHIVED",
+    }
+
+
+def test_state_reachability_passes_on_current_contract() -> None:
+    assert cc.check_state_reachability() is True
+
+
+def test_state_reachability_detects_undeclared_unreachable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """把债务登记清空 → 5 个旁支状态变成静默不可达，必须报红。"""
+    gaps = tmp_path / "gaps.yaml"
+    gaps.write_text("gaps: {}\n", encoding="utf-8")
+    monkeypatch.setattr(cc, "STATE_GAPS_PATH", gaps)
+    assert cc.check_state_reachability() is False
+
+
+def test_state_reachability_detects_stale_debt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """把可达状态误登记为缺口（陈旧债务）→ 必须报红。"""
+    import yaml
+
+    data = yaml.safe_load(cc.STATE_GAPS_PATH.read_text(encoding="utf-8"))
+    data["gaps"]["AssetVersion"]["GENERATED"] = {
+        "reason": "陈旧登记",
+        "contract_ref": "x",
+        "unblocks_when": "y",
+    }
+    gaps = tmp_path / "gaps.yaml"
+    gaps.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    monkeypatch.setattr(cc, "STATE_GAPS_PATH", gaps)
+    assert cc.check_state_reachability() is False
+
+
+def test_state_reachability_requires_gap_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """债务登记缺 unblocks_when → 必须报红（债务不能含糊）。"""
+    import yaml
+
+    data = yaml.safe_load(cc.STATE_GAPS_PATH.read_text(encoding="utf-8"))
+    del data["gaps"]["AssetVersion"]["REJECTED"]["unblocks_when"]
+    gaps = tmp_path / "gaps.yaml"
+    gaps.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    monkeypatch.setattr(cc, "STATE_GAPS_PATH", gaps)
+    assert cc.check_state_reachability() is False

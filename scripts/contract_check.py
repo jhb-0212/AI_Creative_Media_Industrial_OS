@@ -651,6 +651,101 @@ def check_implemented_permission_wiring() -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# 状态可达性（把「静默不可达」变成显式债务）
+# --------------------------------------------------------------------------- #
+STATE_GAPS_PATH = CONTRACTS / "runtime" / "state_machine_gaps.yaml"
+# 状态名提取：契约里的状态都是大写下划线形式（GENERATED / TECHNICAL_QC）。
+# 只取长度 >=3 的全大写词，避免把中文说明或单字母误判成状态。
+_STATE_TOKEN_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
+
+
+def _contract_state_names(text: str) -> set[str]:
+    """从契约 states 文本提取状态名集合。"""
+    return set(_STATE_TOKEN_RE.findall(text))
+
+
+def _reachable_states(edges: set[tuple[str, str]]) -> set[str]:
+    """从「无入边的实现状态」出发，沿实现转移边求可达闭包。"""
+    targets = {tgt for _, tgt in edges}
+    initials = {src for src, _ in edges} - targets
+    reachable = set(initials)
+    frontier = list(initials)
+    while frontier:
+        state = frontier.pop()
+        for src, tgt in edges:
+            if src == state and tgt not in reachable:
+                reachable.add(tgt)
+                frontier.append(tgt)
+    return reachable
+
+
+def check_state_reachability() -> bool:
+    """校验每个契约状态要么运行时可达，要么已在 gaps 文件显式登记。
+
+    双向校验（防欺骗 + 防陈旧）：
+    1. 契约声明了、实现不可达、又没登记 → FAIL（静默缺口）；
+    2. 已登记为缺口、但实现其实可达 → FAIL（陈旧债务，必须删条目）；
+    3. 缺口条目缺 reason / contract_ref / unblocks_when → FAIL（债务不能含糊）。
+    """
+    sm_path = CONTRACTS / "state_machines" / "state_machines.yaml"
+    objects = (yaml.safe_load(sm_path.read_text(encoding="utf-8")) or {}).get(
+        "objects", []
+    )
+    gaps = (
+        yaml.safe_load(STATE_GAPS_PATH.read_text(encoding="utf-8"))
+        if STATE_GAPS_PATH.exists()
+        else {}
+    ) or {}
+    declared: dict[str, dict[str, dict[str, str]]] = gaps.get("gaps") or {}
+    ok = True
+    checked = 0
+    gap_count = 0
+
+    for obj_name, (module_path, var_name) in _STATE_MACHINE_SOURCES.items():
+        entry = next((o for o in objects if o.get("object") == obj_name), None)
+        if entry is None:
+            print(f"[FAIL] state_machines.yaml 中未找到 {obj_name}")
+            ok = False
+            continue
+        states = _contract_state_names(str(entry.get("states", "")))
+        edges = _load_impl_transitions(module_path, var_name)
+        reachable = _reachable_states(edges)
+        obj_gaps = declared.get(obj_name) or {}
+        checked += 1
+
+        undeclared = (states - reachable) - set(obj_gaps)
+        if undeclared:
+            print(
+                f"[FAIL] {obj_name} 有契约状态在运行时不可达且未登记债务: {sorted(undeclared)}"
+            )
+            ok = False
+        for state, detail in obj_gaps.items():
+            if state not in states:
+                print(f"[FAIL] {obj_name} 登记的缺口状态 {state!r} 不在契约 states 里")
+                ok = False
+            elif state in reachable:
+                print(
+                    f"[FAIL] {obj_name} 缺口状态 {state!r} 其实已可达——陈旧债务必须删条目"
+                )
+                ok = False
+            missing = [
+                key
+                for key in ("reason", "contract_ref", "unblocks_when")
+                if not str((detail or {}).get(key, "")).strip()
+            ]
+            if missing:
+                print(f"[FAIL] {obj_name}.{state} 缺口登记缺字段: {missing}")
+                ok = False
+        gap_count += len(obj_gaps)
+
+    if ok:
+        print(
+            f"[PASS] 状态可达性：{checked} 个已实现状态机；显式登记不可达 {gap_count} 项"
+        )
+    return ok
+
+
+# --------------------------------------------------------------------------- #
 # 入口
 # --------------------------------------------------------------------------- #
 def main() -> int:
@@ -670,6 +765,7 @@ def main() -> int:
     ok &= check_runtime_contract_coverage()
     ok &= check_implemented_resource_schemas()
     ok &= check_implemented_permission_wiring()
+    ok &= check_state_reachability()
     ok &= check_permission_matrix()
     ok &= check_schema_objects()
 
