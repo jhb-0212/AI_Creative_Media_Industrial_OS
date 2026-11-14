@@ -47,7 +47,7 @@ implemented:
 not_implemented:
   # --- 镜头域（ShotDraft / ShotRevision / ShotSpec / ConstraintPack）---
   SHOT.DRAFT.CREATE:
-    reason: "镜头域未落地：无 Spark/Shot 领域模型与迁移，Agent 产出无处落库"
+    reason: "镜头域未落地；且 ShotDraft 在 object_schemas 中无定义（见 docs/adr/ADR-R07-shot-draft-contract-gap.md），实现前必须先补对象契约"
   SHOT.REVISION.CONFIRM:
     reason: "镜头域未落地；版本冲突拒绝需先有 ShotRevision 版本表"
   SHOTSPEC.LOCK:
