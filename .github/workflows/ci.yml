@@ -1,8 +1,9 @@
 name: CI
 
 # 版本与镜像口径（防止「绿但带告警」的慢性腐烂）：
-# - action 一律用 node24 运行时的大版本（checkout v7 / setup-python v7 /
-#   setup-uv v10）：v4/v5 会被 runner 强制降级并持续产生 Node20 弃用告警；
+# - action 一律用 node24 运行时（checkout v7 / setup-python v7 /
+#   setup-uv v10.3.3）。v4/v5 会被 runner 强制降级并持续产生 Node20 弃用告警；
+#   setup-uv 不发浮动大版本标签，必须写精确版本，否则 job 在解析 action 阶段直接失败。
 # - runs-on 固定 ubuntu-24.04 而非 ubuntu-latest，避免镜像标签漂移导致
 #   「今天能跑、明天挂」的不可复现失败。
 on:
@@ -46,7 +47,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: true
 
@@ -113,7 +114,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install uv
-        uses: astral-sh/setup-uv@v10
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: true
       - name: Install dependencies
@@ -129,7 +130,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install uv
-        uses: astral-sh/setup-uv@v10
+        uses: astral-sh/setup-uv@v10.3.3
         with:
           enable-cache: true
       - name: Install dependencies
