@@ -6,8 +6,10 @@
 2. contracts/state_machines/state_machines.yaml 中 Project 状态机
    与 services/project_planning/domain/state_machine.py 的转移表一致性。
 3. Action Registry ↔ OpenAPI 路径一一对应（未注册 Action 不得暴露端点）。
-4. Permission Matrix 结构完整（action_matrix 覆盖全部 action_key）。
-5. object_schemas.schema.json 的 P0 对象定义完整性。
+4. 运行时 ↔ 契约覆盖（contracts/runtime/action_implementations.yaml 台账：
+   ACTIVE action 必须实现或登记未实现的原因，已声明的 route 必须真实存在）。
+5. Permission Matrix 结构完整（action_matrix 覆盖全部 action_key）。
+6. object_schemas.schema.json 的 P0 对象定义完整性。
 
 设计要点（不屎山代码）：
 - 解析逻辑独立成纯函数（parse_state_chain），可单测、无副作用。
@@ -262,6 +264,114 @@ def check_action_openapi_consistency() -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# 运行时 ↔ 契约覆盖（契约不再只是纸面自洽）
+# --------------------------------------------------------------------------- #
+# 背景：Action Registry 与 openapi.draft 是同一份契约的两种视图，两者一致只能
+# 证明「文档自洽」。曾经 36 个 ACTIVE action 里运行时只有 8 个端点，CI 仍全绿。
+# 本校验把运行时 app 的真实路由与契约做双向比对：
+# 1. 台账声明的每个已实现 route 必须真实存在（声明不能撒谎）；
+# 2. 每个 ACTIVE action 必须落在 implemented 或 not_implemented（缺口必须留痕）；
+# 3. not_implemented 必须写原因，且不得与 implemented 重叠；
+# 4. 运行时多出来的端点必须登记（新端点不能悄悄绕过契约）。
+LEDGER_PATH = CONTRACTS / "runtime" / "action_implementations.yaml"
+# 系统端点不是业务 action，不参与契约覆盖（探针与指标不属 Action Registry）。
+# 必须写成 "METHOD /path" 与运行时端点集合同构，否则会被误判为未登记端点。
+_NON_ACTION_PATHS = frozenset({"GET /health", "GET /readyz"})
+_HTTP_METHODS = ("get", "post", "put", "patch", "delete")
+
+
+def _runtime_endpoints() -> set[str]:
+    """加载真实 FastAPI 应用的 OpenAPI，返回 "METHOD /path" 集合。"""
+    from apps.api.main import app
+
+    schema = app.openapi()
+    endpoints: set[str] = set()
+    for path, item in schema.get("paths", {}).items():
+        if not isinstance(item, dict):
+            continue
+        for method in _HTTP_METHODS:
+            if method in item:
+                endpoints.add(f"{method.upper()} {path}")
+    return endpoints
+
+
+def _active_action_keys() -> set[str]:
+    """契约中状态以 ACTIVE 开头的 action（PHASE_GATED 不要求实现）。"""
+    ar = yaml.safe_load(
+        (CONTRACTS / "action_registry" / "action_registry.yaml").read_text(encoding="utf-8")
+    )
+    return {
+        action["action_key"]
+        for action in ar.get("actions", [])
+        if str(action.get("status", "")).startswith("ACTIVE")
+    }
+
+
+def check_runtime_contract_coverage() -> bool:
+    """校验运行时实现台账与契约、真实路由三方一致。"""
+    if not LEDGER_PATH.exists():
+        print(f"[FAIL] 缺少运行时实现台账: {LEDGER_PATH}")
+        return False
+
+    ledger = yaml.safe_load(LEDGER_PATH.read_text(encoding="utf-8")) or {}
+    implemented: dict[str, dict[str, str]] = ledger.get("implemented") or {}
+    not_implemented: dict[str, dict[str, str]] = ledger.get("not_implemented") or {}
+
+    try:
+        runtime = _runtime_endpoints()
+    except Exception as exc:  # 导入失败本身就是回归信号
+        print(f"[FAIL] 无法加载运行时 OpenAPI: {exc}")
+        return False
+
+    active = _active_action_keys()
+    ok = True
+
+    for key, entry in implemented.items():
+        route = str(entry.get("route", ""))
+        if route not in runtime:
+            print(f"[FAIL] {key} 声明已实现，但运行时没有端点 {route!r}")
+            ok = False
+        if key not in active:
+            print(f"[FAIL] {key} 不是 ACTIVE action，不应出现在 implemented")
+            ok = False
+
+    for key, entry in not_implemented.items():
+        if key in implemented:
+            print(f"[FAIL] {key} 同时出现在 implemented 与 not_implemented")
+            ok = False
+        raw_reason = entry.get("reason", "") if isinstance(entry, dict) else ""
+        if not str(raw_reason).strip():
+            print(f"[FAIL] {key} 在 not_implemented 中缺少 reason")
+            ok = False
+        if key not in active:
+            print(f"[FAIL] {key} 不是 ACTIVE action，不应出现在 not_implemented")
+            ok = False
+
+    covered = set(implemented) | set(not_implemented)
+    uncovered = active - covered
+    if uncovered:
+        print(f"[FAIL] ACTIVE action 未登记（既没实现也没说明原因）: {sorted(uncovered)}")
+        ok = False
+    stale = covered - active
+    if stale:
+        print(f"[FAIL] 台账登记了非 ACTIVE 的 action: {sorted(stale)}")
+        ok = False
+
+    registered = {str(v.get("route", "")) for v in implemented.values()} | _NON_ACTION_PATHS
+    unregistered = runtime - registered
+    if unregistered:
+        print(f"[FAIL] 运行时暴露了未登记端点: {sorted(unregistered)}")
+        ok = False
+
+    if ok:
+        print(
+            f"[PASS] 运行时 ↔ 契约覆盖：ACTIVE {len(active)} 个"
+            f"（已实现 {len(implemented)} / 登记未实现 {len(not_implemented)}）"
+        )
+    return ok
+
+
+# --------------------------------------------------------------------------- #
 # Permission Matrix 结构校验
 # --------------------------------------------------------------------------- #
 def check_permission_matrix() -> bool:
@@ -406,6 +516,7 @@ def main() -> int:
 
     ok &= check_state_machines()
     ok &= check_action_openapi_consistency()
+    ok &= check_runtime_contract_coverage()
     ok &= check_permission_matrix()
     ok &= check_schema_objects()
 

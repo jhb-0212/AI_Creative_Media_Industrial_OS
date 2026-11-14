@@ -11,12 +11,13 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import time
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Header, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text
@@ -227,6 +228,21 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
     )
 
 
+def _errors_catalog_allowed(token: str | None) -> bool:
+    """错误码目录的访问判定（默认拒绝）。
+
+    用 ``hmac.compare_digest`` 而不是 ``==``：常量时间比较，避免把「前缀匹配
+    到第几位」变成可观测的时间差。令牌未配置时直接拒绝——空令牌绝不能等于
+    「谁都能进」。
+    """
+    if settings.errors_catalog_public:
+        return True
+    expected = settings.errors_catalog_token.get_secret_value()
+    if not expected or token is None:
+        return False
+    return hmac.compare_digest(token, expected)
+
+
 @app.get("/health", tags=["system"])
 async def health() -> dict[str, str]:
     """存活探针：只证明进程能应答，不触碰任何外部依赖。
@@ -271,14 +287,20 @@ async def metrics() -> Response:
     return metrics_response()
 
 
-@app.get("/errors/{code}", tags=["system"])
-async def error_catalog(code: str) -> dict[str, Any]:
-    """错误码探测端点：返回指定错误码的定义（用于契约自检与联调）。
+@app.get("/errors/{code}", tags=["system"], include_in_schema=False)
+async def error_catalog(
+    code: str,
+    x_internal_token: str | None = Header(default=None, alias="X-Internal-Token"),
+) -> dict[str, Any]:
+    """错误码探测端点：返回指定错误码的定义（内部调试面，默认关闭）。
 
-    生产环境关闭目录暴露：一律按 NOT_FOUND 处理，与未知错误码不可区分，
-    避免把内部错误码清单当作调试面公开。
+    访问控制（fail-closed）：
+    - `errors_catalog_public=true` 才公开（本地/联调用，显式开关，不靠环境名推断）；
+    - 否则必须配置 `ERRORS_CATALOG_TOKEN` 并在请求头带 `X-Internal-Token` 且完全一致；
+    - 任何不满足的情况一律返回 NOT_FOUND —— 与「错误码不存在」不可区分，
+      不给探测者「这里有个内部端点」的信号。
     """
-    if settings.app_env == "production":
+    if not _errors_catalog_allowed(x_internal_token):
         raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"未知错误码: {code}")
     # 只允许访问 ErrorCode 注册项（按 code 精确匹配），拒绝 dunder 及类成员。
     target = next(

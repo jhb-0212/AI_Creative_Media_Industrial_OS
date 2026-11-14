@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     outbox_webhook_secret: SecretStr = SecretStr("")
     outbox_webhook_timeout_seconds: float = 5.0
 
+    # 错误码目录（GET /errors/{code}）。它是内部调试面，不是公共 API：
+    # - 默认关闭（false），关闭时一律返回 NOT_FOUND，与未知错误码不可区分；
+    # - 关闭状态下要访问需配置 ERRORS_CATALOG_TOKEN 并带 X-Internal-Token 头；
+    # - 不再用 app_env 判断：环境名写错就把内部面暴露出去，这个开关必须显式。
+    errors_catalog_public: bool = False
+    errors_catalog_token: SecretStr = SecretStr("")
+
     # 对象存储
     s3_endpoint_url: str = ""
     s3_access_key_id: SecretStr = SecretStr("")

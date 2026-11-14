@@ -1,0 +1,109 @@
+# 运行时实现台账（Runtime Implementation Ledger）
+#
+# 为什么需要它：
+# - contracts/action_registry.yaml 与 contracts/openapi/openapi.draft.yaml 是同一份
+#   契约的两种视图，两份互相一致只能证明「文档自洽」，不能证明「平台真能执行」。
+# - 之前 36 个 status=ACTIVE 的 action 里，运行时只有 8 个端点，contract_check 全绿。
+#   缺口不可见 = 缺口一定会扩大。
+#
+# 这份台账把缺口显式化：每个 ACTIVE action 必须落在 implemented 或 not_implemented
+# 之一，且 implemented 里写的 route 由 contract_check **真实加载 app.openapi() 校验**
+# 存在性——所以声明无法撒谎，列表也不能悄悄过期。
+#
+# 维护规则：
+# 1. implemented.route 必须写成 "METHOD /path"，路径与运行时 app 的 path 完全一致；
+# 2. not_implemented 必须写 reason（给下一个人看，不是给 CI 看）；
+# 3. PHASE_GATED 的 action 不进本台账（它们不要求实现，提了反而制造口径混乱）；
+# 4. 新增运行时端点必须同时在这里登记，否则 contract_check 报「未登记端点」。
+version: 1
+
+implemented:
+  PROJECT.CREATE:
+    route: "POST /projects"
+    module: services/project_planning/api/project_routes.py
+  PROJECT.READ:
+    route: "GET /projects/{entity_id}"
+    module: services/project_planning/api/project_routes.py
+  EPISODE.CREATE:
+    route: "POST /episodes"
+    module: services/project_planning/api/episode_routes.py
+  EPISODE.READ:
+    route: "GET /episodes/{entity_id}"
+    module: services/project_planning/api/episode_routes.py
+  SCRIPT.IMPORT:
+    route: "POST /scripts/import"
+    module: services/project_planning/api/script_routes.py
+  SCRIPT.LOCK.REQUEST:
+    route: "POST /scripts/{entity_id}/lock/request"
+    module: services/project_planning/api/script_routes.py
+  SCRIPT.LOCK.APPROVE:
+    route: "POST /scripts/{entity_id}/lock/approve"
+    module: services/project_planning/api/script_routes.py
+  SCRIPT.READ:
+    route: "GET /scripts/{entity_id}"
+    module: services/project_planning/api/script_routes.py
+
+# 以下 ACTIVE action 契约已启用、运行时尚未实现。每一项都是一条待排期的真实缺口。
+not_implemented:
+  # --- 镜头域（ShotDraft / ShotRevision / ShotSpec / ConstraintPack）---
+  SHOT.DRAFT.CREATE:
+    reason: "镜头域未落地：无 Spark/Shot 领域模型与迁移，Agent 产出无处落库"
+  SHOT.REVISION.CONFIRM:
+    reason: "镜头域未落地；版本冲突拒绝需先有 ShotRevision 版本表"
+  SHOTSPEC.LOCK:
+    reason: "镜头域未落地；锁定维度/依据/审批事件依赖 ShotSpec 对象"
+  CONSTRAINT.PACK.CREATE:
+    reason: "镜头域未落地；ConstraintPack 的 NOT_APPLICABLE 语义需镜头上下文"
+  CONSTRAINT.PACK.LOCK:
+    reason: "镜头域未落地"
+  # --- 生成与资产 ---
+  PRODUCTION.ROUTE.SELECT:
+    reason: "生产路线库（ProductionRoute）未建模；选路依据 rights/capability 尚不存在"
+  GENERATION.REQUEST:
+    reason: "生成任务表与预算/配额校验未落地；模型网关未接入"
+  ASSET.VERSION.CREATE:
+    reason: "Asset Service 为空壳（services/asset_service 0 个 .py）"
+  ASSET.VERSION.APPROVE:
+    reason: "Asset Service 为空壳；职责分离判据需资产审核角色域"
+  QC.REPORT.CREATE:
+    reason: "QC 治理为空壳（services/qc_governance 0 个 .py）"
+  PRODUCTION.GATE.APPROVE:
+    reason: "Gate 决策对象未建模；强制角色分离需 Gate 授权人体系"
+  # --- 权利与 Canon ---
+  CANON.CHANGE.APPROVE:
+    reason: "CharacterCanon 未建模（services/rights_governance 为空壳）"
+  RIGHTS.STATUS.CHANGE:
+    reason: "权利案例/清单未建模；双人审批无落点"
+  # --- 预算 ---
+  BUDGET.SHOT.REQUEST:
+    reason: "预算账本未落地（services/budget_quota 为空壳）"
+  BUDGET.SHOT.APPROVE:
+    reason: "预算账本未落地；QualityReserve 用途校验依赖账户模型"
+  # --- 社区展示 ---
+  SHOWCASE.SNAPSHOT.CREATE:
+    reason: "展示快照未建模；精确版本引用需 AssetVersion 先存在"
+  SHOWCASE.SNAPSHOT.REVOKE:
+    reason: "展示快照未建模"
+  SHOWCASE.SHARE.CREATE:
+    reason: "分享链接未建模；有效期/水印/受众字段无落点"
+  SHOWCASE.SHARE.REVOKE:
+    reason: "分享链接未建模"
+  COMMUNITY.REUSE.REQUEST:
+    reason: "契约要求 Phase 1 人工申请通道；当前无申请单对象与受理流程"
+  # --- 反推 / 客户审片 / 交付 ---
+  REVERSE.ANALYSIS.CREATE:
+    reason: "视频反推未接入（模型网关与媒资处理均未落地）"
+  REVERSE.ANALYSIS.CONFIRM:
+    reason: "视频反推未接入"
+  CLIENT.REVIEW.CREATE:
+    reason: "客户审片域未建模；Viewer 权限体系未落地"
+  CLIENT.REVIEW.ANNOTATE:
+    reason: "客户审片域未建模；批注需时间码与媒资播放器"
+  DELIVERY.SPEC.APPROVE:
+    reason: "交付规格未建模；职责分离需交付审核角色域"
+  DELIVERY.MANIFEST.CREATE:
+    reason: "交付清单未落地（Manifest 需可追溯、可校验、可重建三件套）"
+  DELIVERY.MANIFEST.APPROVE:
+    reason: "交付清单未落地"
+  DELIVERY.MANIFEST.RELEASE:
+    reason: "交付清单未落地"

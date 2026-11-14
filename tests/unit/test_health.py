@@ -57,7 +57,28 @@ def test_readyz_fails_closed_when_database_unavailable(
     assert body["checks"]["database"] == "down"
 
 
-def test_error_catalog_returns_known_code(client: TestClient) -> None:
+def test_error_catalog_closed_by_default(client: TestClient) -> None:
+    """默认关闭：即使非生产环境也不暴露错误码目录，且与未知码不可区分。"""
+    resp = client.get("/errors/AUTH_SCOPE_DENIED")
+    assert resp.status_code == 404
+    assert resp.json()["error_code"] == "NOT_FOUND"
+
+
+@pytest.fixture
+def catalog_open(monkeypatch: pytest.MonkeyPatch) -> None:
+    """把错误码目录显式打开（模拟 ERRORS_CATALOG_PUBLIC=true）。"""
+    import apps.api.main as main_module
+
+    monkeypatch.setattr(
+        main_module,
+        "settings",
+        main_module.settings.model_copy(update={"errors_catalog_public": True}),
+    )
+
+
+def test_error_catalog_returns_known_code(
+    client: TestClient, catalog_open: None
+) -> None:
     resp = client.get("/errors/AUTH_SCOPE_DENIED")
     assert resp.status_code == 200
     body = resp.json()
@@ -66,7 +87,40 @@ def test_error_catalog_returns_known_code(client: TestClient) -> None:
     assert body["http_status"] == 403
 
 
-def test_error_catalog_unknown_code_returns_404(client: TestClient) -> None:
+def test_error_catalog_unknown_code_returns_404(
+    client: TestClient, catalog_open: None
+) -> None:
     resp = client.get("/errors/UNKNOWN_CODE")
     assert resp.status_code == 404
     assert resp.json()["error_code"] == "NOT_FOUND"
+
+
+def test_error_catalog_requires_matching_internal_token(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """关闭状态下带令牌：头缺失或不等一律 404；完全一致才放行。"""
+    from pydantic import SecretStr
+
+    import apps.api.main as main_module
+
+    monkeypatch.setattr(
+        main_module,
+        "settings",
+        main_module.settings.model_copy(
+            update={
+                "errors_catalog_public": False,
+                "errors_catalog_token": SecretStr("internal-secret"),
+            }
+        ),
+    )
+
+    assert client.get("/errors/AUTH_SCOPE_DENIED").status_code == 404
+    wrong = client.get(
+        "/errors/AUTH_SCOPE_DENIED", headers={"X-Internal-Token": "guess"}
+    )
+    assert wrong.status_code == 404
+    ok = client.get(
+        "/errors/AUTH_SCOPE_DENIED", headers={"X-Internal-Token": "internal-secret"}
+    )
+    assert ok.status_code == 200
+    assert ok.json()["code"] == "AUTH_SCOPE_DENIED"

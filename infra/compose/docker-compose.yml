@@ -79,6 +79,9 @@ services:
       REDIS_URL: redis://redis:6379/0
       # 限流阈值可按环境调；默认 120 次/分钟/客户端 IP。
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-120}
+      # 错误码目录默认关闭。本地联调要开就显式置 true，或配 TOKEN 走请求头。
+      ERRORS_CATALOG_PUBLIC: ${ERRORS_CATALOG_PUBLIC:-false}
+      ERRORS_CATALOG_TOKEN: ${ERRORS_CATALOG_TOKEN:-}
     depends_on:
       migrate:
         condition: service_completed_successfully

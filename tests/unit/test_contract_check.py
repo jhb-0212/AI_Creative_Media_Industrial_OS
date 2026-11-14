@@ -163,3 +163,48 @@ def test_action_openapi_mismatch_semantics(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(cc, "CONTRACTS", contracts)
 
     assert cc.check_action_openapi_consistency() is False
+
+
+# --------------------------------------------------------------------------- #
+# 运行时 ↔ 契约覆盖（台账不能撒谎）
+# --------------------------------------------------------------------------- #
+def test_runtime_contract_coverage_passes() -> None:
+    """当前台账、契约与真实路由三方一致。"""
+    assert cc.check_runtime_contract_coverage() is True
+
+
+def test_runtime_coverage_detects_phantom_implementation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """台账声称已实现、运行时却没有该端点 → 必须变红（声明不能撒谎）。"""
+    real = cc._runtime_endpoints()
+    monkeypatch.setattr(
+        cc,
+        "_runtime_endpoints",
+        lambda: real - {"POST /scripts/import"},
+    )
+    assert cc.check_runtime_contract_coverage() is False
+
+
+def test_runtime_coverage_detects_unregistered_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """运行时多出未登记端点 → 必须变红（新端点不能绕过契约）。"""
+    real = cc._runtime_endpoints()
+    monkeypatch.setattr(
+        cc,
+        "_runtime_endpoints",
+        lambda: real | {"POST /shadow/undocumented"},
+    )
+    assert cc.check_runtime_contract_coverage() is False
+
+
+def test_runtime_coverage_detects_unlogged_active_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ACTIVE action 既没实现也没登记原因 → 必须变红。"""
+    original = cc._active_action_keys
+    monkeypatch.setattr(
+        cc, "_active_action_keys", lambda: original() | {"SHOT.GHOST.ACTION"}
+    )
+    assert cc.check_runtime_contract_coverage() is False
