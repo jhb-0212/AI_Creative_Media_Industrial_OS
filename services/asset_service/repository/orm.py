@@ -72,6 +72,7 @@ class QCReportModel(Base):
     detector_versions: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     findings: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
     deviation_class: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    deviation_intent_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     intent_match_status: Mapped[str | None] = mapped_column(String(24), nullable=True)
     human_decision: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_by: Mapped[str] = mapped_column(String(64), nullable=False)

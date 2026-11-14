@@ -1,0 +1,147 @@
+# 事件契约（Event Catalog）——跨模块事件的唯一登记处
+#
+# 为什么需要它：
+# - 事件名此前只活在代码字符串里，改名/改字段无人知道下游是否还在消费；
+# - 更危险的是「动作登记了 audit_event，但代码从不发」——声明自洽、事实缺失，
+#   这类缺口只有把事件也纳入契约才看得见。
+#
+# 校验规则（scripts/contract_check.py::check_event_catalog，双向）：
+# 1. 代码里出现的每个 event_type 必须在本文件登记（未登记发事件 = 私自发契约）；
+# 2. 本文件登记的每个 event_type 必须真被发出（陈旧条目 = 台账撒谎）；
+# 3. emitted_by 必须指向真正发出该事件的文件（路径漂移报红）；
+# 4. 已实现且非 READ 的 action，其 audit_event 必须已登记；确实还没落地的，
+#    在 contracts/runtime/event_emission_gaps.yaml 显式登记债务，不得静默。
+#
+# 维护规则：
+# 1. payload_required 是下游可依赖的最小字段集。删字段等于破坏契约，必须改契约；
+# 2. 一个 action 可以发多条事件（例如批准要先记录「进入人工复核」）；
+# 3. 事件与状态迁移同事务：不得先改状态再补事件，也不得先发事件再改状态。
+version: 1
+
+events:
+  - event_type: ASSET_VERSION_CREATED
+    aggregate_type: AssetVersion
+    emitted_by: services/asset_service/service/asset_service.py
+    payload_required:
+      - asset_version_id
+      - asset_type
+      - sha256
+      - storage_ref
+      - source_asset_version_ids
+      - rights_manifest_ref
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#AssetVersion
+
+  - event_type: QC_REPORT_CREATED
+    aggregate_type: AssetVersion
+    emitted_by: services/asset_service/service/asset_service.py
+    payload_required:
+      - qc_report_id
+      - asset_version_id
+      - quality_profile_version
+      - from_status
+      - to_status
+      - created_by
+      - tenant_id
+    contract_ref: contracts/schemas/object_schemas.schema.json#QCReport
+
+  - event_type: ASSET_VERSION_HUMAN_REVIEW_ENTERED
+    aggregate_type: AssetVersion
+    emitted_by: services/asset_service/service/asset_service.py
+    payload_required:
+      - asset_version_id
+      - from_status
+      - to_status
+      - reviewed_by
+      - qc_report_count
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#AssetVersion
+
+  - event_type: ASSET_VERSION_APPROVED
+    aggregate_type: AssetVersion
+    emitted_by: services/asset_service/service/asset_service.py
+    payload_required:
+      - asset_version_id
+      - from_status
+      - to_status
+      - approved_by
+      - created_by
+      - qc_report_count
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#AssetVersion
+
+  - event_type: SCRIPT_IMPORTED
+    aggregate_type: ScriptRevision
+    emitted_by: services/project_planning/service/script_service.py
+    payload_required:
+      - project_id
+      - episode_ref
+      - title
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#ScriptRevision
+
+  - event_type: SCRIPT_LOCK_REQUESTED
+    aggregate_type: ScriptRevision
+    emitted_by: services/project_planning/service/script_service.py
+    payload_required:
+      - project_id
+      - episode_ref
+      - requested_by
+      - tenant_id
+      - from_status
+      - to_status
+    contract_ref: contracts/state_machines/state_machines.yaml#ScriptRevision
+
+  - event_type: SCRIPT_LOCK_APPROVED
+    aggregate_type: ScriptRevision
+    emitted_by: services/project_planning/service/script_service.py
+    payload_required:
+      - project_id
+      - episode_ref
+      - requested_by
+      - approved_by
+      - tenant_id
+      - from_status
+      - to_status
+    contract_ref: contracts/state_machines/state_machines.yaml#ScriptRevision
+
+  - event_type: SCRIPT_SUPERSEDED
+    aggregate_type: ScriptRevision
+    emitted_by: services/project_planning/service/script_service.py
+    payload_required:
+      - project_id
+      - episode_ref
+      - superseded_by
+      - from_status
+      - to_status
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#ScriptRevision
+
+  - event_type: PROJECT_CREATED
+    aggregate_type: Project
+    emitted_by: services/project_planning/service/project_service.py
+    payload_required:
+      - project_id
+      - project_name
+      - project_tier
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#Project
+
+  - event_type: EPISODE_CREATED
+    aggregate_type: Episode
+    emitted_by: services/project_planning/service/episode_service.py
+    payload_required:
+      - episode_id
+      - project_id
+      - episode_ref
+      - title
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#Episode

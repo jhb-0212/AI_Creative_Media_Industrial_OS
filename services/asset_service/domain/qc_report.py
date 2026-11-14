@@ -39,6 +39,7 @@ class QCReport:
     created_by: str
     benchmark_version: str | None = None
     deviation_class: DeviationClass | None = None
+    deviation_intent_ref: str | None = None
     intent_match_status: IntentMatchStatus | None = None
     human_decision: str | None = None
     created_at: datetime = field(default_factory=utcnow)
@@ -70,11 +71,14 @@ class QCReport:
             )
 
     def to_dict(self) -> dict[str, Any]:
-        """序列化为契约结构（枚举转字符串值）。"""
+        """序列化为契约结构（只输出 QCReport 契约声明的字段）。
+
+        tenant_id / created_at / updated_at 是内部存储字段，不属于对外契约；
+        把它们放进响应会造成字段漂移（object_schemas 中没有这些字段）。
+        """
         return {
             "qc_report_id": self.qc_report_id,
             "asset_version_id": self.asset_version_id,
-            "tenant_id": str(self.tenant_id),
             "quality_profile_version": self.quality_profile_version,
             "benchmark_version": self.benchmark_version,
             "detector_versions": self.detector_versions,
@@ -82,11 +86,9 @@ class QCReport:
             "deviation_class": (
                 self.deviation_class.value if self.deviation_class else None
             ),
+            "deviation_intent_ref": self.deviation_intent_ref,
             "intent_match_status": (
                 self.intent_match_status.value if self.intent_match_status else None
             ),
             "human_decision": self.human_decision,
-            "created_by": self.created_by,
-            "created_at": self.created_at.isoformat(),
-            "updated_at": self.updated_at.isoformat(),
         }

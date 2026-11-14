@@ -26,6 +26,9 @@ from services.identity_access.deps import (
 from services.project_planning.repository.episode_sqlalchemy_repo import (
     SqlAlchemyEpisodeRepository,
 )
+from services.project_planning.repository.sqlalchemy_outbox_writer import (
+    SqlAlchemyOutboxWriter,
+)
 from services.project_planning.repository.sqlalchemy_repo import (
     SqlAlchemyProjectRepository,
 )
@@ -44,10 +47,14 @@ class CreateEpisodeRequest(BaseModel):
 
 
 def _build_service(session: AsyncSession) -> EpisodeService:
-    """服务装配：RLS 会话 + episode/project 仓储端口注入。"""
+    """服务装配：RLS 会话 + episode/project 仓储端口 + Outbox 写入端口。"""
     episode_repository = SqlAlchemyEpisodeRepository(session)
     project_repository = SqlAlchemyProjectRepository(session)
-    return EpisodeService(episode_repository, project_repository)
+    return EpisodeService(
+        episode_repository,
+        project_repository,
+        SqlAlchemyOutboxWriter(session),
+    )
 
 
 def _get_service(uow: UnitOfWork = Depends(get_tenant_uow)) -> EpisodeService:

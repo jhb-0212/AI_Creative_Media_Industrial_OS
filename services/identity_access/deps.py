@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 
 from packages.identity.principal import Principal
+from packages.identity.token_revocation import check_request_revocation
 from packages.shared.config import get_settings
 from packages.shared.rls import build_tenant_uow_dependency
 from packages.shared.unit_of_work import get_read_uow, get_uow
@@ -24,11 +25,12 @@ from services.identity_access import get_public_key_store
 from services.identity_access.auth_dependency import build_principal_dependency
 from services.identity_access.rbac import build_authorize_dependency
 
-# 认证依赖：Bearer → Principal（验签 + issuer/audience 校验）。
+# 认证依赖：Bearer → Principal（验签 + issuer/audience 校验 + jti 吊销检查）。
 get_principal = build_principal_dependency(
     key_store=get_public_key_store(),
     issuer=get_settings().identity_issuer,
     audience=get_settings().identity_audience,
+    revocation_check=check_request_revocation,
 )
 
 # RLS 工作单元：Principal → 注入 tenant 上下文 → UoW（写 / 只读两种）。

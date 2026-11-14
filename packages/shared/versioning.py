@@ -81,6 +81,10 @@ def _orm_update_values(instance: Base) -> dict[str, object]:
     - 主键排除：entity_id 是 UPDATE 的定位条件，不参与 SET。
     - entity_version 排除：版本推进统一由 conditional_update 负责。
     - 借助 Mapper 列信息自动提取，模型加列时自动跟进，杜绝手写字段清单漂移。
+
+    ⚠️ 仅适用于「所有列都可变」的快照型实体。带不可变内容列的聚合
+    （如 AssetVersion：sha256/storage_ref 创建后不得改写）必须显式传白名单，
+    不能整列回写——否则每次状态迁移都会把内容列一起 UPDATE（见 ADR-R11）。
     """
     mapper: Mapper[Any] = instance.__mapper__
     values: dict[str, object] = {}

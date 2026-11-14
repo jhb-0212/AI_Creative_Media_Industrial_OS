@@ -262,11 +262,19 @@ async def readyz() -> JSONResponse:
     失败关闭（fail-closed）：数据库不可达时宁可把实例摘出负载均衡，
     也不让流量进来变成 500。响应体固定为最小状态，不泄漏连接串、
     角色名或底层错误——这是编排面协议，不进入业务错误信封。
+
+    额外回报 ``schema_revision``（alembic 当前版本）：本机曾有两个 Postgres
+    实例共用 15432 端口的不同地址族（127.0.0.1 → 旧集群、localhost → Docker），
+    「连错库」表现为"迁移像是没跑"。把 revision 暴露在就绪面上，运维一眼可辨；
+    读不到版本表同样按 unready 处理（fail-closed，不猜）。
     """
     try:
         sessionmaker = app.state.sessionmaker
         async with sessionmaker() as session:
             await session.execute(text("SELECT 1"))
+            revision = (
+                await session.execute(text("SELECT version_num FROM alembic_version"))
+            ).scalar_one_or_none()
     except Exception:
         logger.error("readiness_check_failed", exc_info=True)
         return JSONResponse(
@@ -275,7 +283,11 @@ async def readyz() -> JSONResponse:
         )
     return JSONResponse(
         status_code=200,
-        content={"status": "ready", "checks": {"database": "up"}},
+        content={
+            "status": "ready",
+            "checks": {"database": "up"},
+            "schema_revision": revision,
+        },
     )
 
 

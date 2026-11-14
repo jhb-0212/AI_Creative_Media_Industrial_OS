@@ -14,7 +14,7 @@ import uuid
 
 from httpx import AsyncClient
 
-from tests.conftest import TEST_TENANT_ID, make_test_token
+from tests.conftest import make_test_token
 
 
 async def test_unauthenticated_request_rejected(client: AsyncClient) -> None:
@@ -82,4 +82,5 @@ async def test_identity_from_jwt_not_request_body(auth_client: AsyncClient) -> N
     body = resp.json()
     # 真实身份来自 JWT 的 sub（user_script），非请求体的伪造值。
     assert body["created_by"] == "user_script"
-    assert body["tenant_id"] == str(TEST_TENANT_ID)
+    # tenant_id 内部隔离键不对外暴露（契约未声明）；租户隔离由 RLS 证明。
+    assert "tenant_id" not in body

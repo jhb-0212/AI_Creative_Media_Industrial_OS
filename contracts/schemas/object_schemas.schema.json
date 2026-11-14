@@ -282,7 +282,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -347,7 +347,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -415,7 +415,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -483,7 +483,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -554,7 +554,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -628,7 +628,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -699,7 +699,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -779,7 +779,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -871,7 +871,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -942,7 +942,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -1010,7 +1010,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -1081,7 +1081,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -1152,7 +1152,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -1229,7 +1229,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -1312,7 +1312,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -1389,7 +1389,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -1466,7 +1466,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -1549,7 +1549,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -1626,7 +1626,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -1703,7 +1703,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -1786,7 +1786,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -1875,7 +1875,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -1958,7 +1958,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -2035,7 +2035,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -2120,7 +2120,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -2201,7 +2201,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -2274,7 +2274,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -2351,7 +2351,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -2444,7 +2444,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -2533,7 +2533,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -2614,7 +2614,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -2695,7 +2695,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -2776,7 +2776,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -2857,7 +2857,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -2942,7 +2942,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -3027,7 +3027,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -3131,7 +3131,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -3239,7 +3239,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -3343,7 +3343,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -3467,7 +3467,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -3555,7 +3555,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -3636,7 +3636,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -3731,7 +3731,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -3829,7 +3829,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -3935,7 +3935,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -4036,7 +4036,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -4172,7 +4172,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -4217,7 +4217,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         },
         "author_id": {
           "type": "string"
@@ -4376,7 +4376,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -4480,7 +4480,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -4513,7 +4513,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         },
         "created_at": {
           "type": "string"
@@ -4583,7 +4583,7 @@
       ],
       "properties": {
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         },
         "author_id": {
           "type": "string"
@@ -4708,7 +4708,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -4796,7 +4796,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -4876,7 +4876,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -4964,7 +4964,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -5124,7 +5124,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -5332,7 +5332,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -5420,7 +5420,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -5505,7 +5505,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -5596,7 +5596,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -5673,7 +5673,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -5767,7 +5767,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -5858,7 +5858,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -5971,7 +5971,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -6055,7 +6055,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [
@@ -6406,7 +6406,7 @@
           "type": "string"
         },
         "audit_ref": {
-          "type": "string"
+          "type": ["string", "null"]
         }
       },
       "x-afs-sources": [

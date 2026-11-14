@@ -49,17 +49,21 @@ def build_principal_dependency(
     key_store: KeyStore | PublicKeyStore,
     issuer: str,
     audience: str,
+    revocation_check: Callable[[Request, str], Awaitable[bool]] | None = None,
 ) -> PrincipalDependency:
     """构造一个可注入的 ``get_principal`` FastAPI 依赖工厂。
 
     参数：
     - key_store：持有一组签名密钥（验签用公钥按 kid 索引）。
     - issuer / audience：令牌签发方与目标受众（严格校验，拒绝跨服务令牌）。
+    - revocation_check：可选 jti 吊销检查（P3-2）。提供时验签成功后仍要
+      查吊销表；缺 jti 的令牌直接拒绝（无法吊销 = 无法止损失）。
 
     返回：一个 ``Depends(get_principal)`` 可用的依赖函数，解析出 Principal。
     """
 
     async def get_principal(
+        request: Request,
         token: str = Depends(_extract_bearer_token),
     ) -> Principal:
         """解析 Authorization Bearer 为可信 Principal（验签 + claim 校验）。
@@ -68,6 +72,7 @@ def build_principal_dependency(
         1. 解码 token header 取 kid（jwt.get_unverified_header）。
         2. 按 kid 从 KeyStore 取公钥。
         3. 公钥验签 + issuer/audience/过期校验，构造 Principal。
+        4. 若配置了吊销检查：jti 必须在且未被吊销。
         任一失败抛 401 AUTH_UNAUTHENTICATED（不泄漏内部细节）。
         """
         try:
@@ -89,7 +94,7 @@ def build_principal_dependency(
             )
 
         try:
-            return decode_token(
+            principal = decode_token(
                 token,
                 public_pem=public_pem,
                 issuer=issuer,
@@ -99,5 +104,17 @@ def build_principal_dependency(
             raise DomainError(
                 ErrorRegistry.AUTH_UNAUTHENTICATED, detail="令牌验签失败"
             ) from exc
+
+        if revocation_check is not None:
+            if not principal.jti:
+                raise DomainError(
+                    ErrorRegistry.AUTH_UNAUTHENTICATED, detail="令牌缺少 jti"
+                )
+            if await revocation_check(request, principal.jti):
+                raise DomainError(
+                    ErrorRegistry.AUTH_UNAUTHENTICATED, detail="令牌已吊销"
+                )
+
+        return principal
 
     return get_principal

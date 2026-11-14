@@ -19,10 +19,6 @@ REQUIRED_ENV_VARS = [
     "POSTGRES_APP_PASSWORD",
     "IDENTITY_PRIVATE_KEY_PEM",
     "IDENTITY_PUBLIC_KEY_PEM",
-    "S3_ACCESS_KEY_ID",
-    "S3_SECRET_ACCESS_KEY",
-    "MQ_URL",
-    "MODEL_GATEWAY_API_KEY",
 ]
 
 
@@ -107,3 +103,27 @@ def test_production_rejects_dev_default_app_password(monkeypatch: pytest.MonkeyP
     with pytest.raises(ValidationError) as exc_info:
         _make_settings()
     assert "app_dev_password" in str(exc_info.value)
+
+
+def test_production_does_not_require_unimplemented_adapters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """P3-6：S3 / MQ / 模型网关尚无实现，不得列为生产必需。
+
+    强制配置一个没有实现的依赖，只会让运维填假值把启动检查"骗过"；
+    真保护来自适配器落地后再登记必需项。
+    """
+    env = _prod_env()
+    for var in (
+        "S3_ACCESS_KEY_ID",
+        "S3_SECRET_ACCESS_KEY",
+        "MQ_URL",
+        "MODEL_GATEWAY_API_KEY",
+    ):
+        env.pop(var, None)
+        monkeypatch.delenv(var, raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    settings = _make_settings()
+    assert settings.app_env == "production"

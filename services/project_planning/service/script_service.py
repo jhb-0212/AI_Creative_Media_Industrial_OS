@@ -97,10 +97,13 @@ class ScriptService:
         # 归属验证：project 存在 + episode 归属该项目（P1#6）。
         await self._assert_episode_ownership(project_id, episode_ref)
 
-        # 幂等：若已存在同 id，直接返回。
+        # 幂等：若已存在同 id，直接返回——但只允许"同一请求"的复用。
         if entity_id is not None:
             existing = await self._repository.get_by_id(entity_id)
             if existing is not None:
+                _assert_same_request(
+                    existing, project_id=project_id, episode_ref=episode_ref, title=title
+                )
                 return existing
 
         # 新版本的实体 id 在此处确定（无显式 id 时生成 UUID），
@@ -135,6 +138,9 @@ class ScriptService:
                 ) from exc
             existing = await self._repository.get_by_id(entity_id)
             if existing is not None:
+                _assert_same_request(
+                    existing, project_id=project_id, episode_ref=episode_ref, title=title
+                )
                 return existing
             raise DomainError(
                 ErrorRegistry.INTERNAL_ERROR, detail="剧本版本写入冲突"
@@ -343,6 +349,7 @@ class ScriptService:
                 "superseded_by": new_entity_id,
                 "from_status": previous_status,
                 "to_status": ScriptStatus.SUPERSEDED.value,
+                "tenant_id": str(tenant_id),
             },
         )
 
@@ -352,3 +359,24 @@ class ScriptService:
         if script is None:
             raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"剧本版本不存在: {entity_id}")
         return script
+
+
+def _assert_same_request(
+    existing: ScriptRevision, *, project_id: str, episode_ref: str, title: str
+) -> None:
+    """幂等键复用必须是同一请求（P3-1）。
+
+    此前同 entity_id 命中即返回旧对象：调用方拿着"新标题"拿到 201，
+    库里却还是旧标题——数据从未写入却报成功，是最坏的一种谎。
+    """
+    if (
+        existing.project_id != project_id
+        or existing.episode_ref != episode_ref
+        or existing.title != title
+    ):
+        raise DomainError(
+            ErrorRegistry.IDEMPOTENCY_CONFLICT,
+            detail=(
+                "同一 entity_id 已存在且内容不同：幂等键不能复用于另一个请求"
+            ),
+        )

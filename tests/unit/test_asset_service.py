@@ -199,10 +199,41 @@ async def test_duplicate_qc_report_id_is_idempotent(
     assert [e["event_type"] for e in outbox.events].count("QC_REPORT_CREATED") == 1
 
 
-async def test_approve_walks_human_review_step(
+async def test_duplicate_qc_report_id_across_assets_is_rejected(
     service: tuple[AssetService, FakeAssetRepository, FakeQCRepository, FakeOutboxWriter],
 ) -> None:
-    """TECHNICAL_QC 批准时必须先落 HUMAN_REVIEW 再 APPROVED，不跳关。"""
+    """幂等键必须绑定资产：同一 report_id 提交给另一资产必须 409，不得静默继承。"""
+    svc, assets, qc, outbox = service
+    asset_a = await _create(svc)
+    asset_b = await _create(svc, entity_id="asset-b", sha256="b" * 64)
+    await svc.create_qc_report(
+        asset_version_id=asset_a.entity_id,
+        quality_profile_version="qp-1",
+        detector_versions={"blur": "1.0"},
+        findings=[{"code": "BLUR"}],
+        principal=_principal("qc-1", "QC Worker"),
+        qc_report_id="shared-report-id",
+    )
+    with pytest.raises(DomainError) as exc:
+        await svc.create_qc_report(
+            asset_version_id=asset_b.entity_id,
+            quality_profile_version="qp-1",
+            detector_versions={"blur": "1.0"},
+            findings=[{"code": "BLUR"}],
+            principal=_principal("qc-1", "QC Worker"),
+            qc_report_id="shared-report-id",
+        )
+    assert exc.value.error_code is ErrorRegistry.IDEMPOTENCY_CONFLICT
+    assert len(qc.rows) == 1
+    # B 不得因一次被拒绝的提交而前进状态，也不得多出第二个 QC 事件。
+    assert assets.rows[asset_b.entity_id].status is AssetStatus.GENERATED
+    assert [e["event_type"] for e in outbox.events].count("QC_REPORT_CREATED") == 1
+
+
+async def test_approve_emits_one_event_per_hop(
+    service: tuple[AssetService, FakeAssetRepository, FakeQCRepository, FakeOutboxWriter],
+) -> None:
+    """TECHNICAL_QC→HUMAN_REVIEW→APPROVED：两跳各发一条事件，不合并、不补记。"""
     svc, assets, _, outbox = service
     asset = await _create(svc)
     await svc.create_qc_report(
@@ -219,9 +250,16 @@ async def test_approve_walks_human_review_step(
     # 两次迁移（TECHNICAL_QC→HUMAN_REVIEW→APPROVED）各推进一版。
     assert approved.entity_version == 4
     assert assets.rows[asset.entity_id].status is AssetStatus.APPROVED
-    event = outbox.events[-1]
-    assert event["event_type"] == "ASSET_VERSION_APPROVED"
-    assert event["payload"]["human_review_in_same_call"] is True  # type: ignore[index]
+
+    review_event, approve_event = outbox.events[-2], outbox.events[-1]
+    assert review_event["event_type"] == "ASSET_VERSION_HUMAN_REVIEW_ENTERED"
+    assert approve_event["event_type"] == "ASSET_VERSION_APPROVED"
+    # 每条事件记录的是"相邻两状态"，审计链才能逐跳复算。
+    assert review_event["payload"]["from_status"] == AssetStatus.TECHNICAL_QC.value
+    assert review_event["payload"]["to_status"] == AssetStatus.HUMAN_REVIEW.value
+    assert approve_event["payload"]["from_status"] == AssetStatus.HUMAN_REVIEW.value
+    assert approve_event["payload"]["to_status"] == AssetStatus.APPROVED.value
+    assert "human_review_in_same_call" not in approve_event["payload"]
 
 
 async def test_approve_by_creator_is_rejected(

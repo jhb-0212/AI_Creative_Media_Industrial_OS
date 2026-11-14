@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
-from packages.shared.versioning import _orm_update_values, conditional_update
+from packages.shared.versioning import conditional_update
 from services.asset_service.domain.asset_version import AssetVersion
 from services.asset_service.domain.enums import AssetStatus
 from services.asset_service.repository.asset_repo import AssetRepository
@@ -84,12 +84,19 @@ class SqlAlchemyAssetRepository(AssetRepository):
             self._session.add(_to_orm(asset))
 
     async def save(self, asset: AssetVersion, expected_version: int) -> None:
+        # 白名单更新：状态迁移只允许改「状态列」。内容列（sha256/storage_ref/
+        # rights_manifest_ref ...）不参与 SET，从语句层就杜绝整列回写；
+        # 数据库触发器（ADR-R11）对绕过本仓储的写入做最后兜底。
         await conditional_update(
             self._session,
             AssetVersionModel,
             asset.entity_id,
             expected_version,
-            _orm_update_values(_to_orm(asset)),
+            {
+                "status": asset.status.value,
+                "updated_at": asset.updated_at,
+                "audit_ref": asset.audit_ref,
+            },
         )
 
     async def get_by_id(self, entity_id: str) -> AssetVersion | None:

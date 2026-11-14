@@ -28,7 +28,8 @@ async def test_create_project_success(auth_client: AsyncClient) -> None:
     assert body["project_tier"] == "A"
     assert body["entity_id"]
     assert body["created_by"] == "user_script"  # 身份来自 JWT，非请求体
-    assert body["tenant_id"]
+    # 租户是内部隔离键，不属于对外契约（object_schemas 无 tenant_id）。
+    assert "tenant_id" not in body
 
 
 async def test_create_project_idempotent(auth_client: AsyncClient) -> None:
