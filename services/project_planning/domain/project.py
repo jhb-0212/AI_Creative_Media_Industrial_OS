@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
-from services.project_planning.domain.entity import Entity
+from services.project_planning.domain.entity import OWNER_MODULE, Entity
 from services.project_planning.domain.enums import ProjectStatus, ProjectTier
 from services.project_planning.domain.state_machine import assert_transition
 
@@ -31,6 +31,9 @@ class Project(Entity):
     """
 
     ENTITY_TYPE = "Project"
+
+    # 数据所有权：信封 owner_module 覆写为本模块（基类默认 core）。
+    owner_module: str = OWNER_MODULE
 
     # 业务字段（信封字段由 Entity 基类提供）。
     project_name: str = ""

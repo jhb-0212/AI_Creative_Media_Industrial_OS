@@ -114,6 +114,10 @@ _STATE_MACHINE_SOURCES: dict[str, tuple[str, str]] = {
         "services.project_planning.domain.state_machine",
         "EPISODE_ALLOWED_TRANSITIONS",
     ),
+    "AssetVersion": (
+        "services.asset_service.domain.state_machine",
+        "ASSET_ALLOWED_TRANSITIONS",
+    ),
 }
 
 
@@ -603,6 +607,50 @@ def check_schema_objects() -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# 已实现 action 的授权落点（防「有端点、没授权」）
+# --------------------------------------------------------------------------- #
+def check_implemented_permission_wiring() -> bool:
+    """校验每个已实现 action 的模块里真的挂了 ``require_role("<ACTION>")``。
+
+    为什么需要这条闸门：
+    - 运行时覆盖闸门只证明「端点存在」，不证明「端点有授权」。一个忘写
+      require_role 的端点照样能被未授权主体调用，而 CI 全绿——这正是
+      「声明 ≠ 执行」的典型沉默缺口。
+    - 契约是单一事实源：动作键必须出现在该模块源码里（作为 require_role 的
+      参数），否则说明没有把该动作接到授权依赖上。
+    - 同时校验台账里的 module 路径真实存在，避免台账指向一个不存在的文件。
+
+    局限（诚实记录）：这是源码文本级校验，只证明「键被引用」；它不能证明
+    require_role 一定挂在正确的路由函数上。更强的证明在集成测试（403 用例）。
+    """
+    ledger = yaml.safe_load(LEDGER_PATH.read_text(encoding="utf-8")) or {}
+    implemented: dict[str, dict[str, str]] = ledger.get("implemented") or {}
+    root = CONTRACTS.parent
+    ok = True
+
+    for key, entry in implemented.items():
+        module_rel = str(entry.get("module", ""))
+        module_path = root / module_rel
+        if not module_path.exists():
+            print(f"[FAIL] {key} 台账登记的模块不存在: {module_rel}")
+            ok = False
+            continue
+        source = module_path.read_text(encoding="utf-8")
+        if f'require_role("{key}")' not in source:
+            print(
+                f"[FAIL] {key} 在 {module_rel} 中没有挂 require_role"
+                f'("{key}")——端点存在但没有授权依赖'
+            )
+            ok = False
+
+    if ok:
+        print(
+            f"[PASS] 已实现 action 的授权落点：{len(implemented)} 个动作均已挂 require_role"
+        )
+    return ok
+
+
+# --------------------------------------------------------------------------- #
 # 入口
 # --------------------------------------------------------------------------- #
 def main() -> int:
@@ -621,6 +669,7 @@ def main() -> int:
     ok &= check_action_openapi_consistency()
     ok &= check_runtime_contract_coverage()
     ok &= check_implemented_resource_schemas()
+    ok &= check_implemented_permission_wiring()
     ok &= check_permission_matrix()
     ok &= check_schema_objects()
 

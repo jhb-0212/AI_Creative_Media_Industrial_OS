@@ -42,6 +42,19 @@ implemented:
   SCRIPT.READ:
     route: "GET /scripts/{entity_id}"
     module: services/project_planning/api/script_routes.py
+  # --- 资产域（AssetVersion / QCReport）---
+  ASSET.VERSION.CREATE:
+    route: "POST /assets"
+    module: services/asset_service/api/asset_routes.py
+  QC.REPORT.CREATE:
+    route: "POST /assets/{asset_version_id}/qc-reports"
+    module: services/asset_service/api/asset_routes.py
+  ASSET.VERSION.APPROVE:
+    route: "POST /assets/{asset_version_id}/approve"
+    module: services/asset_service/api/asset_routes.py
+  ASSET.VERSION.READ:
+    route: "GET /assets/{asset_version_id}"
+    module: services/asset_service/api/asset_routes.py
 
 # 以下 ACTIVE action 契约已启用、运行时尚未实现。每一项都是一条待排期的真实缺口。
 not_implemented:
@@ -61,12 +74,6 @@ not_implemented:
     reason: "生产路线库（ProductionRoute）未建模；选路依据 rights/capability 尚不存在"
   GENERATION.REQUEST:
     reason: "生成任务表与预算/配额校验未落地；模型网关未接入"
-  ASSET.VERSION.CREATE:
-    reason: "Asset Service 为空壳（services/asset_service 0 个 .py）"
-  ASSET.VERSION.APPROVE:
-    reason: "Asset Service 为空壳；职责分离判据需资产审核角色域"
-  QC.REPORT.CREATE:
-    reason: "QC 治理为空壳（services/qc_governance 0 个 .py）"
   PRODUCTION.GATE.APPROVE:
     reason: "Gate 决策对象未建模；强制角色分离需 Gate 授权人体系"
   # --- 权利与 Canon ---
