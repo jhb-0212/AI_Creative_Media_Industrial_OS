@@ -45,6 +45,22 @@ _APPROVABLE_STATES = frozenset({AssetStatus.TECHNICAL_QC, AssetStatus.HUMAN_REVI
 _REPORTABLE_STATES = frozenset({AssetStatus.GENERATED, AssetStatus.TECHNICAL_QC})
 
 
+def _assert_report_owner(report: QCReport, asset_version_id: str) -> None:
+    """幂等键必须绑定同一资产：报告 id 跨资产复用即拒绝（不能"查到即返回"）。
+
+    只校验"存在"会让 A 的质检结论被 B 静默继承——错误证据进入批准链，
+    比报错危险得多。冲突走 409（IDEMPOTENCY_CONFLICT），不静默改写。
+    """
+    if report.asset_version_id != asset_version_id:
+        raise DomainError(
+            ErrorRegistry.IDEMPOTENCY_CONFLICT,
+            detail=(
+                f"qc_report_id {report.qc_report_id} 已属于资产版本 "
+                f"{report.asset_version_id}，不得跨资产复用"
+            ),
+        )
+
+
 class AssetService:
     """资产版本创建、QC 证据登记、批准与查询用例。"""
 
@@ -176,6 +192,7 @@ class AssetService:
         report_id = qc_report_id or uuid.uuid4().hex
         existing = await self._qc_reports.get_by_id(report_id)
         if existing is not None:
+            _assert_report_owner(existing, asset.entity_id)
             return asset, existing
 
         previous_status = asset.status
@@ -198,6 +215,7 @@ class AssetService:
         except IntegrityError as exc:
             existing = await self._qc_reports.get_by_id(report_id)
             if existing is not None:
+                _assert_report_owner(existing, asset.entity_id)
                 return asset, existing
             raise DomainError(
                 ErrorRegistry.CONCURRENT_MODIFICATION,
@@ -281,16 +299,31 @@ class AssetService:
 
         # 主链完整性：TECHNICAL_QC 必须先经过 HUMAN_REVIEW 才到 APPROVED
         # （两次迁移分两次乐观锁保存，逐跳推进，不跳关）。
+        # 每一次迁移都发一条事件：审计链里不能只有"最终状态"，否则事后无法
+        # 证明人工复核真的发生过（P1-2）。
         previous_status = asset.status
         expected_version = asset.entity_version
-        reviewed_now = False
         if asset.status is AssetStatus.TECHNICAL_QC:
             asset.transition_to(
                 AssetStatus.HUMAN_REVIEW, audit_ref=f"human_review_by:{approved_by}"
             )
             await self._assets.save(asset, expected_version)
             expected_version = asset.entity_version
-            reviewed_now = True
+            self._outbox_writer.record(
+                aggregate_type="AssetVersion",
+                aggregate_id=asset.entity_id,
+                tenant_id=principal.tenant_id,
+                event_type="ASSET_VERSION_HUMAN_REVIEW_ENTERED",
+                payload={
+                    "asset_version_id": asset.entity_id,
+                    "from_status": previous_status.value,
+                    "to_status": AssetStatus.HUMAN_REVIEW.value,
+                    "reviewed_by": approved_by,
+                    "qc_report_count": report_count,
+                    "tenant_id": str(principal.tenant_id),
+                },
+            )
+            previous_status = AssetStatus.HUMAN_REVIEW
 
         asset.transition_to(
             AssetStatus.APPROVED, audit_ref=f"approved_by:{approved_by}"
@@ -309,7 +342,6 @@ class AssetService:
                 "approved_by": approved_by,
                 "created_by": asset.created_by,
                 "qc_report_count": report_count,
-                "human_review_in_same_call": reviewed_now,
                 "tenant_id": str(principal.tenant_id),
             },
         )

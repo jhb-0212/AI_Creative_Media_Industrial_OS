@@ -38,7 +38,7 @@
 | 项目 Project | ⚠️ 状态机在契约，但无动作入口 | ⚠️ 仅 CREATE/READ | ✅ require_role | ✅ RLS | ⚠️ 仅 CREATED | ✅ | ⚠️ 状态不可达未被闸门发现 |
 | 集数 Episode | ⚠️ 契约标注 `PENDING_PHASE1_REVIEW` | ⚠️ 仅 CREATE/READ | ✅ | ✅ | ⚠️ | ✅ | ⚠️ 同上 |
 | 剧本 ScriptRevision | ✅ | ✅ | ✅ 职责分离真实比对 | ✅ | ✅ 4 类事件 | ⚠️ 缺跨内容幂等负测 | ⚠️ 幂等弱于资产域 |
-| 资产 AssetVersion | ✅ | ⚠️ QC 幂等键域错误 | ✅ | ⚠️ "不可变"未落结构 | ❌ 两跳只发 1 事件 | ⚠️ 缺跨资产/跨租户负测 | ❌ 闸门查不出上述 |
+| 资产 AssetVersion | ✅ | ✅ 幂等键已绑定资产（S3） | ✅ | ✅ 内容列结构级不可变（S3） | ✅ 逐跳两事件 + 契约（S3） | ✅ 跨资产/不可变断言（S3） | ⚠️ schema 闸门仍假绿（P1-3） |
 | Outbox 分区/relay/归档 | ✅ | ✅ | ✅ 分区已保护（S1） | ✅ 只能经父表访问 | ⚠️ 毒事件无上限 | ✅ 不变量断言（S1） | ⚠️ |
 | 契约闸门体系 | ✅ | ✅ | — | — | — | ⚠️ 自测只验函数返回 | ❌ schema 假绿（实测） |
 | 运维 Runbook | ✅ 三份 | — | — | — | — | — | ⚠️ 未提示双实例 |
@@ -331,10 +331,10 @@ RLS 在迁移里 `ENABLE` 一次，分区动态创建时没人再 `ENABLE`；反
 |---|---|---|---|
 | P0-1 | 分区 RLS 失效、可直读跨租户事件 | **已修复** | 迁移 `b7c8d9e0f1a2`；`packages/shared/partition_guard.py`；维护工具建分区即保护；4 条不变量断言 |
 | P0-2 | 双实例端口，`127.0.0.1` 假世界 | **识别侧已修复**（旧集群未停，属用户环境决策） | `/readyz` 回报 `schema_revision`；runbook 新增「先确认连的是哪个库」与旧集群处置节 |
-| P1-1 | QC 幂等键跨资产复用 | 待修（S3） | — |
-| P1-2 | 两跳只发 1 条事件 | 待修（S3，需先定事件名） | — |
+| P1-1 | QC 幂等键跨资产复用 | **已修复**（S3） | `_assert_report_owner`（409）+ 跨资产单测 |
+| P1-2 | 两跳只发 1 条事件 | **已修复**（S3） | 逐跳事件 `ASSET_VERSION_HUMAN_REVIEW_ENTERED` + 事件契约 |
 | P1-3 | schema 闸门假绿（删 46/76 仍 PASS） | 待修（S4） | — |
-| P1-4 | 不可变未落结构（内容列回写 + DELETE） | 部分修复（`qc_reports` 已禁 UPDATE/DELETE、`asset_versions` 已禁 DELETE）；内容列不可变待 S3 触发器/列级授权 | 迁移 `b7c8d9e0f1a2` |
+| P1-4 | 不可变未落结构（内容列回写 + DELETE） | **已修复**（S3 触发器 + R10 授权） | 迁移 `d1e2f3a4b5c6`；仓储白名单；`qc_reports` 禁 UPDATE/DELETE |
 | P2-1 | Project/Episode 无状态变更入口 | 待定（需正文口径或登记债务） | — |
 | P2-2 | relay 毒事件无上限/无死信 | 待修（S5） | — |
 | P2-3 | 资产 GET 未走只读 UoW | 待修（S6） | — |
@@ -344,6 +344,10 @@ RLS 在迁移里 `ENABLE` 一次，分区动态创建时没人再 `ENABLE`；反
 闸门复跑（S1/S2 完成后）：`contract_check` 全 PASS（ACTIVE 37 / 76 定义不变）、
 `ruff` 0、`mypy` 87 files 0、`pytest` **253 passed**、`alembic check` 无漂移；
 迁移 `downgrade -1 → upgrade head` 往返验证通过。
+
+S3 完成后复跑：`contract_check` 全 PASS（新增事件契约 8 / 缺口 2）、`ruff` 0、
+`mypy` 87 files 0、`pytest` **263 passed**、`alembic check` 无漂移；
+迁移 `d1e2f3a4b5c6` 往返通过，触发器与内容列保护完整恢复。
 
 ---
 

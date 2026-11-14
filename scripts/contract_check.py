@@ -17,6 +17,9 @@
    contracts/runtime/resource_schema_gaps.yaml 中登记显式债务
    （reason / contract_ref / unblocks_when / referenced_by），并双向校验：
    未登记缺口报红、陈旧债务报红、孤儿债务报红、字段缺失报红。
+9. 事件契约（contracts/runtime/event_catalog.yaml ↔ 代码 ↔ action registry）：
+   未登记事件报红、陈旧事件报红、emitted_by 漂移报红；已实现非 READ 动作的
+   audit_event 必须已登记，否则须在 event_emission_gaps.yaml 显式登记债务。
 
 设计要点（不屎山代码）：
 - 解析逻辑独立成纯函数（parse_state_chain），可单测、无副作用。
@@ -844,6 +847,158 @@ def check_state_reachability() -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# 事件契约校验（Event Catalog ↔ 代码 ↔ Action Registry）
+# --------------------------------------------------------------------------- #
+EVENT_CATALOG_PATH = CONTRACTS / "runtime" / "event_catalog.yaml"
+EVENT_GAPS_PATH = CONTRACTS / "runtime" / "event_emission_gaps.yaml"
+ACTION_REGISTRY_PATH = CONTRACTS / "action_registry" / "action_registry.yaml"
+# 事件只允许从业务代码里发出：测试代码里的伪造事件不参与契约。
+EVENT_SCAN_ROOTS = (ROOT / "services", ROOT / "packages", ROOT / "workers")
+
+_EVENT_CATALOG_REQUIRED = (
+    "event_type",
+    "aggregate_type",
+    "emitted_by",
+    "payload_required",
+    "contract_ref",
+)
+_EVENT_GAP_REQUIRED = ("audit_event", "reason", "contract_ref", "unblocks_when")
+_EVENT_LITERAL = re.compile(r'event_type\s*=\s*"([A-Z][A-Z0-9_]*)"')
+
+
+def _scan_emitted_events() -> dict[str, set[str]]:
+    """扫描业务代码里的 event_type 字面量，返回 {事件名: {发出文件路径}}。"""
+    emitted: dict[str, set[str]] = {}
+    for root in EVENT_SCAN_ROOTS:
+        if not root.exists():
+            continue
+        for path in root.rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            rel = path.as_posix()
+            for name in _EVENT_LITERAL.findall(text):
+                emitted.setdefault(name, set()).add(rel)
+    return emitted
+
+
+def check_event_catalog() -> bool:
+    """双向校验事件契约：代码不得私发事件，台账不得说谎，缺口不得隐形。"""
+    if not EVENT_CATALOG_PATH.exists():
+        print(f"[FAIL] 缺少事件契约: {EVENT_CATALOG_PATH}")
+        return False
+
+    data = yaml.safe_load(EVENT_CATALOG_PATH.read_text(encoding="utf-8")) or {}
+    entries = data.get("events") or []
+    declared: dict[str, dict[str, object]] = {}
+    ok = True
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            print(f"[FAIL] event_catalog 条目必须是映射: {entry!r}")
+            ok = False
+            continue
+        name = str(entry.get("event_type", "")).strip()
+        if not name:
+            print("[FAIL] event_catalog 有条目缺 event_type")
+            ok = False
+            continue
+        if name in declared:
+            print(f"[FAIL] 事件 {name} 重复登记")
+            ok = False
+            continue
+        missing = [f for f in _EVENT_CATALOG_REQUIRED if not entry.get(f)]
+        if missing:
+            print(f"[FAIL] 事件 {name} 登记缺字段: {missing}")
+            ok = False
+        declared[name] = entry
+
+    emitted = _scan_emitted_events()
+
+    undeclared = sorted(set(emitted) - set(declared))
+    if undeclared:
+        print(f"[FAIL] 代码发出了未登记事件: {undeclared}（先登记契约，再发事件）")
+        ok = False
+
+    stale = sorted(set(declared) - set(emitted))
+    if stale:
+        print(f"[FAIL] 事件契约有陈旧条目（代码已不发）: {stale}")
+        ok = False
+
+    for name, entry in declared.items():
+        emitted_by = str(entry.get("emitted_by", "")).replace("\\", "/")
+        files = emitted.get(name, set())
+        if emitted_by and not any(p.endswith(emitted_by) for p in files):
+            print(
+                f"[FAIL] 事件 {name} 的 emitted_by={emitted_by!r} "
+                f"与实际发出文件不一致: {sorted(files)}"
+            )
+            ok = False
+
+    # action.audit_event ↔ 事件契约/显式缺口：声明了动作却不发事件，必须登记债务。
+    gaps: dict[str, dict[str, object]] = {}
+    if EVENT_GAPS_PATH.exists():
+        gap_data = yaml.safe_load(EVENT_GAPS_PATH.read_text(encoding="utf-8")) or {}
+        gaps = gap_data.get("gaps") or {}
+        for action_key, detail in gaps.items():
+            missing = [
+                f for f in _EVENT_GAP_REQUIRED if not (detail or {}).get(f)
+            ]
+            if missing:
+                print(f"[FAIL] 事件缺口 {action_key} 登记缺字段: {missing}")
+                ok = False
+
+    registry = yaml.safe_load(ACTION_REGISTRY_PATH.read_text(encoding="utf-8")) or {}
+    actions = {
+        str(a.get("action_key")): a for a in (registry.get("actions") or []) if a
+    }
+    ledger = yaml.safe_load(LEDGER_PATH.read_text(encoding="utf-8")) or {}
+    implemented = set((ledger.get("implemented") or {}).keys())
+
+    for action_key in sorted(implemented):
+        # READ 动作不改状态，是否写访问审计由接入层决定，不在本闸门强制。
+        if action_key.endswith(".READ"):
+            continue
+        action = actions.get(action_key) or {}
+        audit_event = str(action.get("audit_event", "")).strip()
+        if not audit_event:
+            print(f"[FAIL] 已实现动作 {action_key} 未在 registry 声明 audit_event")
+            ok = False
+            continue
+        if audit_event in declared:
+            if action_key in gaps:
+                print(
+                    f"[FAIL] 事件缺口 {action_key} 已能发出 {audit_event}，"
+                    "陈旧债务必须删条目"
+                )
+                ok = False
+            continue
+        gap = gaps.get(action_key)
+        if gap is None:
+            print(
+                f"[FAIL] 动作 {action_key} 声明的 audit_event {audit_event} "
+                "既未登记也未登记缺口"
+            )
+            ok = False
+        elif str(gap.get("audit_event", "")).strip() != audit_event:
+            print(
+                f"[FAIL] 事件缺口 {action_key} 的 audit_event 与 registry 不一致: "
+                f"{gap.get('audit_event')!r} != {audit_event!r}"
+            )
+            ok = False
+
+    orphan_gaps = sorted(set(gaps) - implemented)
+    if orphan_gaps:
+        print(f"[FAIL] 事件缺口登记了未实现的动作（孤儿债务）: {orphan_gaps}")
+        ok = False
+
+    if ok:
+        print(
+            f"[PASS] 事件契约：{len(declared)} 个事件 / "
+            f"{len(emitted)} 个发出点 / 显式缺口 {len(gaps)} 项"
+        )
+    return ok
+
+
+# --------------------------------------------------------------------------- #
 # 入口
 # --------------------------------------------------------------------------- #
 def main() -> int:
@@ -867,6 +1022,7 @@ def main() -> int:
     ok &= check_state_reachability()
     ok &= check_permission_matrix()
     ok &= check_schema_objects()
+    ok &= check_event_catalog()
 
     if ok:
         print("[PASS] 契约一致性校验通过")

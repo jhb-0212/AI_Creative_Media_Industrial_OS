@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 # 将 scripts 加入导入路径（scripts 不是包，直接按模块加载）。
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
@@ -425,3 +426,136 @@ def test_active_schema_detects_wrong_referenced_by(
     }
     monkeypatch.setattr(cc, "RESOURCE_GAPS_PATH", _write_gaps(tmp_path, {"ShotDraft": entry}))
     assert cc.check_active_resource_schemas() is False
+
+
+# --------------------------------------------------------------------------- #
+# 事件契约校验（check_event_catalog）
+# --------------------------------------------------------------------------- #
+def _event_entry(name: str, emitted_by: str = "service.py") -> dict[str, object]:
+    return {
+        "event_type": name,
+        "aggregate_type": "DemoAggregate",
+        "emitted_by": emitted_by,
+        "payload_required": ["tenant_id"],
+        "contract_ref": "contracts/schemas/object_schemas.schema.json#Demo",
+    }
+
+
+def _event_fixture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    emitted: list[str],
+    entries: list[dict[str, object]],
+    gaps: dict[str, dict[str, str]] | None = None,
+    implemented: list[str] | None = None,
+    audit_events: dict[str, str] | None = None,
+) -> None:
+    code = tmp_path / "code"
+    code.mkdir()
+    (code / "service.py").write_text(
+        "\n".join(f'event_type="{name}"' for name in emitted) + "\n",
+        encoding="utf-8",
+    )
+    catalog = tmp_path / "event_catalog.yaml"
+    catalog.write_text(
+        yaml.safe_dump({"version": 1, "events": entries}, allow_unicode=True),
+        encoding="utf-8",
+    )
+    gaps_path = tmp_path / "event_gaps.yaml"
+    gaps_path.write_text(
+        yaml.safe_dump({"version": 1, "gaps": gaps or {}}, allow_unicode=True),
+        encoding="utf-8",
+    )
+    registry = tmp_path / "action_registry.yaml"
+    registry.write_text(
+        yaml.safe_dump(
+            {
+                "actions": [
+                    {"action_key": key, "audit_event": event}
+                    for key, event in (audit_events or {}).items()
+                ]
+            },
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    ledger = tmp_path / "ledger.yaml"
+    ledger.write_text(
+        yaml.safe_dump(
+            {
+                "implemented": {
+                    key: {"route": "POST /demo", "module": "m.py"}
+                    for key in (implemented or [])
+                }
+            },
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cc, "EVENT_SCAN_ROOTS", (code,))
+    monkeypatch.setattr(cc, "EVENT_CATALOG_PATH", catalog)
+    monkeypatch.setattr(cc, "EVENT_GAPS_PATH", gaps_path)
+    monkeypatch.setattr(cc, "ACTION_REGISTRY_PATH", registry)
+    monkeypatch.setattr(cc, "LEDGER_PATH", ledger)
+
+
+def test_event_catalog_passes_when_consistent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _event_fixture(
+        tmp_path,
+        monkeypatch,
+        emitted=["DEMO_EVENT"],
+        entries=[_event_entry("DEMO_EVENT")],
+    )
+    assert cc.check_event_catalog() is True
+
+
+def test_event_catalog_detects_undeclared_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """代码里发了个没登记的事件 = 私自发契约，必须报红。"""
+    _event_fixture(tmp_path, monkeypatch, emitted=["SNEAKY_EVENT"], entries=[])
+    assert cc.check_event_catalog() is False
+
+
+def test_event_catalog_detects_stale_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """登记了但代码已不再发 = 陈旧台账，必须报红。"""
+    _event_fixture(
+        tmp_path,
+        monkeypatch,
+        emitted=[],
+        entries=[_event_entry("GHOST_EVENT")],
+    )
+    assert cc.check_event_catalog() is False
+
+
+def test_event_catalog_detects_emitted_by_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """emitted_by 指向别的文件 = 落点漂移，必须报红。"""
+    _event_fixture(
+        tmp_path,
+        monkeypatch,
+        emitted=["DEMO_EVENT"],
+        entries=[_event_entry("DEMO_EVENT", emitted_by="other.py")],
+    )
+    assert cc.check_event_catalog() is False
+
+
+def test_event_catalog_requires_gap_for_missing_action_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """动作声明了 audit_event 却不发、也没登记缺口 → 必须报红（不许静默）。"""
+    _event_fixture(
+        tmp_path,
+        monkeypatch,
+        emitted=[],
+        entries=[],
+        implemented=["DEMO.CREATE"],
+        audit_events={"DEMO.CREATE": "DEMO_CREATED"},
+    )
+    assert cc.check_event_catalog() is False

@@ -1,0 +1,25 @@
+# 事件落地缺口（显式债务，不是豁免）
+#
+# 有些 action 的 audit_event 在 action registry 里已经声明，但运行时还不发：
+# 说明「动作有、事件无」。
+# 这类缺口必须登记原因与解除条件，否则契约闸门报红——宁可红，不要假绿。
+#
+# 校验规则（check_event_catalog）：
+# 1. 已实现且非 READ 的 action，audit_event 必须在 event_catalog.yaml 或本文件之一；
+# 2. 本文件登记的事件一旦真的开始发（进入 event_catalog），本条目必须删除（陈旧债务报红）；
+# 3. 条目必须写 reason / contract_ref / unblocks_when；
+# 4. 登记的 action 必须确实已实现（孤儿债务报红）。
+version: 1
+
+gaps:
+  PROJECT.CREATE:
+    audit_event: PROJECT_CREATED
+    reason: "项目创建当前只落库、不发事件：Project 域没有 service 层与 outbox 写入点（见审计 P2-1）"
+    contract_ref: contracts/action_registry/action_registry.yaml#PROJECT.CREATE
+    unblocks_when: "Project 状态变更入口与 outbox 写入落地（P2-1 修复批次）"
+
+  EPISODE.CREATE:
+    audit_event: EPISODE_CREATED
+    reason: "分集创建当前只落库、不发事件：Episode 域没有 service 层与 outbox 写入点（见审计 P2-1）"
+    contract_ref: contracts/action_registry/action_registry.yaml#EPISODE.CREATE
+    unblocks_when: "Episode 状态变更入口与 outbox 写入落地（P2-1 修复批次）"

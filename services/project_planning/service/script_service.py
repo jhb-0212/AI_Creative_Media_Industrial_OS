@@ -343,6 +343,7 @@ class ScriptService:
                 "superseded_by": new_entity_id,
                 "from_status": previous_status,
                 "to_status": ScriptStatus.SUPERSEDED.value,
+                "tenant_id": str(tenant_id),
             },
         )
 

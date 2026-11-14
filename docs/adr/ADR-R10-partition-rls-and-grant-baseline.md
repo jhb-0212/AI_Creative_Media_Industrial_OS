@@ -86,8 +86,10 @@ SELECT count(*) FROM outbox.outbox_events_y202611;  -- 以 app_role：permission
 
 ## 6. 未做项（明确登记，不假装完成）
 
-- **内容列不可变**（`sha256 / storage_ref` 等仍会随状态迁移被 `UPDATE` 回写）：
-  需要列级授权或 `BEFORE UPDATE` 触发器，属 S3 批次；本 ADR 只关闭"整行删改"。
+- ~~**内容列不可变**（`sha256 / storage_ref` 等仍会随状态迁移被 `UPDATE` 回写）：
+  需要列级授权或 `BEFORE UPDATE` 触发器，属 S3 批次；本 ADR 只关闭"整行删改"。~~
+  **已由 ADR-R11（S3）关闭**：仓储白名单三列 + `asset_versions`/`qc_reports`
+  触发器兜底（迁移 `d1e2f3a4b5c6`）。
 - **`outbox.maintenance_runs` 无 RLS**：仅运维元数据、无租户字段；保留现状，
   但它同样是"新表默认无保护"的例证，待未来统一到"含租户列即必须有 RLS"的检查。
 - **`project_planning` 现有表的 DELETE 授权未收紧**：该域尚无 append-only 承诺的
