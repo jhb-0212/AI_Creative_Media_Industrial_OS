@@ -1,5 +1,10 @@
 name: CI
 
+# 版本与镜像口径（防止「绿但带告警」的慢性腐烂）：
+# - action 一律用 node24 运行时的大版本（checkout v7 / setup-python v7 /
+#   setup-uv v10）：v4/v5 会被 runner 强制降级并持续产生 Node20 弃用告警；
+# - runs-on 固定 ubuntu-24.04 而非 ubuntu-latest，避免镜像标签漂移导致
+#   「今天能跑、明天挂」的不可复现失败。
 on:
   push:
     branches: [main]
@@ -8,7 +13,7 @@ on:
 
 jobs:
   lint-and-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16
@@ -34,14 +39,14 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10
         with:
           enable-cache: true
 
@@ -101,14 +106,14 @@ jobs:
           POSTGRES_DB: ai_film_industrial
 
   contract-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10
         with:
           enable-cache: true
       - name: Install dependencies
@@ -117,14 +122,14 @@ jobs:
         run: uv run python scripts/contract_check.py
 
   permission-negative-tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10
         with:
           enable-cache: true
       - name: Install dependencies
@@ -136,9 +141,9 @@ jobs:
   # 这里不推送镜像（推送由发布流程单独授权），只保证「构建可复现且可运行」，
   # 避免镜像问题等到上线才暴露。
   image-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build API image
         run: docker build -f infra/docker/Dockerfile.api -t ai-film-api:ci .
