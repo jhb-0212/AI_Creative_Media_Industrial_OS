@@ -70,8 +70,10 @@ WHERE NOT blocked.granted;
 处置优先级：
 1. 让**持有锁**的业务事务先结束（部署窗口内停写，比杀连接干净）；
 2. 确认是无主会话才 `SELECT pg_terminate_backend(<pid>);`，并在事件记录里写明杀了谁；
-3. 大表迁移（`b2c3d4e5f6a7` 的 outbox 回填、`SET NOT NULL`、建索引）必须放低峰窗口，
-   迁移入口已在 docstring 标注维护提示。
+3. 大表迁移必须放低峰窗口。当前最重的两个：
+   - `b2c3d4e5f6a7`：outbox 加列 → 全表回填 → `SET NOT NULL` → 建索引；
+   - `f6a7b8c9d1e2`：outbox 改建月分区，单事务内全量搬迁（旧表 → 分区父表）。
+   两者都会产生长事务与大量 WAL，迁移 docstring 已标注维护提示。
 
 ### 1.3 口令 / DSN 类失败
 

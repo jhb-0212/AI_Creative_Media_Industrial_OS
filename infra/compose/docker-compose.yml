@@ -115,6 +115,25 @@ services:
       disable: true
     restart: unless-stopped
 
+  # Outbox 分区维护（R06 保留期）。默认不随栈启动（profile=ops），必须显式触发：
+  # 它是 DDL 操作（需要迁移角色），且「删不删旧数据」是运维决策，不能自动化掉。
+  #   docker compose --profile ops run --rm outbox-maintenance            # dry-run
+  #   docker compose --profile ops run --rm outbox-maintenance --apply
+  outbox-maintenance:
+    profiles: ["ops"]
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.api
+    image: ai-film-api:local
+    command: ["python", "-m", "workers.outbox_maintenance"]
+    environment: *db-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    restart: "no"
+
 volumes:
   postgres_data:
   redis_data:

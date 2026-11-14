@@ -42,6 +42,9 @@ class OutboxEventModel(Base):
     )
 
     event_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    # 注：物理表按 occurred_at 做月分区，PostgreSQL 要求唯一约束包含分区键，
+    # 实际主键是 (event_id, occurred_at)。ORM 侧仍以 event_id 为映射主键
+    # （单条事件语义不变），分区布局见 ADR-R06-2-outbox-retention-partitioning。
     aggregate_type: Mapped[str] = mapped_column(String(64), nullable=False)
     aggregate_id: Mapped[str] = mapped_column(String(64), nullable=False)
     # 租户归属（决策 5 / R06）：事件同样受 RLS 隔离，审计数据不得跨租户读取。

@@ -45,13 +45,23 @@ config.set_main_option(
 target_metadata = Base.metadata
 
 
+# 分区子表在 pg_class 里是独立表，但 ORM 元数据里没有它们（分区属物理布局，
+# 不属领域模型）。不过滤的话 `alembic check` 会把每个月份分区报成「库里多出来的
+# 表」并提议 drop_table，形成永久性假漂移。命名口径见
+# docs/adr/ADR-R06-2-outbox-retention-partitioning.md。
+_PARTITION_TABLE_PREFIXES = ("outbox_events_y", "outbox_events_default")
+
+
 def include_object(obj, name, type_, reflected, compare_to):
     """过滤 autogenerate 的比对对象。
 
-    排除 Alembic 版本追踪表（alembic_version），避免其被误判为
-    「应移除的表」——该表由 Alembic 自身管理，不属领域模型。
+    排除：
+    1. Alembic 版本追踪表（alembic_version），由 Alembic 自身管理；
+    2. outbox 分区子表与 DEFAULT 分区（物理布局，不属于领域模型）。
     """
-    return not (type_ == "table" and name == "alembic_version")
+    if type_ == "table" and name == "alembic_version":
+        return False
+    return not (type_ == "table" and name.startswith(_PARTITION_TABLE_PREFIXES))
 
 
 def run_migrations_offline() -> None:

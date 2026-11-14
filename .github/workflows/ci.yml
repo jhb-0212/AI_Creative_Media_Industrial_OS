@@ -159,3 +159,8 @@ jobs:
       # 不会等到编排起来才发现容器永远重启。
       - name: Smoke test relay entrypoint inside image
         run: docker run --rm ai-film-api:ci python -c "import workers.relay.__main__; print('relay import ok')"
+
+      # 分区维护 CLI 同样在 workers/ 下，且依赖迁移 DSN 构造；入口能 import、
+      # 参数能解析即可证明镜像侧可用（真正执行留给运维显式触发）。
+      - name: Smoke test outbox maintenance CLI inside image
+        run: docker run --rm ai-film-api:ci python -m workers.outbox_maintenance --help
