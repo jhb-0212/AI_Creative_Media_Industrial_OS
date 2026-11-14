@@ -97,16 +97,21 @@ class EpisodeService:
             tenant_id=tenant_id,
         )
 
-        # INSERT 语义新增；并发下唯一约束（project_id+episode_ref）兜底。
+        # INSERT 语义新增；并发下唯一约束兜底（显式 id 与项目内唯一两条路径）。
         try:
             await self._repository.add(episode)
         except IntegrityError as exc:
-            if entity_id is None:
-                existing = await self._repository.get_by_project_ref(
+            # 显式 entity_id：冲突只可能是同一 id 并发创建，回读即幂等返回；
+            # 无显式 id：冲突来自 (project_id, episode_ref) 唯一约束。
+            existing = (
+                await self._repository.get_by_id(entity_id)
+                if entity_id is not None
+                else await self._repository.get_by_project_ref(
                     project_id, episode_ref
                 )
-                if existing is not None:
-                    return existing
+            )
+            if existing is not None:
+                return existing
             raise DomainError(
                 ErrorRegistry.INTERNAL_ERROR, detail="集数写入冲突"
             ) from exc

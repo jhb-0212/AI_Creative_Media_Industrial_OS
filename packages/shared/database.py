@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from urllib.parse import quote_plus
+from urllib.parse import quote
 
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import (
@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 
 from packages.shared.config import get_settings
+from packages.telemetry.tracing import shutdown_telemetry
 
 
 class Base(DeclarativeBase):
@@ -43,10 +44,12 @@ def build_database_url() -> str:
     无 DDL 权限（最小权限）。
 
     用户名与密码均做 URL 编码，避免特殊字符破坏连接串解析。
+    用 ``quote(safe="")`` 而非 ``quote_plus``：userinfo 里 ``+`` 是字面字符，
+    密码含空格时若编码成 ``+`` 会被当作字面加号，导致凭据解错。
     """
     settings = get_settings()
-    user = quote_plus(settings.postgres_app_user)
-    password = quote_plus(settings.postgres_app_password.get_secret_value())
+    user = quote(settings.postgres_app_user, safe="")
+    password = quote(settings.postgres_app_password.get_secret_value(), safe="")
     return (
         f"postgresql+asyncpg://{user}:{password}"
         f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
@@ -61,8 +64,8 @@ def build_migration_url() -> str:
     职责分离，避免应用角色拥有过高权限。
     """
     settings = get_settings()
-    user = quote_plus(settings.postgres_user)
-    password = quote_plus(settings.postgres_password.get_secret_value())
+    user = quote(settings.postgres_user, safe="")
+    password = quote(settings.postgres_password.get_secret_value(), safe="")
     return (
         f"postgresql+asyncpg://{user}:{password}"
         f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
@@ -113,4 +116,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        # 先关闭 tracer（flush 缓冲 span），再释放数据库连接池。
+        shutdown_telemetry()
         await engine.dispose()

@@ -14,7 +14,6 @@ from packages.errors.error_codes import DomainError
 from services.project_planning.domain.enums import ProjectStatus
 from services.project_planning.domain.state_machine import (
     ALLOWED_TRANSITIONS,
-    TERMINAL_STATES,
     assert_transition,
     can_transition,
 )
@@ -57,8 +56,7 @@ def test_all_unregistered_transitions_denied() -> None:
 
 
 def test_archived_is_terminal_and_cannot_revive() -> None:
-    """ARCHIVED 为终态，不可原地复活。"""
-    assert ProjectStatus.ARCHIVED in TERMINAL_STATES
+    """ARCHIVED 为终态，不可原地复活（终态由空转移集表达）。"""
     assert ALLOWED_TRANSITIONS[ProjectStatus.ARCHIVED] == frozenset()
 
 

@@ -57,9 +57,9 @@ EPISODE_ALLOWED_TRANSITIONS: dict[EpisodeStatus, frozenset[EpisodeStatus]] = {
 }
 
 # --------------------------------------------------------------------------- #
-# 终态集合（不可再迁移）
+# 终态不在本模块单独维护常量：各状态机的 ``*_ALLOWED_TRANSITIONS`` 里空转移集
+# 即终态，跨对象共享一个终态常量只会误导（三套状态机的终态不同）。
 # --------------------------------------------------------------------------- #
-TERMINAL_STATES: frozenset[ProjectStatus] = frozenset({ProjectStatus.ARCHIVED})
 
 
 def can_transition(source: ProjectStatus, target: ProjectStatus) -> bool:
@@ -68,7 +68,7 @@ def can_transition(source: ProjectStatus, target: ProjectStatus) -> bool:
 
 
 def assert_transition(source: ProjectStatus, target: ProjectStatus) -> None:
-    """校验 Project 转移合法性，未登记则抛出 ValueError（31.5 未登记转移一律拒绝）。"""
+    """校验 Project 转移合法性，未登记则抛 DomainError（31.5 未登记转移一律拒绝）。"""
     if not can_transition(source, target):
         raise DomainError(
             ErrorRegistry.STATE_TRANSITION_DENIED,
@@ -82,7 +82,7 @@ def can_transition_script(source: ScriptStatus, target: ScriptStatus) -> bool:
 
 
 def assert_transition_script(source: ScriptStatus, target: ScriptStatus) -> None:
-    """校验 ScriptRevision 转移合法性，未登记则抛出 ValueError。"""
+    """校验 ScriptRevision 转移合法性，未登记则抛 DomainError。"""
     if not can_transition_script(source, target):
         raise DomainError(
             ErrorRegistry.STATE_TRANSITION_DENIED,
@@ -96,7 +96,7 @@ def can_transition_episode(source: EpisodeStatus, target: EpisodeStatus) -> bool
 
 
 def assert_transition_episode(source: EpisodeStatus, target: EpisodeStatus) -> None:
-    """校验 Episode 转移合法性，未登记则抛出 ValueError。"""
+    """校验 Episode 转移合法性，未登记则抛 DomainError。"""
     if not can_transition_episode(source, target):
         raise DomainError(
             ErrorRegistry.STATE_TRANSITION_DENIED,

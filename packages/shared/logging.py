@@ -16,6 +16,7 @@ import sys
 from typing import Any, cast
 
 import structlog
+from structlog.typing import FilteringBoundLogger
 
 # 当前请求/任务链路的 trace 标识，由中间件或 OTel 写入。
 trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
@@ -26,16 +27,8 @@ trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 _URL_CREDENTIALS = re.compile(r"(?P<scheme>[a-zA-Z][a-zA-Z0-9+.-]*://)[^/@\s]+@")
 
 
-def _redact_sensitive(_: object, __: str, event_dict: dict[str, Any]) -> dict[str, Any]:
-    """脱敏处理：剔除敏感键与连接串内嵌口令，避免密钥落日志。
-
-    两道路径，缺一不可：
-    - 键名命中敏感词（password/secret/token…）→ 整值替换；
-    - 值形态是 URL/DSN（``scheme://user:pass@host``）→ 只替换 userinfo，
-      因为 ``database_url`` / ``dsn`` / ``mq_url`` 这类键名不含敏感词，
-      但连接串里嵌着口令。
-    """
-    sensitive_keys = {
+_SENSITIVE_KEYS = frozenset(
+    {
         "password",
         "secret",
         "api_key",
@@ -44,15 +37,47 @@ def _redact_sensitive(_: object, __: str, event_dict: dict[str, Any]) -> dict[st
         "authorization",
         "credential",
     }
-    for key in list(event_dict.keys()):
-        value = event_dict[key]
-        if any(s in key.lower() for s in sensitive_keys):
-            event_dict[key] = "***REDACTED***"
-        elif isinstance(value, str):
-            event_dict[key] = _URL_CREDENTIALS.sub(
-                lambda m: f"{m.group('scheme')}***REDACTED***@", value
-            )
-    return event_dict
+)
+
+
+def _is_sensitive_key(key: str) -> bool:
+    lowered = key.lower()
+    return any(token in lowered for token in _SENSITIVE_KEYS)
+
+
+def _redact_value(value: Any, *, key_hint: str | None = None) -> Any:
+    """递归脱敏单个值：敏感键整值替换、URL 内嵌口令替换。
+
+    递归是必需的：``logger.info("x", config={"db": {"password": "..."}})``
+    这类嵌套结构，只遍历顶层键会把口令原样带进日志。
+    """
+    if key_hint is not None and _is_sensitive_key(key_hint):
+        return "***REDACTED***"
+    if isinstance(value, dict):
+        return {k: _redact_value(v, key_hint=str(k)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redact_value(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_value(item) for item in value)
+    if isinstance(value, str):
+        return _URL_CREDENTIALS.sub(
+            lambda m: f"{m.group('scheme')}***REDACTED***@", value
+        )
+    return value
+
+
+def _redact_sensitive(_: object, __: str, event_dict: dict[str, Any]) -> dict[str, Any]:
+    """脱敏处理：剔除敏感键与连接串内嵌口令，避免密钥落日志。
+
+    两道路径，缺一不可：
+    - 键名命中敏感词（password/secret/token…）→ 整值替换；
+    - 值形态是 URL/DSN（``scheme://user:pass@host``）→ 只替换 userinfo，
+      因为 ``database_url`` / ``dsn`` / ``mq_url`` 这类键名不含敏感词，
+      但连接串里嵌着口令。
+    嵌套 dict/list 递归处理，避免 ``cfg={"db": {"password": ...}}`` 漏脱敏。
+    """
+    redacted = _redact_value(event_dict)
+    return redacted  # type: ignore[no-any-return]
 
 
 def _inject_trace_id(_: object, __: str, event_dict: dict[str, Any]) -> dict[str, Any]:
@@ -134,9 +159,9 @@ def setup_logging(level: str = "INFO") -> None:
     )
 
 
-def get_logger(name: str) -> structlog.stdlib.BoundLogger:
-    """获取绑定 logger。"""
-    return cast(structlog.stdlib.BoundLogger, structlog.get_logger(name))
+def get_logger(name: str) -> FilteringBoundLogger:
+    """获取绑定 logger（与 ``make_filtering_bound_logger`` 的实际返回类型一致）。"""
+    return cast(FilteringBoundLogger, structlog.get_logger(name))
 
 
 def set_trace_id(trace_id: str | None) -> None:

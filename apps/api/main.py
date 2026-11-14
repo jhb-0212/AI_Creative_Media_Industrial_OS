@@ -16,6 +16,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 
 from packages.errors.error_codes import (
@@ -108,6 +109,45 @@ async def domain_error_handler(_: Request, exc: DomainError) -> JSONResponse:
     )
 
 
+@app.exception_handler(RequestValidationError)
+async def request_validation_handler(
+    _: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """把框架层参数校验失败统一到 C.3.2 错误信封（原先走 FastAPI 默认 detail 格式）。
+
+    只透出 loc/msg/type，不含原始输入值（避免回显用户数据）。
+    """
+    errors = [
+        {
+            "loc": list(item.get("loc", ())),
+            "msg": item.get("msg", ""),
+            "type": item.get("type", ""),
+        }
+        for item in exc.errors()
+    ]
+    logger.info("request_validation_error", errors=errors)
+    envelope = DomainError(
+        ErrorRegistry.VALIDATION_ERROR,
+        detail="请求参数校验失败",
+        context={"errors": errors},
+    )
+    return JSONResponse(
+        status_code=ErrorRegistry.VALIDATION_ERROR.http_status,
+        content=to_response_payload(envelope),
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """未预期异常统一为 INTERNAL_ERROR 信封（不向客户端泄漏堆栈与实现细节）。"""
+    logger.error("unhandled_error", path=request.url.path, exc_info=exc)
+    envelope = DomainError(ErrorRegistry.INTERNAL_ERROR)
+    return JSONResponse(
+        status_code=ErrorRegistry.INTERNAL_ERROR.http_status,
+        content=to_response_payload(envelope),
+    )
+
+
 @app.get("/health", tags=["system"])
 async def health() -> dict[str, str]:
     """健康检查：返回服务与版本信息。"""
@@ -116,7 +156,13 @@ async def health() -> dict[str, str]:
 
 @app.get("/errors/{code}", tags=["system"])
 async def error_catalog(code: str) -> dict[str, Any]:
-    """错误码探测端点：返回指定错误码的定义（用于契约自检与联调）。"""
+    """错误码探测端点：返回指定错误码的定义（用于契约自检与联调）。
+
+    生产环境关闭目录暴露：一律按 NOT_FOUND 处理，与未知错误码不可区分，
+    避免把内部错误码清单当作调试面公开。
+    """
+    if settings.app_env == "production":
+        raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"未知错误码: {code}")
     # 只允许访问 ErrorCode 注册项（按 code 精确匹配），拒绝 dunder 及类成员。
     target = next(
         (

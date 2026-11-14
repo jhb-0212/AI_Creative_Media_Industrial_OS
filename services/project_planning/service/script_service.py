@@ -127,8 +127,11 @@ class ScriptService:
             await self._repository.add(script)
         except IntegrityError as exc:
             if entity_id is None:
+                # 无显式 id 的冲突来自 ux_script_active_version（并发导入同集）：
+                # 这不是内部错误，而是可重试的并发冲突，让客户端基于最新版本重试。
                 raise DomainError(
-                    ErrorRegistry.INTERNAL_ERROR, detail="剧本版本写入冲突"
+                    ErrorRegistry.CONCURRENT_MODIFICATION,
+                    detail="剧本版本并发冲突，请基于最新版本重试",
                 ) from exc
             existing = await self._repository.get_by_id(entity_id)
             if existing is not None:

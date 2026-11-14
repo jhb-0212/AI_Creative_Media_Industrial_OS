@@ -41,8 +41,8 @@ class Settings(BaseSettings):
     postgres_app_user: str = "app_role"
     postgres_app_password: SecretStr = SecretStr("app_dev_password")
 
-    # Redis
-    redis_url: str = "redis://localhost:16379/0"
+    # Redis（可能内嵌口令，按密钥处理，repr 不落明文）
+    redis_url: SecretStr = SecretStr("redis://localhost:16379/0")
 
     # 对象存储
     s3_endpoint_url: str = ""

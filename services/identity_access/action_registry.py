@@ -8,16 +8,19 @@
   括号内为资质/范围说明（如 ``Agent（授权范围内）``），解析时剥离括号。
   含 ``+`` 的条目表示「多主体共同审批」，不是单一角色，简单 RBAC 不匹配
   （fail-closed；这类 CRITICAL 动作后续由 ABAC/双人审批落地）。
-- 未注册 action_key 一律 fail-fast 抛 ``ValueError``，绝不在运行时静默放行。
+- 未注册 action_key 一律 fail-fast 转 ``DomainError(INTERNAL_ERROR)``（结构化
+  信封，绝不静默放行，也不把裸异常抛成无信封 500）。
 """
 
 from __future__ import annotations
 
 import re
-from functools import lru_cache
+from functools import cache, lru_cache
 from pathlib import Path
 
 import yaml
+
+from packages.errors.error_codes import DomainError, ErrorRegistry
 
 # 仓库根 → contracts/action_registry/action_registry.yaml。
 # 本文件位于 <repo>/services/identity_access/action_registry.py，
@@ -33,6 +36,7 @@ _CONTRACT_PATH = (
 _PAREN_RE = re.compile(r"[（(][^（）()]*[)）]")
 
 
+@cache
 def parse_allowed_principals(text: str) -> frozenset[str]:
     """把 ``allowed_principals`` 文本解析为可选角色集合（纯函数，可单测）。
 
@@ -67,8 +71,10 @@ def _load_registry() -> dict[str, str]:
 
 
 def allowed_roles(action_key: str) -> frozenset[str]:
-    """返回指定 action 允许的角色集合；未注册 action_key 抛 ``ValueError``。"""
+    """返回指定 action 允许的角色集合；未注册 action_key 转结构化内部错误。"""
     principals = _load_registry().get(action_key)
     if principals is None:
-        raise ValueError(f"未注册的 action_key: {action_key}")
+        raise DomainError(
+            ErrorRegistry.INTERNAL_ERROR, detail=f"未注册的 action_key: {action_key}"
+        )
     return parse_allowed_principals(principals)

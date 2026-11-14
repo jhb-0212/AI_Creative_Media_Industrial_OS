@@ -27,6 +27,9 @@ if TYPE_CHECKING:
 
 # 全局单例，避免重复初始化。
 _initialized = False
+# 当前 TracerProvider：关闭时需要 force_flush + shutdown，否则批量缓冲里的
+# span 会在进程退出时丢失。
+_provider: TracerProvider | None = None
 
 
 def setup_telemetry(app: FastAPI) -> None:
@@ -35,7 +38,7 @@ def setup_telemetry(app: FastAPI) -> None:
     Args:
         app: FastAPI 应用实例。
     """
-    global _initialized
+    global _initialized, _provider
     if _initialized:
         return
 
@@ -62,7 +65,22 @@ def setup_telemetry(app: FastAPI) -> None:
     # 自动埋点 FastAPI（HTTP 请求/响应 span），并捕获请求异常。
     FastAPIInstrumentor.instrument_app(app)
 
+    _provider = provider
     _initialized = True
+
+
+def shutdown_telemetry() -> None:
+    """关闭 tracer provider：先 flush 缓冲 span，再 shutdown，最后允许重新初始化。
+
+    在应用 lifespan 的关闭阶段调用，保证进程退出前不丢链路数据；同时重置
+    全局标记，使测试或多次启动场景不会因 ``_initialized`` 卡死。
+    """
+    global _initialized, _provider
+    if _provider is not None:
+        _provider.force_flush()
+        _provider.shutdown()
+        _provider = None
+    _initialized = False
 
 
 def get_current_trace_id() -> str | None:
