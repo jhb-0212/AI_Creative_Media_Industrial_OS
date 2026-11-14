@@ -68,3 +68,6 @@ Thumbs.db
 # 构建产物
 node_modules/
 dist/
+
+# 根目录临时抓取输出（curl/日志落盘），禁止入库
+/_*.txt

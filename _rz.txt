@@ -1,2 +1,0 @@
-﻿{"status":"ready","checks":{"database":"up"}}
-HTTP=200
