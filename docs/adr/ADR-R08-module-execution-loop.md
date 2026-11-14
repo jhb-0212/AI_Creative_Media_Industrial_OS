@@ -1,9 +1,9 @@
 # ADR-R08：模块执行闭环的定义与首次落地（AssetVersion + QCReport）
 
-- 状态：Accepted（本机验证通过；未提交到远端）
+- 状态：Accepted（本机验证通过；含一次契约扩展「ASSET.VERSION.READ」，见 G2）
 - 日期：2026-11-14
 - 关联提交：R06 保留期闭环（`7bb8925`）、ADR-R07（`5263d14`）、契约资源闸门（`93eef5e`）
-- 关联契约：`contracts/action_registry/action_registry.yaml:140-172`、
+- 关联契约：`contracts/action_registry/action_registry.yaml:140-180`、
   `contracts/state_machines/state_machines.yaml:43-50`、
   `contracts/schemas/object_schemas.schema.json:1887`（AssetVersion）、
   `contracts/schemas/object_schemas.schema.json:6212`（QCReport）
@@ -40,13 +40,14 @@
 且 `AssetVersion` / `QCReport` 在 `object_schemas` 有完整定义，`AssetVersion`
 主链状态机可完整解析（不是 ADR-R07 那种"无 schema 只能拒绝猜测"的模块）。
 
-三个动作（全部 HIGH/MEDIUM 风险，均落 `require_role`）：
+四个动作（均落 `require_role`；READ 为后补的契约扩展，见 G2）：
 
 | 动作 | 路由 | 允许主体（契约原文） | 落点 |
 |------|------|--------------------|------|
 | `ASSET.VERSION.CREATE` | `POST /assets` | `Worker` / `Model Adapter` | `services/asset_service/api/asset_routes.py:86` |
 | `QC.REPORT.CREATE` | `POST /assets/{asset_version_id}/qc-reports` | `QC Worker` / `受信检测服务` | `asset_routes.py:112` |
-| `ASSET.VERSION.APPROVE` | `POST /assets/{asset_version_id}/approve` | `授权审核人` / `QC` / `导演按职责` | `asset_routes.py:136` |
+| `ASSET.VERSION.APPROVE` | `POST /assets/{asset_version_id}/approve` | `授权审核人` / `QC` / `导演（按职责）` | `asset_routes.py:136` |
+| `ASSET.VERSION.READ` | `GET /assets/{asset_version_id}` | `授权审核人` / `QC` / `导演（按职责）` / `制片` | `asset_routes.py:151` |
 
 闭环证据（file:line）：
 
@@ -64,9 +65,9 @@
   `tests/unit/test_asset_api.py`（真实 PostgreSQL + 真实 JWT，
   含 403 / 409 / 422 三条负向用例、e2e 生命周期换会话直读回验证 `entity_version=4`）。
 
-## 3. 已识别但**拒绝猜测**的缺口（按 31.5「未登记一律拒绝」）
+## 3. 缺口处置：两个已关闭、两个仍拒绝猜测
 
-### G1 旁支状态没有来源边
+### G1 旁支状态没有来源边（**仍未关闭，按 31.5 拒绝猜测**）
 
 `state_machines.yaml:45` 只写"可进入 REJECTED / QUARANTINED / REWORK /
 SUPERSEDED / ARCHIVED"，`:46` 明确"分支进入各旁支的具体前置条件正文未逐条给出"。
@@ -75,23 +76,39 @@ SUPERSEDED / ARCHIVED"，`:46` 明确"分支进入各旁支的具体前置条件
 补齐方式：契约正文补登记旁支来源边后，`ASSET_ALLOWED_TRANSITIONS` 随契约扩边，
 闸门 `check_state_machines` 会强制实现与契约一致。
 
-### G2 缺读能力：没有 `ASSET.VERSION.READ`
+### G2 缺读能力：`ASSET.VERSION.READ`（**已关闭**）
 
-`action_registry` 里不存在该动作，`openapi.yaml` 也无 GET 端点。
-按"未登记端点"闸门（`check_runtime_contract_coverage`），私加 `GET /assets/{id}`
-会被判 FAIL。因此**当前资产查询只能靠数据库直读**，运行时无读路径。
-这是能力缺口，不是实现瑕疵；补法唯一：先登记契约动作（含 scope/risk/审计），再实现。
-对百集生产这是优先级最高的下一步（生产系统不能只能写不能读）。
+原状：契约无该动作 → 按"未登记端点"闸门不能私加 GET → 资产只能写不能读。
+处置：按现有 READ 范式（`PROJECT.READ` / `EPISODE.READ` / `SCRIPT.READ` 同构），
+在契约三处同步登记，再实现——顺序不可颠倒，避免出现"端点先于契约"的既成事实：
 
-### G3 `allowed_principals` 不可机读：带限定语的主体名
+- `contracts/action_registry/action_registry.yaml:162-171`（ACTIVE / LOW /
+  `allowed_principals: 授权审核人/QC/导演（按职责）/制片` / 审计事件
+  `ASSET_VERSION_READ` / 负向用例 `ACT-ASSET-NEG-003`），`total_actions` 80→81。
+- `contracts/openapi/openapi.draft.yaml`（`/actions/asset.version.read`，GET，
+  `x-afs-*` 字段与注册表逐项一致）。
+- `contracts/runtime/action_implementations.yaml`（`GET /assets/{asset_version_id}`
+  → `services/asset_service/api/asset_routes.py`）。
+- 实现：`asset_routes.py:149-155`（`require_role("ASSET.VERSION.READ")`）；
+  `service/asset_service.py` 的 `get_version` 为纯读（不改版本号、不写事件）。
+- 边界：只返回版本信封与 `storage_ref` 引用，**不签发存储凭证**；租户外资产
+  与不存在统一返回 `NOT_FOUND`，避免用 403/404 差异探测他人租户资产
+  （`tests/unit/test_asset_api.py::test_read_missing_asset_is_404`）。
 
-`action_registry.yaml:156` 写 `授权审核人/QC/导演按职责`。
-`parse_allowed_principals()`（`services/identity_access/action_registry.py:40-52`）
-只按 `/` 切分并剥离括号内容，故得到集合 `{"授权审核人","QC","导演按职责"}`。
-`导演按职责` 是"导演按职责"的语义限定，不是任何 JWT 里的真实角色字符串——
-于是"导演"实际上无法批准，而"角色名叫 `导演按职责`"的人才能批准。
-本 ADR 不做文本猜测（例如擅自剥掉"按职责"），集成测试改用契约里明确的
-`QC` 角色批准（`tests/unit/test_asset_api.py:49-53` 注释已说明）。
+诚实标注：这是一次**契约扩展**（owner 明确要求补齐读能力），不是从正文推导
+出来的既有条目；因此记录在本 ADR 而非静默改表。若后续正文（8.5）给出不同的
+读口径，以正文为准并回改本条目。
+
+### G3 `allowed_principals` 不可机读：带限定语的主体名（**已关闭**）
+
+原状：`导演按职责`（无括号）被 `parse_allowed_principals()` 原样保留，得到
+现实中不存在的角色名，真实「导演」无法批准。
+处置：契约改写为 `导演（按职责）`——括号内是资质限定，解析器按既有规则剥离，
+角色名回落为 `导演`；语义不变，只是让限定语回到它本来就该在的括号里。
+回归锁：`tests/unit/test_asset_permissions.py`（4 个资产动作的主体名必须落在
+已知角色集合内、APPROVE 解析结果必须恰为 `{授权审核人, QC, 导演}`、READ 不得
+包含只写角色 `Worker`）；集成测试的批准主体已切回真实「导演」角色。
+
 根治方向：契约把该字段改为结构化列表（`principals: [{role: 导演, condition: 按职责}]`
 或独立 `role` + `qualifier` 字段），解析器随之升级，闸门校验"每个主体名必须能在
 身份域角色字典里找到"。
@@ -105,16 +122,18 @@ SUPERSEDED / ARCHIVED"，`:46` 明确"分支进入各旁支的具体前置条件
 
 ## 4. 影响
 
-- 正面：资产域从空壳变成可调用、可审计、可回滚验证的闭环模块；
+- 正面：资产域从空壳变成可读写、可审计、可回滚验证的闭环模块；
   授权落点闸门把"忘挂权限"从人工 review 风险降为 CI 失败。
-- 负面/成本：多了一个 schema、两张表、三条 HIGH 风险动作和一条新闸门；
-  读能力缺失会让前端/调度端暂时只能写不能查（G2）。
-- 不做的事：不为旁支状态造猜测边；不为读能力走私端点；不把带限定语的
-  principal 静默改名。
+- 负面/成本：多了一个 schema、两张表、四个动作和一条新闸门；
+  READ 使动作总数 80→81（ACTIVE 36→37），台账与权限派生视图计数同步更新。
+- 不做的事：不为旁支状态造猜测边；不把带限定语的主体名静默改名；
+  不把 READ 做成"先上线端点、后补契约"。
 
 ## 5. 后续（按优先级）
 
-1. 契约登记 `ASSET.VERSION.READ`（含分页/租户过滤口径）→ 实现 GET → 补负向测试。
-2. G3 契约字段结构化 + 解析器升级 + 闸门校验主体名可解析。
-3. G1 旁支来源边补登记 → 扩转移表 → 补旁支用例（REJECTED 需理由与证据）。
-4. G4 GOLD 晋升动作或离线治理任务的明确归属。
+1. G1 旁支来源边补登记 → 扩转移表 → 补旁支用例（REJECTED 需理由与证据）。
+2. G4 GOLD 晋升动作，或明确 GOLD 由离线治理任务推进（当前不可达，已登记）。
+3. G3 彻底结构化：`allowed_principals` 改为 `role` + `qualifier` 字段，
+   解析器与闸门随之升级（当前修复只覆盖括号形式，文本仍是自由格式）。
+4. READ 的列表/分页口径：当前仅单版本读取；批量查询需契约另立动作，
+   不得在 GET 上加隐式过滤参数绕过动作登记。

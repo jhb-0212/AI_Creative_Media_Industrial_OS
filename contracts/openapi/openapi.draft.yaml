@@ -525,7 +525,7 @@ paths:
       x-afs-scope: project/shot/asset
       x-afs-risk-level: HIGH
       x-afs-token-required: true
-      x-afs-allowed-principals: 授权审核人/QC/导演按职责
+      x-afs-allowed-principals: 授权审核人/QC/导演（按职责）
       x-afs-audit-event: ASSET_VERSION_APPROVED
       x-afs-negative-test: ACT-ASSET-NEG-002
       x-afs-status: ACTIVE
@@ -548,6 +548,32 @@ paths:
           description: 幂等键冲突
         '422':
           description: 请求信封或载荷校验失败
+  /actions/asset.version.read:
+    get:
+      operationId: asset.version.read
+      tags:
+      - AssetVersion
+      summary: ASSET.VERSION.READ（资源 AssetVersion，风险 LOW）
+      description: 只读资产版本元数据与证据摘要；不得绕过 RLS 租户边界，不得返回存储凭证。
+      x-afs-action-key: ASSET.VERSION.READ
+      x-afs-scope: project/shot/asset
+      x-afs-risk-level: LOW
+      x-afs-token-required: true
+      x-afs-allowed-principals: 授权审核人/QC/导演（按职责）/制片
+      x-afs-audit-event: ASSET_VERSION_READ
+      x-afs-negative-test: ACT-ASSET-NEG-003
+      x-afs-status: ACTIVE
+      responses:
+        '200':
+          description: 资产版本信封（含状态、版本号、证据摘要）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '404':
+          description: 资产版本不存在或不在当前租户可见范围
   /actions/qc.report.create:
     post:
       operationId: qc.report.create

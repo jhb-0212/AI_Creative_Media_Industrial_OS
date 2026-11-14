@@ -3,7 +3,7 @@
 # 校验口径：action_key 全局唯一、命名规范、audit_event 与 negative_test_id 一一对应
 registry_source: 'AFS-ARCH-MASTER-V2.0.5 / 31.6 Action Registry'
 registry_version: 'V2.0.5'
-total_actions: 80
+total_actions: 81
 actions:
   - action_key: 'PROJECT.CREATE'
     resource_type: 'Project'
@@ -153,11 +153,22 @@ actions:
     scope: 'project/shot/asset'
     risk_level: 'HIGH'
     token_required: true
-    allowed_principals: '授权审核人/QC/导演按职责'
+    allowed_principals: '授权审核人/QC/导演（按职责）'
     approval_requirement: '申请提交人与批准审核人须为不同主体（职责分离），禁止自批；权利、QC 和证据通过。'
     audit_event: 'ASSET_VERSION_APPROVED'
     negative_test_id: 'ACT-ASSET-NEG-002'
     negative_test_desc: 'Agent 批准拒绝'
+    status: 'ACTIVE'
+  - action_key: 'ASSET.VERSION.READ'
+    resource_type: 'AssetVersion'
+    scope: 'project/shot/asset'
+    risk_level: 'LOW'
+    token_required: true
+    allowed_principals: '授权审核人/QC/导演（按职责）/制片'
+    approval_requirement: '只读资产版本元数据与证据摘要；不得绕过 RLS 租户边界，不得返回存储凭证。'
+    audit_event: 'ASSET_VERSION_READ'
+    negative_test_id: 'ACT-ASSET-NEG-003'
+    negative_test_desc: '无读取权限角色访问资产版本拒绝'
     status: 'ACTIVE'
   - action_key: 'QC.REPORT.CREATE'
     resource_type: 'QCReport'

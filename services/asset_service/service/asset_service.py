@@ -315,6 +315,22 @@ class AssetService:
         )
         return asset
 
+    # ------------------------------------------------------------------ #
+    # ASSET.VERSION.READ
+    # ------------------------------------------------------------------ #
+    async def get_version(self, *, asset_version_id: str) -> AssetVersion:
+        """读取资产版本信封（只读，无状态变更、无事件）。
+
+        可见性由 RLS 决定：租户外资产对当前会话不可见，因此「不存在」与
+        「无权可见」统一返回 NOT_FOUND，避免通过 404/403 差异探测他人租户资产。
+        """
+        asset = await self._assets.get_by_id(asset_version_id)
+        if asset is None:
+            raise DomainError(
+                ErrorRegistry.NOT_FOUND, detail=f"资产版本不存在: {asset_version_id}"
+            )
+        return asset
+
 
 def _clean_optional(value: str | None) -> str | None:
     """可选字符串归一：去空白，空串转 None（避免 '' 与 NULL 两种「空」）。"""

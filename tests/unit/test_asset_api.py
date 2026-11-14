@@ -48,8 +48,15 @@ async def qc_client() -> AsyncClient:
 
 @pytest.fixture
 async def approver_client() -> AsyncClient:
-    # 契约 ASSET.VERSION.APPROVE 允许 QC 角色；用不同主体保证职责分离。
-    async with _client("qc_approver", ["QC"]) as c:
+    # 契约 ASSET.VERSION.APPROVE 允许「导演（按职责）」；括号内为资质限定，
+    # 解析后角色名就是「导演」，这里正是验证该主体名可机读（ADR-R08 G3 已关闭）。
+    async with _client("director_1", ["导演"]) as c:
+        yield c
+
+
+@pytest.fixture
+async def reader_client() -> AsyncClient:
+    async with _client("producer_1", ["制片"]) as c:
         yield c
 
 
@@ -115,7 +122,7 @@ async def test_asset_lifecycle_end_to_end(
 
 
 async def test_create_asset_wrong_role_is_403(approver_client: AsyncClient) -> None:
-    """QC 角色不在 ASSET.VERSION.CREATE 的允许主体里 → 403（业务前拦截）。"""
+    """导演不在 ASSET.VERSION.CREATE 的允许主体里 → 403（业务前拦截）。"""
     resp = await approver_client.post(
         "/assets",
         json={
@@ -190,3 +197,43 @@ async def test_empty_findings_rejected_by_validation(qc_client: AsyncClient) -> 
     )
     assert resp.status_code == 422
     assert resp.json()["error_code"] == "VALIDATION_ERROR"
+
+
+async def test_read_asset_version_returns_envelope(
+    worker_client: AsyncClient, reader_client: AsyncClient
+) -> None:
+    """ASSET.VERSION.READ：制片可读回同一信封（状态/版本号/证据引用）。"""
+    asset_id = f"asset_{uuid.uuid4().hex[:12]}"
+    created = await worker_client.post(
+        "/assets",
+        json={
+            "asset_type": "IMAGE",
+            "sha256": _SHA,
+            "storage_ref": {"uri": "s3://bucket/frame.png"},
+            "rights_manifest_ref": "rights-manifest-1",
+            "entity_id": asset_id,
+        },
+    )
+    assert created.status_code == 201
+
+    read_back = await reader_client.get(f"/assets/{asset_id}")
+    assert read_back.status_code == 200, read_back.text
+    body = read_back.json()
+    assert body["asset_version_id"] == asset_id
+    assert body["status"] == "GENERATED"
+    assert body["entity_version"] == 1
+    assert body["rights_manifest_ref"] == "rights-manifest-1"
+
+
+async def test_read_asset_version_wrong_role_is_403(worker_client: AsyncClient) -> None:
+    """Worker 不在 READ 允许主体里（写角色≠读角色），必须 403。"""
+    resp = await worker_client.get("/assets/any-asset")
+    assert resp.status_code == 403
+    assert resp.json()["error_code"] == "AUTH_SCOPE_DENIED"
+
+
+async def test_read_missing_asset_is_404(reader_client: AsyncClient) -> None:
+    """不存在与不可见统一 404，不泄漏跨租户存在性。"""
+    resp = await reader_client.get(f"/assets/asset_{uuid.uuid4().hex[:12]}")
+    assert resp.status_code == 404
+    assert resp.json()["error_code"] == "NOT_FOUND"

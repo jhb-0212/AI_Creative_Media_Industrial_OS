@@ -98,7 +98,7 @@ role_matrix:
 action_matrix:
   source_section: 31.6 Action Registry 唯一注册表
   generated_from: action_registry.yaml
-  total: 80
+  total: 81
 separation_of_duty:
   source_section: C.5.1 Capability Token 最小契约
   rule: 申请人不得审批自己的预算/Canon/Gate 变更；预算管理员不得批准质量 Gate；QC 不得修改权利事实；版权角色不得代替导演决定艺术意图；Agent、Worker 和系统管理员不得通过技术权限绕过业务审批。系统管理员的紧急访问必须限时、双人授权并写入不可篡改审计。

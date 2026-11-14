@@ -312,3 +312,25 @@ async def test_qc_report_on_approved_asset_is_rejected(
             findings=[{"code": "BLUR"}],
             principal=_principal("qc-1", "QC Worker"),
         )
+
+
+async def test_read_version_returns_existing(
+    service: tuple[AssetService, FakeAssetRepository, FakeQCRepository, FakeOutboxWriter],
+) -> None:
+    """READ 是纯读语义：返回既有信封，不推进版本号、不产生新事件。"""
+    svc, _, _, outbox = service
+    asset = await _create(svc)
+    before_events = len(outbox.events)
+    read_back = await svc.get_version(asset_version_id=asset.entity_id)
+    assert read_back.entity_id == asset.entity_id
+    assert read_back.entity_version == asset.entity_version
+    assert len(outbox.events) == before_events
+
+
+async def test_read_version_missing_is_not_found(
+    service: tuple[AssetService, FakeAssetRepository, FakeQCRepository, FakeOutboxWriter],
+) -> None:
+    svc, _, _, _ = service
+    with pytest.raises(DomainError) as exc:
+        await svc.get_version(asset_version_id="missing")
+    assert exc.value.error_code is ErrorRegistry.NOT_FOUND

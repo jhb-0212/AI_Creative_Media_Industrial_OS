@@ -4,15 +4,15 @@
 - ASSET.VERSION.CREATE  → POST /assets
 - QC.REPORT.CREATE      → POST /assets/{asset_version_id}/qc-reports
 - ASSET.VERSION.APPROVE → POST /assets/{asset_version_id}/approve
+- ASSET.VERSION.READ    → GET  /assets/{asset_version_id}
 
 身份与权限：
 - created_by / approved_by 均来自可信 Principal（JWT），不接受客户端字符串。
-- 三个动作各自经 require_role 做运行时 RBAC（allowed_principals 来自契约）。
+- 四个动作各自经 require_role 做运行时 RBAC（allowed_principals 来自契约）。
 
-为什么没有 GET：
-- 契约里只有 CREATE/APPROVE 两个资产动作，没有 ASSET.VERSION.READ。
-- contract_check 会拒绝「运行时暴露了未登记端点」，因此不偷偷加读接口；
-  读能力缺口登记在 ADR-R08，等契约补 READ action 后再开。
+读能力边界（ADR-R08 G2 已关闭）：
+- READ 只返回版本信封与引用地址，不签发存储凭证；租户外资产由 RLS 隔离，
+  统一回落 NOT_FOUND，避免用 403/404 差异探测他人租户资产。
 """
 
 from __future__ import annotations
@@ -142,4 +142,15 @@ async def approve_asset_version(
         asset_version_id=asset_version_id, principal=principal
     )
     await uow.commit()
+    return asset.to_dict()
+
+
+@router.get("/{asset_version_id}")
+async def read_asset_version(
+    asset_version_id: str,
+    _principal: Principal = Depends(require_role("ASSET.VERSION.READ")),
+    service: AssetService = Depends(_get_service),
+) -> dict[str, Any]:
+    """读取资产版本信封（只读；租户可见性由 RLS 保证，不可见即 NOT_FOUND）。"""
+    asset = await service.get_version(asset_version_id=asset_version_id)
     return asset.to_dict()
