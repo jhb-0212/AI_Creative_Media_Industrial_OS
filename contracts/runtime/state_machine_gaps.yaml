@@ -1,0 +1,37 @@
+# 契约声明了、但运行时转移表尚未覆盖的状态（显式债务登记）
+#
+# 为什么需要这个文件：
+# - 契约 state_machines.yaml 会列出全部状态（含旁支），但正文可能没有给出旁支的
+#   来源边与前置条件。按 31.5「未登记转移一律拒绝」，实现不能凭空造边；于是这些
+#   状态在运行时不可达。
+# - 不可达本身不是错误，**静默不可达**才是错误。本文件把每个不可达状态连同
+#   「卡在什么契约缺口」「什么条件解开」一起登记；闸门 check_state_reachability
+#   会双向校验：未登记的不许不可达，登记了却已可达的（陈旧债务）同样报红。
+#
+# 写入口径：
+# - 只登记当前实现了状态机（scripts/contract_check.py:_STATE_MACHINE_SOURCES）的对象；
+# - 每个状态必须给 reason / contract_ref / unblocks_when 三项，缺一即契约错误；
+# - 解开后要立刻删条目，否则闸门会以「陈旧债务」报红。
+
+gaps:
+  AssetVersion:
+    REJECTED:
+      reason: "契约只写「可进入 REJECTED」，未给来源边与触发前置条件（拒绝需理由与证据）"
+      contract_ref: "contracts/state_machines/state_machines.yaml:45-46"
+      unblocks_when: "8.5 正文补登记来源边（预期形如 TECHNICAL_QC→REJECTED，携带 reject_reason 与证据引用）"
+    QUARANTINED:
+      reason: "契约只写「可进入 QUARANTINED」，未给来源边；且注明不得直接转 GOLD，须补齐证据并经授权复核"
+      contract_ref: "contracts/state_machines/state_machines.yaml:45-46"
+      unblocks_when: "正文补登记隔离来源边（预期来自权利/合规失败路径）与解除隔离的授权动作"
+    REWORK:
+      reason: "契约只写「可进入 REWORK」，未给来源边与返工准入（谁判返工、返工产物如何版本化）"
+      contract_ref: "contracts/state_machines/state_machines.yaml:45-46"
+      unblocks_when: "正文补登记返工来源边（预期 HUMAN_REVIEW→REWORK）与返工产物引用规则"
+    SUPERSEDED:
+      reason: "契约只写「可进入 SUPERSEDED」，未给来源边；版本被谁、在什么动作下取代未定义"
+      contract_ref: "contracts/state_machines/state_machines.yaml:45-46"
+      unblocks_when: "正文补登记取代来源边（预期 APPROVED→SUPERSEDED，携带新版本引用）"
+    ARCHIVED:
+      reason: "契约只写「可进入 ARCHIVED」，未给来源边与归档保留期口径"
+      contract_ref: "contracts/state_machines/state_machines.yaml:45-46"
+      unblocks_when: "正文补登记归档来源边与保留期（与 R06 Outbox 保留期策略对齐）"

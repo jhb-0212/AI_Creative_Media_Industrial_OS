@@ -34,6 +34,24 @@
 诚实边界：这是源码文本级校验，只证明"键被引用"，不能证明该装饰器挂在正确
 的路由函数上；真正的证明是集成测试里的 403 用例（见 `tests/unit/test_asset_api.py`）。
 
+### 为什么把"状态不可达"也做成闸门
+
+契约 `states` 会列出全部状态（含旁支），但正文可能只写"可进入"而没给来源边。
+实现按 31.5 不能造边，于是这些状态在运行时不可达。**不可达本身不是错误，
+静默不可达才是**：它会让"资产被拒/被隔离/返工"这类百集生产必需路径看起来
+像是做完了，实际点不动。
+
+故新增 `scripts/contract_check.py` 的 `check_state_reachability()`：对每个已实现
+状态机，沿实现转移边求可达闭包，逐个比对契约状态名；不可达状态必须登记在
+`contracts/runtime/state_machine_gaps.yaml`（含 `reason` / `contract_ref` /
+`unblocks_when` 三项）。闸门做双向校验：
+
+- 契约有、不可达、又没登记 → FAIL（静默缺口）；
+- 登记了但其实已可达 → FAIL（陈旧债务，必须删条目，防止"登记一次就永久豁免"）；
+- 登记缺字段 → FAIL（债务不能含糊）。
+
+当前实测：4 个已实现状态机、显式登记不可达 5 项（全部为 AssetVersion 旁支）。
+
 ## 2. 首次落地：资产域（AssetVersion + QCReport）
 
 选定理由：资产是百集生产的主干数据，`services/asset_service` 原本是空壳；
@@ -67,14 +85,18 @@
 
 ## 3. 缺口处置：两个已关闭、两个仍拒绝猜测
 
-### G1 旁支状态没有来源边（**仍未关闭，按 31.5 拒绝猜测**）
+### G1 旁支状态没有来源边（**仍未关闭；已由可达性闸门钉死**）
 
 `state_machines.yaml:45` 只写"可进入 REJECTED / QUARANTINED / REWORK /
 SUPERSEDED / ARCHIVED"，`:46` 明确"分支进入各旁支的具体前置条件正文未逐条给出"。
 解析器只能得到正链 4 条边（旁支无 `X→REJECTED` 形式来源）。
 因此运行时无法进入旁支——这不是遗漏，是**按契约边界拒绝猜测**。
-补齐方式：契约正文补登记旁支来源边后，`ASSET_ALLOWED_TRANSITIONS` 随契约扩边，
-闸门 `check_state_machines` 会强制实现与契约一致。
+
+现在这些不可达状态不再是"没人注意到"的暗债：逐个登记在
+`contracts/runtime/state_machine_gaps.yaml`（每个都写了 reason / contract_ref /
+unblocks_when），并由 `check_state_reachability()` 双向钉死。解开路径唯一：
+契约正文补登记来源边 → 扩 `ASSET_ALLOWED_TRANSITIONS` → 删债务条目 →
+`check_state_machines` 与可达性闸门同时变绿。
 
 ### G2 缺读能力：`ASSET.VERSION.READ`（**已关闭**）
 
@@ -113,10 +135,14 @@ SUPERSEDED / ARCHIVED"，`:46` 明确"分支进入各旁支的具体前置条件
 或独立 `role` + `qualifier` 字段），解析器随之升级，闸门校验"每个主体名必须能在
 身份域角色字典里找到"。
 
-### G4 `GOLD` 在运行时不可达
+### G4 `GOLD` 在操作层面不可达（图可达 ≠ 动作可达）
 
-`ASSET.VERSION.*` 只有 CREATE / APPROVE，没有"晋升 GOLD"动作。
-`APPROVED→GOLD` 边虽在转移表内，但无端点触发，GOLD 实际不可达。
+`ASSET.VERSION.*` 只有 CREATE / APPROVE / READ，没有"晋升 GOLD"动作。
+`APPROVED→GOLD` 边在转移表内，因此**图意义上可达**（可达性闸门不会报它），
+但没有任何端点能触发这条边——运营意义上 GOLD 不可达。
+这是本闸门的已知盲区：它校验"状态图是否连通"，不校验"每个状态是否有动作入口"，
+后者已由 Action Registry 覆盖（GOLD 无对应 action 即为登记缺口）。
+
 需要契约层拍板：补 `ASSET.VERSION.PROMOTE_GOLD`（含准入条件：GOLD 配额/终审人），
 或明确 GOLD 由离线治理任务推进。在此之前不补私有端点（否则又变成未登记端点）。
 
@@ -124,10 +150,10 @@ SUPERSEDED / ARCHIVED"，`:46` 明确"分支进入各旁支的具体前置条件
 
 - 正面：资产域从空壳变成可读写、可审计、可回滚验证的闭环模块；
   授权落点闸门把"忘挂权限"从人工 review 风险降为 CI 失败。
-- 负面/成本：多了一个 schema、两张表、四个动作和一条新闸门；
+- 负面/成本：多了一个 schema、两张表、四个动作和两条闸门（授权落点、状态可达性）；
   READ 使动作总数 80→81（ACTIVE 36→37），台账与权限派生视图计数同步更新。
 - 不做的事：不为旁支状态造猜测边；不把带限定语的主体名静默改名；
-  不把 READ 做成"先上线端点、后补契约"。
+  不把 READ 做成"先上线端点、后补契约"；不用"缺口文件"永久豁免（可达后必须删条目）。
 
 ## 5. 后续（按优先级）
 
