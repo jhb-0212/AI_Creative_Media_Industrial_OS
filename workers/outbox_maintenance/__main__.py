@@ -41,6 +41,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncTransaction, create_asy
 from packages.shared.config import get_settings
 from packages.shared.database import build_migration_url
 from packages.shared.logging import get_logger, setup_logging
+from packages.shared.partition_guard import protect_partition_statements
 from workers.outbox_maintenance.archive import export_partition
 
 logger = get_logger(__name__)
@@ -198,6 +199,11 @@ async def ensure_partition(conn: AsyncConnection, part: Partition) -> int:
                 f"FOR VALUES FROM ('{lower}') TO ('{upper}')"
             )
         )
+        # 建分区与保护必须是同一个动作（ADR-R10）：新分区默认会被
+        # ALTER DEFAULT PRIVILEGES 自动授给 app_role，若这里不立刻开 RLS +
+        # 回收直连权限，就重现"直查分区绕过租户隔离"的旧缺陷。
+        for statement in protect_partition_statements(part.name):
+            await conn.execute(text(statement))
         if moved:
             await conn.execute(
                 text(f"INSERT INTO {SCHEMA}.{PARENT} SELECT * FROM _outbox_moved")

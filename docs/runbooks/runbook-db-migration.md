@@ -25,6 +25,31 @@ docker compose logs --tail=50 api
 
 ## 1. 诊断：到底是哪一类
 
+### 1.0 先确认"你连的是哪个库"（30 秒，必做）
+
+本机曾出现同一端口上的两个 Postgres 实例：`127.0.0.1:15432` 落到本地旧集群
+（`alembic_version` 落后、甚至没有 `asset_service` schema），`localhost:15432`
+落到 Docker 的正式库。**用 `-h 127.0.0.1` 排查会看到"迁移没跑"的假世界**，
+接下来所有判断都是错的。
+
+```powershell
+# 1) 谁在监听 15432
+Get-NetTCPConnection -LocalPort 15432 -State Listen |
+  Select-Object LocalAddress,LocalPort,OwningProcess
+
+# 2) 只看 revision（必须与代码 head 一致；Docker 正常只有一个 head）
+docker compose run --rm migrate alembic current
+docker compose run --rm migrate alembic heads
+
+# 3) 直接确认 revision（固定用 localhost，不要用 127.0.0.1）
+docker compose exec -T postgres psql -U postgres -d ai_film_industrial -c "select version_num from alembic_version;"
+```
+
+判据：
+- 出现多个监听地址（如 `127.0.0.1` 由本地 `postgres.exe` 提供）→ 先按第 5 节停用旧集群，
+  再排查迁移；
+- `alembic current` 与 `/readyz` 的 `schema_revision` 不一致 → 应用连的不是迁移目标库。
+
 ### 1.1 迁移版本状态
 
 ```bash
@@ -91,20 +116,25 @@ WHERE NOT blocked.granted;
 **先备份**，再降级。迁移里存在不可逆的数据清理（例如 `6a7b8c9d0e1f` 删除孤儿
 `script_revisions`），降级只还原结构、不还原数据。
 
-```bash
-# 1) 备份（库级，冷备到对象存储或本地 D 盘，不要放系统盘）
-docker compose exec -T postgres \
-  pg_dump -U postgres -d ai_film_industrial -Fc \
-  > /backup/ai_film_$(date +%Y%m%d_%H%M).dump
+```powershell
+# 1) 备份（库级冷备到本地 D 盘，不要放系统盘；路径用绝对路径）
+$stamp  = Get-Date -Format "yyyyMMdd_HHmm"
+$dump   = "D:\backup\ai_film_$stamp.dump"
+New-Item -ItemType Directory -Force (Split-Path $dump) | Out-Null
+docker compose exec -T postgres pg_dump -U postgres -d ai_film_industrial -Fc > $dump
 
-# 2) 停业务（避免回滚期间继续写入不兼容结构）
+# 2) 记录校验和（没有校验和的备份等于没备份）
+Get-FileHash -Algorithm SHA256 $dump | Format-List
+(Get-Item $dump).Length
+
+# 3) 停业务（避免回滚期间继续写入不兼容结构）
 docker compose stop api relay
 
-# 3) 单步降级 / 降到指定 revision
+# 4) 单步降级 / 降到指定 revision
 docker compose run --rm migrate alembic downgrade -1
 docker compose run --rm migrate alembic downgrade <revision_id>
 
-# 4) 确认没有残留漂移
+# 5) 确认没有残留漂移
 docker compose run --rm migrate alembic check
 ```
 
@@ -136,3 +166,26 @@ curl -fsS localhost:${API_HOST_PORT:-8000}/readyz      # 期望 200 + database=u
 写进 incident 记录：失败 revision、卡住的 PID 与持锁语句、是否降级及降到哪个
 revision、备份文件位置与校验和、恢复时间点。**没有记录的「修好了」等于没修**——
 下一个人遇到同样的锁等待，还得从零猜。
+
+## 5. 同端口旧集群处置（先确认归属，再动手）
+
+`127.0.0.1:15432` 上可能还跑着一个本地集群（如 `D:\pgcluster15432`）。它与 Docker
+的库**同名不同结构**，是排查时最大的假信息源。处置前先确认它归谁用：
+
+```powershell
+# 找到监听 15432 的本地 postgres 进程与其服务/数据目录
+$pid15432 = (Get-NetTCPConnection -LocalPort 15432 -State Listen |
+  Where-Object LocalAddress -eq "127.0.0.1").OwningProcess
+Get-CimInstance Win32_Process -Filter "ProcessId = $pid15432" |
+  Select-Object ProcessId, CommandLine
+Get-CimInstance Win32_Service |
+  Where-Object { $_.PathName -like "*pgcluster15432*" } |
+  Select-Object Name, State, StartMode
+```
+
+处置选项（按风险从低到高）：
+1. **只改排查习惯**：所有 psql 固定 `-h localhost`，`/readyz` 看 `schema_revision`；
+2. **改端口**：把旧集群 `port` 改为未占用的值并重启其服务（影响依赖它的其它项目）；
+3. **停服务**：确认无人使用后 `Stop-Service <name>`，并把 `StartMode` 改为 `Manual`。
+
+不要直接删数据目录：那不是"清理环境"，是销毁别人的库。

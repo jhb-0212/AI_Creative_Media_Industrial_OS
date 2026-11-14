@@ -36,15 +36,24 @@ PostgreSQL 硬约束：分区表的唯一约束必须包含分区键。代价与
   `event_id`，重复投递仍以业务侧幂等为准（outbox 语义是至少一次，不是唯一一次）。
 - 反过来选「不分区、靠唯一索引」会把上面所有问题原样留下，不值得。
 
-### 3. 权限与 RLS 口径不变：应用侧无 DDL、无 DELETE
+### 3. 权限与 RLS：分区必须"创建即保护"（R10 修订）
 
-- `app_role` 仍只有父表（分区表）的 `SELECT/INSERT/UPDATE`；分区子表不单独授权，
-  应用永远通过父表名访问。
-- RLS 策略建在父表上，PostgreSQL 会把父表策略应用到所有分区；`FORCE ROW LEVEL
-  SECURITY` 不需要——表 owner 是迁移角色，`app_role` 不是 owner。
+> 2026-11-14 修订：本节早期版本写的是「分区子表不单独授权」「父表策略应用到所有
+> 分区」。审计实测证明两条都不成立：`ALTER DEFAULT PRIVILEGES` 会给新建分区自动
+> 授权，且分区自身 `relrowsecurity=false`，直查分区可读到跨租户事件。以本节为准。
+
+- `app_role` 只通过**父表**访问事件流：父表持 `SELECT/INSERT/UPDATE`（无 DELETE）。
+- **分区创建与保护是同一个动作**：`packages/shared/partition_guard.py` 提供唯一实现
+  （ENABLE RLS + 租户策略 + `REVOKE ALL FROM app_role`），迁移 `b7c8d9e0f1a2` 与
+  `workers/outbox_maintenance` 共用。任何绕过它的手工 `CREATE TABLE ... PARTITION
+  OF` 都会触发不变量测试失败。
+- 默认权限已反转为**零授权**（见 ADR-R10）：新建表/序列必须显式 `GRANT`，否则应用
+  立刻报权限错误，而不是静默获得权限。
+- `FORCE ROW LEVEL SECURITY` 仍然不需要——表 owner 是迁移角色，`app_role` 不是 owner。
 - 分区创建/摘除需要 DDL 权限，因此**维护动作不放在应用路径里**，用迁移角色
   （与 `migrate` 服务同一个 DSN）执行。给 `app_role` 开放 `CREATE/DROP` 才是真正的
   权限倒退。
+- 不变量由 `tests/integration/test_tenant_isolation_invariants.py` 断言（CI 必跑）。
 
 ### 4. 维护是显式操作，默认 dry-run
 

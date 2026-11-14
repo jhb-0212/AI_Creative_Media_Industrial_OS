@@ -11,6 +11,9 @@
 2. **不要给 `app_role` 开 DDL/DELETE**。维护用迁移角色（与 `migrate` 同一 DSN）。
 3. **没有可校验副本不许删**。`--drop-detached` 必须配 `--archive-dir`，否则工具
    直接拒绝；不要绕过它手工 `DROP`。
+4. **新建分区必须"创建即保护"**。`--apply` 会自动执行（RLS + 租户策略 +
+   回收 app_role 直连权，见 ADR-R10）；手工建分区只建表不保护，等于把跨租户
+   审计数据暴露给任何直连 SQL，且不变量测试会立刻报红。
 
 ## 1. 常规巡检（1 分钟）
 
@@ -32,6 +35,18 @@ ORDER BY c.relname;
 
 -- 未投递积压（会阻止摘除，也会让 relay 变慢）
 SELECT count(*) FROM outbox.outbox_events WHERE published_at IS NULL;
+
+-- 分区保护巡检（应全部 rls=true，且 app_role 无任何直连授权）
+SELECT c.relname, c.relrowsecurity
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'outbox' AND c.relname LIKE 'outbox_events%' AND c.relkind = 'r'
+ORDER BY c.relname;
+
+SELECT table_name, privilege_type
+FROM information_schema.role_table_grants
+WHERE grantee = 'app_role' AND table_schema = 'outbox'
+  AND table_name LIKE 'outbox_events_y%';
 ```
 
 判据：

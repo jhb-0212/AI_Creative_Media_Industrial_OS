@@ -41,6 +41,13 @@ def test_readyz_reports_database_up(client: TestClient) -> None:
     assert body["checks"]["database"] == "up"
 
 
+def test_readyz_reports_schema_revision(client: TestClient) -> None:
+    """就绪面回报 alembic revision：用于识别"连到了另一个库实例"（ADR-R10）。"""
+    body = client.get("/readyz").json()
+    assert isinstance(body["schema_revision"], str)
+    assert body["schema_revision"]
+
+
 def test_readyz_fails_closed_when_database_unavailable(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
