@@ -99,5 +99,21 @@ def test_to_dict_envelope() -> None:
     assert d["project_id"] == "proj_001"
     assert d["episode_ref"] == "EP001"
     assert d["title"] == "测试剧本"
-    assert d["tenant_id"] == str(_TENANT)
+    # tenant_id 是内部隔离键，不进对外序列化（契约未声明该字段）。
+    assert "tenant_id" not in d
     assert d["requested_by"] is None
+
+def test_idempotency_key_reuse_with_different_content_conflicts() -> None:
+    """P3-1：同 entity_id 不同内容必须 409，不能返回旧版本冒充成功。"""
+    from packages.errors.error_codes import DomainError, ErrorRegistry
+    from services.project_planning.service.script_service import _assert_same_request
+
+    s = _make_script()
+    _assert_same_request(
+        s, project_id="proj_001", episode_ref="EP001", title="测试剧本"
+    )
+    with pytest.raises(DomainError) as exc:
+        _assert_same_request(
+            s, project_id="proj_001", episode_ref="EP001", title="另一个标题"
+        )
+    assert exc.value.error_code is ErrorRegistry.IDEMPOTENCY_CONFLICT

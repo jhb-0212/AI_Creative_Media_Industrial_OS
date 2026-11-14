@@ -120,3 +120,28 @@ events:
       - to_status
       - tenant_id
     contract_ref: contracts/state_machines/state_machines.yaml#ScriptRevision
+
+  - event_type: PROJECT_CREATED
+    aggregate_type: Project
+    emitted_by: services/project_planning/service/project_service.py
+    payload_required:
+      - project_id
+      - project_name
+      - project_tier
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#Project
+
+  - event_type: EPISODE_CREATED
+    aggregate_type: Episode
+    emitted_by: services/project_planning/service/episode_service.py
+    payload_required:
+      - episode_id
+      - project_id
+      - episode_ref
+      - title
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#Episode

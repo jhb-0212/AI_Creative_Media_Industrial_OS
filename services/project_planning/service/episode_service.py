@@ -3,7 +3,8 @@
 职责：
 - 编排领域模型与仓储，实现「集数登记」用例。
 - 归属验证：Episode 必须挂到真实存在的 Project（通过注入 ProjectRepository）。
-- 幂等：同一 entity_id 重复登记返回既有集数。
+- 幂等：同一 entity_id 重复登记返回既有集数；内容不一致则 409（P3-1）。
+- 登记与 EPISODE_CREATED 事件同事务写入（P2-1）。
 - 抛出结构化 DomainError，不泄漏内部实现细节。
 
 契约对齐：
@@ -20,6 +21,7 @@ from uuid import UUID
 from sqlalchemy.exc import IntegrityError
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.outbox_writer import OutboxWriter
 from services.project_planning.domain.episode import Episode
 from services.project_planning.repository.episode_repo import EpisodeRepository
 from services.project_planning.repository.project_repo import ProjectRepository
@@ -32,9 +34,11 @@ class EpisodeService:
         self,
         repository: EpisodeRepository,
         project_repository: ProjectRepository,
+        outbox_writer: OutboxWriter,
     ) -> None:
         self._repository = repository
         self._project_repository = project_repository
+        self._outbox_writer = outbox_writer
 
     async def create_episode(
         self,
@@ -86,6 +90,7 @@ class EpisodeService:
         if entity_id is not None:
             existing = await self._repository.get_by_id(entity_id)
             if existing is not None:
+                _assert_same_request(existing, project_id, episode_ref, title)
                 return existing
 
         episode = Episode(
@@ -111,10 +116,28 @@ class EpisodeService:
                 )
             )
             if existing is not None:
+                _assert_same_request(existing, project_id, episode_ref, title)
                 return existing
             raise DomainError(
                 ErrorRegistry.INTERNAL_ERROR, detail="集数写入冲突"
             ) from exc
+
+        # 与登记同事务写 EPISODE_CREATED（P2-1：集数诞生必须可被订阅）。
+        self._outbox_writer.record(
+            aggregate_type="Episode",
+            aggregate_id=episode.entity_id,
+            event_type="EPISODE_CREATED",
+            tenant_id=tenant_id,
+            payload={
+                "episode_id": episode.entity_id,
+                "project_id": project_id,
+                "episode_ref": episode_ref,
+                "title": title,
+                "created_by": created_by,
+                "tenant_id": str(tenant_id),
+                "status": episode.status.value,
+            },
+        )
 
         return episode
 
@@ -124,3 +147,20 @@ class EpisodeService:
         if episode is None:
             raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"集数不存在: {entity_id}")
         return episode
+
+
+def _assert_same_request(
+    existing: Episode, project_id: str, episode_ref: str, title: str
+) -> None:
+    """幂等键复用必须是同一请求：内容不一致一律 409（P3-1）。"""
+    if (
+        existing.project_id != project_id
+        or existing.episode_ref != episode_ref
+        or existing.title != title
+    ):
+        raise DomainError(
+            ErrorRegistry.IDEMPOTENCY_CONFLICT,
+            detail=(
+                "同一 entity_id 已存在且内容不同：幂等键不能复用于另一个请求"
+            ),
+        )

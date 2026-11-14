@@ -22,6 +22,9 @@ from services.identity_access.deps import (
     require_role,
 )
 from services.project_planning.domain.enums import ProjectTier
+from services.project_planning.repository.sqlalchemy_outbox_writer import (
+    SqlAlchemyOutboxWriter,
+)
 from services.project_planning.repository.sqlalchemy_repo import SqlAlchemyProjectRepository
 from services.project_planning.service.project_service import ProjectService
 
@@ -37,9 +40,9 @@ class CreateProjectRequest(BaseModel):
 
 
 def _build_service(session: AsyncSession) -> ProjectService:
-    """服务装配：RLS 会话（已注入 tenant 上下文）+ SQLAlchemy 仓储。"""
+    """服务装配：RLS 会话（已注入 tenant 上下文）+ 仓储 + Outbox 写入端口。"""
     repository = SqlAlchemyProjectRepository(session)
-    return ProjectService(repository)
+    return ProjectService(repository, SqlAlchemyOutboxWriter(session))
 
 
 def _get_service(uow: UnitOfWork = Depends(get_tenant_uow)) -> ProjectService:

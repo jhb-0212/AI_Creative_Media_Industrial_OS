@@ -133,8 +133,8 @@ DELETE FROM asset_service.qc_reports WHERE ...;                              -- 
   代码评审发现）。
 - `.READ` 动作的访问审计：本闸门不强制，是否落 audit_access 事件需要与合规口径
   一起定，未擅自加。
-- `PROJECT_CREATED` / `EPISODE_CREATED` 仍不发出：根因是 Project/Episode 域
-  没有 service 层与状态变更入口（审计 P2-1），事件已登记为缺口，修复 P2-1 时
-  一并关闭。
+- `PROJECT_CREATED` / `EPISODE_CREATED` 缺口已由 ADR-R12 关闭：ProjectService /
+  EpisodeService 在创建同事务内发出事件，两条缺口从 `event_emission_gaps.yaml`
+  删除（事件契约 10 条 / 缺口 0）。
 - `qc_reports` 的 `INSERT` 仍开放给 `app_role`（这是必要的：QC Worker 必须能
   写证据）；不可变约束由触发器保证，不靠撤权。

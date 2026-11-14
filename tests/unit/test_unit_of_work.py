@@ -10,14 +10,38 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncIterator
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from packages.shared.database import build_migration_url
 from packages.shared.unit_of_work import unit_of_work
 from tests.conftest import TEST_TENANT_ID
+
+
+@pytest.fixture(autouse=True)
+async def cleanup_uow_events() -> AsyncIterator[None]:
+    """清理本用例写入的 UoWTest 事件（P3-3）。
+
+    app_role 对 outbox 无 DELETE（append-only 不变量），所以测试必须用
+    迁移角色清理；否则每跑一次全量测试就往真实库里多留一行测试垃圾。
+    """
+    yield
+    engine = create_async_engine(build_migration_url())
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "DELETE FROM outbox.outbox_events "
+                    "WHERE aggregate_type = 'UoWTest' "
+                    "AND aggregate_id LIKE 'uow-%'"
+                )
+            )
+    finally:
+        await engine.dispose()
 
 
 async def _insert_event(

@@ -105,15 +105,17 @@ class Settings(BaseSettings):
 
     # 生产环境强制非空的敏感字段（密钥不落日志，且严禁空密钥误上线）。
     # 约定：这些字段在 production 下必须显式配置真实值，否则拒绝启动。
+    #
+    # P3-6：这里只列**真有实现**的依赖。此前把 s3_access_key_id /
+    # s3_secret_access_key / mq_url / model_gateway_api_key 也列为必需，
+    # 但全仓不存在任何 S3/MQ/模型网关实现——强制配置等于逼迫运维填假值，
+    # 而"填了假值就能过"的检查不构成保护。等对应适配器落地时再把它们
+    # 连同实现一起加回（契约先登记、再实现）。
     _PRODUCTION_REQUIRED_SECRETS: tuple[tuple[str, str], ...] = (
         ("postgres_password", "POSTGRES_PASSWORD"),
         ("postgres_app_password", "POSTGRES_APP_PASSWORD"),
         ("identity_private_key_pem", "IDENTITY_PRIVATE_KEY_PEM"),
         ("identity_public_key_pem", "IDENTITY_PUBLIC_KEY_PEM"),
-        ("s3_access_key_id", "S3_ACCESS_KEY_ID"),
-        ("s3_secret_access_key", "S3_SECRET_ACCESS_KEY"),
-        ("mq_url", "MQ_URL"),
-        ("model_gateway_api_key", "MODEL_GATEWAY_API_KEY"),
     )
 
     @model_validator(mode="after")

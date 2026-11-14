@@ -333,13 +333,18 @@ RLS 在迁移里 `ENABLE` 一次，分区动态创建时没人再 `ENABLE`；反
 | P0-2 | 双实例端口，`127.0.0.1` 假世界 | **识别侧已修复**（旧集群未停，属用户环境决策） | `/readyz` 回报 `schema_revision`；runbook 新增「先确认连的是哪个库」与旧集群处置节 |
 | P1-1 | QC 幂等键跨资产复用 | **已修复**（S3） | `_assert_report_owner`（409）+ 跨资产单测 |
 | P1-2 | 两跳只发 1 条事件 | **已修复**（S3） | 逐跳事件 `ASSET_VERSION_HUMAN_REVIEW_ENTERED` + 事件契约 |
-| P1-3 | schema 闸门假绿（删 46/76 仍 PASS） | 待修（S4） | — |
+| P1-3 | schema 闸门假绿（删 46/76 仍 PASS） | **已修复**（S4） | `check_schema_objects()` 结构+行为校验（object/properties/required/形状/$ref/运行时双向比对）+ 4 条负向测试 |
 | P1-4 | 不可变未落结构（内容列回写 + DELETE） | **已修复**（S3 触发器 + R10 授权） | 迁移 `d1e2f3a4b5c6`；仓储白名单；`qc_reports` 禁 UPDATE/DELETE |
-| P2-1 | Project/Episode 无状态变更入口 | 待定（需正文口径或登记债务） | — |
-| P2-2 | relay 毒事件无上限/无死信 | 待修（S5） | — |
-| P2-3 | 资产 GET 未走只读 UoW | 待修（S6） | — |
-| P2-4 | 响应/契约字段漂移 | 待修（S6） | — |
-| P3-1~6 | 幂等弱、jti、测试污染、runbook、maintenance_runs、生产强制密钥 | 待修（S6） | — |
+| P2-1 | Project/Episode 无状态变更入口 | **已修复**（S6） | ProjectService/EpisodeService 同事务发 `PROJECT_CREATED`/`EPISODE_CREATED`；事件契约 10 条、缺口清零 |
+| P2-2 | relay 毒事件无上限/无死信 | **已修复**（S5） | 迁移 `f3a4b5c6d7e8`（attempts/next_attempt_at/dead_lettered_at）；指数退避 + 死信 + runbook 巡检/重放 |
+| P2-3 | 资产 GET 未走只读 UoW | **已修复**（S4） | `asset_routes.read_asset_version` 改用 `_get_read_service`（`get_read_tenant_uow`） |
+| P2-4 | 响应/契约字段漂移 | **已修复**（S4） | 响应模型由契约动态生成（`packages/shared/contract_models.py`）；`to_dict` 去 tenant_id 等内部字段；4 个资产路由挂 `response_model` |
+| P3-1 | 剧本同 id 幂等命中即返回旧版本 | **已修复**（S6） | 剧本/项目/分集统一内容比对，内容不一致 `409 IDEMPOTENCY_CONFLICT` |
+| P3-2 | JWT 有 jti 无吊销 | **已修复**（S6） | 迁移 `c6d7e8f9a0b1`（`auth.revoked_tokens`）；认证依赖验签后查吊销；`scripts/revoke_token.py` 运维 CLI |
+| P3-3 | outbox 残留 UoWTest 事件 | **已修复**（S6） | 迁移 `a4b5c6d7e8f9` 清理；`test_unit_of_work.py` 用迁移角色自清理 |
+| P3-4 | 归档 runbook 缺失 | **已修复**（R10） | `runbook-outbox-retention.md` §3 校验、§4 处置 |
+| P3-5 | `maintenance_runs` 无 RLS 且 app_role 可写 | **已修复**（S6） | 迁移 `b5c6d7e8f9a0` 收回 app_role 全部权限（运维走迁移角色） |
+| P3-6 | 生产必需密钥含未实现依赖 | **已修复**（S6） | `Settings._PRODUCTION_REQUIRED_SECRETS` 只保留真实依赖（DB+PEM）；新增回归测试 |
 
 闸门复跑（S1/S2 完成后）：`contract_check` 全 PASS（ACTIVE 37 / 76 定义不变）、
 `ruff` 0、`mypy` 87 files 0、`pytest` **253 passed**、`alembic check` 无漂移；
@@ -348,6 +353,13 @@ RLS 在迁移里 `ENABLE` 一次，分区动态创建时没人再 `ENABLE`；反
 S3 完成后复跑：`contract_check` 全 PASS（新增事件契约 8 / 缺口 2）、`ruff` 0、
 `mypy` 87 files 0、`pytest` **263 passed**、`alembic check` 无漂移；
 迁移 `d1e2f3a4b5c6` 往返通过，触发器与内容列保护完整恢复。
+
+S4/S5/S6 完成后复跑：`contract_check` 全 PASS（Schema 76 定义结构校验 +
+运行时字段一致 2 对象；事件 10 / 缺口 0）、`ruff` 0、`mypy` **90 files 0**、
+`pytest` **272 passed**、`alembic check` 无漂移；
+迁移 `e2f3a4b5c6d7 → f3a4b5c6d7e8 → a4b5c6d7e8f9 → b5c6d7e8f9a0 →
+c6d7e8f9a0b1` 已执行到 head。新增迁移的 downgrade 未逐条往返（见 ADR-R12
+「未做项」）。
 
 ---
 

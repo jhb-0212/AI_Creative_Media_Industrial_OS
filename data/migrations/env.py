@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 # 将项目根加入 sys.path，便于导入 packages / services。
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from packages.identity.revoked_token_model import RevokedTokenModel  # noqa: F401
 from packages.shared.config import get_settings
 from packages.shared.database import Base, build_migration_url
 from packages.shared.outbox import OutboxEventModel  # noqa: F401
