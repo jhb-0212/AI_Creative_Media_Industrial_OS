@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 # 测试租户（历史数据已回填到默认租户）。
@@ -80,23 +82,23 @@ async def test_rls_blocks_cross_tenant_write(
     的 WITH CHECK 同样生效，未注入 tenant 上下文的写会被拒绝（0 行影响）。
     """
     random_id = f"proj_rls_{uuid.uuid4().hex[:8]}"
-    async with db_sessionmaker() as session:
-        # 不注入 tenant 上下文，直接 INSERT，RLS 应拒绝（影响 0 行）。
-        insert = text(
-            """
-            INSERT INTO project_planning.projects
-                (entity_id, entity_type, schema_version, entity_version, status,
-                 owner_module, tenant_id, created_at, created_by, updated_at, audit_ref,
-                 project_name, project_tier)
-            VALUES
-                (:entity_id, 'Project', 205, 1, 'DRAFT',
-                 'project-planning', :tenant_id, now(), :created_by, now(), NULL,
-                 :name, 'B')
-            """
-        )
-        # 无 tenant 上下文时，RLS USING 策略使 INSERT 匹配 0 行（静默失败），
-        # 或 WITH CHECK 拒绝。这里验证：插入后查询不到该记录（隔离生效）。
-        try:
+    insert = text(
+        """
+        INSERT INTO project_planning.projects
+            (entity_id, entity_type, schema_version, entity_version, status,
+             owner_module, tenant_id, created_at, created_by, updated_at, audit_ref,
+             project_name, project_tier)
+        VALUES
+            (:entity_id, 'Project', 205, 1, 'DRAFT',
+             'project-planning', :tenant_id, now(), :created_by, now(), NULL,
+             :name, 'B')
+        """
+    )
+
+    # 无 tenant 上下文的写必须被 RLS 的 WITH CHECK 拒绝（SQLSTATE 42501）。
+    # 不能用「捕获任意异常即通过」：那会把连接错误、语法错误也算成隔离生效。
+    with pytest.raises(DBAPIError) as exc_info:
+        async with db_sessionmaker() as session:
             await session.execute(
                 insert,
                 {
@@ -107,18 +109,19 @@ async def test_rls_blocks_cross_tenant_write(
                 },
             )
             await session.commit()
-        except Exception:
-            await session.rollback()
-            # 拒绝写入本身也是 RLS 生效的证明。
-            return
 
-    # 若 INSERT 静默成功（0 行影响），无 tenant 上下文查询也看不到它。
+    assert "row-level security" in str(exc_info.value).lower()
+
+    # 反向确认：以正确租户上下文回查，该行确实没有落库。
     async with db_sessionmaker() as s2:
-        result = await s2.execute(
+        await s2.execute(
+            text("SELECT set_config('app.current_tenant_id', :t, true)"),
+            {"t": DEFAULT_TENANT},
+        )
+        count = await s2.scalar(
             text(
                 "SELECT count(*) FROM project_planning.projects WHERE entity_id = :eid"
             ),
             {"eid": random_id},
         )
-        # 无 tenant 上下文，查询不到（隔离生效）。
-        assert result.scalar_one() == 0
+    assert count == 0

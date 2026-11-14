@@ -158,12 +158,23 @@ def test_jwks_exports_only_public_key() -> None:
     jwk = keys[0]
     assert jwk["kty"] == "RSA"
     assert jwk["kid"] == key.kid
-    # 断言不含私钥字段（私钥 PEM 有 "PRIVATE KEY"，公钥 JWK 只含 n/e）。
-    assert "d" not in jwk
-    assert "p" not in jwk
-    assert "q" not in jwk
-    # 私钥 PEM 绝不进入 JWKS。
-    assert "PRIVATE" not in str(jwks).upper() or "PRIVATE" not in str(jwk).upper()
+    # 字段白名单：JWK 只能是公钥字段，出现任何其它字段即视为泄漏面扩大。
+    assert set(jwk) == {"kty", "kid", "use", "alg", "n", "e"}
+    # 递归断言整份 JWKS 不含 RSA 私钥分量（不依赖 "PRIVATE" 字面量，
+    # 因为 base64 编码后的 n/e 永远不会出现该字面量）。
+    private_fields = {"d", "p", "q", "dp", "dq", "qi", "oth"}
+
+    def _collect_keys(obj: object) -> set[str]:
+        if isinstance(obj, dict):
+            found = set(obj.keys())
+            for value in obj.values():
+                found |= _collect_keys(value)
+            return found
+        if isinstance(obj, list):
+            return set().union(*(_collect_keys(item) for item in obj)) if obj else set()
+        return set()
+
+    assert not (private_fields & _collect_keys(jwks))
 
 
 def test_keystore_lookup_and_current(key: SigningKey) -> None:

@@ -17,7 +17,7 @@ from httpx import AsyncClient
 from tests.conftest import make_test_token
 
 
-async def _auth_headers(subject_id: str) -> dict[str, str]:
+def _auth_headers(subject_id: str) -> dict[str, str]:
     """构造指定主体的认证头（模拟不同真实主体）。"""
     return {"Authorization": f"Bearer {make_test_token(subject_id=subject_id)}"}
 
@@ -206,7 +206,7 @@ async def test_lock_two_step_flow(auth_client: AsyncClient) -> None:
     await _setup_project_and_episode(auth_client, project_id=project_id, episode_refs=["EP001"])
 
     # 编剧导入剧本
-    writer_headers = await _auth_headers("writer_001")
+    writer_headers = _auth_headers("writer_001")
     r = await auth_client.post(
         "/scripts/import",
         json={
@@ -228,7 +228,7 @@ async def test_lock_two_step_flow(auth_client: AsyncClient) -> None:
     assert req.json()["requested_by"] == "writer_001"
 
     # 第二步：批准人（导演）批准
-    director_headers = await _auth_headers("director_001")
+    director_headers = _auth_headers("director_001")
     appr = await auth_client.post(
         f"/scripts/{script_id}/lock/approve",
         headers=director_headers,
@@ -253,7 +253,7 @@ async def test_lock_rejects_self_approval(auth_client: AsyncClient) -> None:
     script_id = r.json()["entity_id"]
 
     # 同一主体（writer_001）既申请又批准
-    writer_headers = await _auth_headers("writer_001")
+    writer_headers = _auth_headers("writer_001")
     req = await auth_client.post(
         f"/scripts/{script_id}/lock/request",
         headers=writer_headers,
@@ -284,7 +284,7 @@ async def test_lock_rejects_non_pending(auth_client: AsyncClient) -> None:
     script_id = r.json()["entity_id"]
 
     # 未申请就直接批准（DRAFT 态），状态机拒绝
-    director_headers = await _auth_headers("director_001")
+    director_headers = _auth_headers("director_001")
     appr = await auth_client.post(
         f"/scripts/{script_id}/lock/approve",
         headers=director_headers,

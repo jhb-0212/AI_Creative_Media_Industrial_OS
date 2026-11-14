@@ -70,7 +70,11 @@ async def test_lock_request_forbidden_for_producer_role() -> None:
 
 
 async def test_lock_approve_forbidden_for_writer_role() -> None:
-    """SCRIPT.LOCK.APPROVE 仅限 导演/授权编剧；编剧不能自批 → 403。"""
+    """编剧不具备 SCRIPT.LOCK.APPROVE 的角色权限 → 角色级 403。
+
+    注意：这是「角色不在 allowed_principals」的授权断言，不是职责分离断言；
+    申请人≠批准人的运行时比对见 test_script_api 的自批拒绝用例。
+    """
     async with _client_with_roles(["编剧"]) as c:
         resp = await c.post("/scripts/scr_x/lock/approve")
     assert resp.status_code == 403

@@ -13,9 +13,9 @@
 - 授权范围：project_planning / outbox 两个 schema 的 USAGE + 表读写权限
   + 序列权限（最小权限，不授予 DDL）。
 
-密码：app_role 的密码由环境变量注入（生产走密钥管理服务）；本迁移
-用固定占位符占位，实际密码由部署层 ALTER ROLE 设置。开发环境默认
-密码见 .env.example（POSTGRES_APP_PASSWORD）。
+密码：app_role 的密码只走 settings（``POSTGRES_APP_PASSWORD``，生产由密钥
+管理服务注入），迁移内不保留任何明文默认值；缺失即拒绝迁移。已存在角色
+会用同一口令 ``ALTER ROLE``（幂等），避免「版本库里的开发口令」长期留存。
 
 Revision ID: 9e3b4c5d6e7f
 Revises: 8f2a1b3c4d5e
@@ -34,23 +34,41 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 APP_ROLE = "app_role"
-# 开发环境默认密码（生产由部署层 ALTER ROLE 覆盖；见 .env.example）。
-# 注：此处占位密码仅用于本地开发，生产绝不复用。
-_DEV_PASSWORD = "app_dev_password"
 
 _SCHEMAS = ("project_planning", "outbox")
 
 
+def _app_password() -> str:
+    """应用角色口令的唯一来源：settings（环境变量 / 密钥管理）。
+
+    口令不出现在版本库中；缺失直接失败，避免以空口令或开发口令建角色。
+    单引号按 SQL 字面量规则转义（``'`` → ``''``）。
+    """
+    from packages.shared.config import get_settings
+
+    password = get_settings().postgres_app_password.get_secret_value()
+    if not password:
+        raise RuntimeError(
+            "POSTGRES_APP_PASSWORD 未配置：拒绝以空口令创建应用角色"
+        )
+    return password.replace("'", "''")
+
+
 def upgrade() -> None:
     """创建应用角色并授权（最小权限，NOBYPASSRLS 使 RLS 生效）。"""
+    password = _app_password()
+
     # 1. 创建应用角色：LOGIN、非超级用户、NOBYPASSRLS（不绕过 RLS）。
+    #    已存在时同步口令，避免历史开发口令留在角色上。
     op.execute(
         f"""
         DO $$
         BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{APP_ROLE}') THEN
                 CREATE ROLE {APP_ROLE} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
-                    NOBYPASSRLS PASSWORD '{_DEV_PASSWORD}';
+                    NOBYPASSRLS PASSWORD '{password}';
+            ELSE
+                ALTER ROLE {APP_ROLE} WITH PASSWORD '{password}';
             END IF;
         END
         $$

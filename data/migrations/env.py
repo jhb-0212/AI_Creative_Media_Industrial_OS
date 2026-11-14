@@ -35,8 +35,12 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # 用迁移配置构造 DSN（超级用户，需 DDL 权限；不含明文密钥，密码经 URL 编码）。
+# ConfigParser 会做 % 插值：URL 里的百分号编码必须转义成 %%，否则口令含
+# @ : / 空格 等字符时 alembic 在导入 env.py 阶段就报 invalid interpolation。
 settings = get_settings()
-config.set_main_option("sqlalchemy.url", build_migration_url())
+config.set_main_option(
+    "sqlalchemy.url", build_migration_url().replace("%", "%%")
+)
 
 target_metadata = Base.metadata
 

@@ -35,7 +35,7 @@ async def client() -> AsyncClient:
 
 
 async def test_composite_fk_rejects_dangling_episode(
-    client: AsyncClient, db_sessionmaker: async_sessionmaker[AsyncSession]
+    db_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
     """数据库层拒绝引用不存在 Episode 的 script_revision。
 

@@ -136,8 +136,30 @@ def test_check_schema_objects_passes() -> None:
     assert cc.check_schema_objects() is True
 
 
-def test_action_openapi_mismatch_semantics() -> None:
-    """归一化比对逻辑：缺 script.import 时应能识别差集。"""
-    ar_keys = {"project.create", "script.import"}
-    oa_keys = {"project.create"}
-    assert ar_keys - oa_keys == {"script.import"}
+def test_action_openapi_mismatch_semantics(monkeypatch, tmp_path) -> None:
+    """真实调用被测函数：删掉一个 action 后必须识别出不一致（返回 False）。
+
+    不复制校验逻辑，只构造契约副本，保证用例能随被测实现一起变红。
+    """
+    import shutil
+
+    import yaml
+
+    contracts = tmp_path / "contracts"
+    shutil.copytree(cc.CONTRACTS, contracts)
+
+    registry_path = contracts / "action_registry" / "action_registry.yaml"
+    data = yaml.safe_load(registry_path.read_text(encoding="utf-8"))
+    data["actions"] = [
+        action
+        for action in data["actions"]
+        if action.get("action_key") != "SCRIPT.IMPORT"
+    ]
+    data["total_actions"] = len(data["actions"])
+    registry_path.write_text(
+        yaml.safe_dump(data, allow_unicode=True), encoding="utf-8"
+    )
+
+    monkeypatch.setattr(cc, "CONTRACTS", contracts)
+
+    assert cc.check_action_openapi_consistency() is False

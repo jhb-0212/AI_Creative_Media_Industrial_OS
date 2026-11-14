@@ -6,6 +6,11 @@
 - 根治：事件表加 tenant_id（NOT NULL，回填默认租户）+ 与业务表相同的 RLS
   策略；应用以 app_role（NOBYPASSRLS）连接，事件写入/读取同样受租户隔离。
 
+大表运维提示：本迁移在单个事务内完成 add_column(可空) → 全表回填 →
+SET NOT NULL → 建索引。事件表增长后该组合会产生长事务与较重 IO，应在
+维护窗口执行；数据量上规模后改为「可空列 + 索引 → 分批回填 → 单独 SET
+NOT NULL」三步迁移。
+
 Revision ID: b2c3d4e5f6a7
 Revises: 9e3b4c5d6e7f
 Create Date: 2026-11-14

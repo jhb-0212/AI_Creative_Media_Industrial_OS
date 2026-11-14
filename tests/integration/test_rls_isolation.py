@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 
 from apps.api.main import app
 
@@ -77,7 +78,7 @@ async def test_cross_tenant_insert_rejected() -> None:
     """租户 A 上下文写入 tenant_id=B 的行 → 被 RLS WITH CHECK 拒绝。"""
     sm = app.state.sessionmaker
     entity_id = f"rls_bad_{uuid.uuid4().hex[:8]}"
-    with pytest.raises(Exception) as exc_info:
+    with pytest.raises(DBAPIError) as exc_info:
         async with sm() as session:
             await session.execute(
                 text("SELECT set_config('app.current_tenant_id', :tenant, true)"),

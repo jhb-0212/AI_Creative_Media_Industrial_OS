@@ -66,8 +66,9 @@ def test_self_approval_red_line_is_declared() -> None:
     即批准权不能是单一自批主体。
 
     判定依据（确凿、可维护）：
-    - allowed_principals 含「/」或「+」等多主体连接符，或
-    - approval_requirement 含「分离」「不得自批」「人工确认」等职责分离关键词。
+    - allowed_principals 含「+」（多主体共同审批，意味着两个不同主体）；
+      单独的「/」是 OR 语义（任一角色可做），不能作为职责分离证据；
+    - 或 approval_requirement 明确写出「分离」「不得自批」等职责分离约束。
     """
     high_risk_approve = [
         a
@@ -79,10 +80,10 @@ def test_self_approval_red_line_is_declared() -> None:
     def _has_separation(a: dict) -> bool:
         principals = a.get("allowed_principals") or ""
         requirement = a.get("approval_requirement") or ""
-        # 多主体（/ 或 +）或明确的职责分离措辞。
-        if "/" in principals or "+" in principals:
+        # 「+」= 多主体共同审批；「/」只是 OR 选择，不构成职责分离证据。
+        if "+" in principals:
             return True
-        return any(k in requirement for k in ("分离", "自批", "人工", "确认"))
+        return any(k in requirement for k in ("分离", "自批", "双人", "人工确认"))
 
     violations = [a["action_key"] for a in high_risk_approve if not _has_separation(a)]
     assert not violations, (

@@ -154,7 +154,7 @@ actions:
     risk_level: 'HIGH'
     token_required: true
     allowed_principals: '授权审核人/QC/导演按职责'
-    approval_requirement: '权利、QC 和证据通过。'
+    approval_requirement: '申请提交人与批准审核人须为不同主体（职责分离），禁止自批；权利、QC 和证据通过。'
     audit_event: 'ASSET_VERSION_APPROVED'
     negative_test_id: 'ACT-ASSET-NEG-002'
     negative_test_desc: 'Agent 批准拒绝'
@@ -506,7 +506,7 @@ actions:
     risk_level: 'HIGH'
     token_required: true
     allowed_principals: '交付负责人/合同授权客户代表'
-    approval_requirement: '确认规格，不替代内部终检。'
+    approval_requirement: '申请提交人与批准人须为不同主体（职责分离），禁止自批；确认规格，不替代内部终检。'
     audit_event: 'DELIVERY_SPEC_APPROVED'
     negative_test_id: 'ACT-DELIVERY-NEG-001'
     negative_test_desc: '客户规格审批代替 Gate4 拒绝'

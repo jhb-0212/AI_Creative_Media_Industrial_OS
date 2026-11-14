@@ -46,8 +46,12 @@ def test_script_revision_is_tenant_scoped() -> None:
     assert ScriptModel.__table__.c.tenant_id.nullable is False
 
 
-def test_outbox_events_are_tenant_scoped() -> None:
-    """决策 3/5：事件表 tenant_id 非空且建索引，否则审计隔离失效。"""
+def test_outbox_events_have_tenant_column_and_index() -> None:
+    """决策 3/5：事件表 tenant_id 非空且建索引（列级约束）。
+
+    RLS 策略「行为」由 tests/unit/test_outbox.py 的跨租户不可见用例覆盖；
+    本用例只保证承载隔离所需的列与索引存在。
+    """
     assert OutboxEventModel.__table__.c.tenant_id.nullable is False
     assert any(
         ix.name == "ix_outbox_tenant" for ix in OutboxEventModel.__table__.indexes
