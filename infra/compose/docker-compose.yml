@@ -75,6 +75,10 @@ services:
     environment:
       <<: *db-env
       APP_ENV: ${APP_ENV:-development}
+      # 限流后端。容器内走服务名 redis，不是宿主端口。
+      REDIS_URL: redis://redis:6379/0
+      # 限流阈值可按环境调；默认 120 次/分钟/客户端 IP。
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-120}
     depends_on:
       migrate:
         condition: service_completed_successfully

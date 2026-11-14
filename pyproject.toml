@@ -34,6 +34,9 @@ dependencies = [
     "structlog>=24.1",
     "boto3>=1.34",
     "pyyaml>=6.0",
+    # 指标暴露（/metrics）：Prometheus 文本格式，与 OTel 追踪分工明确——
+    # 追踪回答「这一次请求怎么了」，指标回答「整体在变好还是变坏」。
+    "prometheus-client>=0.20",
 ]
 
 [project.optional-dependencies]

@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 
 from packages.shared.config import get_settings
+from packages.shared.rate_limit import RateLimiter
 from packages.telemetry.tracing import shutdown_telemetry
 
 
@@ -113,9 +114,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     sessionmaker = create_sessionmaker(engine)
     app.state.engine = engine
     app.state.sessionmaker = sessionmaker
+    # 限流器与数据库同属「进程级基础设施」，生命周期统一在这里收口：
+    # 漏关连接池比漏开更隐蔽，集中一处才不会各写一遍。
+    app.state.rate_limiter = RateLimiter.from_settings()
     try:
         yield
     finally:
-        # 先关闭 tracer（flush 缓冲 span），再释放数据库连接池。
+        # 先关闭 tracer（flush 缓冲 span），再释放限流与数据库连接池。
+        await app.state.rate_limiter.aclose()
         shutdown_telemetry()
         await engine.dispose()

@@ -1,0 +1,3 @@
+﻿api|Up 8 minutes (healthy)
+postgres|Up 8 minutes (healthy)
+redis|Up 8 minutes (healthy)

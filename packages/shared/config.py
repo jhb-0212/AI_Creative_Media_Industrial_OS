@@ -44,6 +44,13 @@ class Settings(BaseSettings):
     # Redis（可能内嵌口令，按密钥处理，repr 不落明文）
     redis_url: SecretStr = SecretStr("redis://localhost:16379/0")
 
+    # 限流（Redis 固定窗口）。默认开启：限流是保护性设施，宁可本地多一次
+    # 连接尝试，也不要在生产漏配时静默无限流。后端不可用时按 fail-open 放行，
+    # 并计入 rate_limit_backend_errors_total。
+    rate_limit_enabled: bool = True
+    rate_limit_per_minute: int = 120
+    rate_limit_window_seconds: int = 60
+
     # 对象存储
     s3_endpoint_url: str = ""
     s3_access_key_id: SecretStr = SecretStr("")

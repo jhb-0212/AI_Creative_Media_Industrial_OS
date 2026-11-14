@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import time
 import uuid
 from collections.abc import Awaitable, Callable
@@ -29,6 +30,13 @@ from packages.errors.error_codes import (
 from packages.shared.config import get_settings
 from packages.shared.database import lifespan
 from packages.shared.logging import get_logger, set_trace_id, setup_logging
+from packages.shared.metrics import (
+    HTTP_REQUEST_DURATION_SECONDS,
+    HTTP_REQUESTS_TOTAL,
+    RATE_LIMIT_DECISIONS_TOTAL,
+    metrics_response,
+)
+from packages.shared.rate_limit import RateLimitDecision
 from packages.telemetry.tracing import setup_telemetry
 
 settings = get_settings()
@@ -53,6 +61,76 @@ from services.project_planning.api.script_routes import router as script_router 
 app.include_router(project_router)
 app.include_router(script_router)
 app.include_router(episode_router)
+
+
+# 探针与指标端点不参与限流：编排系统高频抓取，被限流会误判实例不可用。
+_PROBE_PATHS = frozenset({"/health", "/readyz", "/metrics"})
+
+
+@app.middleware("http")
+async def request_guard_middleware(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
+    """限流 + 指标采集（注册早于访问日志，因此位于其内层）。
+
+    放在内层是有意的：被限流拒绝的请求同样要经过外层访问日志，
+    否则 429 在日志里是「不存在」的，排障时看不到被挡了多少。
+    """
+    method = request.method
+    start = time.perf_counter()
+    status_code = 500
+
+    try:
+        if request.url.path not in _PROBE_PATHS:
+            limiter = getattr(app.state, "rate_limiter", None)
+            if limiter is not None:
+                decision: RateLimitDecision = await limiter.acquire(
+                    _client_identity(request)
+                )
+                RATE_LIMIT_DECISIONS_TOTAL.labels(
+                    decision=_decision_label(decision)
+                ).inc()
+                if not decision.allowed:
+                    status_code = ErrorRegistry.RATE_LIMIT.http_status
+                    envelope = DomainError(ErrorRegistry.RATE_LIMIT)
+                    return JSONResponse(
+                        status_code=status_code,
+                        content=to_response_payload(envelope),
+                        headers={"Retry-After": str(decision.retry_after_seconds)},
+                    )
+
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        HTTP_REQUESTS_TOTAL.labels(
+            method=method, status_code=str(status_code)
+        ).inc()
+        HTTP_REQUEST_DURATION_SECONDS.labels(method=method).observe(
+            time.perf_counter() - start
+        )
+
+
+def _decision_label(decision: RateLimitDecision) -> str:
+    """把判定收敛成低基数标签（degraded 单独计，避免和正常放行混淆）。"""
+    if decision.degraded:
+        return "degraded"
+    return "allowed" if decision.allowed else "denied"
+
+
+def _client_identity(request: Request) -> str:
+    """限流身份：带令牌按令牌指纹，匿名按 IP。
+
+    指纹只做 SHA-256 截断，不可逆且不含原文，既能分桶又不会把凭证写进 Redis
+    键名或日志。
+    """
+    authorization = request.headers.get("authorization", "")
+    if authorization.lower().startswith("bearer "):
+        digest = hashlib.sha256(authorization[7:].encode("utf-8")).hexdigest()
+        return f"token:{digest[:16]}"
+    client = request.client
+    return f"ip:{client.host if client else 'unknown'}"
 
 
 @app.middleware("http")
@@ -181,6 +259,16 @@ async def readyz() -> JSONResponse:
         status_code=200,
         content={"status": "ready", "checks": {"database": "up"}},
     )
+
+
+@app.get("/metrics", tags=["system"], include_in_schema=False)
+async def metrics() -> Response:
+    """Prometheus 抓取端点。
+
+    不鉴权是刻意的：Prometheus 抓取通常不带业务凭证。它的暴露面由网络层
+    控制（只允许监控网段访问），不放业务鉴权里做单点例外。
+    """
+    return metrics_response()
 
 
 @app.get("/errors/{code}", tags=["system"])
