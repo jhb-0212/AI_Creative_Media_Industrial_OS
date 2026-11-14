@@ -133,3 +133,38 @@ async def test_rbac_allows_authorized_roles_across_write_flow() -> None:
         appr = await director.post(f"/scripts/{script_id}/lock/approve")
         assert appr.status_code == 200
         assert appr.json()["status"] == "LOCKED"
+
+
+async def test_unknown_role_denied_on_all_write_endpoints() -> None:
+    """QC 不在任一写动作的 allowed_principals → 5 个写入口全部 403。
+
+    这条用例专门防「默认 token 授予多角色、端点删掉 require_role 也没人发现」：
+    角色不命中时必须整条链路都拒绝，而不是靠某个用例恰好没覆盖到。
+    """
+    project_id = f"proj_deny_{uuid.uuid4().hex[:8]}"
+
+    async with _client_with_roles(["QC"]) as c:
+        responses = [
+            await c.post(
+                "/projects",
+                json={"project_name": "越权项目", "project_tier": "B", "entity_id": project_id},
+            ),
+            await c.post(
+                "/episodes",
+                json={"project_id": project_id, "episode_ref": "EP001", "title": "越权集数"},
+            ),
+            await c.post(
+                "/scripts/import",
+                json={
+                    "project_id": project_id,
+                    "episode_ref": "EP001",
+                    "title": "越权剧本",
+                    "entity_id": f"scr_deny_{uuid.uuid4().hex[:8]}",
+                },
+            ),
+            await c.post("/scripts/scr_deny/lock/request"),
+            await c.post("/scripts/scr_deny/lock/approve"),
+        ]
+
+    assert [r.status_code for r in responses] == [403] * 5
+    assert all(r.json()["error_code"] == "AUTH_SCOPE_DENIED" for r in responses)
