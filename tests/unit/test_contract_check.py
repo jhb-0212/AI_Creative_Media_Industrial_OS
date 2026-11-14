@@ -208,3 +208,56 @@ def test_runtime_coverage_detects_unlogged_active_action(
         cc, "_active_action_keys", lambda: original() | {"SHOT.GHOST.ACTION"}
     )
     assert cc.check_runtime_contract_coverage() is False
+
+
+# --------------------------------------------------------------------------- #
+# 已实现 action 的对象 schema 覆盖闸门
+# --------------------------------------------------------------------------- #
+def test_missing_resource_schemas_reports_undefined_and_unexempted() -> None:
+    """资源类型未定义且未豁免 → 报 (action, type)；组合类型按 / 拆分。"""
+    missing = cc.missing_resource_schemas(
+        {"A.CREATE", "B.CREATE"},
+        {"A.CREATE": "Alpha", "B.CREATE": "Beta/Gamma"},
+        {"Alpha"},
+        {"Gamma"},
+    )
+    assert missing == [("B.CREATE", "Beta")]
+
+
+def test_missing_resource_schemas_all_exempted_is_empty() -> None:
+    assert cc.missing_resource_schemas(
+        {"A.CREATE"}, {"A.CREATE": "Alpha/Beta"}, set(), {"Alpha", "Beta"}
+    ) == []
+
+
+def test_check_resource_schemas_passes_on_current_contract() -> None:
+    """当前台账（8 个已实现 + 4 条豁免）应通过。"""
+    assert cc.check_implemented_resource_schemas() is True
+
+
+def test_check_resource_schemas_fails_for_unimplemented_object(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """把 ShotDraft（object_schemas 里没有定义）伪造成已实现 → 必须报红。"""
+    ledger = tmp_path / "ledger.yaml"
+    ledger.write_text(
+        "implemented:\n"
+        "  SHOT.DRAFT.CREATE:\n"
+        "    route: POST /shots/drafts\n"
+        "not_implemented: {}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cc, "LEDGER_PATH", ledger)
+    assert cc.check_implemented_resource_schemas() is False
+
+
+def test_check_resource_schemas_fails_for_orphan_exemption(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """豁免了没有任何已实现动作引用的类型 = 过期条目，必须报红。"""
+    exempt = tmp_path / "exemptions.yaml"
+    exempt.write_text(
+        "exemptions:\n  NotReferencedAnywhere: \"过期条目\"\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(cc, "RESOURCE_EXEMPTIONS_PATH", exempt)
+    assert cc.check_implemented_resource_schemas() is False

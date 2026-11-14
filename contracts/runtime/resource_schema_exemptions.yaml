@@ -1,0 +1,20 @@
+# 已实现 action 的对象 schema 豁免台账
+#
+# 为什么需要这张表：
+# `contracts/schemas/object_schemas.schema.json` 覆盖的是 C.3「新增领域对象」的
+# 机器可读定义；核心信封对象（Project / Episode / ScriptRevision）目前只定义在
+# C.3.1 文档里，没有同等的 JSON schema。要么补 schema，要么显式登记豁免——
+# 但绝不能靠「不检查」让缺口沉默通过（ADR-R07 就是这种沉默的产物）。
+#
+# 规则（由 scripts/contract_check.py 强制执行）：
+# 1. 每条豁免必须有非空 reason；
+# 2. 豁免只允许覆盖「已被 implemented action 引用」的资源类型，过期条目会报错；
+# 3. 新增一个已实现的 action 时，若资源类型既没有 schema 也不在这张表里，CI 直接红。
+
+version: 1
+
+exemptions:
+  Project: "核心信封对象，字段契约见 C.3.1；未进入 object_schemas（该文件只收 C.3 新增对象）"
+  Episode: "核心信封对象，字段契约见 C.3.1；未进入 object_schemas（同上）"
+  ScriptRevision: "核心信封对象，字段契约见 C.3.1；未进入 object_schemas（同上）"
+  ScriptLock: "锁定不是独立对象，而是 ScriptRevision 上的审批关系（requested_by/status），动作输出仍是 ScriptRevision"

@@ -115,25 +115,44 @@ services:
       disable: true
     restart: unless-stopped
 
-  # Outbox 分区维护（R06 保留期）。默认不随栈启动（profile=ops），必须显式触发：
-  # 它是 DDL 操作（需要迁移角色），且「删不删旧数据」是运维决策，不能自动化掉。
-  #   docker compose --profile ops run --rm outbox-maintenance            # dry-run
-  #   docker compose --profile ops run --rm outbox-maintenance --apply
+  # Outbox 分区维护（R06 保留期）。常驻模式：每 24 小时补建缺失月份分区，
+  # 并把过期分区「导出归档 + DETACH + 改名保留」，每轮结果写 outbox.maintenance_runs。
+  # 为什么不默认 --drop-detached：删除是不可逆的容量决策，由运维显式执行一次：
+  #   docker compose --profile ops run --rm outbox-maintenance \
+  #     python -m workers.outbox_maintenance --apply --archive-dir /archive --drop-detached
+  # 单看计划（dry-run）：
+  #   docker compose --profile ops run --rm outbox-maintenance \
+  #     python -m workers.outbox_maintenance
   outbox-maintenance:
     profiles: ["ops"]
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.api
     image: ai-film-api:local
-    command: ["python", "-m", "workers.outbox_maintenance"]
+    command:
+      [
+        "python",
+        "-m",
+        "workers.outbox_maintenance",
+        "--apply",
+        "--every-hours",
+        "24",
+        "--archive-dir",
+        "/archive",
+      ]
     environment: *db-env
+    volumes:
+      # 归档是本机最后一份可校验副本：必须持久化，不能随容器删除而消失。
+      - outbox_archive:/archive
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
       disable: true
-    restart: "no"
+    # 常驻循环自身吞掉单轮异常；只兜进程级崩溃，避免静默停止维护。
+    restart: unless-stopped
 
 volumes:
   postgres_data:
   redis_data:
+  outbox_archive:
