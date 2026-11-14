@@ -1,11 +1,27 @@
-# 本地开发基础设施编排（Phase 1 最小依赖集）
+# 本地/单机编排（Phase 1 最小闭环）
 #
-# 说明：
-# - 仅编排基础设施（PostgreSQL / Redis），应用服务由本机 uvicorn 运行，不在此编排。
-# - 数据卷持久化，重启不丢数据。
-# - 所有口令仅用于本地开发，生产环境一律走密钥管理服务，绝不硬编码。
+# 设计约束：
+# - 启动顺序由依赖条件强制：postgres 健康 → migrate 一次性执行成功 → api 起。
+#   迁移失败时 api 不会启动（fail-closed），不会出现「半旧表结构接流量」。
+# - 迁移是独立一次性容器，不是 api 的入口脚本：多副本滚动发布时不会并发迁移。
+# - 口令全部走环境变量占位（默认值仅供本地开发）；生产由密钥系统注入，
+#   镜像与编排文件中不含任何真实口令。
+# - redis 暂不作为 api 的 depends_on：应用当前未使用 Redis，把未使用的依赖
+#   写进就绪链会让「Redis 抖动」误判为 API 不可用。
+# - postgres / redis 用官方镜像名（可移植）；若所在网络无法直连 Docker Hub，
+#   需在 Docker 守护进程配置 registry mirror（daemon.json 的 registry-mirrors），
+#   不要改成本地私有镜像名，否则编排文件就与 CI / 生产脱节。
 
 name: ai-film-industrial
+
+x-db-env: &db-env
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+  POSTGRES_DB: ai_film_industrial
+  POSTGRES_APP_USER: app_role
+  POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-app_dev_password}
 
 services:
   postgres:
@@ -13,10 +29,10 @@ services:
     container_name: ai-film-postgres
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ai_film_industrial
     ports:
-      - "15432:5432"
+      - "${POSTGRES_HOST_PORT:-15432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -29,7 +45,7 @@ services:
     image: redis:7
     container_name: ai-film-redis
     ports:
-      - "16379:6379"
+      - "${REDIS_HOST_PORT:-16379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -37,6 +53,34 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # 一次性迁移容器：成功退出（exit 0）才允许 api 启动。
+  migrate:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.api
+    image: ai-film-api:local
+    command: ["alembic", "upgrade", "head"]
+    environment: *db-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.api
+    image: ai-film-api:local
+    environment:
+      <<: *db-env
+      APP_ENV: ${APP_ENV:-development}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "${API_HOST_PORT:-8000}:8000"
+    restart: unless-stopped
 
 volumes:
   postgres_data:

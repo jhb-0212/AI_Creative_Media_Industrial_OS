@@ -131,3 +131,20 @@ jobs:
         run: uv sync --frozen --extra dev
       - name: Permission negative tests
         run: uv run pytest tests/permission -q
+
+  # 发布链路的构建闸门：镜像必须能构建、且能真正 import 应用。
+  # 这里不推送镜像（推送由发布流程单独授权），只保证「构建可复现且可运行」，
+  # 避免镜像问题等到上线才暴露。
+  image-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build API image
+        run: docker build -f infra/docker/Dockerfile.api -t ai-film-api:ci .
+
+      - name: Smoke test imported app inside image
+        run: docker run --rm -e APP_ENV=development ai-film-api:ci python -c "import apps.api.main; print('import ok')"
+
+      - name: Smoke test migration entrypoint inside image
+        run: docker run --rm ai-film-api:ci alembic --version

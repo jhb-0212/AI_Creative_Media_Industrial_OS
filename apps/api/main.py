@@ -18,6 +18,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
+from sqlalchemy import text
 
 from packages.errors.error_codes import (
     DomainError,
@@ -150,8 +151,36 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
 
 @app.get("/health", tags=["system"])
 async def health() -> dict[str, str]:
-    """健康检查：返回服务与版本信息。"""
+    """存活探针：只证明进程能应答，不触碰任何外部依赖。
+
+    与 /readyz 严格分工：编排系统用 /health 判「要不要重启进程」，
+    用 /readyz 判「能不能接流量」。
+    """
     return {"status": "ok", "service": "api", "version": settings.app_version}
+
+
+@app.get("/readyz", tags=["system"])
+async def readyz() -> JSONResponse:
+    """就绪探针：真实探测数据库可达性（SELECT 1），失败即 503。
+
+    失败关闭（fail-closed）：数据库不可达时宁可把实例摘出负载均衡，
+    也不让流量进来变成 500。响应体固定为最小状态，不泄漏连接串、
+    角色名或底层错误——这是编排面协议，不进入业务错误信封。
+    """
+    try:
+        sessionmaker = app.state.sessionmaker
+        async with sessionmaker() as session:
+            await session.execute(text("SELECT 1"))
+    except Exception:
+        logger.error("readiness_check_failed", exc_info=True)
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unready", "checks": {"database": "down"}},
+        )
+    return JSONResponse(
+        status_code=200,
+        content={"status": "ready", "checks": {"database": "up"}},
+    )
 
 
 @app.get("/errors/{code}", tags=["system"])

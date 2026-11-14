@@ -32,6 +32,31 @@ def test_health_returns_ok(client: TestClient) -> None:
     assert body["version"]
 
 
+def test_readyz_reports_database_up(client: TestClient) -> None:
+    """就绪探针必须真实打库：库可用时 200 且显式给出 database=up。"""
+    resp = client.get("/readyz")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ready"
+    assert body["checks"]["database"] == "up"
+
+
+def test_readyz_fails_closed_when_database_unavailable(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """库不可用时必须 503（fail-closed），不能把流量放进来变成 500。"""
+
+    def _broken_sessionmaker() -> None:
+        raise RuntimeError("database unreachable")
+
+    monkeypatch.setattr(app.state, "sessionmaker", _broken_sessionmaker)
+    resp = client.get("/readyz")
+    assert resp.status_code == 503
+    body = resp.json()
+    assert body["status"] == "unready"
+    assert body["checks"]["database"] == "down"
+
+
 def test_error_catalog_returns_known_code(client: TestClient) -> None:
     resp = client.get("/errors/AUTH_SCOPE_DENIED")
     assert resp.status_code == 200

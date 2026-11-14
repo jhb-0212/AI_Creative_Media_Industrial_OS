@@ -14,6 +14,14 @@ __pycache__
 .pytest_cache
 .ruff_cache
 
+# ---- 不进入运行时镜像的工程面 ----
+# 测试、CI 配置与本地工具目录不属于交付物，排除后构建上下文更小，
+# 也避免把内部测试断言与 CI 口令约定带进镜像。
+tests/
+.github/
+.workbuddy/
+node_modules/
+
 # ---- 敏感信息（密钥绝不进入镜像） ----
 .env
 .env.*
