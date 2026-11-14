@@ -13,6 +13,10 @@
 7. 已实现 action 的资源类型必须在 object_schemas 中有定义，或在
    contracts/runtime/resource_schema_exemptions.yaml 中登记豁免原因
    （防止 ADR-R07 那类「动作有、对象无」的缺口静默通过 CI）。
+8. 全部 ACTIVE action 的资源类型必须有定义/豁免，或在
+   contracts/runtime/resource_schema_gaps.yaml 中登记显式债务
+   （reason / contract_ref / unblocks_when / referenced_by），并双向校验：
+   未登记缺口报红、陈旧债务报红、孤儿债务报红、字段缺失报红。
 
 设计要点（不屎山代码）：
 - 解析逻辑独立成纯函数（parse_state_chain），可单测、无副作用。
@@ -479,6 +483,100 @@ def check_implemented_resource_schemas() -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# 全部 ACTIVE action 的对象 schema 覆盖闸门（显式债务，不静默放行）
+# --------------------------------------------------------------------------- #
+RESOURCE_GAPS_PATH = CONTRACTS / "runtime" / "resource_schema_gaps.yaml"
+RESOURCE_GAP_REQUIRED_FIELDS = ("referenced_by", "reason", "contract_ref", "unblocks_when")
+
+
+def _active_resource_refs(
+    active: set[str], resource_types: dict[str, str]
+) -> dict[str, set[str]]:
+    """resource_type → 引用它的 ACTIVE action 集合（组合类型按 / 拆开）。"""
+    refs: dict[str, set[str]] = {}
+    for key in active:
+        for part in (p.strip() for p in resource_types.get(key, "").split("/")):
+            if part:
+                refs.setdefault(part, set()).add(key)
+    return refs
+
+
+def _load_resource_schema_gaps() -> dict[str, dict[str, object]]:
+    if not RESOURCE_GAPS_PATH.exists():
+        return {}
+    data = yaml.safe_load(RESOURCE_GAPS_PATH.read_text(encoding="utf-8")) or {}
+    raw = data.get("gaps") or {}
+    return {str(name): (entry or {}) for name, entry in raw.items()}
+
+
+def check_active_resource_schemas() -> bool:
+    """所有 ACTIVE action 的资源类型：有定义、有豁免，或登记显式债务。
+
+    ADR-R07 的原始闸门只查「已实现」动作，于是 ACTIVE 未实现的业务对象
+    既不在 schema 检查内，又有 reason 台账兜底，形成双向盲区（9 个类型）。
+    本闸门把口径扩到全部 ACTIVE，并允许「债务登记」替代「第九个豁免」：
+    债务必须写清谁在引用、卡在什么契约、什么条件解开；一旦正文补齐 schema，
+    债务条目必须删除，否则以陈旧债务报红。
+    """
+    if not OBJECT_SCHEMAS_PATH.exists():
+        print(f"[FAIL] 缺少对象 schema: {OBJECT_SCHEMAS_PATH}")
+        return False
+
+    active = _active_action_keys()
+    resource_types = _action_resource_types()
+    defs = _object_schema_defs()
+    exemptions = set(_schema_exemptions())
+    gaps = _load_resource_schema_gaps()
+    refs = _active_resource_refs(active, resource_types)
+    ok = True
+
+    # 1) 债务条目字段完整 + referenced_by 与契约实际引用一致（台账不能撒谎）
+    for name, entry in gaps.items():
+        missing_fields = [f for f in RESOURCE_GAP_REQUIRED_FIELDS if not entry.get(f)]
+        if missing_fields:
+            print(f"[FAIL] 债务条目 {name!r} 缺少字段: {missing_fields}")
+            ok = False
+            continue
+        declared = {str(v) for v in (entry.get("referenced_by") or [])}
+        if declared != refs.get(name, set()):
+            print(
+                f"[FAIL] 债务条目 {name!r} 的 referenced_by 与 ACTIVE 实际引用不一致："
+                f"登记 {sorted(declared)}，实际 {sorted(refs.get(name, set()))}"
+            )
+            ok = False
+
+    # 2) ACTIVE 引用但既无定义、无豁免、未登记债务 = 静默缺口
+    for name, actions in sorted(refs.items()):
+        if name in defs or name in exemptions or name in gaps:
+            continue
+        print(
+            f"[FAIL] ACTIVE 动作 {sorted(actions)} 引用的资源类型 {name!r} "
+            "既无 object schema、无豁免，也未在 contracts/runtime/"
+            "resource_schema_gaps.yaml 登记债务"
+        )
+        ok = False
+
+    # 3) 已补 schema 却还挂着债务 = 陈旧债务（不允许登记一次永久豁免）
+    stale = sorted(set(gaps) & defs)
+    if stale:
+        print(f"[FAIL] 以下类型已有 object schema 但仍登记债务，必须删除条目: {stale}")
+        ok = False
+
+    # 4) 债务类型没有任何 ACTIVE 动作引用 = 孤儿债务（掩盖的是假缺口）
+    orphan = sorted(set(gaps) - set(refs))
+    if orphan:
+        print(f"[FAIL] 债务台账包含未被任何 ACTIVE action 引用的条目: {orphan}")
+        ok = False
+
+    if ok:
+        print(
+            f"[PASS] ACTIVE action 的对象 schema 覆盖：{len(active)} 个动作 / "
+            f"{len(refs)} 个资源类型（显式债务 {len(gaps)} 项，豁免 {len(exemptions)} 项）"
+        )
+    return ok
+
+
+# --------------------------------------------------------------------------- #
 # Permission Matrix 结构校验
 # --------------------------------------------------------------------------- #
 def check_permission_matrix() -> bool:
@@ -764,6 +862,7 @@ def main() -> int:
     ok &= check_action_openapi_consistency()
     ok &= check_runtime_contract_coverage()
     ok &= check_implemented_resource_schemas()
+    ok &= check_active_resource_schemas()
     ok &= check_implemented_permission_wiring()
     ok &= check_state_reachability()
     ok &= check_permission_matrix()
