@@ -103,11 +103,15 @@ class Entity:
         self.audit_ref = audit_ref
 
     def _envelope_dict(self) -> dict[str, Any]:
-        """序列化信封公共字段（业务字段由子类补充）。"""
+        """序列化信封公共字段（业务字段由子类补充）。
+
+        **不输出 tenant_id**：租户是内部隔离键，不是对外契约字段
+        （object_schemas 全文无 tenant_id）。把它放进响应既制造契约漂移，
+        也把内部隔离标识暴露给调用方；需要租户信息的地方从 Principal 取。
+        """
         return {
             "entity_id": self.entity_id,
             "entity_type": self.entity_type,
-            "tenant_id": str(self.tenant_id),
             "schema_version": self.schema_version,
             "entity_version": self.entity_version,
             "status": self.status.value,

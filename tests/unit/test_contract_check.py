@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -559,3 +560,85 @@ def test_event_catalog_requires_gap_for_missing_action_event(
         audit_events={"DEMO.CREATE": "DEMO_CREATED"},
     )
     assert cc.check_event_catalog() is False
+
+
+# --------------------------------------------------------------------------- #
+# Schema 结构 + 运行时字段一致性（check_schema_objects）
+# --------------------------------------------------------------------------- #
+def _write_schema(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, definitions: dict) -> None:
+    path = tmp_path / "object_schemas.json"
+    path.write_text(
+        json.dumps({"definitions": definitions}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cc, "SCHEMA_PATH", path)
+
+
+def test_schema_rejects_empty_properties(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_schema(tmp_path, monkeypatch, {"Demo": {"type": "object", "properties": {}}})
+    assert cc.check_schema_objects() is False
+
+
+def test_schema_rejects_required_not_in_properties(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_schema(
+        tmp_path,
+        monkeypatch,
+        {
+            "Demo": {
+                "type": "object",
+                "properties": {"a": {"type": "string"}},
+                "required": ["a", "phantom"],
+            }
+        },
+    )
+    assert cc.check_schema_objects() is False
+
+
+def test_schema_rejects_dangling_ref(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_schema(
+        tmp_path,
+        monkeypatch,
+        {
+            "Demo": {
+                "type": "object",
+                "properties": {"child": {"$ref": "#/definitions/Ghost"}},
+            }
+        },
+    )
+    assert cc.check_schema_objects() is False
+
+
+def test_schema_rejects_runtime_extra_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """响应出现契约未声明的字段 = 字段漂移，必须报红（P2-4 的根因）。"""
+
+    class _ExtraKeyProbe:
+        def to_dict(self) -> dict:
+            return {
+                "entity_id": "x",
+                "entity_type": "AssetVersion",
+                "schema_version": "1.0",
+                "entity_version": 1,
+                "status": "GENERATED",
+                "owner_module": "asset-service",
+                "created_at": "2026-01-01T00:00:00+00:00",
+                "created_by": "probe",
+                "updated_at": "2026-01-01T00:00:00+00:00",
+                "audit_ref": "probe",
+                "private_note": "leak",
+            }
+
+    real = cc._serializer_factories()
+
+    def _fake_factories() -> dict[str, object]:
+        return {**real, "AssetVersion": _ExtraKeyProbe()}
+
+    monkeypatch.setattr(cc, "_serializer_factories", _fake_factories)
+    assert cc.check_schema_objects() is False

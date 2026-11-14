@@ -173,6 +173,7 @@ class AssetService:
         principal: Principal,
         benchmark_version: str | None = None,
         deviation_class: DeviationClass | None = None,
+        deviation_intent_ref: str | None = None,
         intent_match_status: IntentMatchStatus | None = None,
         human_decision: str | None = None,
         qc_report_id: str | None = None,
@@ -206,6 +207,7 @@ class AssetService:
             created_by=principal.subject_id.strip(),
             benchmark_version=_clean_optional(benchmark_version),
             deviation_class=deviation_class,
+            deviation_intent_ref=_clean_optional(deviation_intent_ref),
             intent_match_status=intent_match_status,
             human_decision=_clean_optional(human_decision),
         )

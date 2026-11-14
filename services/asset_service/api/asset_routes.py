@@ -20,9 +20,10 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, create_model
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from packages.shared.contract_models import contract_model
 from packages.shared.outbox_writer import SqlAlchemyOutboxWriter
 from packages.shared.unit_of_work import UnitOfWork
 from services.asset_service.domain.enums import DeviationClass, IntentMatchStatus
@@ -33,9 +34,24 @@ from services.asset_service.repository.sqlalchemy_qc_repo import (
     SqlAlchemyQCReportRepository,
 )
 from services.asset_service.service.asset_service import AssetService
-from services.identity_access.deps import Principal, get_tenant_uow, require_role
+from services.identity_access.deps import (
+    Principal,
+    get_read_tenant_uow,
+    get_tenant_uow,
+    require_role,
+)
 
 router = APIRouter(prefix="/assets", tags=["asset-management"])
+
+# 响应模型直接由契约定义生成：字段集永远等于 object_schemas，多出来的内部
+# 字段（如 tenant_id）会被响应模型过滤掉（P2-4）。
+_AssetVersionResponse = contract_model("AssetVersion")
+_QCReportResponse = contract_model("QCReport")
+_QCCreationResponse = create_model(
+    "QCReportCreation",
+    asset_version=(_AssetVersionResponse, ...),
+    qc_report=(_QCReportResponse, ...),
+)
 
 
 class CreateAssetVersionRequest(BaseModel):
@@ -61,6 +77,7 @@ class CreateQCReportRequest(BaseModel):
     findings: list[Any] = Field(..., min_length=1)
     benchmark_version: str | None = Field(default=None, max_length=64)
     deviation_class: DeviationClass | None = None
+    deviation_intent_ref: str | None = Field(default=None, max_length=64)
     intent_match_status: IntentMatchStatus | None = None
     human_decision: str | None = Field(default=None, max_length=32)
     qc_report_id: str | None = Field(default=None, max_length=64)
@@ -80,7 +97,14 @@ def _get_service(uow: UnitOfWork = Depends(get_tenant_uow)) -> AssetService:
     return _build_service(uow.session)
 
 
-@router.post("", status_code=201)
+def _get_read_service(
+    uow: UnitOfWork = Depends(get_read_tenant_uow),
+) -> AssetService:
+    """只读用例装配：走只读 UoW，不占用写事务（P2-3）。"""
+    return _build_service(uow.session)
+
+
+@router.post("", status_code=201, response_model=_AssetVersionResponse)
 async def create_asset_version(
     body: CreateAssetVersionRequest,
     principal: Principal = Depends(require_role("ASSET.VERSION.CREATE")),
@@ -105,7 +129,7 @@ async def create_asset_version(
     return asset.to_dict()
 
 
-@router.post("/{asset_version_id}/qc-reports", status_code=201)
+@router.post("/{asset_version_id}/qc-reports", status_code=201, response_model=_QCCreationResponse)
 async def create_qc_report(
     asset_version_id: str,
     body: CreateQCReportRequest,
@@ -122,6 +146,7 @@ async def create_qc_report(
         principal=principal,
         benchmark_version=body.benchmark_version,
         deviation_class=body.deviation_class,
+        deviation_intent_ref=body.deviation_intent_ref,
         intent_match_status=body.intent_match_status,
         human_decision=body.human_decision,
         qc_report_id=body.qc_report_id,
@@ -130,7 +155,7 @@ async def create_qc_report(
     return {"asset_version": asset.to_dict(), "qc_report": report.to_dict()}
 
 
-@router.post("/{asset_version_id}/approve")
+@router.post("/{asset_version_id}/approve", response_model=_AssetVersionResponse)
 async def approve_asset_version(
     asset_version_id: str,
     principal: Principal = Depends(require_role("ASSET.VERSION.APPROVE")),
@@ -145,11 +170,11 @@ async def approve_asset_version(
     return asset.to_dict()
 
 
-@router.get("/{asset_version_id}")
+@router.get("/{asset_version_id}", response_model=_AssetVersionResponse)
 async def read_asset_version(
     asset_version_id: str,
     _principal: Principal = Depends(require_role("ASSET.VERSION.READ")),
-    service: AssetService = Depends(_get_service),
+    service: AssetService = Depends(_get_read_service),
 ) -> dict[str, Any]:
     """读取资产版本信封（只读；租户可见性由 RLS 保证，不可见即 NOT_FOUND）。"""
     asset = await service.get_version(asset_version_id=asset_version_id)

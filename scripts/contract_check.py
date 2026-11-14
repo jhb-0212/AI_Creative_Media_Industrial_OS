@@ -682,29 +682,186 @@ def check_permission_matrix() -> bool:
 
 
 # --------------------------------------------------------------------------- #
-# Schema 对象完整性
+# Schema 对象完整性（结构 + 运行时字段一致性）
 # --------------------------------------------------------------------------- #
+SCHEMA_PATH = CONTRACTS / "schemas" / "object_schemas.schema.json"
+_VALID_JSON_TYPES = frozenset(
+    {"object", "array", "string", "integer", "number", "boolean", "null"}
+)
+
+# 已实现且可序列化的资源：用真实领域对象的 to_dict() 与契约定义双向比对。
+# 只列"有运行时序列化器"的对象；PHASE_GATED 对象的覆盖由资源缺口台账负责。
+_RESOURCE_SERIALIZERS: dict[str, tuple[str, str]] = {
+    "AssetVersion": (
+        "services.asset_service.domain.asset_version",
+        "AssetVersion",
+    ),
+    "QCReport": ("services.asset_service.domain.qc_report", "QCReport"),
+}
+
+
+def _serializer_factories() -> dict[str, object]:
+    """构造最小合法领域对象，用于校验 to_dict() 与契约定义的一致性。"""
+    from uuid import uuid4
+
+    from services.asset_service.domain.asset_version import AssetVersion
+    from services.asset_service.domain.qc_report import QCReport
+
+    tenant_id = uuid4()
+    return {
+        "AssetVersion": AssetVersion(
+            entity_id="probe-asset",
+            created_by="probe",
+            tenant_id=tenant_id,
+            asset_type="video",
+            sha256="0" * 64,
+            storage_ref={"bucket": "probe", "key": "probe"},
+        ),
+        "QCReport": QCReport(
+            qc_report_id="probe-report",
+            asset_version_id="probe-asset",
+            tenant_id=tenant_id,
+            quality_profile_version="qp-probe",
+            detector_versions={"blur": "1.0"},
+            findings=[{"code": "PROBE"}],
+            created_by="probe",
+        ),
+    }
+
+
+def _resolve_local_ref(ref: str, definitions: dict[str, object]) -> str | None:
+    """解析 `#/definitions/X` 或 `#/$defs/X`，返回定义名；外部引用返回 None。"""
+    for prefix in ("#/definitions/", "#/$defs/"):
+        if ref.startswith(prefix):
+            return ref[len(prefix) :].split("/")[0]
+    return None
+
+
 def check_schema_objects() -> bool:
-    """校验 object_schemas.schema.json 的 P0 对象定义完整性。
+    """校验 object_schemas.schema.json 的结构完整性与运行时字段一致性。
 
-    契约：76 个 P0 契约对象已建模。校验 definitions 非空，且每个定义含
-    type / properties 基础结构（防止空壳对象）。
+    为什么不再"只判非空 + 打印数量"（审计 P1-3 实测：76 个定义裁到 30 个仍
+    PASS）：数量不是约束，行为才是。本闸门做四件事：
+    1. 每个定义必须是 object、有非空 properties；
+    2. required 必须是列表且每一项都在 properties 里；
+    3. 每个 property 必须有形状（type / $ref / anyOf / oneOf / allOf /
+       enum / const），type 必须是合法 JSON 类型；内部 $ref 必须能解析；
+    4. 已实现对象的 to_dict() 字段集必须与定义严格对齐：契约 required 必须
+       全出现（缺 = 契约承诺了不给），响应多出的键必须已在 properties 中
+       （多 = 私有字段泄漏/字段漂移）。
     """
-    schema_path = CONTRACTS / "schemas" / "object_schemas.schema.json"
-    data = json.loads(schema_path.read_text(encoding="utf-8"))
-
+    data = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     definitions = data.get("definitions", data.get("$defs", {}))
     if not definitions:
         print("[FAIL] object_schemas.schema.json 缺少 definitions")
         return False
 
-    empty = [k for k, v in definitions.items() if not isinstance(v, dict) or not v]
-    if empty:
-        print(f"[FAIL] 存在空对象定义: {empty}")
-        return False
+    ok = True
+    refs_checked = 0
 
-    print(f"[PASS] Schema 对象完整：{len(definitions)} 个定义")
-    return True
+    for name, spec in definitions.items():
+        if not isinstance(spec, dict) or not spec:
+            print(f"[FAIL] 定义 {name} 为空或不是对象")
+            ok = False
+            continue
+        if spec.get("type") != "object":
+            print(f"[FAIL] 定义 {name} 的 type 必须为 object")
+            ok = False
+        properties = spec.get("properties")
+        if not isinstance(properties, dict) or not properties:
+            print(f"[FAIL] 定义 {name} 缺少非空 properties（空壳对象）")
+            ok = False
+            continue
+
+        required = spec.get("required", [])
+        if not isinstance(required, list):
+            print(f"[FAIL] 定义 {name} 的 required 必须是列表")
+            ok = False
+            required = []
+        missing_required = [r for r in required if r not in properties]
+        if missing_required:
+            print(
+                f"[FAIL] 定义 {name} 的 required 含未声明属性: {missing_required}"
+            )
+            ok = False
+
+        for prop_name, prop_spec in properties.items():
+            if not isinstance(prop_spec, dict) or not prop_spec:
+                print(f"[FAIL] {name}.{prop_name} 不是有效的属性定义")
+                ok = False
+                continue
+            shape_keys = ("type", "$ref", "anyOf", "oneOf", "allOf", "enum", "const")
+            if not any(key in prop_spec for key in shape_keys):
+                print(
+                    f"[FAIL] {name}.{prop_name} 缺少形状（type/$ref/enum/...），"
+                    "无法校验类型"
+                )
+                ok = False
+            prop_type = prop_spec.get("type")
+            if prop_type is not None:
+                declared_types = (
+                    prop_type if isinstance(prop_type, list) else [prop_type]
+                )
+                invalid = [
+                    item
+                    for item in declared_types
+                    if item not in _VALID_JSON_TYPES
+                ]
+                if invalid:
+                    print(
+                        f"[FAIL] {name}.{prop_name} 的 type 非法: {invalid!r}"
+                    )
+                    ok = False
+            ref = prop_spec.get("$ref")
+            if isinstance(ref, str):
+                refs_checked += 1
+                target = _resolve_local_ref(ref, definitions)
+                if target is not None and target not in definitions:
+                    print(f"[FAIL] {name}.{prop_name} 的 $ref 悬空: {ref}")
+                    ok = False
+
+    # 运行时字段一致性：契约与代码谁也不能单方面多一个/少一个字段。
+    factories = _serializer_factories()
+    runtime_checked = 0
+    for resource_name, _source in _RESOURCE_SERIALIZERS.items():
+        spec = definitions.get(resource_name)
+        if not isinstance(spec, dict):
+            print(
+                f"[FAIL] 已实现对象 {resource_name} 在契约中无定义"
+                "（定义被删 = 契约失效）"
+            )
+            ok = False
+            continue
+        instance = factories.get(resource_name)
+        if instance is None:
+            print(f"[FAIL] 已实现对象 {resource_name} 缺少序列化探针工厂")
+            ok = False
+            continue
+        runtime_keys = set(instance.to_dict())  # type: ignore[attr-defined]
+        declared = set(spec.get("properties") or {})
+        required = set(spec.get("required") or [])
+
+        extra = sorted(runtime_keys - declared)
+        if extra:
+            print(
+                f"[FAIL] {resource_name} 响应出现契约未声明字段: {extra}"
+                "（私有字段泄漏或字段漂移）"
+            )
+            ok = False
+        missing = sorted(required - runtime_keys)
+        if missing:
+            print(
+                f"[FAIL] {resource_name} 响应缺少契约 required 字段: {missing}"
+            )
+            ok = False
+        runtime_checked += 1
+
+    if ok:
+        print(
+            f"[PASS] Schema 对象完整：{len(definitions)} 个定义结构校验通过"
+            f"（$ref {refs_checked} 个），运行时字段一致 {runtime_checked} 个对象"
+        )
+    return ok
 
 
 # --------------------------------------------------------------------------- #
