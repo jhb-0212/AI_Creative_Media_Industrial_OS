@@ -57,3 +57,22 @@ CI，但它不是「契约自洽」，只是「没检查」。
 - 镜头域仍是 0 个已实现 action；`SHOT.REVISION.CONFIRM`、`SHOTSPEC.LOCK` 依赖
   ShotDraft/ShotSpec 的版本与审批语义，同样不能先做。
 - 已实现的 8 个 action 不受影响（它们的 resource_type 在 schema 中有定义）。
+
+## R09 补充：缺口不是一条，是同一根因的九次复制
+
+上面第 3 条闸门只覆盖「已实现」动作，仍然留了一条盲区：ACTIVE 但未实现的动作，
+一边被 reason 台账放行、一边不被 schema 检查看见。按 ACTIVE 全量实测（37 个动作 /
+27 个资源类型），有 **9 个类型 / 10 组引用** 既无 schema 也无豁免：
+
+`ShotDraft`、`ShotRevision`、`ShotBudgetRequest`、`BudgetLedger`、`GenerationTask`、
+`ProductionRoute`、`CanonRevision`、`RightsCase`、`RightsManifest`。
+
+处置（见 `docs/proposals/shot-domain-contract-closure.md` 第八节）：
+- 新增闸门 `check_active_resource_schemas()`，口径扩到全部 ACTIVE；
+- 缺口用 `contracts/runtime/resource_schema_gaps.yaml` 显式登记（
+  `referenced_by` / `reason` / `contract_ref` / `unblocks_when`），**不新增豁免**；
+- 双向校验：未登记缺口、陈旧债务、孤儿债务、字段缺失、`referenced_by` 与契约
+  实际引用不一致，一律报红。
+
+结论不变：**补 schema 仍需正文口径**。基线正文 V2.0.5 当前不在本机，所以本轮只把
+缺口从静默变成显性债务，不写任何猜测字段。

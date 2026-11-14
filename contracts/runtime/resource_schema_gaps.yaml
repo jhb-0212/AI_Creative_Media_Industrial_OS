@@ -1,0 +1,66 @@
+# ACTIVE 动作的资源类型缺 schema（显式债务登记）
+#
+# 为什么需要这个文件：
+# - scripts/contract_check.py 原先只校验**已实现**动作的资源类型有 schema；
+#   ACTIVE 但未实现的动作既不在 schema 检查里、又有 reason 台账兜底，于是形成
+#   双向盲区：9 个业务对象（ShotDraft / ShotRevision / ShotBudgetRequest /
+#   BudgetLedger / GenerationTask / ProductionRoute / CanonRevision / RightsCase /
+#   RightsManifest）缺 schema 却能全绿通过 CI。
+# - 补 schema 必须依据基线正文（AFS-ARCH-MASTER-V2.0.5），而该正文当前不在本机；
+#   按「不猜契约」原则，不能拿提案草案冒充正文定义。
+# - 因此把缺口登记成显式债务：CI 变绿的前提是每一个缺口都写清「谁在引用它、
+#   卡在正文哪一条、什么条件解开」。闸门会双向校验，缺口不会静默增长或永久豁免。
+#
+# 写入口径：
+# - 键为资源类型名（与 action_registry.resource_type 完全一致，组合类型按 / 拆开分别登记）；
+# - referenced_by 必须与当前 ACTIVE 动作的引用关系一致（闸门会核对）；
+# - 正文补齐对象定义并写入 object_schemas.schema.json 后，必须删除对应条目，
+#   否则闸门以「陈旧债务」报红；
+# - 本文件不是豁免清单：豁免只留给核心信封对象（见 resource_schema_exemptions.yaml）。
+
+gaps:
+  ShotDraft:
+    referenced_by: ["SHOT.DRAFT.CREATE"]
+    reason: "镜头域主链入口对象缺失：草案是拆镜产物的唯一入口，无 schema 则无法校验草案内容与确认绑定"
+    contract_ref: "docs/adr/ADR-R07-shot-draft-contract-gap.md; docs/proposals/shot-domain-contract-closure.md#四"
+    unblocks_when: "基线正文 8.x 拆镜条款给出草案字段与状态集后，按正文补 ShotDraft schema 与 SHOT.DRAFT.CONFIRM/REJECT 动作"
+  ShotRevision:
+    referenced_by: ["SHOT.REVISION.CONFIRM"]
+    reason: "确认动作的输出对象无 schema：草案确认后必须产出可追溯的镜头版本，否则『确认即绑定』不变式无处落地"
+    contract_ref: "docs/proposals/shot-domain-contract-closure.md#四"
+    unblocks_when: "正文明确 ShotDraft→ShotRevision→ShotSpec 从属关系后补 schema"
+  ShotBudgetRequest:
+    referenced_by: ["BUDGET.SHOT.REQUEST", "BUDGET.SHOT.APPROVE"]
+    reason: "单镜头预算申请对象无 schema：预算申请与审批的金额、口径、幂等键无法被机器校验"
+    contract_ref: "contracts/budget/budget_caliber.yaml"
+    unblocks_when: "正文预算章节给出申请字段与审批前置后补 schema（金额口径复用 budget_caliber.yaml）"
+  BudgetLedger:
+    referenced_by: ["BUDGET.SHOT.APPROVE"]
+    reason: "账本对象无 schema：批准落账的流水结构无法校验，Gate D 账本对账缺少对象依据"
+    contract_ref: "contracts/state_machines/state_machines.yaml:51-56（BudgetLedgerTransaction 仅有文字定义）"
+    unblocks_when: "正文 C.7 / 预算章节给出流水字段（交易 ID、幂等键、余额计算）后补 schema"
+  GenerationTask:
+    referenced_by: ["GENERATION.REQUEST"]
+    reason: "生成任务对象无 schema：预算/配额/依赖与约束快照的准入校验没有可校验载体"
+    contract_ref: "contracts/action_registry/action_registry.yaml（GENERATION.REQUEST 条目）"
+    unblocks_when: "正文生成域章节给出任务字段与状态集后补 schema"
+  ProductionRoute:
+    referenced_by: ["PRODUCTION.ROUTE.SELECT"]
+    reason: "生产路线对象无 schema：路线选择的可选集合与选择依据无法被校验"
+    contract_ref: "contracts/action_registry/action_registry.yaml（PRODUCTION.ROUTE.SELECT 条目）"
+    unblocks_when: "正文生产路线章节给出路线枚举与选择约束后补 schema"
+  CanonRevision:
+    referenced_by: ["CANON.CHANGE.APPROVE"]
+    reason: "设定变更对象无 schema：Canon 事实变更的授权链与冲突标记无法机器校验"
+    contract_ref: "contracts/state_machines/state_machines.yaml（CharacterCanon 条目）"
+    unblocks_when: "正文 Canon 章节给出变更字段与冲突复核口径后补 schema"
+  RightsCase:
+    referenced_by: ["RIGHTS.STATUS.CHANGE"]
+    reason: "权利案件对象无 schema：权利状态变更缺少案件主体与证据引用字段"
+    contract_ref: "contracts/action_registry/action_registry.yaml（RIGHTS.STATUS.CHANGE 条目）"
+    unblocks_when: "正文权利章节给出案件字段与状态枚举后补 schema"
+  RightsManifest:
+    referenced_by: ["RIGHTS.STATUS.CHANGE"]
+    reason: "权利清单对象无 schema：资产审批强制的 rights_manifest_ref 指向一个未被契约定义的对象"
+    contract_ref: "services/asset_service/service/asset_service.py（批准前强制 rights_manifest_ref）"
+    unblocks_when: "正文权利清单章节给出清单字段与授权范围口径后补 schema"

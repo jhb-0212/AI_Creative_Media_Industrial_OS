@@ -329,3 +329,99 @@ def test_state_reachability_requires_gap_fields(
     gaps.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
     monkeypatch.setattr(cc, "STATE_GAPS_PATH", gaps)
     assert cc.check_state_reachability() is False
+
+
+# --------------------------------------------------------------------------- #
+# 全部 ACTIVE action 的对象 schema 覆盖闸门（缺口必须显式登记）
+# --------------------------------------------------------------------------- #
+def _write_gaps(tmp_path: Path, gaps: dict) -> Path:
+    import yaml
+
+    path = tmp_path / "resource_gaps.yaml"
+    path.write_text(yaml.safe_dump({"gaps": gaps}, allow_unicode=True), encoding="utf-8")
+    return path
+
+
+def test_active_resource_schemas_passes_on_current_contract() -> None:
+    """当前 9 项债务登记完整，应通过。"""
+    assert cc.check_active_resource_schemas() is True
+
+
+def test_active_schema_detects_undeclared_gap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """清空债务 → 9 个 ACTIVE 资源类型变成静默缺口，必须报红。"""
+    monkeypatch.setattr(cc, "RESOURCE_GAPS_PATH", _write_gaps(tmp_path, {}))
+    assert cc.check_active_resource_schemas() is False
+
+
+def test_active_schema_detects_stale_debt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """已补 schema 的类型仍挂债务 = 陈旧债务，必须报红。"""
+    monkeypatch.setattr(
+        cc,
+        "RESOURCE_GAPS_PATH",
+        _write_gaps(
+            tmp_path,
+            {
+                "Project": {
+                    "referenced_by": ["PROJECT.CREATE"],
+                    "reason": "陈旧登记",
+                    "contract_ref": "x",
+                    "unblocks_when": "y",
+                }
+            },
+        ),
+    )
+    assert cc.check_active_resource_schemas() is False
+
+
+def test_active_schema_detects_orphan_debt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """债务类型没有任何 ACTIVE 动作引用 = 孤儿债务，必须报红。"""
+    monkeypatch.setattr(
+        cc,
+        "RESOURCE_GAPS_PATH",
+        _write_gaps(
+            tmp_path,
+            {
+                "PhantomObject": {
+                    "referenced_by": ["PHANTOM.CREATE"],
+                    "reason": "假缺口",
+                    "contract_ref": "x",
+                    "unblocks_when": "y",
+                }
+            },
+        ),
+    )
+    assert cc.check_active_resource_schemas() is False
+
+
+def test_active_schema_requires_gap_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """债务缺 reason → 必须报红（债务不能含糊）。"""
+    entry = {
+        "referenced_by": ["SHOT.DRAFT.CREATE"],
+        "reason": "",
+        "contract_ref": "x",
+        "unblocks_when": "y",
+    }
+    monkeypatch.setattr(cc, "RESOURCE_GAPS_PATH", _write_gaps(tmp_path, {"ShotDraft": entry}))
+    assert cc.check_active_resource_schemas() is False
+
+
+def test_active_schema_detects_wrong_referenced_by(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """referenced_by 与契约实际引用不一致 → 必须报红（台账不能撒谎）。"""
+    entry = {
+        "referenced_by": ["SHOT.DRAFT.CREATE", "SHOT.DRAFT.CONFIRM"],
+        "reason": "r",
+        "contract_ref": "x",
+        "unblocks_when": "y",
+    }
+    monkeypatch.setattr(cc, "RESOURCE_GAPS_PATH", _write_gaps(tmp_path, {"ShotDraft": entry}))
+    assert cc.check_active_resource_schemas() is False
