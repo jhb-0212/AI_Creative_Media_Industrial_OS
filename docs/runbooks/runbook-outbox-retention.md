@@ -36,6 +36,18 @@ ORDER BY c.relname;
 -- 未投递积压（会阻止摘除，也会让 relay 变慢）
 SELECT count(*) FROM outbox.outbox_events WHERE published_at IS NULL;
 
+-- 死信（P2-2）：attempts 达上限、relay 已放弃投递的事件（必须人工看）
+SELECT event_id, event_type, aggregate_type, aggregate_id,
+       attempts, next_attempt_at, dead_lettered_at
+FROM outbox.outbox_events
+WHERE dead_lettered_at IS NOT NULL
+ORDER BY dead_lettered_at DESC;
+
+-- 退避等待中（正常现象，到 next_attempt_at 会自动重试，不要手工改）
+SELECT count(*) FROM outbox.outbox_events
+WHERE published_at IS NULL AND dead_lettered_at IS NULL
+  AND next_attempt_at > now();
+
 -- 分区保护巡检（应全部 rls=true，且 app_role 无任何直连授权）
 SELECT c.relname, c.relrowsecurity
 FROM pg_class c
@@ -101,6 +113,18 @@ Get-Content -LiteralPath "D:\backup\outbox\outbox_events_y202601.sha256"
 | `REFUSED ... S3 归档尚未接入` | `--archive-dir` 写成了 `s3://` | 改用本地目录；S3 需要先接凭证（见 ADR 未做项） |
 | `拒绝删除 ... 必须同时给 --archive-dir` | 安全默认 | 补归档目录，不要手工 DROP |
 | 导出中途异常 | 事务未提交，分区未摘除 | 看错误修环境（磁盘/权限）后重跑；已产出的半截文件不可信，删掉重来 |
+| `dead_lettered_at` 非空的积压 | 事件已投递失败到上限（毒事件/下游长期不可用） | 按 §1 查 event_type 与 payload；修复下游后用**迁移角色**执行重放（见下），不要批量清空死信 |
+
+死信重放（用迁移角色连接，`app_role` 对 outbox 无 UPDATE）：
+
+```sql
+UPDATE outbox.outbox_events
+SET dead_lettered_at = NULL, attempts = 0, next_attempt_at = now()
+WHERE event_id = '<event_id>';
+```
+
+只重放已确认下游能处理的事件；同一 `event_type` 连续多次进死信，先修下游再批量重放。
+
 
 ## 5. 常驻维护没跑（新鲜度告警）
 

@@ -16,7 +16,9 @@
    不是缺陷。
 5. 没有注册处理器的事件 **不 ack**：宁可让积压涨到报警，也不谎报「已投递」。
    谎报的代价是事件永久丢失且无人知晓。
-6. 单条失败不阻塞同批其余事件，也不阻塞其他租户；失败事件保持未投递，下一轮重试。
+6. 单条失败不阻塞同批其余事件，也不阻塞其他租户；失败事件保持未投递，
+   按指数退避重试；超过 `max_attempts` 进入死信（dead_lettered_at），不再领取。
+   死信不删除：它是"投递放弃"的事实，必须可查、可人工重放（P2-2）。
 """
 
 from __future__ import annotations
@@ -67,6 +69,7 @@ class RelayStats:
     delivered: int = 0
     unrouted: int = 0
     failed: int = 0
+    dead_lettered: int = 0
 
 
 # 枚举有积压的租户（唯一的跨租户入口，只返回元数据）。
@@ -84,6 +87,8 @@ _CLAIM = text(
            event_type, payload, occurred_at
     FROM outbox.outbox_events
     WHERE published_at IS NULL
+      AND dead_lettered_at IS NULL
+      AND next_attempt_at <= now()
     ORDER BY occurred_at, event_id
     LIMIT :batch
     FOR UPDATE SKIP LOCKED
@@ -94,6 +99,24 @@ _CLAIM = text(
 _ACK = text(
     "UPDATE outbox.outbox_events SET published_at = :now "
     "WHERE event_id = :event_id AND published_at IS NULL"
+)
+
+# 失败重试：attempts + 1，按指数退避（10s/20s/40s... 上限 640s），
+# 达到 max_attempts 时写 dead_lettered_at，此后不再被 CLAIM 领取。
+# 死信不删除——"投递放弃"本身是可审计事实，留待人工重放。
+_FAIL = text(
+    """
+    UPDATE outbox.outbox_events
+    SET attempts = attempts + 1,
+        next_attempt_at = now()
+            + (interval '10 seconds' * power(2, least(attempts, 6))),
+        dead_lettered_at = CASE
+            WHEN attempts + 1 >= :max_attempts THEN now()
+            ELSE NULL
+        END
+    WHERE event_id = :event_id
+    RETURNING attempts, dead_lettered_at
+    """
 )
 
 
@@ -107,6 +130,7 @@ class OutboxRelay:
         *,
         batch_size: int = 100,
         default_handler: EventHandler | None = None,
+        max_attempts: int = 5,
     ) -> None:
         self._sessionmaker = sessionmaker
         self._handlers: dict[str, EventHandler] = dict(handlers or {})
@@ -114,6 +138,9 @@ class OutboxRelay:
         # 没有专用处理器也没有兜底 = 事件没有下游，保持未投递。
         self._default_handler = default_handler
         self._batch_size = batch_size
+        if max_attempts < 1:
+            raise ValueError("max_attempts 必须 >= 1")
+        self._max_attempts = max_attempts
 
     async def run_once(self, *, batch_size: int | None = None) -> RelayStats:
         """扫描一轮：列出有积压的租户，逐租户投递一批事件。
@@ -159,6 +186,7 @@ class OutboxRelay:
                 delivered=stats.delivered,
                 unrouted=stats.unrouted,
                 failed=stats.failed,
+                dead_lettered=stats.dead_lettered,
             )
         return stats
 
@@ -204,11 +232,32 @@ class OutboxRelay:
                     OUTBOX_RELAY_EVENTS_TOTAL.labels(
                         event_type=event.event_type, result="failed"
                     ).inc()
+                    attempts, dead_at = (
+                        await session.execute(
+                            _FAIL,
+                            {
+                                "event_id": event.event_id,
+                                "max_attempts": self._max_attempts,
+                            },
+                        )
+                    ).one()
                     logger.exception(
                         "outbox_relay_handler_failed",
                         event_id=str(event.event_id),
                         event_type=event.event_type,
+                        attempts=int(attempts),
                     )
+                    if dead_at is not None:
+                        stats.dead_lettered += 1
+                        OUTBOX_RELAY_EVENTS_TOTAL.labels(
+                            event_type=event.event_type, result="dead"
+                        ).inc()
+                        logger.error(
+                            "outbox_relay_dead_lettered",
+                            event_id=str(event.event_id),
+                            event_type=event.event_type,
+                            attempts=int(attempts),
+                        )
                     continue
                 await session.execute(
                     _ACK,
