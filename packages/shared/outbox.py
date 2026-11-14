@@ -19,7 +19,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import DateTime, Index, String, Uuid
+from sqlalchemy import BigInteger, Boolean, DateTime, Index, Integer, String, Text, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -56,3 +56,29 @@ class OutboxEventModel(Base):
     published_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+class MaintenanceRunModel(Base):
+    """outbox.maintenance_runs（保留期维护的审计与新鲜度表）。
+
+    与迁移 b8c9d1e2f3a4 一一对应：该表存在的主要理由是让「上次成功维护时间」
+    可被查询与告警，而不是依赖某个人记得跑 CLI。它不属于租户数据，不启用 RLS。
+    """
+
+    __tablename__ = "maintenance_runs"
+    __table_args__ = (
+        Index("ix_outbox_maintenance_runs_started", "started_at"),
+        {"schema": SCHEMA_NAME},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    applied: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    created: Mapped[int] = mapped_column(Integer, nullable=False)
+    detached: Mapped[int] = mapped_column(Integer, nullable=False)
+    refused: Mapped[int] = mapped_column(Integer, nullable=False)
+    # ok / refused / error / dry_run
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)

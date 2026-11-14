@@ -88,3 +88,36 @@ def test_plan_retention_keeps_everything_when_horizon_not_reached() -> None:
     today = datetime(2026, 11, 14, tzinfo=UTC)
     existing = {"outbox_events_y202606", "outbox_events_y202607"}
     assert plan_retention(existing, today, retain_months=6) == []
+
+
+def test_csv_value_serializes_json_payload() -> None:
+    """jsonb 落到 CSV 里必须是可复算的 JSON 文本，不能是 Python repr。"""
+    from workers.outbox_maintenance.archive import _csv_value
+
+    assert _csv_value(None) == ""
+    assert _csv_value({"n": 1}) == '{"n":1}'
+    assert _csv_value(["a", "b"]) == '["a","b"]'
+    assert _csv_value("x") == "x"
+
+
+def test_s3_target_is_refused_not_silently_downgraded() -> None:
+    """归档目标是 s3:// 时必须报错，禁止静默改存本地。"""
+    import asyncio
+    from typing import cast
+
+    import pytest
+    from sqlalchemy.ext.asyncio import AsyncConnection
+
+    from workers.outbox_maintenance.archive import (
+        S3ArchiveUnavailableError,
+        export_partition,
+    )
+
+    with pytest.raises(S3ArchiveUnavailableError, match="S3 归档尚未接入"):
+        asyncio.run(
+            export_partition(
+                cast(AsyncConnection, None),
+                "outbox_events_y202601",
+                "s3://demo/outbox",
+            )
+        )
