@@ -56,6 +56,13 @@ class Settings(BaseSettings):
     outbox_relay_batch_size: int = 100
     outbox_relay_interval_seconds: float = 5.0
 
+    # 外发 webhook（relay 的下游）。URL 为空 = 不注册处理器，事件保持未投递：
+    # 「没有下游」必须表现为积压，而不是把事件标成已投递。
+    # 配了 URL 就必须配密钥：无签名的外发端点等于任何人都能伪造事件。
+    outbox_webhook_url: str = ""
+    outbox_webhook_secret: SecretStr = SecretStr("")
+    outbox_webhook_timeout_seconds: float = 5.0
+
     # 对象存储
     s3_endpoint_url: str = ""
     s3_access_key_id: SecretStr = SecretStr("")
@@ -128,6 +135,22 @@ class Settings(BaseSettings):
             raise ValueError(
                 "生产环境（APP_ENV=production）不得使用开发默认应用数据库密码"
                 " app_dev_password（POSTGRES_APP_PASSWORD），请由部署系统注入独立密码。"
+            )
+        return self
+
+
+    @model_validator(mode="after")
+    def _require_webhook_secret_with_url(self) -> Settings:
+        """配了 webhook URL 却不配密钥时拒绝启动（所有环境，不只生产）。
+
+        理由：无签名的外发端点无法被消费方区分「平台发的」与「别人伪造的」，
+        这类配置错误一旦上线就是安全隐患，因此在启动期直接失败，而不是留在
+        运行期靠人发现。
+        """
+        if self.outbox_webhook_url and not self.outbox_webhook_secret.get_secret_value():
+            raise ValueError(
+                "配置了 OUTBOX_WEBHOOK_URL 但缺少 OUTBOX_WEBHOOK_SECRET："
+                "拒绝启动未经签名的事件外发。"
             )
         return self
 

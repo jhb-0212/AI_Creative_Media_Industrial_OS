@@ -85,9 +85,12 @@ BYPASSRLS 角色的代价是永久性的暴露面。
 - 迁移 `e5f6a7b8c9d0`：建枚举函数并收回 PUBLIC 权限；`alembic upgrade head` 已应用。
 - `workers/relay/consumer.py`：租户内 `FOR UPDATE SKIP LOCKED` claim → 处理器 →
   回写 `published_at`（带 `published_at IS NULL` 前置条件）。
-- `workers/relay/handlers.py`：处理器注册表，**当前为空**——没有下游时事件不 ack，
-  积压由 `outbox_relay_backlog` 暴露，不谎报已投递。
-- `workers/relay/__main__.py`：`python -m workers.relay [--once]`，SIGTERM 优雅退出。
+- `workers/relay/handlers.py`：按 `event_type` 细分的处理器注册表（当前为空）；
+  统一外发由 `__main__` 装配的兜底处理器承担。
+- `workers/relay/webhook.py`（下游）：`OUTBOX_WEBHOOK_URL` 为空 → 没有兜底 →
+  事件不 ack、积压可见；配了就真的外发，带 `Idempotency-Key: event_id`、
+  `X-Outbox-Signature = HMAC-SHA256(secret, "{timestamp}.{body}")`。
+  配 URL 不配密钥时进程**启动即失败**（拒绝未签名外发）。
 - 指标：`outbox_relay_events_total{event_type,result}`、`outbox_relay_backlog`、
   `outbox_relay_run_errors_total{stage}`（不按租户打标签，避免基数爆炸）。
 - 编排：compose 增 `relay` 服务（同镜像、同 app_role、`migrate` 成功后启动、
@@ -101,9 +104,10 @@ BYPASSRLS 角色的代价是永久性的暴露面。
 
 ## 未做 / 已知边界
 
-1. **下游尚未接入**：Kafka/webhook 未实现，`handlers` 为空，投递实际不发生。
-   这是如实的缺口，不是隐藏行为。
-2. 单轮只领一批（默认 100/租户），积压大时需要多轮或多副本；靠 `SKIP LOCKED`
+1. **Kafka 未接**：当前没有真实消费者，先建 broker/topic 只会得到一个没人读的
+   通道。已接 webhook（配置即启用），满足「事件真正能出去且可验签」。
+2. 消费方去重存储（按 `event_id`）未提供：至少一次语义下由收方保证幂等，
+   幂等键已在请求头上给出。
+3. 单轮只领一批（默认 100/租户），积压大时需要多轮或多副本；靠 `SKIP LOCKED`
    保证多副本不重复投递。
-3. 至少一次语义要求消费方按 `event_id` 幂等，尚未提供去重存储。
 4. 每轮 `N` 次小查询（N=有积压的租户数）；租户量级上千时应改为分区或批量 claim。

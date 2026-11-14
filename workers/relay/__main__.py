@@ -18,6 +18,7 @@ from packages.shared.database import create_engine, create_sessionmaker
 from packages.shared.logging import get_logger, setup_logging
 from workers.relay.consumer import OutboxRelay
 from workers.relay.handlers import HANDLERS
+from workers.relay.webhook import WebhookDispatcher
 
 logger = get_logger(__name__)
 
@@ -34,9 +35,28 @@ async def _run_forever(relay: OutboxRelay, interval: float, stop: asyncio.Event)
 
 
 async def _main_async(*, interval: float, batch_size: int, once: bool) -> None:
+    settings = get_settings()
     engine = create_engine()
     sessionmaker = create_sessionmaker(engine)
-    relay = OutboxRelay(sessionmaker, HANDLERS, batch_size=batch_size)
+    # 兜底处理器：配了 webhook 才存在。没配时事件保持未投递（积压可见），
+    # 而不是被「成功」丢弃。
+    dispatcher = (
+        WebhookDispatcher(
+            settings.outbox_webhook_url,
+            settings.outbox_webhook_secret.get_secret_value(),
+            timeout_seconds=settings.outbox_webhook_timeout_seconds,
+        )
+        if settings.outbox_webhook_url
+        else None
+    )
+    relay = OutboxRelay(
+        sessionmaker, HANDLERS, batch_size=batch_size, default_handler=dispatcher
+    )
+    if dispatcher is None:
+        logger.warning(
+            "outbox_relay_no_downstream",
+            hint="未配置 OUTBOX_WEBHOOK_URL：事件将保持未投递，积压会持续增长",
+        )
     stop = asyncio.Event()
 
     loop = asyncio.get_running_loop()
@@ -59,6 +79,8 @@ async def _main_async(*, interval: float, batch_size: int, once: bool) -> None:
             await _run_forever(relay, interval, stop)
     finally:
         # 先停投递再释放连接池：连接池关闭时在途事务会被强断。
+        if dispatcher is not None:
+            await dispatcher.aclose()
         await engine.dispose()
 
 

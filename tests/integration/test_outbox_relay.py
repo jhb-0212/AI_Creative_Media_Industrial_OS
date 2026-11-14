@@ -149,6 +149,26 @@ async def test_handler_failure_keeps_event_unpublished() -> None:
     assert await _published_at(sm, TENANT_A, event_id) is None
 
 
+async def test_default_handler_acks_when_downstream_succeeds() -> None:
+    """兜底处理器成功 → 事件被 ack（这是「配置了下游」与「没有下游」的区别）。"""
+    sm = app.state.sessionmaker
+    event_id = await _append_event(
+        sm, tenant_id=TENANT_A, event_type="SCRIPT_LOCK_APPROVED", aggregate_id="agg-d"
+    )
+    seen: list[OutboxEvent] = []
+
+    async def default_handler(event: OutboxEvent) -> None:
+        seen.append(event)
+
+    # 专用处理器表为空 → 走兜底处理器（模拟统一 webhook 通道）。
+    relay = OutboxRelay(sm, {}, default_handler=default_handler)
+    stats = await relay.drain_tenant(TENANT_A)
+
+    assert stats.delivered == 1
+    assert [e.event_id for e in seen] == [event_id]
+    assert await _published_at(sm, TENANT_A, event_id) is not None
+
+
 async def test_tenant_enumeration_exposes_only_backlog_metadata() -> None:
     """枚举函数只返回「有积压的租户」与元数据，绝不返回事件负载。"""
     sm = app.state.sessionmaker

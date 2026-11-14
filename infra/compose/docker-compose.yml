@@ -101,6 +101,10 @@ services:
       APP_ENV: ${APP_ENV:-development}
       OUTBOX_RELAY_INTERVAL_SECONDS: ${OUTBOX_RELAY_INTERVAL_SECONDS:-5}
       OUTBOX_RELAY_BATCH_SIZE: ${OUTBOX_RELAY_BATCH_SIZE:-100}
+      # 下游外发。留空 = 不注册处理器，事件保持未投递（积压可见）。
+      # 配 URL 必须同时配密钥，否则进程启动即失败（拒绝未签名外发）。
+      OUTBOX_WEBHOOK_URL: ${OUTBOX_WEBHOOK_URL:-}
+      OUTBOX_WEBHOOK_SECRET: ${OUTBOX_WEBHOOK_SECRET:-}
     depends_on:
       migrate:
         condition: service_completed_successfully

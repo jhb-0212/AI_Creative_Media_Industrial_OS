@@ -106,9 +106,13 @@ class OutboxRelay:
         handlers: Mapping[str, EventHandler] | None = None,
         *,
         batch_size: int = 100,
+        default_handler: EventHandler | None = None,
     ) -> None:
         self._sessionmaker = sessionmaker
         self._handlers: dict[str, EventHandler] = dict(handlers or {})
+        # 兜底处理器：未按 event_type 单独注册时用它（例如统一外发 webhook）。
+        # 没有专用处理器也没有兜底 = 事件没有下游，保持未投递。
+        self._default_handler = default_handler
         self._batch_size = batch_size
 
     async def run_once(self, *, batch_size: int | None = None) -> RelayStats:
@@ -185,7 +189,7 @@ class OutboxRelay:
                     payload=row["payload"],
                     occurred_at=row["occurred_at"],
                 )
-                handler = self._handlers.get(event.event_type)
+                handler = self._handlers.get(event.event_type) or self._default_handler
                 if handler is None:
                     # 没有下游：保持未投递（不 ack）。积压是可见的诚实状态。
                     stats.unrouted += 1

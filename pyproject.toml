@@ -37,13 +37,15 @@ dependencies = [
     # 指标暴露（/metrics）：Prometheus 文本格式，与 OTel 追踪分工明确——
     # 追踪回答「这一次请求怎么了」，指标回答「整体在变好还是变坏」。
     "prometheus-client>=0.20",
+    # Outbox relay 的外发投递（webhook 派发）用 httpx。它在生产路径上，
+    # 因此必须进主依赖；只放在 dev 组会让「干净安装 + 生产镜像」缺库。
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
-    "httpx>=0.27",
     "ruff>=0.4",
     "mypy>=1.9",
     # mypy 严格模式需要 yaml 的类型桩（action_registry.py 的 import yaml），
