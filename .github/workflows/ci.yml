@@ -52,9 +52,9 @@ jobs:
         run: uv run ruff check .
 
       - name: Type check (mypy)
-        # 只检查当前有代码的目录；workers/agents/adapters 仍为占位（仅 .gitkeep），
+        # 只检查当前有代码的目录；agents/adapters 仍为占位（仅 .gitkeep），
         # 待其落地 .py 后纳入本步骤，避免 mypy 对空目录报 "no .py files" 而误判失败。
-        run: uv run mypy packages services apps
+        run: uv run mypy packages services apps workers
 
       - name: Wait for PostgreSQL
         # GitHub Actions 的 service 容器 health check 不会阻塞主 job 步骤，
@@ -148,3 +148,8 @@ jobs:
 
       - name: Smoke test migration entrypoint inside image
         run: docker run --rm ai-film-api:ci alembic --version
+
+      # relay 与 api 同镜像、不同入口命令。镜像漏拷 workers/ 时这一步立刻失败，
+      # 不会等到编排起来才发现容器永远重启。
+      - name: Smoke test relay entrypoint inside image
+        run: docker run --rm ai-film-api:ci python -c "import workers.relay.__main__; print('relay import ok')"

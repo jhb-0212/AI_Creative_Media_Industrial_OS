@@ -1,7 +1,7 @@
 # ADR-R06：Outbox 事件投递的租户边界（待决策）
 
-状态：**待决策**（本文只做对比，不改变代码）
-范围：`outbox.outbox_events` 的消费端（`workers/*` 目前均为 `.gitkeep`，无实现）
+状态：**已决策：方案 B**（2026-11-14，用户拍板「不允许平台级 relay 持有跨租户读取权限」）
+范围：`outbox.outbox_events` 的消费端（`workers/relay/` 已落地，其余 `workers/*` 仍为占位）
 
 ## 背景（以仓库现状为准）
 
@@ -72,9 +72,38 @@ BYPASSRLS 角色的代价是永久性的暴露面。
 5. 回归：多租户集成测试——租户 X 的 relay 不得读到租户 Y 的事件（与
    `tests/integration/test_rls_isolation.py` 同一判据）。
 
-## 需要拍板的只有一句
+## 决策
 
-> 平台级 relay 是否允许持有跨租户读取权限？
+> 平台级 relay **不允许**持有跨租户读取权限。
 
-答「不允许」→ 走 B；答「允许，但只限 relay 角色」→ 走 A，并在 ADR 里写明
-该角色的凭据管理、网络隔离与审计要求。
+按方案 B 落地。租户枚举走 `outbox.list_active_tenants()`（`SECURITY DEFINER`，
+只返回 `tenant_id / pending_count / oldest_occurred_at`，`REVOKE FROM PUBLIC`
+后仅授 `app_role`）；relay 用 `app_role` 逐租户 `SET LOCAL` 后消费。
+
+## 落地记录（2026-11-14）
+
+- 迁移 `e5f6a7b8c9d0`：建枚举函数并收回 PUBLIC 权限；`alembic upgrade head` 已应用。
+- `workers/relay/consumer.py`：租户内 `FOR UPDATE SKIP LOCKED` claim → 处理器 →
+  回写 `published_at`（带 `published_at IS NULL` 前置条件）。
+- `workers/relay/handlers.py`：处理器注册表，**当前为空**——没有下游时事件不 ack，
+  积压由 `outbox_relay_backlog` 暴露，不谎报已投递。
+- `workers/relay/__main__.py`：`python -m workers.relay [--once]`，SIGTERM 优雅退出。
+- 指标：`outbox_relay_events_total{event_type,result}`、`outbox_relay_backlog`、
+  `outbox_relay_run_errors_total{stage}`（不按租户打标签，避免基数爆炸）。
+- 编排：compose 增 `relay` 服务（同镜像、同 app_role、`migrate` 成功后启动、
+  healthcheck 显式关闭，因为它没有 HTTP 端口）；镜像与 CI 增 relay 入口冒烟。
+- 测试 `tests/integration/test_outbox_relay.py`（4 条）：单租户上下文只读到本租户
+  事件、无处理器不 ack、处理器失败不 ack、枚举函数只返回元数据。
+- 验证：`ruff=0`、`mypy=0`（63 files，workers 已纳入 CI）、`pytest` 全绿、
+  `contract_check=0`、`alembic check=0`。
+- 本地实跑：`python -m workers.relay --once` → `tenants=1, delivered=0,
+  unrouted=100`（当前池里只有历史遗留未投递事件，且没有注册处理器——符合预期）。
+
+## 未做 / 已知边界
+
+1. **下游尚未接入**：Kafka/webhook 未实现，`handlers` 为空，投递实际不发生。
+   这是如实的缺口，不是隐藏行为。
+2. 单轮只领一批（默认 100/租户），积压大时需要多轮或多副本；靠 `SKIP LOCKED`
+   保证多副本不重复投递。
+3. 至少一次语义要求消费方按 `event_id` 幂等，尚未提供去重存储。
+4. 每轮 `N` 次小查询（N=有积压的租户数）；租户量级上千时应改为分区或批量 claim。

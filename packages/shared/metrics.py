@@ -11,6 +11,7 @@ from __future__ import annotations
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
     Counter,
+    Gauge,
     Histogram,
     generate_latest,
 )
@@ -38,6 +39,26 @@ RATE_LIMIT_DECISIONS_TOTAL = Counter(
 RATE_LIMIT_BACKEND_ERRORS = Counter(
     "rate_limit_backend_errors_total",
     "限流后端（Redis）故障次数；故障时按 fail-open 放行",
+)
+
+# Outbox relay（R06 消费端）。标签只放 event_type 与 result：event_type 由契约
+# 枚举约束（有限集），result 是 delivered/unrouted/failed 三值，基数可控。
+OUTBOX_RELAY_EVENTS_TOTAL = Counter(
+    "outbox_relay_events_total",
+    "Outbox 事件处理结果（result=delivered/unrouted/failed）",
+    ["event_type", "result"],
+)
+
+# 积压用无标签 Gauge 而不是按租户打标签：租户数会增长，按租户做标签迟早出事。
+OUTBOX_RELAY_BACKLOG = Gauge(
+    "outbox_relay_backlog",
+    "待投递事件总数（最近一轮扫描采样）",
+)
+
+OUTBOX_RELAY_RUN_ERRORS = Counter(
+    "outbox_relay_run_errors_total",
+    "Relay 单轮失败次数（stage=enumerate/tenant）",
+    ["stage"],
 )
 
 

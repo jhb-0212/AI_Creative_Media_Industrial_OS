@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 120
     rate_limit_window_seconds: int = 60
 
+    # Outbox relay（R06 消费端，workers/relay）。批量与节奏按积压调，不做自适应：
+    # 自适应调节会把「行为随负载变化」引入排障面，当前规模用固定参数更可控。
+    outbox_relay_batch_size: int = 100
+    outbox_relay_interval_seconds: float = 5.0
+
     # 对象存储
     s3_endpoint_url: str = ""
     s3_access_key_id: SecretStr = SecretStr("")
