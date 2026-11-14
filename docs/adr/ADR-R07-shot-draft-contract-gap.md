@@ -45,9 +45,12 @@ CI，但它不是「契约自洽」，只是「没检查」。
    归属键 project_id/episode_ref/scene_ref、镜头序号、草案内容引用、来源
    （Agent/人工）、DRAFT→CONFIRMED/SUPERSEDED 的状态集合、通用实体信封字段），
    再实现运行时。
-3. **补一条闸门**（下一轮）：`contract_check` 增加「ACTIVE action 的
-   resource_type（按 `/` 拆分）必须在 object_schemas 中有定义，或显式登记豁免」。
-   否则同类缺口会继续以其它域的形式出现。
+3. **补一条闸门（已落地）**：`scripts/contract_check.py` 的
+   `check_implemented_resource_schemas()`：已实现 action 的 resource_type
+   （按 `/` 拆分）必须在 `object_schemas` 有定义，或在
+   `contracts/runtime/resource_schema_exemptions.yaml` 登记非空 reason；
+   豁免条目若不被任何已实现动作引用则视为过期并报错。
+   负向用例：把 ShotDraft 伪造成已实现即报红；豁免一条无人引用的类型也报红。
 
 ## 影响
 

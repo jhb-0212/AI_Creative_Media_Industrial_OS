@@ -10,6 +10,9 @@
    ACTIVE action 必须实现或登记未实现的原因，已声明的 route 必须真实存在）。
 5. Permission Matrix 结构完整（action_matrix 覆盖全部 action_key）。
 6. object_schemas.schema.json 的 P0 对象定义完整性。
+7. 已实现 action 的资源类型必须在 object_schemas 中有定义，或在
+   contracts/runtime/resource_schema_exemptions.yaml 中登记豁免原因
+   （防止 ADR-R07 那类「动作有、对象无」的缺口静默通过 CI）。
 
 设计要点（不屎山代码）：
 - 解析逻辑独立成纯函数（parse_state_chain），可单测、无副作用。
@@ -372,6 +375,106 @@ def check_runtime_contract_coverage() -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# 已实现 action 的对象 schema 覆盖
+# --------------------------------------------------------------------------- #
+OBJECT_SCHEMAS_PATH = CONTRACTS / "schemas" / "object_schemas.schema.json"
+RESOURCE_EXEMPTIONS_PATH = CONTRACTS / "runtime" / "resource_schema_exemptions.yaml"
+
+
+def _action_resource_types() -> dict[str, str]:
+    """action_key → resource_type（可能含 `/` 组合，如 A/B）。"""
+    ar = yaml.safe_load(
+        (CONTRACTS / "action_registry" / "action_registry.yaml").read_text(encoding="utf-8")
+    )
+    return {
+        str(action["action_key"]): str(action.get("resource_type", ""))
+        for action in ar.get("actions", [])
+    }
+
+
+def _object_schema_defs() -> set[str]:
+    """object_schemas.schema.json 的 definitions 名称集合。"""
+    data = json.loads(OBJECT_SCHEMAS_PATH.read_text(encoding="utf-8"))
+    defs = data.get("definitions") or data.get("$defs") or {}
+    return set(defs)
+
+
+def _schema_exemptions() -> dict[str, str]:
+    """显式豁免台账：resource_type → reason（必须非空）。"""
+    if not RESOURCE_EXEMPTIONS_PATH.exists():
+        return {}
+    data = yaml.safe_load(RESOURCE_EXEMPTIONS_PATH.read_text(encoding="utf-8")) or {}
+    raw = data.get("exemptions") or {}
+    return {
+        str(name): str(reason).strip()
+        for name, reason in raw.items()
+        if str(reason).strip()
+    }
+
+
+def missing_resource_schemas(
+    implemented: set[str],
+    resource_types: dict[str, str],
+    defs: set[str],
+    exemptions: set[str],
+) -> list[tuple[str, str]]:
+    """已实现 action 里「资源类型没有对象定义也没豁免」的 (action, type) 列表。
+
+    为什么只看 implemented：未实现的动作已经由台账登记了 reason，写代码前必须先
+    补对象契约；一旦声明已实现，它就在真实写这个对象，schema 缺失是硬伤。
+    """
+    missing: list[tuple[str, str]] = []
+    for key in sorted(implemented):
+        raw = resource_types.get(key, "")
+        for part in (p.strip() for p in raw.split("/")):
+            if not part:
+                continue
+            if part in defs or part in exemptions:
+                continue
+            missing.append((key, part))
+    return missing
+
+
+def check_implemented_resource_schemas() -> bool:
+    """已实现 action 的资源类型必须有机器可读定义，或登记豁免原因。"""
+    if not OBJECT_SCHEMAS_PATH.exists():
+        print(f"[FAIL] 缺少对象 schema: {OBJECT_SCHEMAS_PATH}")
+        return False
+    ledger = yaml.safe_load(LEDGER_PATH.read_text(encoding="utf-8")) or {}
+    implemented = set((ledger.get("implemented") or {}).keys())
+    resource_types = _action_resource_types()
+    defs = _object_schema_defs()
+    exemptions = _schema_exemptions()
+
+    missing = missing_resource_schemas(implemented, resource_types, defs, exemptions)
+    if missing:
+        for key, part in missing:
+            print(
+                f"[FAIL] {key} 声明已实现，但资源类型 {part!r} 在 object_schemas 中"
+                " 没有定义，也没有在 contracts/runtime/resource_schema_exemptions.yaml"
+                " 登记豁免原因"
+            )
+        return False
+
+    # 豁免台账本身也要防呆：豁免了不存在的实现动作 = 过期条目，会掩盖真实缺口。
+    orphan = set(exemptions) - {
+        part.strip()
+        for key in implemented
+        for part in resource_types.get(key, "").split("/")
+        if part.strip()
+    }
+    if orphan:
+        print(f"[FAIL] 豁免台账包含未被任何已实现 action 引用的条目: {sorted(orphan)}")
+        return False
+
+    print(
+        f"[PASS] 已实现 action 的对象 schema 覆盖：{len(implemented)} 个动作"
+        f"（豁免 {len(exemptions)} 个资源类型）"
+    )
+    return True
+
+
+# --------------------------------------------------------------------------- #
 # Permission Matrix 结构校验
 # --------------------------------------------------------------------------- #
 def check_permission_matrix() -> bool:
@@ -517,6 +620,7 @@ def main() -> int:
     ok &= check_state_machines()
     ok &= check_action_openapi_consistency()
     ok &= check_runtime_contract_coverage()
+    ok &= check_implemented_resource_schemas()
     ok &= check_permission_matrix()
     ok &= check_schema_objects()
 
