@@ -23,6 +23,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from packages.shared.config import get_settings
 from packages.shared.database import Base, build_migration_url
 from packages.shared.outbox import OutboxEventModel  # noqa: F401
+from services.asset_service.repository.orm import (  # noqa: F401
+    AssetVersionModel,
+    QCReportModel,
+)
 from services.project_planning.repository.orm import (  # noqa: F401
     EpisodeModel,
     ProjectModel,

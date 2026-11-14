@@ -13,12 +13,61 @@
 from __future__ import annotations
 
 import uuid
+from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.shared.outbox import OutboxEventModel
+
+
+class OutboxWriter(ABC):
+    """审计事件写入端口（领域服务依赖的抽象）。
+
+    领域服务不直接依赖 SQLAlchemy session，而是依赖本端口，与仓储端口同构，
+    保证服务层可用内存 fake 替换（单测无数据库），也可演进为其他实现
+    （如 Kafka 直投）。实现方只 add，不 commit。
+    """
+
+    @abstractmethod
+    def record(
+        self,
+        *,
+        aggregate_type: str,
+        aggregate_id: str,
+        tenant_id: uuid.UUID,
+        event_type: str,
+        payload: dict[str, Any],
+    ) -> uuid.UUID:
+        """登记一条不可变审计事件（不 commit），返回事件 id。"""
+        raise NotImplementedError
+
+
+class SqlAlchemyOutboxWriter(OutboxWriter):
+    """基于 SQLAlchemy 会话的审计事件写入实现（与业务变更共享同一事务）。"""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    def record(
+        self,
+        *,
+        aggregate_type: str,
+        aggregate_id: str,
+        tenant_id: uuid.UUID,
+        event_type: str,
+        payload: dict[str, Any],
+    ) -> uuid.UUID:
+        return record_event(
+            self._session,
+            aggregate_type=aggregate_type,
+            aggregate_id=aggregate_id,
+            tenant_id=tenant_id,
+            event_type=event_type,
+            payload=payload,
+        )
+
 
 
 def record_event(
