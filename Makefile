@@ -1,4 +1,4 @@
-.PHONY: help install test lint typecheck contract-check up down build
+.PHONY: help install test lint typecheck contract-check arch-check up down build
 
 help: ## 显示可用命令
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -20,6 +20,9 @@ typecheck: ## 类型检查
 
 contract-check: ## 契约一致性校验（OpenAPI/Schema 派生一致性）
 	python scripts/contract_check.py
+
+arch-check: ## 分层依赖校验（铁律 1：依赖方向/服务间直连/导入期循环）
+	python scripts/architecture_check.py
 
 up: ## 本地启动（docker-compose）
 	docker compose -f infra/compose/docker-compose.yml up -d

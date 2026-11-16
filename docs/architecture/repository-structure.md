@@ -140,6 +140,11 @@ apps ──▶ services ──▶ (领域模型/仓储)
 ```
 
 - **依赖方向单向收敛**：`apps → services → adapters`，`services/workers/agents → packages`。禁止反向依赖、禁止跨层直连。
+  **该规则由闸门机器执行，不是人工约定**：`python scripts/architecture_check.py`
+  （CI 在 `contract-check` job 跑），规则表与允许例外见
+  `scripts/architecture_check.py` 的 `LAYER_RULES` / `PLATFORM_SERVICE_DEPENDENCIES`，
+  决策与范围划分见 `docs/adr/ADR-R14-layering-ci-gate.md`。
+  新增顶层代码目录必须在规则表登记，否则闸门 R0 直接报红。
 - **apps 是薄层**：只做协议适配（HTTP 鉴权、请求校验、DTO 转换），业务逻辑全部下沉到 services。
 - **services 是内核**：每个模块拥有明确数据写权限（14.2 所有权矩阵），跨模块只经 API/命令 + Outbox 事件，禁止共享 ORM Model 直写他表。
 - **workers 消费事件**：通过 Outbox 模式保证事务一致性，消费者 Inbox 去重、幂等。
