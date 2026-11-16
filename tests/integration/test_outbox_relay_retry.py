@@ -25,6 +25,7 @@ from packages.shared.database import build_migration_url
 from packages.shared.outbox_writer import record_event
 from packages.shared.rls import set_tenant_context
 from workers.relay.consumer import OutboxEvent, OutboxRelay
+from workers.relay.errors import DeliveryDeferredError
 
 TENANT = uuid.uuid4()
 
@@ -166,3 +167,39 @@ async def test_dead_letter_not_counted_in_backlog(admin_engine: AsyncEngine) -> 
         ).one()
     assert int(row[0]) == 0, "死信不得计入 pending_count（backlog）"
     assert int(row[1]) == 1, "死信必须单独计入 dead_count"
+
+
+async def _deferred_handler(event: OutboxEvent) -> None:
+    """模拟端点熔断 OPEN：明确知道本次没有外发。"""
+    raise DeliveryDeferredError("webhook 端点熔断开启，快速失败（未外发）")
+
+
+async def test_deferred_delivery_does_not_consume_attempts(
+    admin_engine: AsyncEngine,
+) -> None:
+    """「没外发」不得被记成一次失败尝试（审查 N2）。
+
+    熔断 OPEN 期间被拦下的事件从未真正投递；若照常 attempts+1，几轮之后就会
+    撞到 max_attempts 变成死信——一批从未尝试过的事件被"失败"掉，直接违背
+    ADR-R13「事件不丢弃」。这里用 max_attempts=1 把口径钉死：只要被计一次，
+    第一轮就会死信。
+    """
+    sm = app.state.sessionmaker
+    first = await _append_event(sm)
+    second = await _append_event(sm)
+    relay = OutboxRelay(
+        sm, {"SCRIPT_LOCK_APPROVED": _deferred_handler}, max_attempts=1
+    )
+
+    for _ in range(3):
+        stats = await relay.drain_tenant(TENANT)
+        # 端点级拦截对整批同样成立：本轮只记一次推迟就停止，不再逐条撞闸门。
+        assert stats.deferred == 1
+        assert stats.failed == 0
+        assert stats.dead_lettered == 0
+
+    for event_id in (first, second):
+        attempts, _next_at, dead_at, published = await _state(admin_engine, event_id)
+        assert attempts == 0, "未外发的轮次不得递增 attempts"
+        assert dead_at is None, "未外发的事件不得推进死信"
+        assert published is None, "未外发的事件不得 ack"

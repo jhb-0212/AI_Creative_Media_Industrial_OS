@@ -40,6 +40,8 @@ async def _main_async(*, interval: float, batch_size: int, once: bool) -> None:
     sessionmaker = create_sessionmaker(engine)
     # 兜底处理器：配了 webhook 才存在。没配时事件保持未投递（积压可见），
     # 而不是被「成功」丢弃。
+    # 熔断开关：配置口径「阈值 0 = 关闭熔断」，因此 enabled 由阈值派生；原值原样
+    # 传入由 CircuitBreaker 在关闭态归一化（审查 N1：不能因 0 而启动崩溃）。
     dispatcher = (
         WebhookDispatcher(
             settings.outbox_webhook_url,
@@ -77,6 +79,7 @@ async def _main_async(*, interval: float, batch_size: int, once: bool) -> None:
                 delivered=stats.delivered,
                 unrouted=stats.unrouted,
                 failed=stats.failed,
+                deferred=stats.deferred,
             )
         else:
             await _run_forever(relay, interval, stop)

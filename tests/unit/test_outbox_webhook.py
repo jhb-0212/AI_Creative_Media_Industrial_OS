@@ -18,6 +18,7 @@ import httpx
 import pytest
 
 from workers.relay.consumer import OutboxEvent
+from workers.relay.errors import DeliveryDeferredError
 from workers.relay.webhook import (
     WebhookCircuitOpenError,
     WebhookDeliveryError,
@@ -172,3 +173,84 @@ async def test_circuit_open_blocks_all_further_deliveries() -> None:
         assert calls == 1
     finally:
         await dispatcher.aclose()
+
+
+# --------------------------------------------------------------------------- #
+# 熔断语义分层（审查 N1 / N2）
+# --------------------------------------------------------------------------- #
+async def test_threshold_zero_disables_circuit_without_crashing() -> None:
+    """配置口径「阈值 0 = 关闭熔断」必须可构造且真的永不熔断（N1）。"""
+    calls = 0
+
+    async def receiver(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(503)
+
+    dispatcher = WebhookDispatcher(
+        "https://example.test/hook",
+        SECRET,
+        transport=httpx.MockTransport(receiver),
+        circuit_failure_threshold=0,
+        circuit_enabled=False,
+    )
+    try:
+        # 关闭熔断：每条事件都真的外发，不会出现 WebhookCircuitOpenError。
+        for expected in (1, 2, 3):
+            with pytest.raises(WebhookDeliveryError):
+                await dispatcher(_event())
+            assert calls == expected
+    finally:
+        await dispatcher.aclose()
+
+
+async def test_client_error_does_not_open_circuit() -> None:
+    """4xx 是事件级失败，不能把端点打成 OPEN（N2：一条毒事件不该误伤全体）。"""
+    calls = 0
+
+    async def receiver(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(400, json={"error": "payload 不合法"})
+
+    dispatcher = WebhookDispatcher(
+        "https://example.test/hook",
+        SECRET,
+        transport=httpx.MockTransport(receiver),
+        circuit_failure_threshold=1,
+        circuit_recovery_seconds=30.0,
+    )
+    try:
+        # 阈值 1：若把 4xx 记成端点失败，第二次就会熔断拦截、calls 停在 1。
+        for expected in (1, 2, 3):
+            with pytest.raises(WebhookDeliveryError) as excinfo:
+                await dispatcher(_event())
+            assert not isinstance(excinfo.value, WebhookCircuitOpenError)
+            assert calls == expected
+    finally:
+        await dispatcher.aclose()
+
+
+async def test_circuit_open_is_delivery_deferred() -> None:
+    """熔断拦截必须被标记为「未外发」，relay 才不会把它记成一次失败尝试（N2）。"""
+
+    async def receiver(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503)
+
+    dispatcher = WebhookDispatcher(
+        "https://example.test/hook",
+        SECRET,
+        transport=httpx.MockTransport(receiver),
+        circuit_failure_threshold=1,
+    )
+    try:
+        with pytest.raises(WebhookDeliveryError):
+            await dispatcher(_event())
+        with pytest.raises(WebhookCircuitOpenError) as excinfo:
+            await dispatcher(_event())
+    finally:
+        await dispatcher.aclose()
+
+    # 双重身份：既是投递异常（既有调用方可捕获），也是「未外发」信号。
+    assert isinstance(excinfo.value, WebhookDeliveryError)
+    assert isinstance(excinfo.value, DeliveryDeferredError)

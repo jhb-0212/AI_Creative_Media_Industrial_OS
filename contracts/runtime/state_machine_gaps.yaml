@@ -50,8 +50,11 @@ gaps:
 # 写入口径：
 # - 只登记 _STATE_MACHINE_SOURCES 里已实现状态机的对象；
 # - 每个条目必须给 reason / contract_ref / unblocks_when 三项；
-# - 当 action_registry 里出现该对象的状态变更 action（非 CREATE/READ）后，必须删除
-#   对应条目，否则闸门以「陈旧债务」报红。
+# - 反向完备性（删条目/删文件都绕不过）：状态机有转移边、却没有任何**已实现**的
+#   状态变更 action 的对象，必须在这里登记债务，否则闸门报红；
+# - 「已补上入口」只认运行时台账 action_implementations.yaml 的 implemented：
+#   契约里先登记 PROJECT.STATUS.CHANGE（not_implemented）不算入口已补上；
+# - 入口真的实现后必须删条目，否则闸门以「陈旧债务」报红。
 transition_entry_gaps:
   Project:
     reason: "action_registry 仅有 PROJECT.CREATE/PROJECT.READ；域转移表 7 条边（DRAFT→ACTIVE→ON_HOLD→ACTIVE、ACTIVE→COMPLETED、DRAFT/ON_HOLD/COMPLETED→ARCHIVED）均无对应状态变更 action 入口，项目无法推进到生产态"

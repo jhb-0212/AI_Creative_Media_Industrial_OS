@@ -49,6 +49,12 @@ class CircuitBreaker:
 
     ``enabled=False`` 时退化为「永远放行」：用于未配置 webhook 或显式关闭熔断的
     环境，而不改变调用方代码（与 ``RateLimiter`` 的退化约定一致）。
+
+    关闭态的**参数口径**（审查 N1）：关闭时阈值/冷却期不参与任何判定，配置层用
+    「阈值 0」表达关闭（见 ``packages/shared/config.py``），因此这里在
+    ``enabled=False`` 时不做参数校验，并把阈值归一化到 >=1 保存。
+    反过来，``enabled=True`` 时参数非法一律 ValueError——开着熔断却给了不可能
+    生效的阈值，是配置错误，必须启动即失败，不能静默退化成「永不熔断」。
     """
 
     def __init__(
@@ -59,11 +65,14 @@ class CircuitBreaker:
         enabled: bool = True,
         clock: Callable[[], float] | None = None,
     ) -> None:
-        if failure_threshold < 1:
-            raise ValueError("failure_threshold 必须 >= 1")
-        if recovery_timeout_seconds <= 0:
-            raise ValueError("recovery_timeout_seconds 必须 > 0")
-        self._failure_threshold = failure_threshold
+        if enabled:
+            if failure_threshold < 1:
+                raise ValueError("failure_threshold 必须 >= 1")
+            if recovery_timeout_seconds <= 0:
+                raise ValueError("recovery_timeout_seconds 必须 > 0")
+        # 关闭态：阈值不参与判定，但仍归一化到 >=1 保存，避免把 0/负数带进
+        # 后续比较；冷却期同样不参与判定（allow 在关闭时直接放行），原样保留。
+        self._failure_threshold = max(1, failure_threshold)
         self._recovery_timeout = recovery_timeout_seconds
         self._enabled = enabled
         self._clock = clock if clock is not None else time.time
@@ -79,6 +88,11 @@ class CircuitBreaker:
     def state(self) -> CircuitState:
         """当前状态（读操作，不触发状态迁移）。"""
         return self._state
+
+    @property
+    def enabled(self) -> bool:
+        """是否启用熔断（关闭时 ``allow()`` 永远放行、状态恒为 CLOSED）。"""
+        return self._enabled
 
     def allow(self) -> bool:
         """是否放行当前请求；CLOSED/HALF_OPEN（且无在途探测）放行，OPEN 快速失败。
