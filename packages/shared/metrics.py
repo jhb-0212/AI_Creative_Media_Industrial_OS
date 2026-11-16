@@ -52,13 +52,27 @@ OUTBOX_RELAY_EVENTS_TOTAL = Counter(
 # 积压用无标签 Gauge 而不是按租户打标签：租户数会增长，按租户做标签迟早出事。
 OUTBOX_RELAY_BACKLOG = Gauge(
     "outbox_relay_backlog",
-    "待投递事件总数（最近一轮扫描采样）",
+    "待投递事件总数（最近一轮扫描采样，只计可领取，不含死信与退避）",
+)
+
+# 死信单独观测：与 backlog 分离，避免「已放弃的死信」虚高积压报警（复核 R2）。
+OUTBOX_RELAY_DEAD = Gauge(
+    "outbox_relay_dead",
+    "死信事件总数（最近一轮扫描采样，投递已放弃、待人工重放）",
 )
 
 OUTBOX_RELAY_RUN_ERRORS = Counter(
     "outbox_relay_run_errors_total",
     "Relay 单轮失败次数（stage=enumerate/tenant）",
     ["stage"],
+)
+
+# Webhook 端点熔断状态（复核 R9）。三值 Gauge：当前状态为 1、其余为 0，
+# 不打 endpoint 标签——webhook 是单值配置，endpoint 不是高基数维度。
+OUTBOX_WEBHOOK_CIRCUIT_STATE = Gauge(
+    "outbox_webhook_circuit_state",
+    "Webhook 端点熔断器当前状态（1=当前态；state=closed/open/half_open）",
+    ["state"],
 )
 
 

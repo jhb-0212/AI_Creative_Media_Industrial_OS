@@ -642,3 +642,42 @@ def test_schema_rejects_runtime_extra_field(
 
     monkeypatch.setattr(cc, "_serializer_factories", _fake_factories)
     assert cc.check_schema_objects() is False
+
+
+# --------------------------------------------------------------------------- #
+# load_yaml_mapping 判空/语法损坏 fail-fast（T1）
+# --------------------------------------------------------------------------- #
+def test_load_yaml_mapping_empty_file(tmp_path: Path) -> None:
+    """空文件 → ValueError（fail-fast，不静默返回空 dict）。"""
+    empty = tmp_path / "empty.yaml"
+    empty.write_text("", encoding="utf-8")
+    with pytest.raises(ValueError) as exc_info:
+        cc.load_yaml_mapping(empty)
+    assert "解析结果不是映射" in str(exc_info.value)
+
+
+def test_load_yaml_mapping_non_mapping(tmp_path: Path) -> None:
+    """顶层是 list（而非映射）→ ValueError。"""
+    list_file = tmp_path / "list.yaml"
+    list_file.write_text("- a\n- b\n", encoding="utf-8")
+    with pytest.raises(ValueError) as exc_info:
+        cc.load_yaml_mapping(list_file)
+    assert "解析结果不是映射" in str(exc_info.value)
+
+
+def test_load_yaml_mapping_syntax_error(tmp_path: Path) -> None:
+    """语法损坏的 YAML → ValueError（捕获 YAMLError 统一转，而非 traceback）。"""
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("key: [unclosed\n  nested: *broken\n", encoding="utf-8")
+    with pytest.raises(ValueError) as exc_info:
+        cc.load_yaml_mapping(bad)
+    assert "YAML 解析失败" in str(exc_info.value)
+
+
+def test_load_yaml_mapping_error_has_full_path(tmp_path: Path) -> None:
+    """错误信息携带完整路径（R8：同名文件也能定位）。"""
+    empty = tmp_path / "some_gaps.yaml"
+    empty.write_text("", encoding="utf-8")
+    with pytest.raises(ValueError) as exc_info:
+        cc.load_yaml_mapping(empty)
+    assert str(empty) in str(exc_info.value)

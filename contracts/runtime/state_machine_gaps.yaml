@@ -35,3 +35,29 @@ gaps:
       reason: "契约只写「可进入 ARCHIVED」，未给来源边与归档保留期口径"
       contract_ref: "contracts/state_machines/state_machines.yaml:45-46"
       unblocks_when: "正文补登记归档来源边与保留期（与 R06 Outbox 保留期策略对齐）"
+
+# 已实现状态机的「转移无 HTTP 入口」债务（与上面的 gaps 区分语义）：
+# - gaps 登记的是「状态在域转移表中不可达」（缺来源边）；
+# - transition_entry_gaps 登记的是「状态可达、但没有任何 action 能触发这条转移」
+#   （缺状态变更入口）。两者都是「绿着但不可执行」的显式债务，但维度不同。
+#
+# 为什么需要它：check_state_reachability 只做「状态图可达性」——只要域转移表里有
+# 边，闸门就绿；它不校验「是否有 action 能触发这条边」。于是「项目创建后停在
+# DRAFT、平台无法推进到生产态」与「闸门全绿」可以同时成立（审计 P2-1 即此）。
+# 本分区把「无入口的转移」显式登记，闸门校验其诚实性（对象已实现、字段完整、
+# 且该对象确实仍无状态变更 action——一旦补上入口就必须删条目，否则报「陈旧债务」）。
+#
+# 写入口径：
+# - 只登记 _STATE_MACHINE_SOURCES 里已实现状态机的对象；
+# - 每个条目必须给 reason / contract_ref / unblocks_when 三项；
+# - 当 action_registry 里出现该对象的状态变更 action（非 CREATE/READ）后，必须删除
+#   对应条目，否则闸门以「陈旧债务」报红。
+transition_entry_gaps:
+  Project:
+    reason: "action_registry 仅有 PROJECT.CREATE/PROJECT.READ；域转移表 7 条边（DRAFT→ACTIVE→ON_HOLD→ACTIVE、ACTIVE→COMPLETED、DRAFT/ON_HOLD/COMPLETED→ARCHIVED）均无对应状态变更 action 入口，项目无法推进到生产态"
+    contract_ref: "contracts/action_registry/action_registry.yaml（Project 仅 CREATE/READ）"
+    unblocks_when: "正文 31.6 补登记 PROJECT.STATUS.CHANGE（或等价动作）并实现 service/route/权限/事件/负测；ADR-R12 已明示「需等正文口径，不猜契约」"
+  Episode:
+    reason: "action_registry 仅有 EPISODE.CREATE/EPISODE.READ；域转移表 3 条边（DRAFT→ACTIVE、DRAFT/ACTIVE→ARCHIVED）均无对应状态变更 action 入口"
+    contract_ref: "contracts/action_registry/action_registry.yaml（Episode 仅 CREATE/READ）"
+    unblocks_when: "正文 31.6 补登记 EPISODE.STATUS.CHANGE（或等价动作）并实现完整链路；ADR-R12 已明示「需等正文口径，不猜契约」"

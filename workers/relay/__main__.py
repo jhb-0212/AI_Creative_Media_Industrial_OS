@@ -45,6 +45,9 @@ async def _main_async(*, interval: float, batch_size: int, once: bool) -> None:
             settings.outbox_webhook_url,
             settings.outbox_webhook_secret.get_secret_value(),
             timeout_seconds=settings.outbox_webhook_timeout_seconds,
+            circuit_failure_threshold=settings.outbox_webhook_circuit_failure_threshold,
+            circuit_recovery_seconds=settings.outbox_webhook_circuit_recovery_seconds,
+            circuit_enabled=settings.outbox_webhook_circuit_failure_threshold > 0,
         )
         if settings.outbox_webhook_url
         else None

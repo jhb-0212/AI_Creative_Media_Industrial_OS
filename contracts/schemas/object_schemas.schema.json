@@ -18,7 +18,7 @@
   ],
   "x-afs-p0-coverage": {
     "note": "已建模对象与显式登记为待补的对象之并集，构成 P0 契约对象全集。待补项按缺口性质分类，不把“正文有字段表但派生未覆盖”与“正文缺字段标识”混为一类。",
-    "total": 76,
+    "total": 79,
     "modeled": [
       "Appeal",
       "AssetReference",
@@ -49,6 +49,7 @@
       "DeliveryManifest",
       "DeliverySpec",
       "DomainCommand",
+      "Episode",
       "ErrorEnvelope",
       "EscapeReport",
       "Event",
@@ -65,6 +66,7 @@
       "PatternRecord",
       "PolicyResolution",
       "PrevizVersion",
+      "Project",
       "ProjectProductionProfile",
       "QCIssue",
       "QCReport",
@@ -79,6 +81,7 @@
       "ReverseShotSegment",
       "ReviewAnnotation",
       "ReworkTask",
+      "ScriptRevision",
       "ShareLink",
       "ShotBudgetLedger",
       "ShotProductionProfile",
@@ -6671,6 +6674,200 @@
         "C.3.2 API 命令、事件信封与错误码"
       ],
       "additionalProperties": true
+    },
+    "Project": {
+      "type": "object",
+      "description": "项目聚合根（Phase 1 主链新增建模，8.1 核心实体）；归属状态机见 state_machines.yaml。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref",
+        "project_name",
+        "project_tier"
+      ],
+      "properties": {
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": ["string", "null"]
+        },
+        "project_name": {
+          "type": "string"
+        },
+        "project_tier": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "8.1 核心实体（Phase 1 主链新增建模，PENDING_PHASE1_REVIEW）"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "required = C.3.1 通用信封 + 业务字段（project_name/project_tier，由 Project.to_dict 实现确定）"
+    },
+    "Episode": {
+      "type": "object",
+      "description": "集数聚合根（Phase 1 主链新增建模，8.1 核心实体）；归属 Project。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref",
+        "project_id",
+        "episode_ref",
+        "title"
+      ],
+      "properties": {
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": ["string", "null"]
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "episode_ref": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "x-afs-sources": [
+        "8.1 核心实体（Phase 1 主链新增建模，PENDING_PHASE1_REVIEW）"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "required = C.3.1 通用信封 + 业务字段（project_id/episode_ref/title，由 Episode.to_dict 实现确定）"
+    },
+    "ScriptRevision": {
+      "type": "object",
+      "description": "剧本版本聚合根（Phase 1 主链新增建模，31.6 Action Registry）；锁定状态由 requested_by 承担职责分离。",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref",
+        "project_id",
+        "episode_ref",
+        "title"
+      ],
+      "properties": {
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": ["string", "null"]
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "episode_ref": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "requested_by": {
+          "type": ["string", "null"]
+        }
+      },
+      "x-afs-sources": [
+        "31.6 Action Registry（Phase 1 主链新增建模，PENDING_PHASE1_REVIEW）"
+      ],
+      "additionalProperties": true,
+      "x-afs-required-basis": "required = C.3.1 通用信封 + 业务字段（project_id/episode_ref/title；requested_by 可选，由 ScriptRevision.to_dict 实现确定）"
     }
   }
 }

@@ -54,20 +54,49 @@ def parse_allowed_principals(text: str) -> frozenset[str]:
 
 @lru_cache(maxsize=1)
 def _load_registry() -> dict[str, str]:
-    """加载并缓存 action_key -> allowed_principals 映射（fail-fast）。"""
-    if not _CONTRACT_PATH.exists():
-        raise FileNotFoundError(f"契约缺失: {_CONTRACT_PATH}")
-    data = yaml.safe_load(_CONTRACT_PATH.read_text(encoding="utf-8"))
-    registry: dict[str, str] = {}
-    for action in data.get("actions", []):
-        key = action.get("action_key")
-        principals = action.get("allowed_principals")
-        if not key or not principals:
-            raise ValueError(f"action_registry 存在缺关键字段的条目: {action!r}")
-        if key in registry:
-            raise ValueError(f"action_registry 存在重复 action_key: {key}")
-        registry[key] = principals
-    return registry
+    """加载并缓存 action_key -> allowed_principals 映射（fail-fast）。
+
+    加载期所有损坏（文件缺失 / 语法错误 / 顶层非映射 / actions 非列表 /
+    条目非 dict / 缺关键字段 / 重复 action_key）一律转
+    ``DomainError(INTERNAL_ERROR)``（结构化信封，与模块 docstring 承诺一致），
+    绝不裸抛 FileNotFoundError / ValueError / TypeError 冒泡成无信封 500。
+    """
+    try:
+        if not _CONTRACT_PATH.exists():
+            raise FileNotFoundError(f"契约缺失: {_CONTRACT_PATH}")
+        data = yaml.safe_load(_CONTRACT_PATH.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"action_registry 解析结果不是映射: {type(data).__name__}"
+            )
+        actions = data.get("actions")
+        if not isinstance(actions, list):
+            raise ValueError(
+                f"action_registry.actions 必须是列表，实际: {type(actions).__name__}"
+            )
+        registry: dict[str, str] = {}
+        for action in actions:
+            if not isinstance(action, dict):
+                raise ValueError(
+                    f"action_registry 存在非映射条目: {action!r}"
+                )
+            key = action.get("action_key")
+            principals = action.get("allowed_principals")
+            if not key or not principals:
+                raise ValueError(
+                    f"action_registry 存在缺关键字段的条目: {action!r}"
+                )
+            if key in registry:
+                raise ValueError(f"action_registry 存在重复 action_key: {key}")
+            registry[key] = principals
+        return registry
+    except DomainError:
+        raise
+    except Exception as exc:
+        raise DomainError(
+            ErrorRegistry.INTERNAL_ERROR,
+            detail=f"action_registry 加载失败: {exc}",
+        ) from exc
 
 
 def allowed_roles(action_key: str) -> frozenset[str]:

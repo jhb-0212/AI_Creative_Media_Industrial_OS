@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from packages.shared.logging import get_logger
 from packages.shared.metrics import (
     OUTBOX_RELAY_BACKLOG,
+    OUTBOX_RELAY_DEAD,
     OUTBOX_RELAY_EVENTS_TOTAL,
     OUTBOX_RELAY_RUN_ERRORS,
 )
@@ -72,9 +73,10 @@ class RelayStats:
     dead_lettered: int = 0
 
 
-# 枚举有积压的租户（唯一的跨租户入口，只返回元数据）。
+# 枚举有未投递事件的租户（唯一的跨租户入口，只返回元数据）。
+# pending_count 与 _CLAIM 同口径（可领取）；dead_count 单独统计死信。
 _LIST_TENANTS = text(
-    "SELECT tenant_id, pending_count "
+    "SELECT tenant_id, pending_count, dead_count "
     "FROM outbox.list_active_tenants() "
     "ORDER BY pending_count DESC, tenant_id"
 )
@@ -162,9 +164,16 @@ class OutboxRelay:
                 logger.exception("outbox_relay_enumerate_failed")
                 raise
 
+        # 积压与死信分离观测：backlog 只计「可领取」事件，死信不再虚高积压
+        # 报警（复核 R2）。纯死信租户（pending_count == 0）不进 drain，避免每轮
+        # 白扫一次 claim；死信仍通过 OUTBOX_RELAY_DEAD 保持可见。
         OUTBOX_RELAY_BACKLOG.set(sum(int(row["pending_count"]) for row in tenants))
+        OUTBOX_RELAY_DEAD.set(sum(int(row["dead_count"]) for row in tenants))
 
         for row in tenants:
+            if int(row["pending_count"]) == 0:
+                # 无「可领取」事件：只有死信/退避中的事件，drain 领不到任何东西。
+                continue
             stats.tenants_scanned += 1
             try:
                 await self.drain_tenant(

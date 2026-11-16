@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from packages.shared.contract_models import contract_model
 from packages.shared.unit_of_work import UnitOfWork
 from services.identity_access.deps import (
     Principal,
@@ -35,6 +36,9 @@ from services.project_planning.repository.sqlalchemy_repo import (
 from services.project_planning.service.episode_service import EpisodeService
 
 router = APIRouter(prefix="/episodes", tags=["episode-management"])
+
+# 响应模型由契约定义生成（R3）：字段集恒等于 object_schemas 的 Episode 定义。
+_EpisodeResponse = contract_model("Episode")
 
 
 class CreateEpisodeRequest(BaseModel):
@@ -67,7 +71,7 @@ def _get_read_service(uow: UnitOfWork = Depends(get_read_tenant_uow)) -> Episode
     return _build_service(uow.session)
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, response_model=_EpisodeResponse)
 async def create_episode(
     body: CreateEpisodeRequest,
     principal: Principal = Depends(require_role("EPISODE.CREATE")),
@@ -87,7 +91,7 @@ async def create_episode(
     return episode.to_dict()
 
 
-@router.get("/{entity_id}")
+@router.get("/{entity_id}", response_model=_EpisodeResponse)
 async def get_episode(
     entity_id: str,
     _principal: Principal = Depends(require_role("EPISODE.READ")),

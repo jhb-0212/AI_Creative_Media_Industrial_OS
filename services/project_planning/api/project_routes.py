@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from packages.shared.contract_models import contract_model
 from packages.shared.unit_of_work import UnitOfWork
 from services.identity_access.deps import (
     Principal,
@@ -29,6 +30,10 @@ from services.project_planning.repository.sqlalchemy_repo import SqlAlchemyProje
 from services.project_planning.service.project_service import ProjectService
 
 router = APIRouter(prefix="/projects", tags=["project-planning"])
+
+# 响应模型由契约定义生成（与资产域同机制，P2-4/R3）：字段集恒等于
+# object_schemas 的 Project 定义，多余的内部字段会被响应模型过滤掉。
+_ProjectResponse = contract_model("Project")
 
 
 class CreateProjectRequest(BaseModel):
@@ -57,7 +62,7 @@ def _get_read_service(
     return _build_service(uow.session)
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, response_model=_ProjectResponse)
 async def create_project(
     body: CreateProjectRequest,
     principal: Principal = Depends(require_role("PROJECT.CREATE")),
@@ -77,7 +82,7 @@ async def create_project(
     return project.to_dict()
 
 
-@router.get("/{entity_id}")
+@router.get("/{entity_id}", response_model=_ProjectResponse)
 async def get_project(
     entity_id: str,
     _principal: Principal = Depends(require_role("PROJECT.READ")),

@@ -372,3 +372,97 @@ async def test_read_version_missing_is_not_found(
     with pytest.raises(DomainError) as exc:
         await svc.get_version(asset_version_id="missing")
     assert exc.value.error_code is ErrorRegistry.NOT_FOUND
+
+
+class _ConcurrentAssetRepository(FakeAssetRepository):
+    """模拟并发主键冲突的仓储：add 首次抛 IntegrityError，回查返回既有对象。
+
+    用于验证「并发回查路径」与「快速路径」共用同一幂等判定——复核 R5。
+    """
+
+    def __init__(self, pre_existing: AssetVersion) -> None:
+        super().__init__()
+        self.rows[pre_existing.entity_id] = replace(pre_existing)
+        self._add_failed_once = False
+
+    async def add(self, asset: AssetVersion) -> None:
+        if not self._add_failed_once:
+            self._add_failed_once = True
+            from sqlalchemy.exc import IntegrityError
+
+            raise IntegrityError(
+                "INSERT", {}, Exception("duplicate key value violates unique constraint")
+            )
+        await super().add(asset)
+
+
+def _concurrent_service(pre_existing: AssetVersion) -> tuple[
+    AssetService, _ConcurrentAssetRepository, FakeQCRepository, FakeOutboxWriter
+]:
+    assets = _ConcurrentAssetRepository(pre_existing)
+    qc = FakeQCRepository()
+    outbox = FakeOutboxWriter()
+    return AssetService(assets, qc, outbox), assets, qc, outbox
+
+
+async def test_concurrent_same_content_is_idempotent() -> None:
+    """并发主键冲突回查：sha256 且 asset_type 一致 → 幂等返回既有对象（R5）。"""
+    pre = AssetVersion(
+        entity_id="concurrent-id",
+        created_by="worker-1",
+        tenant_id=_TENANT,
+        asset_type="IMAGE",
+        sha256=_SHA,
+        storage_ref={"uri": "s3://bucket/key.png"},
+    )
+    svc, _, _, outbox = _concurrent_service(pre)
+
+    result = await svc.create_version(
+        asset_type="IMAGE",
+        sha256=_SHA,
+        storage_ref={"uri": "s3://bucket/key.png"},
+        source_asset_version_ids=[],
+        rights_manifest_ref=None,
+        adapter_id=None,
+        tool_product=None,
+        operator_ref=None,
+        version=None,
+        principal=_principal("worker-1", "Worker"),
+        entity_id="concurrent-id",
+    )
+    # 幂等返回既有对象，且不产生第二个事件。
+    assert result.entity_id == "concurrent-id"
+    assert len(outbox.events) == 0
+
+
+async def test_concurrent_same_sha_different_type_is_rejected() -> None:
+    """并发回查：sha256 相同但 asset_type 不同 → 拒绝（不得静默返回旧对象）。
+
+    这是 R5 的核心：快速路径会因 asset_type 不一致而 409，并发回查路径也必须
+    同样拒绝，否则同一业务规则在竞态下出现两种结果。
+    """
+    pre = AssetVersion(
+        entity_id="concurrent-id",
+        created_by="worker-1",
+        tenant_id=_TENANT,
+        asset_type="VIDEO",
+        sha256=_SHA,
+        storage_ref={"uri": "s3://bucket/key.mp4"},
+    )
+    svc, _, _, _ = _concurrent_service(pre)
+
+    with pytest.raises(DomainError) as exc:
+        await svc.create_version(
+            asset_type="AUDIO",  # 同 sha、不同 asset_type
+            sha256=_SHA,
+            storage_ref={"uri": "s3://bucket/key.mp4"},
+            source_asset_version_ids=[],
+            rights_manifest_ref=None,
+            adapter_id=None,
+            tool_product=None,
+            operator_ref=None,
+            version=None,
+            principal=_principal("worker-1", "Worker"),
+            entity_id="concurrent-id",
+        )
+    assert exc.value.error_code is ErrorRegistry.IDEMPOTENCY_CONFLICT

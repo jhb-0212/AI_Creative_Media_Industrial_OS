@@ -139,3 +139,30 @@ async def test_max_attempts_marks_dead_letter(admin_engine: AsyncEngine) -> None
             )
         ).scalar_one()
     assert count == 1
+
+
+async def test_dead_letter_not_counted_in_backlog(admin_engine: AsyncEngine) -> None:
+    """事件进入死信后，list_active_tenants 的 pending_count 归零、dead_count 为 1。
+
+    复核 R2：死信不得计入 backlog——否则 OUTBOX_RELAY_BACKLOG 报警永远消不掉，
+    租户也永远留在扫描列表里每轮白扫。证明枚举函数的口径与 _CLAIM 领取口径一致。
+    """
+    sm = app.state.sessionmaker
+    await _append_event(sm)
+    relay = OutboxRelay(
+        sm, {"SCRIPT_LOCK_APPROVED": _failing_handler}, max_attempts=1
+    )
+    await relay.drain_tenant(TENANT)
+
+    async with admin_engine.connect() as conn:
+        row = (
+            await conn.execute(
+                text(
+                    "SELECT pending_count, dead_count "
+                    "FROM outbox.list_active_tenants() WHERE tenant_id = :t"
+                ),
+                {"t": TENANT},
+            )
+        ).one()
+    assert int(row[0]) == 0, "死信不得计入 pending_count（backlog）"
+    assert int(row[1]) == 1, "死信必须单独计入 dead_count"

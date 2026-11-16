@@ -39,6 +39,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -69,6 +70,26 @@ def check_json(path: Path) -> bool:
     except Exception as exc:
         print(f"[FAIL] JSON 解析失败: {path} -> {exc}")
         return False
+
+
+def load_yaml_mapping(path: Path) -> dict[str, Any]:
+    """契约 YAML 的唯一加载入口：读取 + 解析 + 断言顶层为映射。
+
+    设计要点（铁律 2/5：单一职责、禁止补丁式判空）：
+    - 所有校验函数读取契约 YAML 一律经由此函数，判空与类型断言收敛到一处，
+      避免各调用点各自 ``or {}`` / ``isinstance`` 兜底造成的碎片化。
+    - 两类契约损坏都在此统一 fail-fast 转 ValueError，并携带**完整路径**
+      （契约目录存在同名 ``*_gaps.yaml``，仅用 ``name`` 无法定位）：
+      1. 空文件/非映射：``yaml.safe_load`` 返回 None 或非 dict；
+      2. 语法损坏：``yaml.YAMLError``（解析器抛错，不裸冒泡成 traceback）。
+    """
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ValueError(f"{path} YAML 解析失败: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} 解析结果不是映射（可能为空文件）")
+    return data
 
 
 # --------------------------------------------------------------------------- #
@@ -158,7 +179,7 @@ def check_state_machines() -> bool:
     的对象，双向比对契约状态链与领域转移表。
     """
     sm_path = CONTRACTS / "state_machines" / "state_machines.yaml"
-    data = yaml.safe_load(sm_path.read_text(encoding="utf-8"))
+    data = load_yaml_mapping(sm_path)
 
     objects = data.get("objects", [])
     all_ok = True
@@ -215,8 +236,8 @@ def check_action_openapi_consistency() -> bool:
     ar_path = CONTRACTS / "action_registry" / "action_registry.yaml"
     oa_path = CONTRACTS / "openapi" / "openapi.draft.yaml"
 
-    ar = yaml.safe_load(ar_path.read_text(encoding="utf-8"))
-    oa = yaml.safe_load(oa_path.read_text(encoding="utf-8"))
+    ar = load_yaml_mapping(ar_path)
+    oa = load_yaml_mapping(oa_path)
 
     # 缺 action_key 的条目视为契约错误：用 .get 取键，缺失时输出定位信息。
     action_keys: list[str] = []
@@ -311,9 +332,7 @@ def _runtime_endpoints() -> set[str]:
 
 def _active_action_keys() -> set[str]:
     """契约中状态以 ACTIVE 开头的 action（PHASE_GATED 不要求实现）。"""
-    ar = yaml.safe_load(
-        (CONTRACTS / "action_registry" / "action_registry.yaml").read_text(encoding="utf-8")
-    )
+    ar = load_yaml_mapping(CONTRACTS / "action_registry" / "action_registry.yaml")
     return {
         action["action_key"]
         for action in ar.get("actions", [])
@@ -327,7 +346,7 @@ def check_runtime_contract_coverage() -> bool:
         print(f"[FAIL] 缺少运行时实现台账: {LEDGER_PATH}")
         return False
 
-    ledger = yaml.safe_load(LEDGER_PATH.read_text(encoding="utf-8")) or {}
+    ledger = load_yaml_mapping(LEDGER_PATH)
     implemented: dict[str, dict[str, str]] = ledger.get("implemented") or {}
     not_implemented: dict[str, dict[str, str]] = ledger.get("not_implemented") or {}
 
@@ -394,9 +413,7 @@ RESOURCE_EXEMPTIONS_PATH = CONTRACTS / "runtime" / "resource_schema_exemptions.y
 
 def _action_resource_types() -> dict[str, str]:
     """action_key → resource_type（可能含 `/` 组合，如 A/B）。"""
-    ar = yaml.safe_load(
-        (CONTRACTS / "action_registry" / "action_registry.yaml").read_text(encoding="utf-8")
-    )
+    ar = load_yaml_mapping(CONTRACTS / "action_registry" / "action_registry.yaml")
     return {
         str(action["action_key"]): str(action.get("resource_type", ""))
         for action in ar.get("actions", [])
@@ -414,7 +431,7 @@ def _schema_exemptions() -> dict[str, str]:
     """显式豁免台账：resource_type → reason（必须非空）。"""
     if not RESOURCE_EXEMPTIONS_PATH.exists():
         return {}
-    data = yaml.safe_load(RESOURCE_EXEMPTIONS_PATH.read_text(encoding="utf-8")) or {}
+    data = load_yaml_mapping(RESOURCE_EXEMPTIONS_PATH)
     raw = data.get("exemptions") or {}
     return {
         str(name): str(reason).strip()
@@ -427,7 +444,7 @@ def missing_resource_schemas(
     implemented: set[str],
     resource_types: dict[str, str],
     defs: set[str],
-    exemptions: set[str],
+    exemptions: dict[str, str],
 ) -> list[tuple[str, str]]:
     """已实现 action 里「资源类型没有对象定义也没豁免」的 (action, type) 列表。
 
@@ -451,7 +468,7 @@ def check_implemented_resource_schemas() -> bool:
     if not OBJECT_SCHEMAS_PATH.exists():
         print(f"[FAIL] 缺少对象 schema: {OBJECT_SCHEMAS_PATH}")
         return False
-    ledger = yaml.safe_load(LEDGER_PATH.read_text(encoding="utf-8")) or {}
+    ledger = load_yaml_mapping(LEDGER_PATH)
     implemented = set((ledger.get("implemented") or {}).keys())
     resource_types = _action_resource_types()
     defs = _object_schema_defs()
@@ -507,7 +524,7 @@ def _active_resource_refs(
 def _load_resource_schema_gaps() -> dict[str, dict[str, object]]:
     if not RESOURCE_GAPS_PATH.exists():
         return {}
-    data = yaml.safe_load(RESOURCE_GAPS_PATH.read_text(encoding="utf-8")) or {}
+    data = load_yaml_mapping(RESOURCE_GAPS_PATH)
     raw = data.get("gaps") or {}
     return {str(name): (entry or {}) for name, entry in raw.items()}
 
@@ -540,7 +557,12 @@ def check_active_resource_schemas() -> bool:
             print(f"[FAIL] 债务条目 {name!r} 缺少字段: {missing_fields}")
             ok = False
             continue
-        declared = {str(v) for v in (entry.get("referenced_by") or [])}
+        referenced = entry.get("referenced_by") or []
+        if not isinstance(referenced, list):
+            print(f"[FAIL] 债务条目 {name!r} 的 referenced_by 必须是列表")
+            ok = False
+            continue
+        declared = {str(v) for v in referenced}
         if declared != refs.get(name, set()):
             print(
                 f"[FAIL] 债务条目 {name!r} 的 referenced_by 与 ACTIVE 实际引用不一致："
@@ -593,8 +615,8 @@ def check_permission_matrix() -> bool:
     pm_path = CONTRACTS / "permission" / "permission_matrix.yaml"
     ar_path = CONTRACTS / "action_registry" / "action_registry.yaml"
 
-    pm = yaml.safe_load(pm_path.read_text(encoding="utf-8"))
-    ar = yaml.safe_load(ar_path.read_text(encoding="utf-8"))
+    pm = load_yaml_mapping(pm_path)
+    ar = load_yaml_mapping(ar_path)
 
     # 关键分区非空
     for section in ("role_matrix", "action_matrix", "separation_of_duty"):
@@ -697,6 +719,9 @@ _RESOURCE_SERIALIZERS: dict[str, tuple[str, str]] = {
         "AssetVersion",
     ),
     "QCReport": ("services.asset_service.domain.qc_report", "QCReport"),
+    "Project": ("services.project_planning.domain.project", "Project"),
+    "Episode": ("services.project_planning.domain.episode", "Episode"),
+    "ScriptRevision": ("services.project_planning.domain.script", "ScriptRevision"),
 }
 
 
@@ -706,6 +731,9 @@ def _serializer_factories() -> dict[str, object]:
 
     from services.asset_service.domain.asset_version import AssetVersion
     from services.asset_service.domain.qc_report import QCReport
+    from services.project_planning.domain.episode import Episode
+    from services.project_planning.domain.project import Project
+    from services.project_planning.domain.script import ScriptRevision
 
     tenant_id = uuid4()
     return {
@@ -725,6 +753,28 @@ def _serializer_factories() -> dict[str, object]:
             detector_versions={"blur": "1.0"},
             findings=[{"code": "PROBE"}],
             created_by="probe",
+        ),
+        "Project": Project(
+            entity_id="probe-project",
+            created_by="probe",
+            tenant_id=tenant_id,
+            project_name="probe-project-name",
+        ),
+        "Episode": Episode(
+            entity_id="probe-episode",
+            created_by="probe",
+            tenant_id=tenant_id,
+            project_id="probe-project",
+            episode_ref="EP001",
+            title="probe-episode-title",
+        ),
+        "ScriptRevision": ScriptRevision(
+            entity_id="probe-script",
+            created_by="probe",
+            tenant_id=tenant_id,
+            project_id="probe-project",
+            episode_ref="EP001",
+            title="probe-script-title",
         ),
     }
 
@@ -881,7 +931,7 @@ def check_implemented_permission_wiring() -> bool:
     局限（诚实记录）：这是源码文本级校验，只证明「键被引用」；它不能证明
     require_role 一定挂在正确的路由函数上。更强的证明在集成测试（403 用例）。
     """
-    ledger = yaml.safe_load(LEDGER_PATH.read_text(encoding="utf-8")) or {}
+    ledger = load_yaml_mapping(LEDGER_PATH)
     implemented: dict[str, dict[str, str]] = ledger.get("implemented") or {}
     root = CONTRACTS.parent
     ok = True
@@ -946,14 +996,8 @@ def check_state_reachability() -> bool:
     3. 缺口条目缺 reason / contract_ref / unblocks_when → FAIL（债务不能含糊）。
     """
     sm_path = CONTRACTS / "state_machines" / "state_machines.yaml"
-    objects = (yaml.safe_load(sm_path.read_text(encoding="utf-8")) or {}).get(
-        "objects", []
-    )
-    gaps = (
-        yaml.safe_load(STATE_GAPS_PATH.read_text(encoding="utf-8"))
-        if STATE_GAPS_PATH.exists()
-        else {}
-    ) or {}
+    objects = load_yaml_mapping(sm_path).get("objects", [])
+    gaps = load_yaml_mapping(STATE_GAPS_PATH) if STATE_GAPS_PATH.exists() else {}
     declared: dict[str, dict[str, dict[str, str]]] = gaps.get("gaps") or {}
     ok = True
     checked = 0
@@ -1003,6 +1047,80 @@ def check_state_reachability() -> bool:
     return ok
 
 
+def _status_change_action_keys(resource_type: str) -> set[str]:
+    """返回 action_registry 里某 resource_type 的「状态变更类」action_key。
+
+    「状态变更类」定义为 action_key 不以 ``.CREATE`` / ``.READ`` 结尾的动作——
+    CREATE 只创建对象（产出初始态）、READ 只读，均不触发状态转移；其余动作
+    （IMPORT/LOCK/APPROVE/STATUS.CHANGE 等）才可能触发状态变更。
+    """
+    registry = load_yaml_mapping(CONTRACTS / "action_registry" / "action_registry.yaml")
+    result: set[str] = set()
+    for action in registry.get("actions", []):
+        if not isinstance(action, dict):
+            continue
+        rtype = str(action.get("resource_type", "")).split("/")[0]
+        key = str(action.get("action_key", ""))
+        if rtype == resource_type and not key.endswith((".CREATE", ".READ")):
+            result.add(key)
+    return result
+
+
+def check_transition_entry_gaps() -> bool:
+    """校验「转移无 HTTP 入口」债务登记的诚实性（审计 P2-1 的闸门化）。
+
+    与 check_state_reachability 的差异：后者只验证「状态在域转移表里可达」，
+    但「可达」不等于「可执行」——Project/Episode 的转移在域表里可达，却没有任何
+    action 能触发（停在 DRAFT 无法推进）。本函数校验 state_machine_gaps.yaml 的
+    transition_entry_gaps 分区：
+
+    1. 登记对象必须是已实现状态机（_STATE_MACHINE_SOURCES）；
+    2. reason / contract_ref / unblocks_when 三项完整（债务不能含糊）；
+    3. 防陈旧：若该对象在 action_registry 里已出现「状态变更类」action，说明入口
+       已补上，登记就变成陈旧债务，必须删条目（否则报红）。
+
+    这样「绿着但不可执行」不再靠人眼发现，而是被闸门显式约束。
+    """
+    if not STATE_GAPS_PATH.exists():
+        # 无债务文件时视为「无登记」，不阻塞（与 check_state_reachability 一致）。
+        print("[PASS] 状态转移入口债务：未登记（无 transition_entry_gaps 文件）")
+        return True
+    gaps = load_yaml_mapping(STATE_GAPS_PATH)
+    declared = gaps.get("transition_entry_gaps") or {}
+    if not isinstance(declared, dict):
+        print("[FAIL] transition_entry_gaps 必须是映射")
+        return False
+    ok = True
+    count = 0
+
+    for obj_name, detail in declared.items():
+        if obj_name not in _STATE_MACHINE_SOURCES:
+            print(f"[FAIL] {obj_name} 不在已实现状态机清单里，不得登记转移入口债务")
+            ok = False
+            continue
+        count += 1
+        missing = [
+            key
+            for key in ("reason", "contract_ref", "unblocks_when")
+            if not str((detail or {}).get(key, "")).strip()
+        ]
+        if missing:
+            print(f"[FAIL] {obj_name} 转移入口债务登记缺字段: {missing}")
+            ok = False
+        # 防陈旧：入口已补上却未删债务。
+        status_actions = _status_change_action_keys(obj_name)
+        if status_actions:
+            print(
+                f"[FAIL] {obj_name} 已存在状态变更 action {sorted(status_actions)}"
+                "——转移入口债务已陈旧，必须删条目"
+            )
+            ok = False
+
+    if ok:
+        print(f"[PASS] 状态转移入口债务：显式登记 {count} 项（无陈旧/越界登记）")
+    return ok
+
+
 # --------------------------------------------------------------------------- #
 # 事件契约校验（Event Catalog ↔ 代码 ↔ Action Registry）
 # --------------------------------------------------------------------------- #
@@ -1043,7 +1161,7 @@ def check_event_catalog() -> bool:
         print(f"[FAIL] 缺少事件契约: {EVENT_CATALOG_PATH}")
         return False
 
-    data = yaml.safe_load(EVENT_CATALOG_PATH.read_text(encoding="utf-8")) or {}
+    data = load_yaml_mapping(EVENT_CATALOG_PATH)
     entries = data.get("events") or []
     declared: dict[str, dict[str, object]] = {}
     ok = True
@@ -1093,7 +1211,7 @@ def check_event_catalog() -> bool:
     # action.audit_event ↔ 事件契约/显式缺口：声明了动作却不发事件，必须登记债务。
     gaps: dict[str, dict[str, object]] = {}
     if EVENT_GAPS_PATH.exists():
-        gap_data = yaml.safe_load(EVENT_GAPS_PATH.read_text(encoding="utf-8")) or {}
+        gap_data = load_yaml_mapping(EVENT_GAPS_PATH)
         gaps = gap_data.get("gaps") or {}
         for action_key, detail in gaps.items():
             missing = [
@@ -1103,11 +1221,11 @@ def check_event_catalog() -> bool:
                 print(f"[FAIL] 事件缺口 {action_key} 登记缺字段: {missing}")
                 ok = False
 
-    registry = yaml.safe_load(ACTION_REGISTRY_PATH.read_text(encoding="utf-8")) or {}
+    registry = load_yaml_mapping(ACTION_REGISTRY_PATH)
     actions = {
         str(a.get("action_key")): a for a in (registry.get("actions") or []) if a
     }
-    ledger = yaml.safe_load(LEDGER_PATH.read_text(encoding="utf-8")) or {}
+    ledger = load_yaml_mapping(LEDGER_PATH)
     implemented = set((ledger.get("implemented") or {}).keys())
 
     for action_key in sorted(implemented):
@@ -1170,16 +1288,23 @@ def main() -> int:
 
     print(f"已校验 YAML {len(yaml_files)} 个，JSON {len(json_files)} 个")
 
-    ok &= check_state_machines()
-    ok &= check_action_openapi_consistency()
-    ok &= check_runtime_contract_coverage()
-    ok &= check_implemented_resource_schemas()
-    ok &= check_active_resource_schemas()
-    ok &= check_implemented_permission_wiring()
-    ok &= check_state_reachability()
-    ok &= check_permission_matrix()
-    ok &= check_schema_objects()
-    ok &= check_event_catalog()
+    try:
+        ok &= check_state_machines()
+        ok &= check_action_openapi_consistency()
+        ok &= check_runtime_contract_coverage()
+        ok &= check_implemented_resource_schemas()
+        ok &= check_active_resource_schemas()
+        ok &= check_implemented_permission_wiring()
+        ok &= check_state_reachability()
+        ok &= check_transition_entry_gaps()
+        ok &= check_permission_matrix()
+        ok &= check_schema_objects()
+        ok &= check_event_catalog()
+    except ValueError as exc:
+        # 契约文件缺失/为空/非映射时，load_yaml_mapping 统一抛 ValueError；
+        # 这是脚本级致命错误（契约损坏无法继续校验），在此统一兜底报红。
+        print(f"[FAIL] 契约加载失败: {exc}")
+        return 1
 
     if ok:
         print("[PASS] 契约一致性校验通过")
