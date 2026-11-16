@@ -162,3 +162,63 @@ events:
       - created_by
       - tenant_id
     contract_ref: contracts/schemas/object_schemas.schema.json#DeliveryManifest
+
+  # --- 质量治理域（Gate 裁决）---
+  #
+  # 为什么一个动作登记三条事件：`PRODUCTION.GATE.APPROVE` 的契约只声明了一个
+  # audit_event（PRODUCTION_GATE_APPROVED），但同一动作的结论有通过/否决/退回
+  # 三种。把否决与退回记成 "APPROVED" 事件会让 Gate 通过率的分子分母被污染，
+  # 而这类污染在事后几乎无法还原。事件名必须能反映事实。
+  - event_type: PRODUCTION_GATE_APPROVED
+    aggregate_type: GateDecision
+    emitted_by: services/qc_governance/service/gate_service.py
+    payload_required:
+      - gate_decision_id
+      - project_id
+      - gate_key
+      - gate_instance_id
+      - decision
+      - constraint_snapshot_id
+      - ruleset_version
+      - reason_code
+      - evidence_refs
+      - decided_by
+      - decided_at
+      - tenant_id
+    contract_ref: contracts/schemas/object_schemas.schema.json#GateDecision
+
+  - event_type: PRODUCTION_GATE_REJECTED
+    aggregate_type: GateDecision
+    emitted_by: services/qc_governance/service/gate_service.py
+    payload_required:
+      - gate_decision_id
+      - project_id
+      - gate_key
+      - gate_instance_id
+      - decision
+      - constraint_snapshot_id
+      - ruleset_version
+      - reason_code
+      - evidence_refs
+      - decided_by
+      - decided_at
+      - tenant_id
+    contract_ref: contracts/schemas/object_schemas.schema.json#GateDecision
+
+  - event_type: PRODUCTION_GATE_RETURNED
+    aggregate_type: GateDecision
+    emitted_by: services/qc_governance/service/gate_service.py
+    payload_required:
+      - gate_decision_id
+      - project_id
+      - gate_key
+      - gate_instance_id
+      - decision
+      - constraint_snapshot_id
+      - ruleset_version
+      - reason_code
+      - evidence_refs
+      - decided_by
+      - decided_at
+      - tenant_id
+    contract_ref: contracts/schemas/object_schemas.schema.json#GateDecision

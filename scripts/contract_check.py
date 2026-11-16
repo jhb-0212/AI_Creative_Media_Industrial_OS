@@ -743,6 +743,10 @@ _RESOURCE_SERIALIZERS: dict[str, tuple[str, str]] = {
         "services.asset_service.domain.delivery_manifest",
         "DeliveryManifest",
     ),
+    "GateDecision": (
+        "services.qc_governance.domain.gate_decision",
+        "GateDecision",
+    ),
 }
 
 
@@ -756,6 +760,8 @@ def _serializer_factories() -> dict[str, object]:
     from services.project_planning.domain.episode import Episode
     from services.project_planning.domain.project import Project
     from services.project_planning.domain.script import ScriptRevision
+    from services.qc_governance.domain.enums import GateDecisionValue, GateKey
+    from services.qc_governance.domain.gate_decision import GateDecision
 
     tenant_id = uuid4()
     return {
@@ -813,6 +819,28 @@ def _serializer_factories() -> dict[str, object]:
             spec_ref="probe-spec",
             qc_final_ref="probe-qc-final",
             picture_lock_ref="probe-picture-lock",
+        ),
+        # Gate 裁决探针刻意带两个"库里存在但契约没有"的内部列
+        # （decided_by_subject_type）与隔离键（tenant_id/organization_id）：
+        # 若 to_dict() 误输出它们，本闸门以"契约未声明字段"报红。
+        "GateDecision": GateDecision(
+            entity_id="probe-gate-decision",
+            project_id="probe-project",
+            gate_key=GateKey.GATE_4,
+            gate_instance_id="probe-gate-instance",
+            decision=GateDecisionValue.APPROVED,
+            constraint_snapshot_id="probe-snapshot",
+            ruleset_version=1,
+            entry_criteria="probe-entry-criteria",
+            required_artifacts="probe-required-artifacts",
+            reviewers=["probe"],
+            reason_code="PROBE",
+            comment="probe-comment",
+            evidence_refs=["probe-evidence"],
+            scope={"level": "project"},
+            decided_by="probe",
+            created_by="probe",
+            tenant_id=tenant_id,
         ),
     }
 
@@ -1582,6 +1610,67 @@ def check_enum_parity() -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# 描述性 allowed_principals 的运行时解析台账
+# --------------------------------------------------------------------------- #
+PRINCIPAL_BINDINGS_PATH = CONTRACTS / "runtime" / "principal_bindings.yaml"
+
+
+def check_principal_bindings() -> bool:
+    """校验运行时主体解释台账没有悄悄改变冻结契约的授权范围。
+
+    三类报红：① 台账指向不存在的动作；② contract_text 与契约原文不一致（契约
+    改了而解释没跟上，加载期也会 fail-fast）；③ 解释结果等于原文（绑定没起
+    作用，多半是填错了）。
+    """
+    if not PRINCIPAL_BINDINGS_PATH.exists():
+        print(f"[FAIL] 缺少主体解析台账: {PRINCIPAL_BINDINGS_PATH}")
+        return False
+
+    ledger = load_yaml_mapping(PRINCIPAL_BINDINGS_PATH)
+    bindings = ledger.get("bindings") or {}
+    if not isinstance(bindings, dict):
+        print("[FAIL] principal_bindings.bindings 必须是映射")
+        return False
+
+    raw_registry = load_yaml_mapping(ACTION_REGISTRY_PATH)
+    contract_texts = {
+        str(a.get("action_key")): str(a.get("allowed_principals", ""))
+        for a in (raw_registry.get("actions") or [])
+        if a
+    }
+    ok = True
+    for action_key, entry in bindings.items():
+        if action_key not in contract_texts:
+            print(f"[FAIL] 主体解析台账登记了未注册动作: {action_key}")
+            ok = False
+            continue
+        original = contract_texts[action_key]
+        if str((entry or {}).get("contract_text", "")) != original:
+            print(
+                f"[FAIL] 主体解析台账 {action_key} 的原文与契约不一致: "
+                f"{entry.get('contract_text')!r} != {original!r}"
+            )
+            ok = False
+        roles = (entry or {}).get("roles") or []
+        if not roles or not all(isinstance(role, str) and role.strip() for role in roles):
+            print(f"[FAIL] 主体解析台账 {action_key} 的 roles 非法: {roles!r}")
+            ok = False
+        elif "/".join(roles) == original:
+            print(f"[FAIL] 主体解析台账 {action_key} 未改变描述性原文（绑定无效）")
+            ok = False
+        for field in ("reason", "unblocks_when"):
+            if not (entry or {}).get(field):
+                print(f"[FAIL] 主体解析台账 {action_key} 缺 {field}")
+                ok = False
+
+    if ok:
+        print(
+            f"[PASS] 主体解析台账：{len(bindings)} 个绑定原文与契约逐字一致"
+        )
+    return ok
+
+
+# --------------------------------------------------------------------------- #
 # 入口
 # --------------------------------------------------------------------------- #
 def main() -> int:
@@ -1609,6 +1698,7 @@ def main() -> int:
         ok &= check_schema_objects()
         ok &= check_event_catalog()
         ok &= check_enum_parity()
+        ok &= check_principal_bindings()
     except ValueError as exc:
         # 契约文件缺失/为空/非映射时，load_yaml_mapping 统一抛 ValueError；
         # 这是脚本级致命错误（契约损坏无法继续校验），在此统一兜底报红。

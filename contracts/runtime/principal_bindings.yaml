@@ -1,0 +1,34 @@
+# 运行时主体解析台账（冻结契约中描述性 allowed_principals 的显式解释）
+#
+# 背景：`PRODUCTION.GATE.APPROVE` 在 Phase 0 冻结契约里写成
+#   allowed_principals: '对应 Gate 授权人类职责主体'
+# 这是一个**描述性短语**，不是角色名。通用解析器按 `/` 切分后会得到一个字面角色
+# 「对应 Gate 授权人类职责主体」，任何令牌都不可能持有它——结果是动作已实现却
+# 无人能调用，而所有静态闸门仍然全绿。
+#
+# 处理原则：
+# 1. **不改冻结契约**。契约修订需走正式流程；此处是运行时解释，不是改原文。
+# 2. **解析必须有证据**。每个绑定登记 contract_text 原文；原文与契约不一致时
+#    加载期直接 fail-fast（DomainError），不允许"悄悄改权"。
+# 3. **最小授权**。Phase 1 只取契约中其它 CRITICAL 生产审批动作普遍包含的
+#    「导演」；不猜测 Gate 0—4 各自的专属职责主体（契约 7.5 未给出）。
+# 4. **必须可解除**。unblocks_when 写明契约补什么内容后删除本绑定。
+#
+# 由 packages.identity.principal_bindings 解析，scripts/contract_check.py 校验。
+version: 1
+
+bindings:
+  PRODUCTION.GATE.APPROVE:
+    contract_text: '对应 Gate 授权人类职责主体'
+    roles:
+      - 导演
+    reason: >-
+      冻结契约与总纲 7.4/7.5/34.5 均未给出逐 Gate 的具体职责主体，只写"对应 Gate
+      授权人类职责主体"。若不解析，该 CRITICAL 动作在运行时无人可调用；若从请求体
+      接收审批角色，则授权来源不可信。取契约中其它 CRITICAL 生产审批动作（脚本锁
+      定、镜头规格锁定、约束包锁定、资产版本审批）共同包含的「导演」作为 Phase 1
+      最小解释，不额外扩大到制片/QC/交付负责人。
+    unblocks_when: >-
+      契约 7.5 为 Gate 0—4 与 A2 子 Gate 分别定义授权职责主体（或增加短时
+      CapabilityToken 的 Gate 级授权声明）后，删除本绑定并改用契约原文。
+    gate_specific: false

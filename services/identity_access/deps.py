@@ -98,6 +98,17 @@ get_asset_uow = build_tenant_uow_dependency(
 get_read_asset_uow = build_tenant_uow_dependency(
     get_principal, domain=DatabaseDomain.ASSET, read_only=True
 )
+# 质量治理域（Gate 裁决）：独立角色 svc_qc_governance。
+#
+# 为什么 Gate 不复用资产域工作单元：资产域角色代表"生成/检测流水线"，
+# 若它能写 gate_decisions，「Agent 不得自批自用」在数据库层就只剩应用代码
+# 一道防线。让裁决写入必须换一个数据库身份，是把这条红线变成结构约束。
+get_qc_uow = build_tenant_uow_dependency(
+    get_principal, domain=DatabaseDomain.QC_GOVERNANCE
+)
+get_read_qc_uow = build_tenant_uow_dependency(
+    get_principal, domain=DatabaseDomain.QC_GOVERNANCE, read_only=True
+)
 
 
 def require_action(action_key: str) -> Callable[..., Awaitable[Principal]]:
@@ -127,7 +138,9 @@ __all__ = [
     "get_asset_uow",
     "get_principal",
     "get_project_uow",
+    "get_qc_uow",
     "get_read_asset_uow",
     "get_read_project_uow",
+    "get_read_qc_uow",
     "require_action",
 ]

@@ -156,6 +156,12 @@ def asset_sm(db_pools: DomainPools) -> async_sessionmaker[AsyncSession]:
 
 
 @pytest.fixture
+def qc_sm(db_pools: DomainPools) -> async_sessionmaker[AsyncSession]:
+    """质量治理域会话工厂（能写 gate_decisions，资产域角色写不了）。"""
+    return db_pools.sessionmaker(DatabaseDomain.QC_GOVERNANCE)
+
+
+@pytest.fixture
 def relay_sm(db_pools: DomainPools) -> async_sessionmaker[AsyncSession]:
     """Outbox 投递域会话工厂（只读事件 + 改投递状态列）。"""
     return db_pools.sessionmaker(DatabaseDomain.OUTBOX_RELAY)

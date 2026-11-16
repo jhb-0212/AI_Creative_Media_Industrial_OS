@@ -32,6 +32,7 @@ import yaml
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.identity.authorization import ActionSpec, RiskLevel
+from packages.identity.principal_bindings import resolve_principals_text
 
 # 仓库根 → contracts/action_registry/action_registry.yaml。
 # 本文件位于 <repo>/packages/identity/action_registry.py，parents[2] 即仓库根。
@@ -113,15 +114,18 @@ def _load_registry() -> dict[str, ActionSpec]:
                     f"action_registry 风险等级非法: {key} = {action['risk_level']!r}"
                 ) from exc
             principals_text = str(action["allowed_principals"])
+            # 冻结契约里描述性的 allowed_principals 由运行时台账显式解释；
+            # 原文漂移时 resolve 会 fail-fast，绝不按旧解释静默放行。
+            resolved_text = resolve_principals_text(key, principals_text)
             registry[key] = ActionSpec(
                 action_key=key,
                 resource_type=str(action["resource_type"]),
                 scope=str(action["scope"]),
                 risk_level=risk_level,
-                allowed_principals=parse_allowed_principals(principals_text),
+                allowed_principals=parse_allowed_principals(resolved_text),
                 token_required=bool(action.get("token_required", False)),
                 approval_requirement=str(action.get("approval_requirement", "")),
-                allowed_principals_text=principals_text,
+                allowed_principals_text=resolved_text,
             )
         return registry
     except DomainError:

@@ -222,7 +222,9 @@ A 已完成，作为后续三个包的判定基础（每次契约变动都要走
   Outbox 事实/投递分层、仓储异常语义收口、枚举三方一致；
 - **F5 部分闭合（包 D 起步）**：`DELIVERY.MANIFEST.CREATE` 已落地并受 append-only +
   最小授权 + 服务端校验和约束（`docs/adr/ADR-R22-delivery-manifest-as-evidence.md`）；
-  主链其余环节（AI 拆镜→ShotSpec→Gate）与 `APPROVE` / `RELEASE` 仍未实现，
+  `PRODUCTION.GATE.APPROVE` 已落地：裁决不可改写、Agent 决策人与无证据 PASS 被
+  领域 + 数据库双份拒绝，描述性契约主体由带原文指纹的台账解析（`docs/adr/ADR-R23-gate-decision-as-fact.md`）；
+  主链其余环节（AI 拆镜→ShotSpec）与 `DELIVERY.MANIFEST.APPROVE` / `RELEASE` 仍未实现，
   已在 `contracts/runtime/action_implementations.yaml` 逐条登记原因；
 - 未闭合项一律在 README「未覆盖范围」与本文第六节显式登记，
   **不以闸门全绿冒充达标**；在包 D 完成前，本项目仍不具备 Phase 1 正式验收条件。

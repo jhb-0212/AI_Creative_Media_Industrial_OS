@@ -66,3 +66,27 @@ exemptions:
     reason: >-
       S/A/B 是 17.4「项目等级 × 镜头等级」的分档取值，不是对象生命周期状态，
       不是状态机状态，也不在 enum_registry 的 states 里。
+  # --- 质量治理域（Gate）---
+  #
+  # 这三个枚举**本应**进 bindings，但 enum_registry.yaml 未登记 GateDecision/
+  # GateKey 对象，没有可机读的比对源（enum_registry 是 Phase 0 冻结产物，
+  # 补登记要走修订流程，不能在这里单方面新增）。豁免不是"免检"：取值快照由
+  # tests/unit/test_enum_parity.py 对照迁移字面量守住，理由见 ADR-R23。
+  - module: services.qc_governance.domain.enums
+    enum: GateKey
+    reason: >-
+      契约 7.5（Gate 0—4 主表）与 7.3（A2 三个子 Gate）给出了取值，
+      但 enum_registry.yaml 未把 GateDecision/GateKey 登记为枚举对象。
+      补登记需走契约修订流程；在此之前取值一致性由迁移字面量与单测守住。
+  - module: services.qc_governance.domain.enums
+    enum: GateDecisionValue
+    reason: >-
+      契约 7.4 明确 decision ∈ {APPROVED, REJECTED, RETURNED, OVERRIDDEN}，
+      但 enum_registry.yaml 无 GateDecision 条目。四个取值全部实现（含当前
+      不可进入的 OVERRIDDEN），少一个会被 migration 字面量比对报出。
+  - module: services.qc_governance.domain.enums
+    enum: GateDecisionStatus
+    reason: >-
+      实现侧引入的**事实记录状态**（恒为 RECORDED），不是契约状态机状态：
+      GateDecision 是"某人在某时对某版本作出某结论"的事实，没有生命周期。
+      契约 7.4 的「原 Gate 标记 STALE」说的是 Gate 实例有效性，不是这条记录。

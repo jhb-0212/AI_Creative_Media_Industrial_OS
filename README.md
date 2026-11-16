@@ -92,10 +92,11 @@ docs/          # 架构/ADR/runbook/SOP
 | `mypy` | 类型契约 | `mypy packages services apps workers` | 不覆盖 `scripts/`、`tests/`（脚本与测试的类型错误不在闸门内） |
 | `pytest tests` | 行为正确性、负向路径、分层规则 | `pytest tests` | `tests/e2e`、`tests/resilience` 尚不存在（见「未覆盖范围」） |
 | `freeze_manifest` | **契约冻结**：基线正文未变 + 十一类产物哈希一致 + 演进有据（名称全集 == 基线 ∪ 已批准修订） | `python scripts/freeze_manifest.py --check` | 不证明契约内容业务正确，只证明「符合 V2.0.5 且变更可追溯」 |
-| `contract_check` | 派生一致性：Action ↔ OpenAPI ↔ Schema ↔ 状态机 ↔ 事件 ↔ 枚举 ↔ 债务台账 | `python scripts/contract_check.py` | 只证明派生文件互相自洽，**不能**证明符合基线（由 `freeze_manifest` 负责） |
+| `contract_check` | 派生一致性：Action ↔ OpenAPI ↔ Schema ↔ 状态机 ↔ 事件 ↔ 枚举 ↔ 主体解析台账 ↔ 债务台账 | `python scripts/contract_check.py` | 只证明派生文件互相自洽，**不能**证明符合基线（由 `freeze_manifest` 负责） |
 | `architecture_check` | 层间依赖方向、服务间直连、导入期循环、**数据库身份旁路**（业务模块不得自建/自选连接池）、**RLS 上下文唯一注入点**（业务代码不得自行写可见范围）、**服务内分层**（`domain/` 与 `service/` 不得 import 框架/驱动） | `python scripts/architecture_check.py` | 不覆盖 `apps/`、`workers/` 内部分层；服务内 `api/repository` 两层刻意不在规则内 |
 | `alembic check` | 迁移与模型无漂移 | `alembic check` | 授权正确性由集成测试与 `test_grant_baseline` 证明，不由本命令证明 |
 | `test_identity_private_key_boundary` | **签发私钥不进 API 进程**：配置层（`role=api` + 私钥即失败）、入口层（守卫独立成立且**真的被调用**，源码级断言）、结构层（公钥由私钥派生）、分发层（JWKS 文档可独立验签） | `pytest tests/unit/test_identity_private_key_boundary.py` | 只证明"私钥进不来"，不证明"签发进程存在"——仓库内尚无 issuer 部署与签发端点 |
+| `test_principal_bindings` | **描述性契约主体不得悄悄改权**：解析后的角色集合、契约原文漂移 fail-fast、闸门独立校验台账 | `pytest tests/permission/test_principal_bindings.py` | 只证明台账与契约一致，不证明台账里选的角色就是业务上正确的 Gate 授权主体（需契约修订） |
 
 `freeze_manifest` 与 `contract_check` 是**两层互补**，不是重复：前者回答「还是不是 V2.0.5」，
 后者回答「派生文件之间有没有打架」。历史教训是只有后者时，81↔81 自洽也能一路 PASS。
@@ -110,11 +111,12 @@ docs/          # 架构/ADR/runbook/SOP
 | 单一事实源（契约 ↔ 代码） | **枚举已闭合（C4）**：`contract_check` 的 `check_enum_parity` 双向比对代码枚举与契约状态（缺值/多值都报红），且 `services/*/domain/enums.py` 里每个枚举类必须在 `contracts/runtime/enum_bindings.yaml` 登记或豁免（未登记 = 报红）。`action_key` 层级有既有闸门。**仍双写**：`scope` / `risk_level` 字段在 YAML 与代码各一份，无机械比对 |
 | 数据库不变量（资产状态、事件内容不可改） | **已闭合（C1/C2）**：资产 `status` 的每次变化必须在 `asset_service.asset_status_transitions`（迁移播种、应用角色只读）里登记，未登记边由触发器拒绝（含超级用户直连）；`status` 取值由 CHECK 限定为契约枚举；事件表只有投递域拿到 4 个投递状态列的列级 `UPDATE`，事实列不可改且有系统目录断言。见 `docs/adr/ADR-R20-data-invariants-in-database.md` |
 | 权限最小化（Capability Token、资源范围） | 部分闭合：**统一授权决策已落地（B2）**——`Principal + Action + Resource + Context → ALLOW/DENY`，动作的 `scope` / `risk_level` 第一次真正参与运行时判定；拒绝带理由码可审计，81 条动作与 10 条 CRITICAL 有穷举性质测试。加上 B3 的组织/项目范围（数据库限制性策略兜底）。见 `docs/adr/ADR-R18-unified-authorization-decision.md`。**仍缺**：Capability Token（短时、按资源签发的运行时凭证） |
-| 审批与执行分离 | 部分闭合（B2）：资产审批与剧本锁定共用同一份职责分离判定（`SELF_APPROVAL_FORBIDDEN`），重复实现已删除；**CRITICAL 动作尚未接入路由**，`AGENT_CRITICAL_FORBIDDEN` 与联合审批（`JOINT_APPROVAL_UNSUPPORTED`）只有策略层证明 |
+| 审批与执行分离 | 部分闭合（B2/D2）：资产审批与剧本锁定共用同一份职责分离判定（`SELF_APPROVAL_FORBIDDEN`），重复实现已删除；`PRODUCTION.GATE.APPROVE` 已接入路由，`AGENT_CRITICAL_FORBIDDEN` 在策略层、领域层、数据库 CHECK 三处都被真实测试。**仍缺**：Gate 链的申请人与批准人分离（冻结契约无申请人载体，W2 精确豁免已登记，见 ADR-R23 第 5 节）、联合审批（`JOINT_APPROVAL_UNSUPPORTED` 仍只有策略层证明） |
 | 密钥不进入交付包 | 未实现自动扫描 |
 | 签发与验签分离（私钥不进 API 进程） | **已闭合（B4）**：`KeyStore`（进程内多私钥注册表）与 `from_key_store`（验签借用签发仓储）已删除；`TokenIssuer` 必须显式持私钥才能构造；`role=api` 带私钥**拒绝启动**（配置层 + 入口层两道），验签方只认 `IDENTITY_PUBLIC_KEY_PEM` 或 `IDENTITY_JWKS_FILE`。见 `docs/adr/ADR-R19-signing-key-boundary.md`。**仍缺**：独立的签发进程（`/token` 与 JWKS 发布端点均未实现，当前令牌由测试与脚本签发）、密钥指纹可观测性 |
 | 高并发 / 故障恢复 | 有熔断、Outbox 重试；无压测与故障演练证据 |
-| Phase 1 生产闭环 | **部分闭合（D 起步）**：`DELIVERY.MANIFEST.CREATE` 已落地（`POST /delivery-manifests`），交付清单是 append-only 的证据引用：端口层没有 `save`、数据库只授 `SELECT/INSERT` + append-only 触发器、校验和由服务端按可重建内容计算、只可能产生 `DRAFT`、契约里没有 `gate_pass` 类字段。见 `docs/adr/ADR-R22-delivery-manifest-as-evidence.md`。**仍缺**：`APPROVE` / `RELEASE`（依赖 Gate4 决策链）、AI 拆镜→ShotSpec→Gate 的整条主链、各 Worker（`workers/*` 仍为空目录） |
+| Gate 裁决不可改写与红线 | **已闭合（D2）**：`PRODUCTION.GATE.APPROVE` → `POST /gate-decisions`。裁决是 append-only 事实（端口无 `save`、只授 `SELECT/INSERT`、触发器兜住超级用户）；Agent 决策人与无证据 APPROVED 被领域校验 + 数据库 CHECK 双份拒绝；三种结论发三个事件名，否决不污染 Gate 通过率。冻结契约把主体写成描述性短语，由带原文指纹的运行时台账解析为最小授权「导演」，漂移即 fail-fast。见 `docs/adr/ADR-R23-gate-decision-as-fact.md`。**仍缺**：逐 Gate 职责主体、Gate 实例 STALE 派生、多人会签、补录历史裁决 |
+| Phase 1 生产闭环 | **部分闭合（D 起步）**：`DELIVERY.MANIFEST.CREATE` 已落地（`POST /delivery-manifests`），交付清单是 append-only 的证据引用；`PRODUCTION.GATE.APPROVE` 已落地（`POST /gate-decisions`），Gate 决策链成为可审计事实。见 `docs/adr/ADR-R22-delivery-manifest-as-evidence.md` 与 `docs/adr/ADR-R23-gate-decision-as-fact.md`。**仍缺**：`DELIVERY.MANIFEST.APPROVE` / `RELEASE`、AI 拆镜→ShotSpec→Gate 的整条主链、各 Worker（`workers/*` 仍为空目录） |
 
 这些是第三轮审查归并出的根因 F2/F3/F4/F5，收敛计划见
 `docs/audits/2026-11-16-review-round3-response.md`。

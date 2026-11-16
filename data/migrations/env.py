@@ -33,6 +33,7 @@ from services.project_planning.repository.orm import (  # noqa: F401
     ProjectModel,
     ScriptModel,
 )
+from services.qc_governance.repository.orm import GateDecisionModel  # noqa: F401
 
 config = context.config
 
