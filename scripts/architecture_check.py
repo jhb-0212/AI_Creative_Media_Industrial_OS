@@ -110,9 +110,9 @@ LAYER_RULES: tuple[LayerRule, ...] = (
 # 若某条目不再被任何模块引用，闸门报「陈旧登记」，必须删掉——白名单不许常驻。
 PLATFORM_SERVICE_DEPENDENCIES: dict[str, str] = {
     "services.identity_access": (
-        "鉴权平台能力（require_role 依赖）：每个服务的路由都要挂授权，不属于领域数据耦合。"
-        "所有服务都自己实现一遍鉴权依赖才是真正的重复；若将来下沉到 packages/identity，"
-        "本条目必须删除"
+        "认证装配能力（Principal 解析 + 吊销检查 + 域 UoW）：每个服务的路由都要挂，"
+        "不属于领域数据耦合。授权判定本身已下沉到 packages/identity（B2），"
+        "因此这里只剩「认证器装配」一项理由；若将来认证也下沉，本条目必须删除"
     ),
 }
 

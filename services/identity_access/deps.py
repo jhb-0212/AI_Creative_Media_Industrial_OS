@@ -20,9 +20,10 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 
-from fastapi import Request
+from fastapi import Depends, Request
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.identity.enforcement import authorize
 from packages.identity.principal import Principal
 from packages.identity.token_revocation import is_token_revoked
 from packages.shared.config import get_settings
@@ -30,7 +31,6 @@ from packages.shared.db_roles import DatabaseDomain
 from packages.shared.rls import build_tenant_uow_dependency
 from services.identity_access import get_public_key_store
 from services.identity_access.auth_dependency import build_principal_dependency
-from services.identity_access.rbac import build_authorize_dependency
 
 
 async def check_request_revocation(request: Request, jti: str) -> bool:
@@ -75,14 +75,26 @@ get_read_asset_uow = build_tenant_uow_dependency(
 )
 
 
-def require_role(action_key: str) -> Callable[..., Awaitable[Principal]]:
-    """构造绑定 ``get_principal`` 的角色授权依赖（所有写入口的统一授权闸门）。
+def require_action(action_key: str) -> Callable[..., Awaitable[Principal]]:
+    """构造绑定 ``get_principal`` 的动作授权依赖（所有入口的统一授权闸门）。
 
-    每个写路由按自身动作注入，例如 ``Depends(require_role("PROJECT.CREATE"))``。
-    依赖先复用 ``get_principal`` 解析可信 Principal，再用其 roles 与
-    ``action_registry[action_key].allowed_principals`` 求交，越权抛 403。
+    每个路由按自身动作注入，例如 ``Depends(require_action("PROJECT.CREATE"))``。
+    判定不是"角色交集"，而是 ``Principal + Action + Resource + Context`` 的决策
+    （见 ``packages/identity/authorization.py``）：角色、风险等级（Agent 不得过
+    CRITICAL）、审批对象、组织与项目范围。
+
+    依赖阶段拿不到具体资源，组织/项目维度由业务层的 ``authorize(..., resource=...)``
+    或数据库行级策略执行；决策对象里的 ``deferred_dimensions`` 会如实记录这一点。
+    依赖负责"不合法的主体进不了处理函数"，业务层负责"这个资源他能不能动"。
     """
-    return build_authorize_dependency(get_principal, action_key)
+
+    async def dependency(
+        principal: Principal = Depends(get_principal),
+    ) -> Principal:
+        authorize(principal, action_key)
+        return principal
+
+    return dependency
 
 
 __all__ = [
@@ -92,5 +104,5 @@ __all__ = [
     "get_project_uow",
     "get_read_asset_uow",
     "get_read_project_uow",
-    "require_role",
+    "require_action",
 ]

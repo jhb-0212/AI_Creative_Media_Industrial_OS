@@ -8,7 +8,7 @@
 
 身份与权限：
 - created_by / approved_by 均来自可信 Principal（JWT），不接受客户端字符串。
-- 四个动作各自经 require_role 做运行时 RBAC（allowed_principals 来自契约）。
+- 四个动作各自经 require_action 做运行时授权决策（ActionSpec 来自契约）。
 
 读能力边界（ADR-R08 G2 已关闭）：
 - READ 只返回版本信封与引用地址，不签发存储凭证；租户外资产由 RLS 隔离，
@@ -23,6 +23,8 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, create_model
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from packages.identity.authorization import ResourceRef
+from packages.identity.enforcement import authorize
 from packages.shared.contract_models import contract_model
 from packages.shared.outbox_writer import SqlAlchemyOutboxWriter
 from packages.shared.unit_of_work import UnitOfWork
@@ -38,7 +40,7 @@ from services.identity_access.deps import (
     Principal,
     get_asset_uow,
     get_read_asset_uow,
-    require_role,
+    require_action,
 )
 
 router = APIRouter(prefix="/assets", tags=["asset-management"])
@@ -112,11 +114,22 @@ def _get_read_service(
 @router.post("", status_code=201, response_model=_AssetVersionResponse)
 async def create_asset_version(
     body: CreateAssetVersionRequest,
-    principal: Principal = Depends(require_role("ASSET.VERSION.CREATE")),
+    principal: Principal = Depends(require_action("ASSET.VERSION.CREATE")),
     uow: UnitOfWork = Depends(get_asset_uow),
     service: AssetService = Depends(_get_service),
 ) -> dict[str, Any]:
     """登记资产版本（GENERATED，幂等；禁止覆盖既有版本内容）。"""
+    # 资源级授权（B2）：组织取调用主体的组织（归属由服务端写入，不接受客户端声明），
+    # 项目取请求体 project_id —— 越界项目在依赖阶段查不到，必须在这里真判一次。
+    authorize(
+        principal,
+        "ASSET.VERSION.CREATE",
+        resource=ResourceRef(
+            resource_type="AssetVersion",
+            organization_id=principal.organization_id,
+            project_id=body.project_id,
+        ),
+    )
     asset = await service.create_version(
         project_id=body.project_id,
         asset_type=body.asset_type,
@@ -139,7 +152,7 @@ async def create_asset_version(
 async def create_qc_report(
     asset_version_id: str,
     body: CreateQCReportRequest,
-    principal: Principal = Depends(require_role("QC.REPORT.CREATE")),
+    principal: Principal = Depends(require_action("QC.REPORT.CREATE")),
     uow: UnitOfWork = Depends(get_asset_uow),
     service: AssetService = Depends(_get_service),
 ) -> dict[str, Any]:
@@ -164,7 +177,7 @@ async def create_qc_report(
 @router.post("/{asset_version_id}/approve", response_model=_AssetVersionResponse)
 async def approve_asset_version(
     asset_version_id: str,
-    principal: Principal = Depends(require_role("ASSET.VERSION.APPROVE")),
+    principal: Principal = Depends(require_action("ASSET.VERSION.APPROVE")),
     uow: UnitOfWork = Depends(get_asset_uow),
     service: AssetService = Depends(_get_service),
 ) -> dict[str, Any]:
@@ -179,7 +192,7 @@ async def approve_asset_version(
 @router.get("/{asset_version_id}", response_model=_AssetVersionResponse)
 async def read_asset_version(
     asset_version_id: str,
-    _principal: Principal = Depends(require_role("ASSET.VERSION.READ")),
+    _principal: Principal = Depends(require_action("ASSET.VERSION.READ")),
     service: AssetService = Depends(_get_read_service),
 ) -> dict[str, Any]:
     """读取资产版本信封（只读；租户可见性由 RLS 保证，不可见即 NOT_FOUND）。"""

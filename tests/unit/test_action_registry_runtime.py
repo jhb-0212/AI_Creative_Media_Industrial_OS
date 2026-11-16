@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
-from services.identity_access import action_registry
-from services.identity_access.action_registry import (
+from packages.identity import action_registry
+from packages.identity.action_registry import (
     allowed_roles,
     parse_allowed_principals,
 )

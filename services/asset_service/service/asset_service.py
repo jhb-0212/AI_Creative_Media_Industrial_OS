@@ -26,6 +26,8 @@ from typing import Any
 from sqlalchemy.exc import IntegrityError
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.identity.authorization import ResourceRef
+from packages.identity.enforcement import authorize
 from packages.identity.principal import Principal
 from packages.identity.scope import assert_project_scope
 from packages.shared.outbox_writer import OutboxWriter
@@ -212,6 +214,18 @@ class AssetService:
             raise DomainError(
                 ErrorRegistry.NOT_FOUND, detail=f"资产版本不存在: {asset_version_id}"
             )
+        # 统一授权决策（B2）：证伪也要在授权范围内——按资产归属判定组织与项目，
+        # 否则任何持有 QC 角色的主体都能给别的组织的资产写检测结论。
+        authorize(
+            principal,
+            "QC.REPORT.CREATE",
+            resource=ResourceRef(
+                resource_type="QCReport",
+                organization_id=asset.organization_id,
+                project_id=asset.project_id,
+            ),
+        )
+
         if asset.status not in _REPORTABLE_STATES:
             raise DomainError(
                 ErrorRegistry.STATE_TRANSITION_DENIED,
@@ -293,10 +307,6 @@ class AssetService:
     ) -> AssetVersion:
         """批准资产版本（职责分离 + 权利证据 + QC 证据，缺一不可）。"""
         approved_by = principal.subject_id.strip()
-        if not approved_by:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="approved_by 不能为空"
-            )
 
         asset = await self._assets.get_by_id(asset_version_id)
         if asset is None:
@@ -304,17 +314,26 @@ class AssetService:
                 ErrorRegistry.NOT_FOUND, detail=f"资产版本不存在: {asset_version_id}"
             )
 
+        # 统一授权决策（B2）：角色 + 风险等级 + 资源归属 + 职责分离四项一次判完。
+        # 资源归属取自**被批准的资产**而不是 principal：批的是别人组织/项目里的
+        # 资产时，必须按资产的归属判范围，否则"有角色"就能跨组织批。
+        # applicant 传资产创建人，自批在这一层被拒（reason=SELF_APPROVAL_FORBIDDEN），
+        # 与剧本锁定审批共用同一份判定，审计可按理由码统一计数。
+        authorize(
+            principal,
+            "ASSET.VERSION.APPROVE",
+            resource=ResourceRef(
+                resource_type="AssetVersion",
+                organization_id=asset.organization_id,
+                project_id=asset.project_id,
+            ),
+            applicant_subject_id=asset.created_by,
+        )
+
         if asset.status not in _APPROVABLE_STATES:
             raise DomainError(
                 ErrorRegistry.STATE_TRANSITION_DENIED,
                 detail=f"状态 {asset.status.value} 不可批准（须先完成技术 QC）",
-            )
-
-        # 职责分离：创建人与批准人必须是不同主体（禁止自批，Agent 不能自审自批）。
-        if asset.created_by == approved_by:
-            raise DomainError(
-                ErrorRegistry.STATE_TRANSITION_DENIED,
-                detail="资产创建人与批准人不得为同一主体（职责分离红线）",
             )
 
         # 权利证据：没有 rights_manifest_ref 的资产不得进入 APPROVED。

@@ -24,7 +24,7 @@
 | 7 | `contract_check` 的 PASS 不能证明契约冻结通过 | **成立**。它只做派生交叉校验（81↔81），无基线概念 | 已修：职责分离，基线一致性归 `freeze_manifest`，`contract_check` 只做派生一致性 |
 | 8 | 架构闸门未覆盖服务内分层（domain 不得依赖 FastAPI/SQLAlchemy） | **成立**，现仅覆盖顶层六层 | 未修（列入包 B） |
 | 9 | 未防止跨模块直接写表；单一 `app_role` 跨 Schema 授权 | **成立**。`9e3b4c5d6e7f` 对每个 Schema `GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES` | **已修（B1，`9e23d72`）**：按域拆四个角色 + 四池，越权写表在 PostgreSQL 层被拒（实测 `has_table_privilege` 矩阵）；`app_role` 已 `DROP`；R4 闸门禁止业务模块自选连接身份。见 `docs/adr/ADR-R16-database-role-per-domain.md` |
-| 10 | 仅基础 RBAC，无 Capability Token 运行时校验 | **成立**。`rbac.py` 判定为 `principal.roles & allowed_roles(action_key)` | 未修（列入包 B） |
+| 10 | 仅基础 RBAC，无 Capability Token 运行时校验 | **成立**。`rbac.py` 判定为 `principal.roles & allowed_roles(action_key)` | **已修（B2，`028e9ea`）**：角色交集换成 `Principal + Action + Resource + Context → ALLOW/DENY` 的统一决策（`packages/identity/authorization.py`），`scope` / `risk_level` 首次进入运行时判定，拒绝带理由码；Agent 不得过 CRITICAL 有 10 条契约穷举测试；W1–W3 AST 闸门禁止拼错动作名、绕过决策层比对角色、审批动作漏传申请人。见 `docs/adr/ADR-R18-unified-authorization-decision.md` |
 | 11 | 同租户不同项目未隔离，`Project` 无 `organization_id` | **成立**。`Project` 领域模型无组织归属字段，租户 RLS ≠ 项目级授权 | **已修（B3）**：归属链进契约（修订 `V205-R14-A2`）与数据模型；五张项目级表上加 RESTRICTIVE 策略，越权读写由 PostgreSQL 拒绝；Principal 携带组织与项目范围，注入点唯一（R5 闸门）。见 `docs/adr/ADR-R17-project-scope-isolation.md`、`tests/unit/test_project_scope.py` |
 | 12 | API 仍须持有身份签发私钥 | **成立**。`identity_private_key_pem` 在 `_PRODUCTION_REQUIRED_SECRETS` 中，api 与 relay 同镜像同配置 | 未修（列入包 B） |
 | 13 | 资产不可覆盖只保护内容，`status` 可被应用角色直接改 | **成立**。触发器白名单为 `status / entity_version / updated_at / audit_ref` | 未修（列入包 C） |

@@ -20,7 +20,7 @@ from services.identity_access.deps import (
     Principal,
     get_project_uow,
     get_read_project_uow,
-    require_role,
+    require_action,
 )
 from services.project_planning.domain.enums import ProjectTier
 from services.project_planning.repository.sqlalchemy_outbox_writer import (
@@ -65,7 +65,7 @@ def _get_read_service(
 @router.post("", status_code=201, response_model=_ProjectResponse)
 async def create_project(
     body: CreateProjectRequest,
-    principal: Principal = Depends(require_role("PROJECT.CREATE")),
+    principal: Principal = Depends(require_action("PROJECT.CREATE")),
     uow: UnitOfWork = Depends(get_project_uow),
     service: ProjectService = Depends(_get_service),
 ) -> dict[str, Any]:
@@ -84,7 +84,7 @@ async def create_project(
 @router.get("/{entity_id}", response_model=_ProjectResponse)
 async def get_project(
     entity_id: str,
-    _principal: Principal = Depends(require_role("PROJECT.READ")),
+    _principal: Principal = Depends(require_action("PROJECT.READ")),
     service: ProjectService = Depends(_get_read_service),
 ) -> dict[str, Any]:
     """按 id 查询项目（需 PROJECT.READ 授权；租户与项目范围由 RLS 保证）。"""

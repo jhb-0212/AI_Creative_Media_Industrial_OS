@@ -130,7 +130,15 @@ async def test_scoped_token_cannot_read_other_project(admin: AsyncClient) -> Non
 async def test_scoped_token_cannot_hide_behind_episode_ownership(
     admin: AsyncClient,
 ) -> None:
-    """跨项目建集数 → 归属校验看到的是"项目不存在"（RLS 已把项目过滤掉）。"""
+    """跨项目建集数 → 403（授权层判定，与资产写入口径一致）。
+
+    此前这里返回 404（靠"RLS 过滤后查不到项目"间接拒绝）。改为授权的显式拒绝后，
+    两条写入路径（集数 / 资产）口径统一为 403：
+    - 403 **不确认项目是否存在**——范围外的项目 id 无论存在与否都是 403，
+      因此不泄漏存在性，这正是原测试想守的性质；
+    - 但 404 会把"授权拒绝"伪装成"资源不存在"，运维排查时无法区分
+      "路径写错"和"越权"，这正是要改掉的部分。
+    """
     project_a = f"proj_ep_a_{uuid.uuid4().hex[:8]}"
     project_b = f"proj_ep_b_{uuid.uuid4().hex[:8]}"
     for pid in (project_a, project_b):
@@ -162,8 +170,8 @@ async def test_scoped_token_cannot_hide_behind_episode_ownership(
                 "entity_id": f"ep_bad_{uuid.uuid4().hex[:8]}",
             },
         )
-    assert denied.status_code == 404, denied.text
-    assert denied.json()["error_code"] == "NOT_FOUND"
+    assert denied.status_code == 403, denied.text
+    assert denied.json()["error_code"] == "AUTH_SCOPE_DENIED"
 
 
 async def test_asset_create_in_other_project_is_403(admin: AsyncClient) -> None:

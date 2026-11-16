@@ -264,8 +264,10 @@ async def test_lock_rejects_self_approval(auth_client: AsyncClient) -> None:
         f"/scripts/{script_id}/lock/approve",
         headers=writer_headers,  # 同一人，应拒绝
     )
-    assert appr.status_code == 409
-    assert appr.json()["error_code"] == "STATE_TRANSITION_DENIED"
+    # 职责分离由统一授权决策执行（B2）：同一主体申请又批准 → 403，
+    # 错误码从 STATE_TRANSITION_DENIED 收敛为 AUTH_SCOPE_DENIED。
+    assert appr.status_code == 403
+    assert appr.json()["error_code"] == "AUTH_SCOPE_DENIED"
 
 
 async def test_lock_rejects_non_pending(auth_client: AsyncClient) -> None:
@@ -283,7 +285,8 @@ async def test_lock_rejects_non_pending(auth_client: AsyncClient) -> None:
     )
     script_id = r.json()["entity_id"]
 
-    # 未申请就直接批准（DRAFT 态），状态机拒绝
+    # 未申请就直接批准（DRAFT 态）：仍由状态机拒绝（409）——这是"流程不完整"，
+    # 不是"没权限"，所以不收敛成 403。授权层与状态机各管一件事，错误码要能区分。
     director_headers = _auth_headers("director_001")
     appr = await auth_client.post(
         f"/scripts/{script_id}/lock/approve",

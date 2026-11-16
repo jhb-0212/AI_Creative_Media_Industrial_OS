@@ -18,18 +18,24 @@ AI 影视工业化生产平台的工程实现仓库（monorepo）。
 ```
 apps/          # 进程入口薄层（api、console）
 services/      # 领域服务内核（按数据所有权分模块，目录名下划线命名）
-workers/       # 异步执行层（generation/qc/delivery/notifications）
-agents/        # Agent 运行时（runtime/planners/evaluators）
-adapters/      # 外部适配层（模型/ComfyUI/白模/存储/外部工具）
+workers/       # 异步执行层：relay 与 outbox_maintenance 已实现；
+               #   generation/qc/delivery/notifications 为占位（Phase 1 交付项）
+agents/        # Agent 运行时 —— 占位：目录存在但尚无实现（Phase 1）
+adapters/      # 外部适配层 —— 占位：目录存在但尚无实现（Phase 1）
 contracts/     # Phase 0 冻结契约（单一事实源）
 packages/      # 横切能力（shared/errors/telemetry）
 data/          # 迁移/种子/策略配置
-tests/         # 测试（unit/integration/contract/permission/resilience/e2e）
+tests/         # 测试：architecture/integration/permission/unit 已实现；
+               #   contract/resilience/e2e 尚未建立
 infra/         # 基础设施即代码（docker/compose/k8s）
 scripts/       # CI/开发辅助脚本
 docs/          # 架构/ADR/runbook/SOP
 .github/       # CI 流水线、CODEOWNERS、议题模板
 ```
+
+> **目录 ≠ 已实现**。上面是目标结构与当前状态的合并标注：标为「占位」的目录
+> 只有空目录，没有代码，也没有被任何测试覆盖。把它们当作"已有能力"来引用，
+> 就是 README 过度宣称的老问题（第三轮审查已指出一次）。
 
 > **命名约定**：Python 包/模块目录一律使用下划线（`project_planning`、`asset_service`），
 > 禁止连字符（连字符在 Python 导入中是非法标识符）。
@@ -100,9 +106,10 @@ docs/          # 架构/ADR/runbook/SOP
 | 要求 | 当前状态 |
 |---|---|
 | 跨模块数据所有权 / 禁止跨模块直接写表 | **已闭合（B1）**：数据库角色按域拆分，越权写入在 PostgreSQL 层被拒；R4 闸门禁止业务模块自选连接身份。证据见 `tests/integration/test_database_role_isolation.py` |
+| 单一事实源（契约 ↔ 代码） | **未闭合**：`enum_registry.yaml` 与代码枚举双写、无机械比对，且**已经实际漂移**——`AssetVersion` 契约登记 7 态，代码 `AssetStatus` 只有 5 态（缺 `ARCHIVED` / `QUARANTINED` / `REJECTED`）。`action_key` 层级有 `contract_check` 保证，但 `scope` / `risk_level` 字段仍双写（列入包 C） |
 | 数据库不变量（资产状态、事件内容不可改） | 部分实现：资产内容字段受触发器保护、Outbox 正文列级授权不可改；**资产 `status` 仍可直接 UPDATE**（包 C） |
-| 权限最小化（Capability Token、资源范围） | 部分闭合：**项目级与组织级授权已落地（B3）**——归属链（组织→项目→资源）进契约与数据模型，越权读写在 PostgreSQL 限制性策略层被拒，证据见 `tests/unit/test_project_scope.py` 与 `docs/adr/ADR-R17-project-scope-isolation.md`。**仍缺**：Capability Token 运行时校验、统一授权决策入口（包 B2） |
-| 审批与执行分离 | Script Lock 已做申请人≠批准人；其余 CRITICAL 动作未覆盖 |
+| 权限最小化（Capability Token、资源范围） | 部分闭合：**统一授权决策已落地（B2）**——`Principal + Action + Resource + Context → ALLOW/DENY`，动作的 `scope` / `risk_level` 第一次真正参与运行时判定；拒绝带理由码可审计，81 条动作与 10 条 CRITICAL 有穷举性质测试。加上 B3 的组织/项目范围（数据库限制性策略兜底）。见 `docs/adr/ADR-R18-unified-authorization-decision.md`。**仍缺**：Capability Token（短时、按资源签发的运行时凭证） |
+| 审批与执行分离 | 部分闭合（B2）：资产审批与剧本锁定共用同一份职责分离判定（`SELF_APPROVAL_FORBIDDEN`），重复实现已删除；**CRITICAL 动作尚未接入路由**，`AGENT_CRITICAL_FORBIDDEN` 与联合审批（`JOINT_APPROVAL_UNSUPPORTED`）只有策略层证明 |
 | 密钥不进入交付包 | 未实现自动扫描 |
 | 高并发 / 故障恢复 | 有熔断、Outbox 重试；无压测与故障演练证据 |
 | Phase 1 生产闭环 | 未完成（见下） |

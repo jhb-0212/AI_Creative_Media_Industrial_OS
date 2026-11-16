@@ -284,11 +284,16 @@ async def test_approve_by_creator_is_rejected(
         findings=[{"code": "BLUR"}],
         principal=_principal("qc-1", "QC Worker"),
     )
+    # 自批判定归属授权层（B2）：职责分离是"谁能批"的问题，不是状态机的合法转移
+    # 问题——所以错误码是 AUTH_SCOPE_DENIED（403），不是 STATE_TRANSITION_DENIED（409）。
+    # 主体同时持有审核角色（导演）且与创建人同一主体，才真正走到职责分离判定。
     with pytest.raises(DomainError) as exc:
         await svc.approve(
-            asset_version_id=asset.entity_id, principal=_principal("worker-1", "Worker")
+            asset_version_id=asset.entity_id,
+            principal=_principal("worker-1", "Worker", "导演"),
         )
-    assert exc.value.error_code is ErrorRegistry.STATE_TRANSITION_DENIED
+    assert exc.value.error_code is ErrorRegistry.AUTH_SCOPE_DENIED
+    assert "SELF_APPROVAL_FORBIDDEN" in (exc.value.detail or "")
 
 
 async def test_approve_without_qc_report_is_rejected(

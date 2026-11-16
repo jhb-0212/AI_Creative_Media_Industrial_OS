@@ -16,13 +16,15 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from packages.identity.authorization import ResourceRef
+from packages.identity.enforcement import authorize
 from packages.shared.contract_models import contract_model
 from packages.shared.unit_of_work import UnitOfWork
 from services.identity_access.deps import (
     Principal,
     get_project_uow,
     get_read_project_uow,
-    require_role,
+    require_action,
 )
 from services.project_planning.repository.episode_sqlalchemy_repo import (
     SqlAlchemyEpisodeRepository,
@@ -74,11 +76,17 @@ def _get_read_service(uow: UnitOfWork = Depends(get_read_project_uow)) -> Episod
 @router.post("", status_code=201, response_model=_EpisodeResponse)
 async def create_episode(
     body: CreateEpisodeRequest,
-    principal: Principal = Depends(require_role("EPISODE.CREATE")),
+    principal: Principal = Depends(require_action("EPISODE.CREATE")),
     uow: UnitOfWork = Depends(get_project_uow),
     service: EpisodeService = Depends(_get_service),
 ) -> dict[str, Any]:
     """登记集数（幂等，归属 Project）。身份与归属键来自 Principal。"""
+    # 资源级授权（B2）：项目维度按请求体 project_id 真正核对。
+    authorize(
+        principal,
+        "EPISODE.CREATE",
+        resource=ResourceRef(resource_type="Episode", project_id=body.project_id),
+    )
     episode = await service.create_episode(
         project_id=body.project_id,
         episode_ref=body.episode_ref,
@@ -93,7 +101,7 @@ async def create_episode(
 @router.get("/{entity_id}", response_model=_EpisodeResponse)
 async def get_episode(
     entity_id: str,
-    _principal: Principal = Depends(require_role("EPISODE.READ")),
+    _principal: Principal = Depends(require_action("EPISODE.READ")),
     service: EpisodeService = Depends(_get_read_service),
 ) -> dict[str, Any]:
     """按 id 查询集数（需 EPISODE.READ 授权；租户边界由 RLS 保证）。"""

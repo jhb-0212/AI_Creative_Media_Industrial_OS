@@ -27,6 +27,8 @@ import uuid
 from sqlalchemy.exc import IntegrityError
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.identity.authorization import ResourceRef
+from packages.identity.enforcement import authorize
 from packages.identity.principal import Principal
 from services.project_planning.domain.enums import ScriptStatus
 from services.project_planning.domain.script import ScriptRevision
@@ -245,11 +247,18 @@ class ScriptService:
                 ErrorRegistry.STATE_TRANSITION_DENIED,
                 detail="缺少锁定申请人，禁止批准（职责分离不可绕过）",
             )
-        if script.requested_by == approved_by:
-            raise DomainError(
-                ErrorRegistry.STATE_TRANSITION_DENIED,
-                detail="申请人与批准人不得为同一主体（职责分离红线）",
-            )
+        # 统一授权决策（B2）：资源归属（项目）+ 职责分离（申请人≠批准人）一次判完。
+        # 此前这里是手写的 if，与资产审批各写一份、错误码与文案都不一致，
+        # 审计无法按理由码统一计数；现在两条审批链共用同一份判定。
+        authorize(
+            principal,
+            "SCRIPT.LOCK.APPROVE",
+            resource=ResourceRef(
+                resource_type="ScriptLock",
+                project_id=script.project_id,
+            ),
+            applicant_subject_id=script.requested_by,
+        )
 
         expected_version = script.entity_version
         script.approve_lock(approved_by)

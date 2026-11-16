@@ -138,7 +138,7 @@ async def test_rbac_allows_authorized_roles_across_write_flow() -> None:
 async def test_unknown_role_denied_on_all_write_endpoints() -> None:
     """QC 不在任一写动作的 allowed_principals → 5 个写入口全部 403。
 
-    这条用例专门防「默认 token 授予多角色、端点删掉 require_role 也没人发现」：
+    这条用例专门防「默认 token 授予多角色、端点删掉 require_action 也没人发现」：
     角色不命中时必须整条链路都拒绝，而不是靠某个用例恰好没覆盖到。
     """
     project_id = f"proj_deny_{uuid.uuid4().hex[:8]}"

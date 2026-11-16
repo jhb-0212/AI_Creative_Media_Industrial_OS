@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from services.identity_access.action_registry import allowed_roles
+from packages.identity.action_registry import allowed_roles
 
 # 现实身份域里存在的角色名（JWT roles claim 会用到的字面值）。
 _KNOWN_ROLES = {

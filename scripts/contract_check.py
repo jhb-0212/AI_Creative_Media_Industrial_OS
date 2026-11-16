@@ -937,18 +937,18 @@ def check_schema_objects() -> bool:
 # 已实现 action 的授权落点（防「有端点、没授权」）
 # --------------------------------------------------------------------------- #
 def check_implemented_permission_wiring() -> bool:
-    """校验每个已实现 action 的模块里真的挂了 ``require_role("<ACTION>")``。
+    """校验每个已实现 action 的模块里真的挂了 ``require_action("<ACTION>")``。
 
     为什么需要这条闸门：
     - 运行时覆盖闸门只证明「端点存在」，不证明「端点有授权」。一个忘写
-      require_role 的端点照样能被未授权主体调用，而 CI 全绿——这正是
+      require_action 的端点照样能被未授权主体调用，而 CI 全绿——这正是
       「声明 ≠ 执行」的典型沉默缺口。
-    - 契约是单一事实源：动作键必须出现在该模块源码里（作为 require_role 的
+    - 契约是单一事实源：动作键必须出现在该模块源码里（作为 require_action 的
       参数），否则说明没有把该动作接到授权依赖上。
     - 同时校验台账里的 module 路径真实存在，避免台账指向一个不存在的文件。
 
     局限（诚实记录）：这是源码文本级校验，只证明「键被引用」；它不能证明
-    require_role 一定挂在正确的路由函数上。更强的证明在集成测试（403 用例）。
+    require_action 一定挂在正确的路由函数上。更强的证明在集成测试（403 用例）。
     """
     ledger = load_yaml_mapping(LEDGER_PATH)
     implemented: dict[str, dict[str, str]] = ledger.get("implemented") or {}
@@ -963,16 +963,16 @@ def check_implemented_permission_wiring() -> bool:
             ok = False
             continue
         source = module_path.read_text(encoding="utf-8")
-        if f'require_role("{key}")' not in source:
+        if f'require_action("{key}")' not in source:
             print(
-                f"[FAIL] {key} 在 {module_rel} 中没有挂 require_role"
+                f"[FAIL] {key} 在 {module_rel} 中没有挂 require_action"
                 f'("{key}")——端点存在但没有授权依赖'
             )
             ok = False
 
     if ok:
         print(
-            f"[PASS] 已实现 action 的授权落点：{len(implemented)} 个动作均已挂 require_role"
+            f"[PASS] 已实现 action 的授权落点：{len(implemented)} 个动作均已挂 require_action"
         )
     return ok
 

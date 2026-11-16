@@ -21,13 +21,15 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from packages.identity.authorization import ResourceRef
+from packages.identity.enforcement import authorize
 from packages.shared.contract_models import contract_model
 from packages.shared.unit_of_work import UnitOfWork
 from services.identity_access.deps import (
     Principal,
     get_project_uow,
     get_read_project_uow,
-    require_role,
+    require_action,
 )
 from services.project_planning.repository.episode_sqlalchemy_repo import (
     SqlAlchemyEpisodeRepository,
@@ -90,11 +92,20 @@ def _get_read_service(uow: UnitOfWork = Depends(get_read_project_uow)) -> Script
 @router.post("/import", status_code=201, response_model=_ScriptRevisionResponse)
 async def import_script(
     body: ImportScriptRequest,
-    principal: Principal = Depends(require_role("SCRIPT.IMPORT")),
+    principal: Principal = Depends(require_action("SCRIPT.IMPORT")),
     uow: UnitOfWork = Depends(get_project_uow),
     service: ScriptService = Depends(_get_service),
 ) -> dict[str, Any]:
     """导入剧本版本（幂等，产出 DRAFT 态）。created_by / tenant_id 来自 Principal。"""
+    # 资源级授权（B2）：项目维度在依赖阶段只能记为 deferred，这里请求体已有
+    # project_id，必须真正核对——否则"有编剧角色"就能往任何项目写剧本。
+    authorize(
+        principal,
+        "SCRIPT.IMPORT",
+        resource=ResourceRef(
+            resource_type="ScriptRevision", project_id=body.project_id
+        ),
+    )
     script = await service.import_script(
         project_id=body.project_id,
         episode_ref=body.episode_ref,
@@ -110,7 +121,7 @@ async def import_script(
 @router.post("/{entity_id}/lock/request", response_model=_ScriptRevisionResponse)
 async def request_lock(
     entity_id: str,
-    principal: Principal = Depends(require_role("SCRIPT.LOCK.REQUEST")),
+    principal: Principal = Depends(require_action("SCRIPT.LOCK.REQUEST")),
     uow: UnitOfWork = Depends(get_project_uow),
     service: ScriptService = Depends(_get_service),
 ) -> dict[str, Any]:
@@ -126,7 +137,7 @@ async def request_lock(
 @router.post("/{entity_id}/lock/approve", response_model=_ScriptRevisionResponse)
 async def approve_lock(
     entity_id: str,
-    principal: Principal = Depends(require_role("SCRIPT.LOCK.APPROVE")),
+    principal: Principal = Depends(require_action("SCRIPT.LOCK.APPROVE")),
     uow: UnitOfWork = Depends(get_project_uow),
     service: ScriptService = Depends(_get_service),
 ) -> dict[str, Any]:
@@ -142,7 +153,7 @@ async def approve_lock(
 @router.get("/{entity_id}", response_model=_ScriptRevisionResponse)
 async def get_script(
     entity_id: str,
-    _principal: Principal = Depends(require_role("SCRIPT.READ")),
+    _principal: Principal = Depends(require_action("SCRIPT.READ")),
     service: ScriptService = Depends(_get_read_service),
 ) -> dict[str, Any]:
     """按 id 查询剧本版本（需 SCRIPT.READ 授权；租户边界由 RLS 保证）。"""
