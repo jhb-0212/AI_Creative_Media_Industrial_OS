@@ -39,6 +39,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -71,19 +72,23 @@ def check_json(path: Path) -> bool:
         return False
 
 
-def load_yaml_mapping(path: Path) -> dict:
+def load_yaml_mapping(path: Path) -> dict[str, Any]:
     """契约 YAML 的唯一加载入口：读取 + 解析 + 断言顶层为映射。
 
     设计要点（铁律 2/5：单一职责、禁止补丁式判空）：
     - 所有校验函数读取契约 YAML 一律经由此函数，判空与类型断言收敛到一处，
       避免各调用点各自 ``or {}`` / ``isinstance`` 兜底造成的碎片化。
-    - ``yaml.safe_load`` 对空文件返回 None，直接 ``.get`` 会抛不带定位信息的
-      AttributeError；这里统一 fail-fast 抛 ValueError，并携带文件路径，
-      让「契约文件被清空/损坏」这一类问题在根上暴露，而非散落到调用方崩溃。
+    - 两类契约损坏都在此统一 fail-fast 转 ValueError，并携带**完整路径**
+      （契约目录存在同名 ``*_gaps.yaml``，仅用 ``name`` 无法定位）：
+      1. 空文件/非映射：``yaml.safe_load`` 返回 None 或非 dict；
+      2. 语法损坏：``yaml.YAMLError``（解析器抛错，不裸冒泡成 traceback）。
     """
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ValueError(f"{path} YAML 解析失败: {exc}") from exc
     if not isinstance(data, dict):
-        raise ValueError(f"{path.name} 解析结果不是映射（可能为空文件）")
+        raise ValueError(f"{path} 解析结果不是映射（可能为空文件）")
     return data
 
 
@@ -439,7 +444,7 @@ def missing_resource_schemas(
     implemented: set[str],
     resource_types: dict[str, str],
     defs: set[str],
-    exemptions: set[str],
+    exemptions: dict[str, str],
 ) -> list[tuple[str, str]]:
     """已实现 action 里「资源类型没有对象定义也没豁免」的 (action, type) 列表。
 
@@ -552,7 +557,12 @@ def check_active_resource_schemas() -> bool:
             print(f"[FAIL] 债务条目 {name!r} 缺少字段: {missing_fields}")
             ok = False
             continue
-        declared = {str(v) for v in (entry.get("referenced_by") or [])}
+        referenced = entry.get("referenced_by") or []
+        if not isinstance(referenced, list):
+            print(f"[FAIL] 债务条目 {name!r} 的 referenced_by 必须是列表")
+            ok = False
+            continue
+        declared = {str(v) for v in referenced}
         if declared != refs.get(name, set()):
             print(
                 f"[FAIL] 债务条目 {name!r} 的 referenced_by 与 ACTIVE 实际引用不一致："
@@ -709,6 +719,9 @@ _RESOURCE_SERIALIZERS: dict[str, tuple[str, str]] = {
         "AssetVersion",
     ),
     "QCReport": ("services.asset_service.domain.qc_report", "QCReport"),
+    "Project": ("services.project_planning.domain.project", "Project"),
+    "Episode": ("services.project_planning.domain.episode", "Episode"),
+    "ScriptRevision": ("services.project_planning.domain.script", "ScriptRevision"),
 }
 
 
@@ -718,6 +731,9 @@ def _serializer_factories() -> dict[str, object]:
 
     from services.asset_service.domain.asset_version import AssetVersion
     from services.asset_service.domain.qc_report import QCReport
+    from services.project_planning.domain.episode import Episode
+    from services.project_planning.domain.project import Project
+    from services.project_planning.domain.script import ScriptRevision
 
     tenant_id = uuid4()
     return {
@@ -737,6 +753,28 @@ def _serializer_factories() -> dict[str, object]:
             detector_versions={"blur": "1.0"},
             findings=[{"code": "PROBE"}],
             created_by="probe",
+        ),
+        "Project": Project(
+            entity_id="probe-project",
+            created_by="probe",
+            tenant_id=tenant_id,
+            project_name="probe-project-name",
+        ),
+        "Episode": Episode(
+            entity_id="probe-episode",
+            created_by="probe",
+            tenant_id=tenant_id,
+            project_id="probe-project",
+            episode_ref="EP001",
+            title="probe-episode-title",
+        ),
+        "ScriptRevision": ScriptRevision(
+            entity_id="probe-script",
+            created_by="probe",
+            tenant_id=tenant_id,
+            project_id="probe-project",
+            episode_ref="EP001",
+            title="probe-script-title",
         ),
     }
 
@@ -1009,6 +1047,80 @@ def check_state_reachability() -> bool:
     return ok
 
 
+def _status_change_action_keys(resource_type: str) -> set[str]:
+    """返回 action_registry 里某 resource_type 的「状态变更类」action_key。
+
+    「状态变更类」定义为 action_key 不以 ``.CREATE`` / ``.READ`` 结尾的动作——
+    CREATE 只创建对象（产出初始态）、READ 只读，均不触发状态转移；其余动作
+    （IMPORT/LOCK/APPROVE/STATUS.CHANGE 等）才可能触发状态变更。
+    """
+    registry = load_yaml_mapping(CONTRACTS / "action_registry" / "action_registry.yaml")
+    result: set[str] = set()
+    for action in registry.get("actions", []):
+        if not isinstance(action, dict):
+            continue
+        rtype = str(action.get("resource_type", "")).split("/")[0]
+        key = str(action.get("action_key", ""))
+        if rtype == resource_type and not key.endswith((".CREATE", ".READ")):
+            result.add(key)
+    return result
+
+
+def check_transition_entry_gaps() -> bool:
+    """校验「转移无 HTTP 入口」债务登记的诚实性（审计 P2-1 的闸门化）。
+
+    与 check_state_reachability 的差异：后者只验证「状态在域转移表里可达」，
+    但「可达」不等于「可执行」——Project/Episode 的转移在域表里可达，却没有任何
+    action 能触发（停在 DRAFT 无法推进）。本函数校验 state_machine_gaps.yaml 的
+    transition_entry_gaps 分区：
+
+    1. 登记对象必须是已实现状态机（_STATE_MACHINE_SOURCES）；
+    2. reason / contract_ref / unblocks_when 三项完整（债务不能含糊）；
+    3. 防陈旧：若该对象在 action_registry 里已出现「状态变更类」action，说明入口
+       已补上，登记就变成陈旧债务，必须删条目（否则报红）。
+
+    这样「绿着但不可执行」不再靠人眼发现，而是被闸门显式约束。
+    """
+    if not STATE_GAPS_PATH.exists():
+        # 无债务文件时视为「无登记」，不阻塞（与 check_state_reachability 一致）。
+        print("[PASS] 状态转移入口债务：未登记（无 transition_entry_gaps 文件）")
+        return True
+    gaps = load_yaml_mapping(STATE_GAPS_PATH)
+    declared = gaps.get("transition_entry_gaps") or {}
+    if not isinstance(declared, dict):
+        print("[FAIL] transition_entry_gaps 必须是映射")
+        return False
+    ok = True
+    count = 0
+
+    for obj_name, detail in declared.items():
+        if obj_name not in _STATE_MACHINE_SOURCES:
+            print(f"[FAIL] {obj_name} 不在已实现状态机清单里，不得登记转移入口债务")
+            ok = False
+            continue
+        count += 1
+        missing = [
+            key
+            for key in ("reason", "contract_ref", "unblocks_when")
+            if not str((detail or {}).get(key, "")).strip()
+        ]
+        if missing:
+            print(f"[FAIL] {obj_name} 转移入口债务登记缺字段: {missing}")
+            ok = False
+        # 防陈旧：入口已补上却未删债务。
+        status_actions = _status_change_action_keys(obj_name)
+        if status_actions:
+            print(
+                f"[FAIL] {obj_name} 已存在状态变更 action {sorted(status_actions)}"
+                "——转移入口债务已陈旧，必须删条目"
+            )
+            ok = False
+
+    if ok:
+        print(f"[PASS] 状态转移入口债务：显式登记 {count} 项（无陈旧/越界登记）")
+    return ok
+
+
 # --------------------------------------------------------------------------- #
 # 事件契约校验（Event Catalog ↔ 代码 ↔ Action Registry）
 # --------------------------------------------------------------------------- #
@@ -1184,6 +1296,7 @@ def main() -> int:
         ok &= check_active_resource_schemas()
         ok &= check_implemented_permission_wiring()
         ok &= check_state_reachability()
+        ok &= check_transition_entry_gaps()
         ok &= check_permission_matrix()
         ok &= check_schema_objects()
         ok &= check_event_catalog()

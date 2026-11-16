@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from packages.shared.contract_models import contract_model
 from packages.shared.unit_of_work import UnitOfWork
 from services.identity_access.deps import (
     Principal,
@@ -43,6 +44,10 @@ from services.project_planning.repository.sqlalchemy_repo import (
 from services.project_planning.service.script_service import ScriptService
 
 router = APIRouter(prefix="/scripts", tags=["script-management"])
+
+# 响应模型由契约定义生成（R3）：字段集恒等于 object_schemas 的 ScriptRevision 定义。
+# 锁定申请/批准的响应仍是 ScriptRevision（requested_by 反映职责分离状态）。
+_ScriptRevisionResponse = contract_model("ScriptRevision")
 
 
 class ImportScriptRequest(BaseModel):
@@ -82,7 +87,7 @@ def _get_read_service(uow: UnitOfWork = Depends(get_read_tenant_uow)) -> ScriptS
     return _build_service(uow.session)
 
 
-@router.post("/import", status_code=201)
+@router.post("/import", status_code=201, response_model=_ScriptRevisionResponse)
 async def import_script(
     body: ImportScriptRequest,
     principal: Principal = Depends(require_role("SCRIPT.IMPORT")),
@@ -102,7 +107,7 @@ async def import_script(
     return script.to_dict()
 
 
-@router.post("/{entity_id}/lock/request")
+@router.post("/{entity_id}/lock/request", response_model=_ScriptRevisionResponse)
 async def request_lock(
     entity_id: str,
     principal: Principal = Depends(require_role("SCRIPT.LOCK.REQUEST")),
@@ -118,7 +123,7 @@ async def request_lock(
     return script.to_dict()
 
 
-@router.post("/{entity_id}/lock/approve")
+@router.post("/{entity_id}/lock/approve", response_model=_ScriptRevisionResponse)
 async def approve_lock(
     entity_id: str,
     principal: Principal = Depends(require_role("SCRIPT.LOCK.APPROVE")),
@@ -134,7 +139,7 @@ async def approve_lock(
     return script.to_dict()
 
 
-@router.get("/{entity_id}")
+@router.get("/{entity_id}", response_model=_ScriptRevisionResponse)
 async def get_script(
     entity_id: str,
     _principal: Principal = Depends(require_role("SCRIPT.READ")),

@@ -335,7 +335,7 @@ RLS 在迁移里 `ENABLE` 一次，分区动态创建时没人再 `ENABLE`；反
 | P1-2 | 两跳只发 1 条事件 | **已修复**（S3） | 逐跳事件 `ASSET_VERSION_HUMAN_REVIEW_ENTERED` + 事件契约 |
 | P1-3 | schema 闸门假绿（删 46/76 仍 PASS） | **已修复**（S4） | `check_schema_objects()` 结构+行为校验（object/properties/required/形状/$ref/运行时双向比对）+ 4 条负向测试 |
 | P1-4 | 不可变未落结构（内容列回写 + DELETE） | **已修复**（S3 触发器 + R10 授权） | 迁移 `d1e2f3a4b5c6`；仓储白名单；`qc_reports` 禁 UPDATE/DELETE |
-| P2-1 | Project/Episode 无状态变更入口 | **已修复**（S6） | ProjectService/EpisodeService 同事务发 `PROJECT_CREATED`/`EPISODE_CREATED`；事件契约 10 条、缺口清零 |
+| P2-1 | Project/Episode 无状态变更入口 | **部分修复**（S6 补创建事件，状态变更入口仍缺） | S6 同事务发 `PROJECT_CREATED`/`EPISODE_CREATED`（事件缺口清零）；但 Project/Episode 的 HTTP 状态变更 action 仍未登记（ADR-R12 明示「需等正文口径，不猜契约」），域转移表的非初始边无 action 入口，已登记于 `contracts/runtime/state_machine_gaps.yaml` 的 `transition_entry_gaps` |
 | P2-2 | relay 毒事件无上限/无死信 | **已修复**（S5） | 迁移 `f3a4b5c6d7e8`（attempts/next_attempt_at/dead_lettered_at）；指数退避 + 死信 + runbook 巡检/重放 |
 | P2-3 | 资产 GET 未走只读 UoW | **已修复**（S4） | `asset_routes.read_asset_version` 改用 `_get_read_service`（`get_read_tenant_uow`） |
 | P2-4 | 响应/契约字段漂移 | **已修复**（S4） | 响应模型由契约动态生成（`packages/shared/contract_models.py`）；`to_dict` 去 tenant_id 等内部字段；4 个资产路由挂 `response_model` |

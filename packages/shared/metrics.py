@@ -52,7 +52,13 @@ OUTBOX_RELAY_EVENTS_TOTAL = Counter(
 # 积压用无标签 Gauge 而不是按租户打标签：租户数会增长，按租户做标签迟早出事。
 OUTBOX_RELAY_BACKLOG = Gauge(
     "outbox_relay_backlog",
-    "待投递事件总数（最近一轮扫描采样）",
+    "待投递事件总数（最近一轮扫描采样，只计可领取，不含死信与退避）",
+)
+
+# 死信单独观测：与 backlog 分离，避免「已放弃的死信」虚高积压报警（复核 R2）。
+OUTBOX_RELAY_DEAD = Gauge(
+    "outbox_relay_dead",
+    "死信事件总数（最近一轮扫描采样，投递已放弃、待人工重放）",
 )
 
 OUTBOX_RELAY_RUN_ERRORS = Counter(

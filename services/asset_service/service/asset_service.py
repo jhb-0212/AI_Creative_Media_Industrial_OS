@@ -61,6 +61,16 @@ def _assert_report_owner(report: QCReport, asset_version_id: str) -> None:
         )
 
 
+def _same_content(existing: AssetVersion, sha256: str, asset_type: str) -> bool:
+    """判定既有资产与待登记内容是否一致（幂等判定的单一事实源）。
+
+    同时比对 sha256 与 asset_type：同一文件被登记为不同 asset_type（如 video /
+    audio）时必须视为「内容不同」——否则并发回查路径会静默返回旧对象，而顺序
+    路径会 409，同一业务规则在竞态下出现两种结果（复核 R5）。
+    """
+    return existing.sha256 == sha256 and existing.asset_type == asset_type
+
+
 class AssetService:
     """资产版本创建、QC 证据登记、批准与查询用例。"""
 
@@ -102,7 +112,7 @@ class AssetService:
         existing = await self._assets.get_by_id(new_entity_id)
         if existing is not None:
             # 同 id 同内容：重复提交，幂等返回既有版本。
-            if existing.sha256 == normalized_sha and existing.asset_type == asset_type:
+            if _same_content(existing, normalized_sha, asset_type):
                 return existing
             # 同 id 不同内容：这是覆盖旧版本，红线禁止（契约
             # ASSET.VERSION.CREATE「仅新增不可变版本，不覆盖旧版本」）。
@@ -132,13 +142,20 @@ class AssetService:
         try:
             await self._assets.add(asset)
         except IntegrityError as exc:
-            # 并发重复提交：主键冲突后回查，内容一致则幂等返回。
+            # 并发重复提交：主键冲突后回查。判定与快速路径共用同一纯函数，
+            # 内容一致（sha256 且 asset_type）才幂等返回；不一致同样是「同 id
+            # 不同内容」的覆盖请求，走 IDEMPOTENCY_CONFLICT 而非并发错误。
             existing = await self._assets.get_by_id(new_entity_id)
-            if existing is not None and existing.sha256 == normalized_sha:
+            if existing is not None and _same_content(
+                existing, normalized_sha, asset_type
+            ):
                 return existing
             raise DomainError(
-                ErrorRegistry.CONCURRENT_MODIFICATION,
-                detail="资产版本并发写入冲突，请查询后重试",
+                ErrorRegistry.IDEMPOTENCY_CONFLICT,
+                detail=(
+                    f"asset_version_id {new_entity_id} 已存在且内容不同："
+                    "禁止覆盖既有资产版本，请新增版本并引用 source_asset_version_ids"
+                ),
             ) from exc
 
         self._outbox_writer.record(

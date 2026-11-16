@@ -185,7 +185,16 @@ async def test_tenant_enumeration_exposes_only_backlog_metadata() -> None:
             await session.execute(text("SELECT * FROM outbox.list_active_tenants()"))
         ).mappings().all()
 
-    assert set(columns) == {"tenant_id", "pending_count", "oldest_occurred_at"}
+    # 枚举函数只返回租户与积压/死信元数据，绝不返回事件负载（payload）。
+    # 死信单独用 dead_count / oldest_dead_at 观测（见审计复核 R2），
+    # 因此列集合包含这 5 项元数据，但仍不含任何事件内容列。
+    assert set(columns) == {
+        "tenant_id",
+        "pending_count",
+        "dead_count",
+        "oldest_occurred_at",
+        "oldest_dead_at",
+    }
     tenant_ids = {uuid.UUID(str(row["tenant_id"])) for row in rows}
     assert TENANT_B in tenant_ids
     # 没有任何事件的租户不应出现在 relay 的扫描列表里。

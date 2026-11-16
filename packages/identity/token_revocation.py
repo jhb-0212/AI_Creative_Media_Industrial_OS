@@ -35,10 +35,24 @@ _IS_REVOKED = text(
 async def is_token_revoked(
     sessionmaker: async_sessionmaker[AsyncSession], jti: str
 ) -> bool:
-    """查询 jti 是否在吊销表内（仅统计仍有效的吊销记录）。"""
-    async with sessionmaker() as session:
-        row = await session.execute(_IS_REVOKED, {"jti": jti})
-        return row.first() is not None
+    """查询 jti 是否在吊销表内（仅统计仍有效的吊销记录）。
+
+    fail-closed（模块 docstring）：查询本身失败（数据库不可达 / 连接超时 /
+    表缺失等）时不返回 False，而是抛 DomainError(AUTH_UNAUTHENTICATED)——
+    无法确认吊销状态一律按「拒绝」处理，且口径与认证失败一致（统一 401 信封），
+    避免把数据库抖动误报成服务端 500。
+    """
+    try:
+        async with sessionmaker() as session:
+            row = await session.execute(_IS_REVOKED, {"jti": jti})
+            return row.first() is not None
+    except DomainError:
+        raise
+    except Exception as exc:
+        raise DomainError(
+            ErrorRegistry.AUTH_UNAUTHENTICATED,
+            detail="无法校验令牌吊销状态",
+        ) from exc
 
 
 def build_revocation_check(
