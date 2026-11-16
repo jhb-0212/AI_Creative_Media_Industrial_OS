@@ -58,6 +58,10 @@ def _load_registry() -> dict[str, str]:
     if not _CONTRACT_PATH.exists():
         raise FileNotFoundError(f"契约缺失: {_CONTRACT_PATH}")
     data = yaml.safe_load(_CONTRACT_PATH.read_text(encoding="utf-8"))
+    # 空文件/无内容时 safe_load 返回 None，直接 .get 会抛不带定位信息的
+    # AttributeError；契约损坏必须 fail-fast 转结构化错误，而非崩溃冒泡。
+    if not isinstance(data, dict):
+        raise ValueError(f"action_registry 解析结果不是映射: {type(data).__name__}")
     registry: dict[str, str] = {}
     for action in data.get("actions", []):
         key = action.get("action_key")
