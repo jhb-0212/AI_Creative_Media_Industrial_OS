@@ -145,3 +145,20 @@ events:
       - tenant_id
       - status
     contract_ref: contracts/schemas/object_schemas.schema.json#Episode
+
+  - event_type: DELIVERY_MANIFEST_CREATED
+    aggregate_type: DeliveryManifest
+    emitted_by: services/asset_service/service/delivery_service.py
+    payload_required:
+      - manifest_id
+      - project_id
+      - asset_refs
+      - checksum
+      - spec_ref
+      - qc_final_ref
+      - picture_lock_ref
+      - rights_evidence_refs
+      - status
+      - created_by
+      - tenant_id
+    contract_ref: contracts/schemas/object_schemas.schema.json#DeliveryManifest

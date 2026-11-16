@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Uuid
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -106,3 +106,31 @@ class QCReportModel(Base):
     created_by: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class DeliveryManifestModel(EntityMixin, Base):
+    """`delivery_manifests` 表模型（交付清单，创建即不可变）。
+
+    与 `AssetVersionModel` 同样的取舍：契约的 `manifest_id` 与 `entity_id` 同值，
+    只持久化 `entity_id` 一个主键，序列化时派生——两个同值主键列会制造
+    「改一个忘一个」的漂移面。
+
+    `project_id` 是**库里存在但契约没有**的列：它只服务项目级隔离策略
+    （与五张项目级资源表的策略文本保持一致）。因此 `to_dict()` 刻意不输出它，
+    否则响应会多出契约未声明的字段。
+    """
+
+    __tablename__ = "delivery_manifests"
+    __table_args__ = (
+        Index("ix_asset_service_delivery_manifests_project", "project_id"),
+        {"schema": SCHEMA_NAME},
+    )
+
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    asset_refs: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    checksum: Mapped[str] = mapped_column(String(64), nullable=False)
+    picture_lock_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    qc_final_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    rebuild_recipe: Mapped[str] = mapped_column(Text, nullable=False)
+    rights_evidence_refs: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    spec_ref: Mapped[str] = mapped_column(String(64), nullable=False)

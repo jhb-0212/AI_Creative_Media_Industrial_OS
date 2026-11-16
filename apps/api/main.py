@@ -80,6 +80,9 @@ setup_telemetry(app)
 
 # 挂载领域模块路由。
 from services.asset_service.api.asset_routes import router as asset_router  # noqa: E402
+from services.asset_service.api.delivery_routes import (  # noqa: E402
+    router as delivery_router,
+)
 from services.project_planning.api.episode_routes import router as episode_router  # noqa: E402
 from services.project_planning.api.project_routes import router as project_router  # noqa: E402
 from services.project_planning.api.script_routes import router as script_router  # noqa: E402
@@ -88,6 +91,7 @@ app.include_router(project_router)
 app.include_router(script_router)
 app.include_router(episode_router)
 app.include_router(asset_router)
+app.include_router(delivery_router)
 
 
 # 探针与指标端点不参与限流：编排系统高频抓取，被限流会误判实例不可用。

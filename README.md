@@ -114,7 +114,7 @@ docs/          # 架构/ADR/runbook/SOP
 | 密钥不进入交付包 | 未实现自动扫描 |
 | 签发与验签分离（私钥不进 API 进程） | **已闭合（B4）**：`KeyStore`（进程内多私钥注册表）与 `from_key_store`（验签借用签发仓储）已删除；`TokenIssuer` 必须显式持私钥才能构造；`role=api` 带私钥**拒绝启动**（配置层 + 入口层两道），验签方只认 `IDENTITY_PUBLIC_KEY_PEM` 或 `IDENTITY_JWKS_FILE`。见 `docs/adr/ADR-R19-signing-key-boundary.md`。**仍缺**：独立的签发进程（`/token` 与 JWKS 发布端点均未实现，当前令牌由测试与脚本签发）、密钥指纹可观测性 |
 | 高并发 / 故障恢复 | 有熔断、Outbox 重试；无压测与故障演练证据 |
-| Phase 1 生产闭环 | 未完成（见下） |
+| Phase 1 生产闭环 | **部分闭合（D 起步）**：`DELIVERY.MANIFEST.CREATE` 已落地（`POST /delivery-manifests`），交付清单是 append-only 的证据引用：端口层没有 `save`、数据库只授 `SELECT/INSERT` + append-only 触发器、校验和由服务端按可重建内容计算、只可能产生 `DRAFT`、契约里没有 `gate_pass` 类字段。见 `docs/adr/ADR-R22-delivery-manifest-as-evidence.md`。**仍缺**：`APPROVE` / `RELEASE`（依赖 Gate4 决策链）、AI 拆镜→ShotSpec→Gate 的整条主链、各 Worker（`workers/*` 仍为空目录） |
 
 这些是第三轮审查归并出的根因 F2/F3/F4/F5，收敛计划见
 `docs/audits/2026-11-16-review-round3-response.md`。

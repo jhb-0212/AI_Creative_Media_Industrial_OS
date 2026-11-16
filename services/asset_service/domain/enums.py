@@ -51,6 +51,27 @@ class AssetStatus(str, Enum):
     ARCHIVED = "ARCHIVED"
 
 
+class DeliveryManifestStatus(str, Enum):
+    """交付清单状态（契约 DeliveryManifest：DRAFT→VALIDATING→VALIDATED→RELEASED，
+    异常/失效 INVALID / STALE / REVOKED / SUPERSEDED）。
+
+    与 `AssetStatus` 同一个口径：**枚举登记全部契约值，不等于全部可达**。
+    本实现只允许产生 `DRAFT`（`DELIVERY.MANIFEST.CREATE` 的契约约束就是
+    「仅生成 DRAFT 并绑定完整证据引用」）；进入 VALIDATING/VALIDATED/RELEASED
+    需要 Gate4 PASS、PictureLock、权利证据与终检报告齐备，对应的动作
+    （`DELIVERY.MANIFEST.APPROVE` / `RELEASE`）尚未实现，属显式债务。
+    """
+
+    DRAFT = "DRAFT"
+    VALIDATING = "VALIDATING"
+    VALIDATED = "VALIDATED"
+    RELEASED = "RELEASED"
+    INVALID = "INVALID"
+    STALE = "STALE"
+    REVOKED = "REVOKED"
+    SUPERSEDED = "SUPERSEDED"
+
+
 class DeviationClass(str, Enum):
     """QC 偏差分类（契约 QCReport.deviation_class）。"""
 

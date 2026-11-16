@@ -739,6 +739,10 @@ _RESOURCE_SERIALIZERS: dict[str, tuple[str, str]] = {
     "Project": ("services.project_planning.domain.project", "Project"),
     "Episode": ("services.project_planning.domain.episode", "Episode"),
     "ScriptRevision": ("services.project_planning.domain.script", "ScriptRevision"),
+    "DeliveryManifest": (
+        "services.asset_service.domain.delivery_manifest",
+        "DeliveryManifest",
+    ),
 }
 
 
@@ -747,6 +751,7 @@ def _serializer_factories() -> dict[str, object]:
     from uuid import uuid4
 
     from services.asset_service.domain.asset_version import AssetVersion
+    from services.asset_service.domain.delivery_manifest import DeliveryManifest
     from services.asset_service.domain.qc_report import QCReport
     from services.project_planning.domain.episode import Episode
     from services.project_planning.domain.project import Project
@@ -794,6 +799,20 @@ def _serializer_factories() -> dict[str, object]:
             project_id="probe-project",
             episode_ref="EP001",
             title="probe-script-title",
+        ),
+        # 清单探针刻意带 project_id：它只服务行级隔离策略、契约里没有这个字段，
+        # 若 to_dict() 误把它输出，本闸门会以"响应出现契约未声明字段"报红。
+        "DeliveryManifest": DeliveryManifest(
+            manifest_id="probe-manifest",
+            created_by="probe",
+            tenant_id=tenant_id,
+            project_id="probe-project",
+            asset_refs=["probe-asset"],
+            rights_evidence_refs=["probe-rights"],
+            rebuild_recipe="recipe://probe/v1",
+            spec_ref="probe-spec",
+            qc_final_ref="probe-qc-final",
+            picture_lock_ref="probe-picture-lock",
         ),
     }
 

@@ -167,6 +167,11 @@ apps ──▶ services ──▶ (领域模型/仓储)
   `services/<domain>/service`（应用服务）不得 import `fastapi` / `starlette` /
   `sqlalchemy` / `asyncpg`；驱动异常在 `repository/` 层翻译成领域异常后再交给服务层。
   见 `docs/adr/ADR-R21-repository-error-semantics.md`。
+- **不可变的交付依据只在端口层开一个方向**：`DeliveryManifestRepository` 只有
+  `add` / `get_by_id`，**没有 `save`**；数据库只授 `SELECT, INSERT` 并加 append-only
+  触发器（含超级用户直连）。"提供 save 再要求调用方别用"是不可执行的约定——
+  约束要能被强制执行，前提是它没有可执行的通道。见
+  `docs/adr/ADR-R22-delivery-manifest-as-evidence.md`。
 - **workers 消费事件**：通过 Outbox 模式保证事务一致性，消费者 Inbox 去重、幂等。
 - **adapters 不写权威状态**：只处理外部系统差异，回传结果进入平台资产暂存与验证。
 - **contracts 是单一事实源**：代码从契约派生，CI 校验契约与实现一致（不重复维护两份）。

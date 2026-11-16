@@ -44,6 +44,10 @@ bindings:
     module: services.project_planning.domain.enums
     enum: EpisodeStatus
     source: state_machines
+  DeliveryManifest:
+    module: services.asset_service.domain.enums
+    enum: DeliveryManifestStatus
+    source: state_machines
 
 exemptions:
   - module: services.asset_service.domain.enums
