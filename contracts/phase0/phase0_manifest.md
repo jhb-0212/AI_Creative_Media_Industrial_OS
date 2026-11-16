@@ -1,0 +1,51 @@
+# Phase 0 契约冻结包清单
+
+> 本文件由 `scripts/freeze_manifest.py --write` 生成，**禁止手改**。
+> 手改会被 `--check` 的清单自指哈希校验当场判定为篡改。
+
+基线文档：`docs/baseline/AI影视工业化生产平台V2.0.5.md`（489607 字节）
+文档版本：`V205-R14`（版本号按项目约束冻结，不随修订升号）
+冻结时刻仓库快照：`dfc5bd8`
+基线 SHA-256：`9a9940c5523c2c9626a410fa82b0ccbc195d6fe1bf3e985395e35706101ee7f7`
+
+本清单把 31.11 声明的十一类契约文件与磁盘实际文件逐项对齐：每份文件给出类目、
+字节数、SHA-256 与对应正文章节，可直接复核。第八类即本清单自身，因自指不登记
+自身哈希，其哈希见同目录 `phase0_manifest.md.sha256`，由生成器在写入后计算。
+
+## 文件清单
+
+| 正文类目 | 文件 | 字节 | SHA-256 | 对应章节 |
+|---|---|---|---|---|
+| ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 171999 | `4b063556bad86357232bc9ec62decf6ac10e2cc9f67a7a274868f6573b665945` | 8.x 对象契约 / C.3 数据契约 |
+| ② OpenAPI 草案 | `contracts/openapi/openapi.draft.yaml` | 109521 | `f51d36419865e18e451c71a14b73bd68954fde9bb8533a8ebc4b021777006647` | 31.6（由 Action Registry 派生） |
+| ③ 状态机 | `contracts/state_machines/state_machines.yaml` | 22253 | `3cece6636d16db18163df58080813129f37ee926efc650f75cc7ca05b5710eef` | 31.5 / 8.6 / 32.6 / 33.3 / 34.7 |
+| ④ Action Registry | `contracts/action_registry/action_registry.yaml` | 41771 | `b8440d8a93b375285b96ee17ef6853723d3dc4162cfedac48dfb6e963633a385` | 31.6 唯一注册表 |
+| ⑤ 权限矩阵 | `contracts/permission/permission_matrix.yaml` | 4212 | `cc7fc740ae4f875bc0ad95d5719f0d98c7d1c90b062900c1124bb9c9936183a1` | C.5 / 31.6 |
+| ⑥ 预算与成本口径 | `contracts/budget/budget_caliber.yaml` | 2511 | `29e1d7d470f115ff41b07daaebfb198ccea9246316a2dd4b43a28b52596a0aef` | C.2 / 34.6 |
+| ⑦ 指标字典 | `contracts/metrics/metric_dictionary.yaml` | 7567 | `fb909bccf1da14c74efaad77d77cf73d86c34126b41052def1d0185e4ea4f8cb` | 31.10 / 34.13 |
+| ⑧ 冻结包清单 | `contracts/phase0/phase0_manifest.md` | — | 自指不登记，见 `phase0_manifest.md.sha256` | 31.11 契约证据清单 |
+| ⑨ 枚举注册表 | `contracts/enums/enum_registry.yaml` | 14395 | `1d945a7e9ec10d06545c59f9150eb662922cfca2372f4107fc16b6fa6f446a55` | 31.5 / C.7 |
+| ⑩ ADR 主索引 | `docs/adr/adr_index.yaml` | 33011 | `24cca2103e93296eae56d8118b15d0eeb5eb6a52a9f2ec44ff50d1f49d7c27ff` | 31.12 / 32.13 / 33.15 |
+| ⑪ 阶段表 | `contracts/phases/phase_map.yaml` | 4158 | `77e88f57afd82eaa5caf9c4f73f485c33bfe8b125ca94529c05eb90c1788eeb3` | 31.2 唯一阶段总表 |
+
+## 已批准修订
+
+- `V205-R14-A1`
+
+契约名称全集必须精确等于「基线清单 ∪ 已批准修订」，由
+`scripts/freeze_manifest.py --check` 逐名称判定（不是只看数量）。
+
+## 校验命令
+
+```bash
+python scripts/freeze_manifest.py --check   # 基线未变 + 派生未私改 + 演进有据
+python scripts/contract_check.py            # 派生之间的交叉一致性
+```
+
+## 写入口径
+
+1. 只改基线文档 → 必须新修订升版，并重新派生全部产物后 `--write`；
+2. 只加业务契约（Action / Schema / 状态机）→ 先在 `contract_amendments.yaml`
+   登记理由与审批人，再改派生文件，最后 `--write`；
+3. 顺序反了（先改派生文件）→ `--check` 报「未登记新增」，不得用 `--write` 掩盖；
+4. 旧机制清理：不得保留任何手写的数量副本（`total_actions` 等必须与条目数一致）。
