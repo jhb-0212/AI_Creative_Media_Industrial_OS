@@ -23,6 +23,8 @@ from services.asset_service.domain.state_machine import (
 
 _SHA = "a" * 64
 _TENANT = uuid.UUID("00000000-0000-0000-0000-000000000000")
+# 归属链要求资产必须有项目归属（ADR-R17）：领域对象不再接受"悬空资产"。
+_PROJECT = "proj-asset-domain"
 
 
 def _asset(**overrides: object) -> AssetVersion:
@@ -30,6 +32,7 @@ def _asset(**overrides: object) -> AssetVersion:
         "entity_id": "asset-1",
         "created_by": "worker-1",
         "tenant_id": _TENANT,
+        "project_id": _PROJECT,
         "asset_type": "IMAGE",
         "sha256": _SHA,
         "storage_ref": {"uri": "s3://bucket/key.png"},
@@ -127,6 +130,8 @@ def test_asset_serializes_contract_envelope() -> None:
     assert data["status"] == "GENERATED"
     assert data["owner_module"] == "asset-service"
     assert data["rights_manifest_ref"] == "rights-1"
+    # 归属对外可见：客户端/审计据此回答"这个资产是谁的"。
+    assert data["project_id"] == _PROJECT
 
 
 def test_qc_report_requires_findings() -> None:
@@ -136,6 +141,7 @@ def test_qc_report_requires_findings() -> None:
             qc_report_id="qc-1",
             asset_version_id="asset-1",
             tenant_id=_TENANT,
+            project_id=_PROJECT,
             quality_profile_version="qp-1",
             detector_versions={"blur": "1.0"},
             findings=[],
@@ -149,6 +155,7 @@ def test_qc_report_requires_detector_versions() -> None:
             qc_report_id="qc-1",
             asset_version_id="asset-1",
             tenant_id=_TENANT,
+            project_id=_PROJECT,
             quality_profile_version="qp-1",
             detector_versions={},
             findings=[{"code": "BLUR"}],
@@ -163,6 +170,7 @@ def test_qc_report_serializes_enums_as_strings() -> None:
         qc_report_id="qc-1",
         asset_version_id="asset-1",
         tenant_id=_TENANT,
+        project_id=_PROJECT,
         quality_profile_version="qp-1",
         detector_versions={"blur": "1.0"},
         findings=[{"code": "BLUR"}],

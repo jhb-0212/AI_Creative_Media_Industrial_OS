@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from typing import Any
+from uuid import UUID
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.entity import Entity
@@ -43,6 +44,14 @@ class AssetVersion(Entity):
     # 数据所有权：信封 owner_module 覆写为本模块。
     owner_module: str = ASSET_OWNER_MODULE
 
+    # 归属（数据所有权的实体侧，审查第三轮 F2）：
+    # - project_id：资产属于哪个项目。此前资产是"悬空"的——没有任何字段回答
+    #   "这个资产是谁的"，于是同租户内不同项目之间不存在隔离。
+    # - organization_id：组织归属，缺省与租户相同（单组织租户基线）。
+    #   两者都由服务端从可信上下文写入，请求体无法指定组织。
+    project_id: str = ""
+    organization_id: UUID | None = None
+
     # 业务字段（信封字段由 Entity 基类提供）。
     asset_type: str = ""
     sha256: str = ""
@@ -56,8 +65,16 @@ class AssetVersion(Entity):
     status: AssetStatus = AssetStatus.GENERATED
 
     def __post_init__(self) -> None:
-        """校验信封 + 业务字段（对齐 ORM 列定义与契约必填语义）。"""
+        """校验信封 + 归属 + 业务字段（对齐 ORM 列定义与契约必填语义）。"""
         super()._validate_envelope()
+
+        # 归属必填：没有项目归属的资产无法做项目级授权，也无法追溯来源。
+        # 组织归属由 Entity._validate_envelope 统一填充（缺省同租户）。
+        if not (self.project_id or "").strip():
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail="project_id 不能为空：资产必须归属具体项目",
+            )
 
         if not self.asset_type.strip():
             raise DomainError(
@@ -104,6 +121,9 @@ class AssetVersion(Entity):
                 # 契约对象同时暴露 entity_id 与 asset_version_id：本实现用一个
                 # 主键承载两者，避免双主键口径分裂（写入/查询只有一条真相）。
                 "asset_version_id": self.entity_id,
+                # 归属对外可见：没有 project_id，客户端无法回答"这个资产是谁的"，
+                # 也无法在跨项目越权时自查；组织归属由项目继承，不重复输出。
+                "project_id": self.project_id,
                 "asset_type": self.asset_type,
                 "sha256": self.sha256,
                 "storage_ref": self.storage_ref,

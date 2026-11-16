@@ -123,6 +123,7 @@ class ScriptService:
             title=title,
             created_by=created_by,
             tenant_id=principal.tenant_id,
+            organization_id=principal.organization_id,
         )
 
         # INSERT 语义新增；并发下唯一约束兜底 check-then-act 竞态。

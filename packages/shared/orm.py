@@ -38,6 +38,11 @@ class EntityMixin:
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     owner_module: Mapped[str] = mapped_column(String(64), nullable=False)
     tenant_id: Mapped[UUID] = mapped_column(Uuid, nullable=False, index=True)
+    # organization_id（审查第三轮 F2）：组织归属。
+    # tenant 回答"哪家客户"，organization 回答"客户内部的哪个制作主体"；
+    # 大量 Action 的 scope 是 ``tenant+organization``，缺这一列就无法判定
+    # 跨组织访问。索引服务于按组织过滤的列表与授权查询。
+    organization_id: Mapped[UUID] = mapped_column(Uuid, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_by: Mapped[str] = mapped_column(String(64), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

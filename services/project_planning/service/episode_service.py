@@ -16,11 +16,11 @@
 from __future__ import annotations
 
 import uuid
-from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.identity.principal import Principal
 from packages.shared.outbox_writer import OutboxWriter
 from services.project_planning.domain.episode import Episode
 from services.project_planning.repository.episode_repo import EpisodeRepository
@@ -46,8 +46,7 @@ class EpisodeService:
         project_id: str,
         episode_ref: str,
         title: str,
-        created_by: str,
-        tenant_id: UUID,
+        principal: Principal,
         entity_id: str | None = None,
     ) -> Episode:
         """登记集数（幂等，归属 Project）。
@@ -56,12 +55,13 @@ class EpisodeService:
         - episode 必须归属真实存在的 project（归属验证）。
         - 同项目内 episode_ref 唯一（数据库唯一约束兜底）。
         - 输入统一 strip。
-        - tenant_id 来自可信身份上下文（Principal），是 RLS 隔离键。
+        - 身份三要素（主体 / 租户 / 组织）只从 Principal 取：它们必须来自同一
+          个可信来源，分三个参数传入等于给"租户 A 的记录写成租户 B"留了开口。
         """
         project_id = project_id.strip()
         episode_ref = episode_ref.strip()
         title = title.strip()
-        created_by = created_by.strip()
+        created_by = principal.subject_id.strip()
 
         if not project_id:
             raise DomainError(
@@ -99,7 +99,8 @@ class EpisodeService:
             episode_ref=episode_ref,
             title=title,
             created_by=created_by,
-            tenant_id=tenant_id,
+            tenant_id=principal.tenant_id,
+            organization_id=principal.organization_id,
         )
 
         # INSERT 语义新增；并发下唯一约束兜底（显式 id 与项目内唯一两条路径）。
@@ -127,14 +128,14 @@ class EpisodeService:
             aggregate_type="Episode",
             aggregate_id=episode.entity_id,
             event_type="EPISODE_CREATED",
-            tenant_id=tenant_id,
+            tenant_id=principal.tenant_id,
             payload={
                 "episode_id": episode.entity_id,
                 "project_id": project_id,
                 "episode_ref": episode_ref,
                 "title": title,
                 "created_by": created_by,
-                "tenant_id": str(tenant_id),
+                "tenant_id": str(principal.tenant_id),
                 "status": episode.status.value,
             },
         )

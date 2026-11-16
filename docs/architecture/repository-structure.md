@@ -153,6 +153,11 @@ apps ──▶ services ──▶ (领域模型/仓储)
   `docs/adr/ADR-R16-database-role-per-domain.md`。
   路由一律经 `services/identity_access/deps.py` 导出的具名依赖
   （`get_project_uow` / `get_asset_uow`）取得工作单元，不存在"万能默认池"。
+- **行级可见范围只有一个注入点**：租户 / 组织 / 项目范围三个 RLS 上下文由
+  `packages/shared/rls.py::set_request_context` 从 Principal 统一注入，
+  策略在迁移 `e7f8a9b0c1d2`。业务代码自行 `set_config` 或 `SET LOCAL` 会被闸门
+  R5 拦下——能写可见范围的人就能给自己扩权。见
+  `docs/adr/ADR-R17-project-scope-isolation.md`。
 - **workers 消费事件**：通过 Outbox 模式保证事务一致性，消费者 Inbox 去重、幂等。
 - **adapters 不写权威状态**：只处理外部系统差异，回传结果进入平台资产暂存与验证。
 - **contracts 是单一事实源**：代码从契约派生，CI 校验契约与实现一致（不重复维护两份）。

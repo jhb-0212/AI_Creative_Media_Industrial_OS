@@ -23,13 +23,13 @@
 | 6 | 缺 `phase0_manifest.md` / `.sha256` / 主文档；冻结产物分散；`adr_index.yaml` 位置不符 | **成立**（清单与主文档原在仓库外 `Desktop/AI制作工作台/`，`edit_work/freeze_review/` 派生脚本已不存在） | 已修：主文档进 `docs/baseline/`，清单进 `contracts/phase0/`，`--write/--check` 可复现 |
 | 7 | `contract_check` 的 PASS 不能证明契约冻结通过 | **成立**。它只做派生交叉校验（81↔81），无基线概念 | 已修：职责分离，基线一致性归 `freeze_manifest`，`contract_check` 只做派生一致性 |
 | 8 | 架构闸门未覆盖服务内分层（domain 不得依赖 FastAPI/SQLAlchemy） | **成立**，现仅覆盖顶层六层 | 未修（列入包 B） |
-| 9 | 未防止跨模块直接写表；单一 `app_role` 跨 Schema 授权 | **成立**。`9e3b4c5d6e7f` 对每个 Schema `GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES` | 未修（列入包 B） |
+| 9 | 未防止跨模块直接写表；单一 `app_role` 跨 Schema 授权 | **成立**。`9e3b4c5d6e7f` 对每个 Schema `GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES` | **已修（B1，`9e23d72`）**：按域拆四个角色 + 四池，越权写表在 PostgreSQL 层被拒（实测 `has_table_privilege` 矩阵）；`app_role` 已 `DROP`；R4 闸门禁止业务模块自选连接身份。见 `docs/adr/ADR-R16-database-role-per-domain.md` |
 | 10 | 仅基础 RBAC，无 Capability Token 运行时校验 | **成立**。`rbac.py` 判定为 `principal.roles & allowed_roles(action_key)` | 未修（列入包 B） |
-| 11 | 同租户不同项目未隔离，`Project` 无 `organization_id` | **成立**。`Project` 领域模型无组织归属字段，租户 RLS ≠ 项目级授权 | 未修（列入包 B） |
+| 11 | 同租户不同项目未隔离，`Project` 无 `organization_id` | **成立**。`Project` 领域模型无组织归属字段，租户 RLS ≠ 项目级授权 | **已修（B3）**：归属链进契约（修订 `V205-R14-A2`）与数据模型；五张项目级表上加 RESTRICTIVE 策略，越权读写由 PostgreSQL 拒绝；Principal 携带组织与项目范围，注入点唯一（R5 闸门）。见 `docs/adr/ADR-R17-project-scope-isolation.md`、`tests/unit/test_project_scope.py` |
 | 12 | API 仍须持有身份签发私钥 | **成立**。`identity_private_key_pem` 在 `_PRODUCTION_REQUIRED_SECRETS` 中，api 与 relay 同镜像同配置 | 未修（列入包 B） |
 | 13 | 资产不可覆盖只保护内容，`status` 可被应用角色直接改 | **成立**。触发器白名单为 `status / entity_version / updated_at / audit_ref` | 未修（列入包 C） |
 | 14 | Outbox 仅收回 `DELETE`，原始事件内容仍可 `UPDATE` | **成立**。`d4e5f6a7b8c9` 只 `REVOKE DELETE` | 未修（列入包 C） |
-| 15 | API 与 Outbox Relay 共用 `app_role` | **成立**。compose 中 api / relay / outbox-maintenance 共用 `POSTGRES_APP_USER=app_role` | 未修（列入包 B） |
+| 15 | API 与 Outbox Relay 共用 `app_role` | **成立**。compose 中 api / relay / outbox-maintenance 共用 `POSTGRES_APP_USER=app_role` | **已修（B1）**：relay 用 `svc_outbox_relay`（仅事件 SELECT + 投递状态列级 UPDATE）；`POSTGRES_APP_USER` 配置项已删除——用户名可配等于权限边界可配 |
 | 16 | Service 层直接 import `IntegrityError` | **成立**。`asset_service.py:26` 起 4 个 service 依赖 SQLAlchemy 异常 | 未修（列入包 B/C 交界） |
 | 17 | `tests/contract`、`tests/e2e`、`tests/resilience` 只有 `.gitkeep` | **成立** | 已修：三个空壳目录删除，README/结构文档改为「不存在」 |
 | 18 | README 称 `pytest tests`，CI 只跑子集 | **成立** | 已修：CI 改为 `pytest tests`，口径统一 |

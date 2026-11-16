@@ -27,6 +27,7 @@ from sqlalchemy.exc import IntegrityError
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.identity.principal import Principal
+from packages.identity.scope import assert_project_scope
 from packages.shared.outbox_writer import OutboxWriter
 from services.asset_service.domain.asset_version import AssetVersion
 from services.asset_service.domain.enums import (
@@ -90,6 +91,7 @@ class AssetService:
     async def create_version(
         self,
         *,
+        project_id: str,
         asset_type: str,
         sha256: str,
         storage_ref: dict[str, Any],
@@ -106,6 +108,13 @@ class AssetService:
         asset_type = asset_type.strip()
         normalized_sha = sha256.strip().lower()
         created_by = principal.subject_id.strip()
+
+        # 归属入口的授权：project_id 来自请求体，属于"调用方自己点名的项目"。
+        # 越界在此给出可解释的 403；数据库的项目范围策略是同一事实的第二道
+        # 防线（漏掉这里也不会写进去，只是错误码退化为 403/42501）。
+        # 这里刻意不跨域校验"项目是否存在"：资产域没有 project_planning 的读权
+        # （B1 按域授权），越权读项目表本身就是要被拒绝的动作。
+        assert_project_scope(principal, project_id.strip())
 
         new_entity_id = entity_id or uuid.uuid4().hex
 
@@ -128,6 +137,8 @@ class AssetService:
             entity_id=new_entity_id,
             created_by=created_by,
             tenant_id=principal.tenant_id,
+            organization_id=principal.organization_id,
+            project_id=project_id.strip(),
             asset_type=asset_type,
             sha256=normalized_sha,
             storage_ref=storage_ref,
@@ -218,6 +229,11 @@ class AssetService:
             qc_report_id=report_id,
             asset_version_id=asset.entity_id,
             tenant_id=principal.tenant_id,
+            # 组织与项目都从**资产**取，而不是从 principal 取：证据的归属必须
+            # 跟随它所证明的对象。从 principal 取会在"跨组织误配"时产生一条
+            # 归属自相矛盾的证据（资产在 A 组织，报告写 B 组织）。
+            organization_id=asset.organization_id,
+            project_id=asset.project_id,
             quality_profile_version=quality_profile_version.strip(),
             detector_versions=detector_versions,
             findings=findings,

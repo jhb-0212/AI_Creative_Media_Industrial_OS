@@ -194,6 +194,7 @@ def test_principal_immutable_and_roles() -> None:
     p = Principal(
         subject_id="user-001",
         tenant_id=uuid.UUID(TENANT_ID),
+        organization_id=uuid.UUID(TENANT_ID),
         roles=frozenset(["导演", "编剧"]),
     )
     assert p.has_role("导演")
@@ -215,6 +216,7 @@ def test_roles_claim_must_be_string_array(key: SigningKey) -> None:
         {
             "sub": "user-001",
             "tenant_id": TENANT_ID,
+            "org_id": TENANT_ID,
             "roles": "导演",
             "iss": ISSUER,
             "aud": AUDIENCE,

@@ -69,12 +69,11 @@ async def create_project(
     uow: UnitOfWork = Depends(get_project_uow),
     service: ProjectService = Depends(_get_service),
 ) -> dict[str, Any]:
-    """创建项目（幂等）。created_by / tenant_id 来自可信 Principal。"""
+    """创建项目（幂等）。身份、租户与组织归属来自可信 Principal。"""
     project = await service.create_project(
         project_name=body.project_name,
         project_tier=body.project_tier,
-        created_by=principal.subject_id,
-        tenant_id=principal.tenant_id,
+        principal=principal,
         entity_id=body.entity_id,
     )
     # 显式提交：在返回响应之前落库，不依赖依赖退出码（响应发出后才执行）。
@@ -88,6 +87,6 @@ async def get_project(
     _principal: Principal = Depends(require_role("PROJECT.READ")),
     service: ProjectService = Depends(_get_read_service),
 ) -> dict[str, Any]:
-    """按 id 查询项目（需 PROJECT.READ 授权；租户边界由 RLS 保证）。"""
+    """按 id 查询项目（需 PROJECT.READ 授权；租户与项目范围由 RLS 保证）。"""
     project = await service.get_project(entity_id)
     return project.to_dict()

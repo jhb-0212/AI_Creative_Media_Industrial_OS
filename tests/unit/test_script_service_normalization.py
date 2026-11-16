@@ -29,7 +29,13 @@ _TENANT = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
 
 def _principal(subject_id: str = "user_001") -> Principal:
-    return Principal(subject_id=subject_id, tenant_id=_TENANT, roles=frozenset({"编剧"}))
+    return Principal(
+        subject_id=subject_id,
+        tenant_id=_TENANT,
+        organization_id=_TENANT,
+        roles=frozenset({"编剧"}),
+        project_ids=frozenset({"*"}),
+    )
 
 
 class _RecordingOutboxWriter(OutboxWriter):
@@ -195,7 +201,13 @@ async def test_rejects_whitespace_only_created_by() -> None:
     这是「身份来源可信」的构造级防呆，而非运行时空串校验。
     """
     with pytest.raises(ValueError, match="subject_id 不能为空"):
-        Principal(subject_id="  ", tenant_id=_TENANT, roles=frozenset())
+        Principal(
+            subject_id="  ",
+            tenant_id=_TENANT,
+            organization_id=_TENANT,
+            roles=frozenset(),
+            project_ids=frozenset({"*"}),
+        )
 
 
 async def test_rejects_missing_project() -> None:

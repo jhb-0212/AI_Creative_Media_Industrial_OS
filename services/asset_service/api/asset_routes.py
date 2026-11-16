@@ -55,8 +55,13 @@ _QCCreationResponse = create_model(
 
 
 class CreateAssetVersionRequest(BaseModel):
-    """资产版本登记请求体（ASSET.VERSION.CREATE）。"""
+    """资产版本登记请求体（ASSET.VERSION.CREATE）。
 
+    ``project_id`` 是归属必填项：没有它资产无法被项目级授权覆盖，
+    也无从追溯来源（审查第三轮 F2）。
+    """
+
+    project_id: str = Field(..., min_length=1, max_length=64)
     asset_type: str = Field(..., min_length=1, max_length=32)
     sha256: str = Field(..., min_length=64, max_length=64)
     storage_ref: dict[str, Any] = Field(..., min_length=1)
@@ -113,6 +118,7 @@ async def create_asset_version(
 ) -> dict[str, Any]:
     """登记资产版本（GENERATED，幂等；禁止覆盖既有版本内容）。"""
     asset = await service.create_version(
+        project_id=body.project_id,
         asset_type=body.asset_type,
         sha256=body.sha256,
         storage_ref=body.storage_ref,

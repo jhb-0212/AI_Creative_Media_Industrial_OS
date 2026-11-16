@@ -65,6 +65,10 @@ class Entity:
     schema_version: int = SCHEMA_VERSION
     entity_version: int = 1
     owner_module: str = DEFAULT_OWNER_MODULE
+    # 组织归属（审查第三轮 F2）：与 tenant_id 同为归属键，tenant 是"哪家客户"，
+    # organization 是"客户内部的哪个制作主体"。缺省与 tenant 相同
+    # （单组织租户基线），由 _validate_envelope 统一填充，避免每个聚合根各写一遍。
+    organization_id: UUID | None = None
     created_at: datetime = field(default_factory=utcnow)
     updated_at: datetime = field(default_factory=utcnow)
     audit_ref: str | None = None
@@ -83,7 +87,14 @@ class Entity:
         return self.ENTITY_TYPE
 
     def _validate_envelope(self) -> None:
-        """校验信封公共必填字段非空、不超长（对齐 ORM 列定义）。"""
+        """校验信封公共必填字段非空、不超长（对齐 ORM 列定义）。
+
+        同时统一填充组织归属：缺省等于租户（单组织租户基线）。放在这里而不是
+        各聚合根里，是因为"组织归属"是信封级机制——每个聚合根各写一遍必然漂移，
+        而漂移的表现是"某些对象有组织归属、某些没有"，正是 F2 要消灭的形态。
+        """
+        if self.organization_id is None:
+            self.organization_id = self.tenant_id
         for name, max_len in _ENVELOPE_MAX_LEN.items():
             value = getattr(self, name)
             if value is None or (isinstance(value, str) and not value.strip()):

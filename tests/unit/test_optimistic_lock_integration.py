@@ -21,7 +21,7 @@ from services.project_planning.repository._versioning import ConcurrentModificat
 from services.project_planning.repository.script_sqlalchemy_repo import (
     SqlAlchemyScriptRepository,
 )
-from tests.conftest import make_test_token
+from tests.conftest import make_test_token, set_raw_rls_context
 
 TEST_TENANT = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
@@ -60,13 +60,12 @@ async def _setup_project_and_episode(
 
 
 async def _set_rls_context(session: object) -> None:
-    """在直接操作仓储的会话里注入 RLS 上下文（app_role 下 RLS 生效）。"""
-    from sqlalchemy import text
+    """在直接操作仓储的会话里注入 RLS 上下文（域角色下 RLS 生效）。
 
-    await session.execute(  # type: ignore[attr-defined]
-        text("SELECT set_config('app.current_tenant_id', :tid, true)"),
-        {"tid": str(TEST_TENANT)},
-    )
+    必须同时注入租户与项目范围：只注入租户时项目范围为空，
+    RLS 会判定"一个项目也看不见"，仓储查询会返回 None（而非报错）。
+    """
+    await set_raw_rls_context(session, tenant_id=str(TEST_TENANT))  # type: ignore[arg-type]
 
 
 async def test_optimistic_lock_prevents_lost_update(

@@ -100,5 +100,64 @@ amendments:
       - '本修订为事后追认，冻结期内确实存在「派生文件先于权威记录变更」的窗口'
       - 'Project/Episode/ScriptRevision 的权限矩阵条目仍需在包 B（身份与数据所有权）中补齐资源范围授权'
 
+  - id: 'V205-R14-A2'
+    title: '补齐归属链：Project 组织归属 + 资产/QC 证据的项目归属'
+    retroactive: false
+    recorded_at: '2026-11-16'
+    discovered_by: 'docs/audits/2026-11-16-review-round3.md（第三轮深度审查，第 11 条：同租户不同项目未隔离）'
+    reason: >-
+      第三轮审查第 11 条成立：Project 领域模型没有组织归属字段，资产与 QC 证据
+      也没有项目归属字段，于是「租户 RLS」被当成了「项目级授权」——同一租户内
+      任意主体可以读写任意项目的资产与证据，组织→项目→资源的归属链在数据模型上
+      根本不存在，任何应用层判定都无从下手。本次修订把归属链补进契约：Project
+      显式声明 organization_id（组织归属根），AssetVersion 与 QCReport 显式声明
+      project_id（资源归属）。二者都是既有对象的字段增补，不新增对象名，因此
+      对象数量不变；但字段一旦对外声明即为承诺，必须走修订流程而不是直接改派生
+      文件。字段语义与拒绝口径见 ADR-R17。
+    adr: 'docs/adr/ADR-R17-project-scope-isolation.md'
+    approved_by: '项目所有者（B→C→D 重构包推进令）'
+    approved_at: '2026-11-16'
+    source_commits:
+      - '9e23d72'  # feat(db): 按业务域拆分数据库运行角色（包 B1）
+    additions:
+      actions: []
+      schema_objects: []
+      state_machines: []
+    field_additions:
+      - object: 'Project'
+        field: 'organization_id'
+        type: 'string'
+        required: true
+        why: >-
+          组织是「客户内部的制作主体」，项目归属哪个组织是客户必须能核对的事实；
+          没有它就无法拒绝跨组织访问（租户 RLS 只隔离厂商侧客户边界）。
+      - object: 'AssetVersion'
+        field: 'project_id'
+        type: 'string'
+        required: true
+        why: >-
+          资产此前是「悬空」的：没有任何字段回答「这个资产是谁的」，
+          同租户内不同项目之间因此不存在隔离。
+      - object: 'QCReport'
+        field: 'project_id'
+        type: 'string'
+        required: true
+        why: >-
+          检测证据同样需要项目归属，否则证据可跨项目漂流，
+          审计无法回答「这份结论属于哪个项目」。
+    counts_after:
+      actions: 81
+      openapi_operations: 81
+      schema_objects: 79
+      state_machines: 38
+    residual_risks:
+      - >-
+        存量数据以 `legacy-unassigned` 哨兵项目回填：历史资产与证据无法反推真实
+        项目归属，只能标注为「未归属」。哨兵值不可用于新写入（BEFORE INSERT 触发器
+        拒绝），但历史行的归属需要业务侧人工认领后才能纳入项目级授权范围。
+      - >-
+        organization_id 在存量行上按 tenant_id 回填（单组织租户基线）。多组织
+        租户需要一次显式的组织重分配作业，该作业不在本次修订范围内。
+
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

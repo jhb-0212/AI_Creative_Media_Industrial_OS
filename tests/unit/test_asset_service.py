@@ -22,6 +22,8 @@ from services.asset_service.repository.qc_repo import QCReportRepository
 from services.asset_service.service.asset_service import AssetService
 
 _TENANT = uuid.UUID("00000000-0000-0000-0000-000000000000")
+# 资产必须归属具体项目（ADR-R17）；测试主体默认持有全项目范围。
+_PROJECT = "proj-asset-service"
 _SHA = "b" * 64
 
 
@@ -88,9 +90,15 @@ class FakeOutboxWriter:
         return event_id
 
 
-def _principal(subject: str, *roles: str) -> Principal:
+def _principal(
+    subject: str, *roles: str, project_ids: frozenset[str] = frozenset({"*"})
+) -> Principal:
     return Principal(
-        subject_id=subject, tenant_id=_TENANT, roles=frozenset(roles)
+        subject_id=subject,
+        tenant_id=_TENANT,
+        organization_id=_TENANT,
+        roles=frozenset(roles),
+        project_ids=project_ids,
     )
 
 
@@ -104,6 +112,7 @@ def service() -> tuple[AssetService, FakeAssetRepository, FakeQCRepository, Fake
 
 async def _create(service: AssetService, **overrides: object) -> AssetVersion:
     params: dict[str, object] = {
+        "project_id": _PROJECT,
         "asset_type": "IMAGE",
         "sha256": _SHA,
         "storage_ref": {"uri": "s3://bucket/key.png"},
@@ -411,6 +420,7 @@ async def test_concurrent_same_content_is_idempotent() -> None:
         entity_id="concurrent-id",
         created_by="worker-1",
         tenant_id=_TENANT,
+        project_id=_PROJECT,
         asset_type="IMAGE",
         sha256=_SHA,
         storage_ref={"uri": "s3://bucket/key.png"},
@@ -418,6 +428,7 @@ async def test_concurrent_same_content_is_idempotent() -> None:
     svc, _, _, outbox = _concurrent_service(pre)
 
     result = await svc.create_version(
+        project_id=_PROJECT,
         asset_type="IMAGE",
         sha256=_SHA,
         storage_ref={"uri": "s3://bucket/key.png"},
@@ -445,6 +456,7 @@ async def test_concurrent_same_sha_different_type_is_rejected() -> None:
         entity_id="concurrent-id",
         created_by="worker-1",
         tenant_id=_TENANT,
+        project_id=_PROJECT,
         asset_type="VIDEO",
         sha256=_SHA,
         storage_ref={"uri": "s3://bucket/key.mp4"},
@@ -453,6 +465,7 @@ async def test_concurrent_same_sha_different_type_is_rejected() -> None:
 
     with pytest.raises(DomainError) as exc:
         await svc.create_version(
+            project_id=_PROJECT,
             asset_type="AUDIO",  # 同 sha、不同 asset_type
             sha256=_SHA,
             storage_ref={"uri": "s3://bucket/key.mp4"},

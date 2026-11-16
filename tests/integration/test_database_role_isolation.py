@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from packages.shared.database import build_migration_url
 from packages.shared.db_roles import DatabaseDomain, all_business_roles, role_for
+from tests.conftest import set_raw_rls_context
 
 pytestmark = pytest.mark.asyncio
 
@@ -40,20 +41,17 @@ async def _insert_project(project_sm: async_sessionmaker[AsyncSession]) -> str:
     entity_id = f"role_probe_{uuid.uuid4().hex[:8]}"
     tenant = uuid.uuid4()
     async with project_sm() as session:
-        await session.execute(
-            text("SELECT set_config('app.current_tenant_id', :t, true)"),
-            {"t": str(tenant)},
-        )
+        await set_raw_rls_context(session, tenant_id=str(tenant))
         await session.execute(
             text(
                 """
                 INSERT INTO project_planning.projects
                     (entity_id, entity_type, schema_version, entity_version, status,
-                     owner_module, tenant_id, created_at, created_by, updated_at,
-                     project_name, project_tier)
+                     owner_module, tenant_id, organization_id, created_at,
+                     created_by, updated_at, project_name, project_tier)
                 VALUES
                     (:entity_id, 'Project', 205, 1, 'DRAFT', 'project_planning',
-                     :tenant_id, now(), 'role_probe', now(), :name, 'B')
+                     :tenant_id, :tenant_id, now(), 'role_probe', now(), :name, 'B')
                 """
             ),
             {"entity_id": entity_id, "tenant_id": tenant, "name": "角色隔离探针"},
@@ -144,10 +142,7 @@ async def test_relay_role_can_update_delivery_state(
     """投递域角色可以回写投递状态（列级授权的正向证明）。"""
     event_id = await _append_event(project_sm)
     async with relay_sm() as session:
-        await session.execute(
-            text("SELECT set_config('app.current_tenant_id', :t, true)"),
-            {"t": str(_EVENT_TENANT)},
-        )
+        await set_raw_rls_context(session, tenant_id=str(_EVENT_TENANT))
         result = await session.execute(
             text(
                 "UPDATE outbox.outbox_events SET published_at = now() "
@@ -232,10 +227,7 @@ async def _append_event(project_sm: async_sessionmaker[AsyncSession]) -> uuid.UU
     """用项目规划域追加一条 outbox 事件（业务域有权写 outbox，这是设计允许的）。"""
     event_id = uuid.uuid4()
     async with project_sm() as session:
-        await session.execute(
-            text("SELECT set_config('app.current_tenant_id', :t, true)"),
-            {"t": str(_EVENT_TENANT)},
-        )
+        await set_raw_rls_context(session, tenant_id=str(_EVENT_TENANT))
         await session.execute(
             text(
                 """

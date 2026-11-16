@@ -64,10 +64,18 @@ class Project(Entity):
         return self
 
     def to_dict(self) -> dict[str, Any]:
-        """序列化为契约信封结构。"""
+        """序列化为契约信封结构。
+
+        ``organization_id`` 对外输出，而 ``tenant_id`` 不输出——两者不是同一层
+        概念：tenant 是厂商侧的隔离键（客户不感知，泄漏只会扩大攻击面），
+        organization 是客户自己内部的制作主体，项目归属哪个组织是客户必须能
+        核对的事实。归属链 Project → Episode/Script → Asset 的根在这里，
+        因此只有根对外声明组织归属，叶子靠 project_id 继承即可。
+        """
         data = self._envelope_dict()
         data.update(
             {
+                "organization_id": str(self.organization_id),
                 "project_name": self.project_name,
                 "project_tier": self.project_tier.value,
             }

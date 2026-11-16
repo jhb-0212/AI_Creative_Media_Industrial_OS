@@ -87,7 +87,7 @@ docs/          # 架构/ADR/runbook/SOP
 | `pytest tests` | 行为正确性、负向路径、分层规则 | `pytest tests` | `tests/e2e`、`tests/resilience` 尚不存在（见「未覆盖范围」） |
 | `freeze_manifest` | **契约冻结**：基线正文未变 + 十一类产物哈希一致 + 演进有据（名称全集 == 基线 ∪ 已批准修订） | `python scripts/freeze_manifest.py --check` | 不证明契约内容业务正确，只证明「符合 V2.0.5 且变更可追溯」 |
 | `contract_check` | 派生一致性：Action ↔ OpenAPI ↔ Schema ↔ 状态机 ↔ 事件 ↔ 债务台账 | `python scripts/contract_check.py` | 只证明派生文件互相自洽，**不能**证明符合基线（由 `freeze_manifest` 负责） |
-| `architecture_check` | 层间依赖方向、服务间直连、导入期循环、**数据库身份旁路**（业务模块不得自建/自选连接池） | `python scripts/architecture_check.py` | 只覆盖顶层分层；服务内 `api/domain/repository` 分层未覆盖 |
+| `architecture_check` | 层间依赖方向、服务间直连、导入期循环、**数据库身份旁路**（业务模块不得自建/自选连接池）、**RLS 上下文唯一注入点**（业务代码不得自行写可见范围） | `python scripts/architecture_check.py` | 只覆盖顶层分层；服务内 `api/domain/repository` 分层未覆盖 |
 | `alembic check` | 迁移与模型无漂移 | `alembic check` | 授权正确性由集成测试与 `test_grant_baseline` 证明，不由本命令证明 |
 
 `freeze_manifest` 与 `contract_check` 是**两层互补**，不是重复：前者回答「还是不是 V2.0.5」，
@@ -101,7 +101,7 @@ docs/          # 架构/ADR/runbook/SOP
 |---|---|
 | 跨模块数据所有权 / 禁止跨模块直接写表 | **已闭合（B1）**：数据库角色按域拆分，越权写入在 PostgreSQL 层被拒；R4 闸门禁止业务模块自选连接身份。证据见 `tests/integration/test_database_role_isolation.py` |
 | 数据库不变量（资产状态、事件内容不可改） | 部分实现：资产内容字段受触发器保护、Outbox 正文列级授权不可改；**资产 `status` 仍可直接 UPDATE**（包 C） |
-| 权限最小化（Capability Token、资源范围） | 仅基础 RBAC（角色交集），无 Capability 运行时校验、无项目级授权（包 B2/B3 待做） |
+| 权限最小化（Capability Token、资源范围） | 部分闭合：**项目级与组织级授权已落地（B3）**——归属链（组织→项目→资源）进契约与数据模型，越权读写在 PostgreSQL 限制性策略层被拒，证据见 `tests/unit/test_project_scope.py` 与 `docs/adr/ADR-R17-project-scope-isolation.md`。**仍缺**：Capability Token 运行时校验、统一授权决策入口（包 B2） |
 | 审批与执行分离 | Script Lock 已做申请人≠批准人；其余 CRITICAL 动作未覆盖 |
 | 密钥不进入交付包 | 未实现自动扫描 |
 | 高并发 / 故障恢复 | 有熔断、Outbox 重试；无压测与故障演练证据 |

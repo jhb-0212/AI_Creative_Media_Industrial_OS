@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.api.main import app
-from tests.conftest import make_test_token
+from tests.conftest import make_test_token, set_raw_rls_context
 
 
 @pytest.fixture
@@ -48,23 +48,20 @@ async def test_composite_fk_rejects_dangling_episode(
 
     async with project_sm() as session:
         # 注入 RLS 上下文（app_role 连接下 RLS 生效，需设置 tenant 才能写）。
-        await session.execute(
-            text(
-                "SELECT set_config('app.current_tenant_id', :tid, true)"
-            ),
-            {"tid": "00000000-0000-0000-0000-000000000000"},
+        await set_raw_rls_context(
+            session, tenant_id="00000000-0000-0000-0000-000000000000"
         )
         # 直接 SQL INSERT 一条悬空的 script_revision（绕过 ORM/Service）。
         insert = text(
             """
             INSERT INTO project_planning.script_revisions
                 (entity_id, entity_type, schema_version, entity_version, status,
-                 owner_module, tenant_id, created_at, created_by, updated_at, audit_ref,
-                 project_id, episode_ref, title)
+                 owner_module, tenant_id, organization_id, created_at, created_by,
+                 updated_at, audit_ref, project_id, episode_ref, title)
             VALUES
                 (:entity_id, 'ScriptRevision', 205, 1, 'DRAFT',
-                 'project-planning', :tenant_id, now(), :created_by, now(), NULL,
-                 :project_id, :episode_ref, '悬空剧本')
+                 'project-planning', :tenant_id, :tenant_id, now(), :created_by,
+                 now(), NULL, :project_id, :episode_ref, '悬空剧本')
             """
         )
         with pytest.raises(IntegrityError) as exc_info:

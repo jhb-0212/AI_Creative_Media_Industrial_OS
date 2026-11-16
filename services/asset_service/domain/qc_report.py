@@ -37,6 +37,10 @@ class QCReport:
     detector_versions: dict[str, Any]
     findings: list[Any]
     created_by: str
+    # 归属（审查第三轮 F2）：QC 证据同样需要回答"这份证据属于哪个组织/项目"，
+    # 否则项目级授权无法覆盖检测结果，跨项目（跨组织）读取也没有拒绝依据。
+    organization_id: UUID | None = None
+    project_id: str = ""
     benchmark_version: str | None = None
     deviation_class: DeviationClass | None = None
     deviation_intent_ref: str | None = None
@@ -47,7 +51,12 @@ class QCReport:
 
     def __post_init__(self) -> None:
         """校验证据完整性（缺证据的报告不得存在）。"""
-        for name in ("qc_report_id", "asset_version_id", "created_by"):
+        # 组织归属缺省与租户相同（单组织租户基线），与信封表的填充口径一致：
+        # 归属键的默认值只允许有一个来源，否则同一条数据在不同表里会得到
+        # 不同的组织，隔离策略就会在某些表上失效。
+        if self.organization_id is None:
+            self.organization_id = self.tenant_id
+        for name in ("qc_report_id", "asset_version_id", "created_by", "project_id"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise DomainError(
@@ -79,6 +88,9 @@ class QCReport:
         return {
             "qc_report_id": self.qc_report_id,
             "asset_version_id": self.asset_version_id,
+            # 证据的项目归属必须对外声明：审计要能回答"这份检测结论是谁的项目"，
+            # 否则证据可以跨项目漂流而无人可追。
+            "project_id": self.project_id,
             "quality_profile_version": self.quality_profile_version,
             "benchmark_version": self.benchmark_version,
             "detector_versions": self.detector_versions,

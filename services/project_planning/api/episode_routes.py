@@ -78,13 +78,12 @@ async def create_episode(
     uow: UnitOfWork = Depends(get_project_uow),
     service: EpisodeService = Depends(_get_service),
 ) -> dict[str, Any]:
-    """登记集数（幂等，归属 Project）。created_by / tenant_id 来自 Principal。"""
+    """登记集数（幂等，归属 Project）。身份与归属键来自 Principal。"""
     episode = await service.create_episode(
         project_id=body.project_id,
         episode_ref=body.episode_ref,
         title=body.title,
-        created_by=principal.subject_id,
-        tenant_id=principal.tenant_id,
+        principal=principal,
         entity_id=body.entity_id,
     )
     await uow.commit()

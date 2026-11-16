@@ -47,6 +47,9 @@ class AssetVersionModel(EntityMixin, Base):
     tool_product: Mapped[str | None] = mapped_column(String(64), nullable=True)
     operator_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # 项目归属（F2）：资产必须回答"属于哪个项目"。organization_id 由
+    # EntityMixin 统一提供（信封级归属），此处不重复声明。
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
 
 
 class QCReportModel(Base):
@@ -67,6 +70,12 @@ class QCReportModel(Base):
         index=True,
     )
     tenant_id: Mapped[UUID] = mapped_column(Uuid, nullable=False, index=True)
+    # 组织归属（F2）：与 asset_versions 保持同一组归属键，五张项目级资源表上的
+    # 隔离策略才能文本一致；证据若缺组织列，跨组织读取就只能靠"项目 id 恰好
+    # 不在范围里"这种偶然性来拦。
+    organization_id: Mapped[UUID] = mapped_column(Uuid, nullable=False, index=True)
+    # 项目归属（F2）：QC 证据也要能被项目级授权覆盖，否则跨项目读取无拒绝依据。
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     quality_profile_version: Mapped[str] = mapped_column(String(64), nullable=False)
     benchmark_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     detector_versions: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)

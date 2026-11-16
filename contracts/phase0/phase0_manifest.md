@@ -16,7 +16,7 @@
 
 | 正文类目 | 文件 | 字节 | SHA-256 | 对应章节 |
 |---|---|---|---|---|
-| ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 171999 | `4b063556bad86357232bc9ec62decf6ac10e2cc9f67a7a274868f6573b665945` | 8.x 对象契约 / C.3 数据契约 |
+| ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 172273 | `0a059be7aeb9c1cde92a053b3d64f008fa718c2e83c9fb176299ce67a487341a` | 8.x 对象契约 / C.3 数据契约 |
 | ② OpenAPI 草案 | `contracts/openapi/openapi.draft.yaml` | 109521 | `f51d36419865e18e451c71a14b73bd68954fde9bb8533a8ebc4b021777006647` | 31.6（由 Action Registry 派生） |
 | ③ 状态机 | `contracts/state_machines/state_machines.yaml` | 22253 | `3cece6636d16db18163df58080813129f37ee926efc650f75cc7ca05b5710eef` | 31.5 / 8.6 / 32.6 / 33.3 / 34.7 |
 | ④ Action Registry | `contracts/action_registry/action_registry.yaml` | 41771 | `b8440d8a93b375285b96ee17ef6853723d3dc4162cfedac48dfb6e963633a385` | 31.6 唯一注册表 |
@@ -31,6 +31,7 @@
 ## 已批准修订
 
 - `V205-R14-A1`
+- `V205-R14-A2`
 
 契约名称全集必须精确等于「基线清单 ∪ 已批准修订」，由
 `scripts/freeze_manifest.py --check` 逐名称判定（不是只看数量）。

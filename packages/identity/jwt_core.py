@@ -21,14 +21,17 @@ import jwt
 from jwt.exceptions import InvalidTokenError
 
 from packages.identity.keys import SigningKey
-from packages.identity.principal import Principal
+from packages.identity.principal import Principal, SubjectType
 
 # JWT 算法固定 RS256（决策 4，不接受其它算法降级）。
 ALGORITHM = "RS256"
 
 # 标准 claim 键名（单一事实源，避免散落魔法字符串）。
 CLAIM_SUB = "sub"
+CLAIM_SUB_TYPE = "sub_type"
 CLAIM_TENANT = "tenant_id"
+CLAIM_ORGANIZATION = "org_id"
+CLAIM_PROJECT_IDS = "project_ids"
 CLAIM_ROLES = "roles"
 CLAIM_JTI = "jti"
 CLAIM_ISSUER = "iss"
@@ -50,6 +53,9 @@ def encode_token(
     issuer: str,
     audience: str,
     ttl_seconds: int = 900,
+    subject_type: str = SubjectType.HUMAN.value,
+    organization_id: str | None = None,
+    project_ids: list[str] | None = None,
 ) -> str:
     """用私钥签发一条 RS256 访问令牌。
 
@@ -58,13 +64,22 @@ def encode_token(
     - subject_id / tenant_id / roles：主体身份与租户上下文。
     - issuer / audience：令牌签发方与目标受众（验签时严格比对）。
     - ttl_seconds：有效期（默认 15 分钟）。
+    - subject_type：主体类型（human/agent/service）。授权决策据此判定
+      CRITICAL 动作能否通过——类型必须由签发端写死，不能由调用方自报。
+    - organization_id：组织归属；缺省与 tenant_id 相同（单一组织租户的基线
+      形态）。多组织租户必须显式传，否则默认会落到"组织=租户"这一档。
+    - project_ids：可访问项目范围；缺省为空集（一个项目也访问不了），
+      要做组织级访问必须显式传 ``["*"]``（``*`` 的单位是组织，不是租户）。
 
     返回：编码后的 JWT 字符串（三段式，含 header.payload.signature）。
     """
     now = datetime.now(UTC)
     claims: dict[str, Any] = {
         CLAIM_SUB: subject_id,
+        CLAIM_SUB_TYPE: subject_type,
         CLAIM_TENANT: tenant_id,
+        CLAIM_ORGANIZATION: organization_id or tenant_id,
+        CLAIM_PROJECT_IDS: list(project_ids or []),
         CLAIM_ROLES: list(roles),
         CLAIM_JTI: uuid.uuid4().hex,
         CLAIM_ISSUER: issuer,
@@ -112,15 +127,24 @@ def decode_token(
 
     subject_id = payload.get(CLAIM_SUB)
     tenant_id_raw = payload.get(CLAIM_TENANT)
+    organization_raw = payload.get(CLAIM_ORGANIZATION)
     if not isinstance(subject_id, str) or not subject_id.strip():
         raise TokenError("令牌缺少合法的 sub claim")
     if not isinstance(tenant_id_raw, str) or not tenant_id_raw.strip():
         raise TokenError("令牌缺少 tenant_id claim")
+    if not isinstance(organization_raw, str) or not organization_raw.strip():
+        # 不做"缺 org_id 就用 tenant_id"的兜底：兜底会让漏签 claim 的令牌
+        # 悄悄获得"组织=租户"的宽范围，而报错能在签发端立刻暴露问题。
+        raise TokenError("令牌缺少 org_id claim")
 
     try:
         tenant_id = uuid.UUID(tenant_id_raw)
     except ValueError as exc:
         raise TokenError(f"tenant_id 不是合法 UUID: {tenant_id_raw!r}") from exc
+    try:
+        organization_id = uuid.UUID(organization_raw)
+    except ValueError as exc:
+        raise TokenError(f"org_id 不是合法 UUID: {organization_raw!r}") from exc
 
     roles_raw = payload.get(CLAIM_ROLES, [])
     # fail-closed：roles 必须是字符串数组。字符串会被迭代成单字（"导演" →
@@ -131,9 +155,24 @@ def decode_token(
         raise TokenError("roles claim 必须是字符串数组")
     roles = frozenset(roles_raw)
 
+    project_ids_raw = payload.get(CLAIM_PROJECT_IDS, [])
+    if not isinstance(project_ids_raw, list) or any(
+        not isinstance(p, str) for p in project_ids_raw
+    ):
+        raise TokenError("project_ids claim 必须是字符串数组")
+
+    subject_type_raw = payload.get(CLAIM_SUB_TYPE, SubjectType.HUMAN.value)
+    try:
+        subject_type = SubjectType(subject_type_raw)
+    except ValueError as exc:
+        raise TokenError(f"未知的 sub_type: {subject_type_raw!r}") from exc
+
     return Principal(
         subject_id=subject_id,
         tenant_id=tenant_id,
+        organization_id=organization_id,
+        subject_type=subject_type,
         roles=roles,
+        project_ids=frozenset(project_ids_raw),
         jti=payload.get(CLAIM_JTI) if isinstance(payload.get(CLAIM_JTI), str) else None,
     )

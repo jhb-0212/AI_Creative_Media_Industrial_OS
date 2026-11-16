@@ -580,6 +580,89 @@ def check_database_identity_bypass(root: Path = ROOT) -> list[Violation]:
 
 
 # --------------------------------------------------------------------------- #
+# R5 RLS 上下文注入点唯一
+# --------------------------------------------------------------------------- #
+#: 唯一允许写 RLS 上下文 GUC 的模块（租户 / 组织 / 项目范围）。
+RLS_CONTEXT_OWNER = "packages.shared.rls"
+
+#: RLS 上下文键的字面前缀（与 packages/shared/rls.py、迁移策略必须一致）。
+RLS_SETTING_PREFIX = "app.current_"
+
+
+def _rls_context_hits(path: Path) -> list[tuple[int, str]]:
+    """返回该文件里"自己改 RLS 上下文"的 (行号, 说明) 列表。
+
+    判定覆盖两条真实存在的写法，而不是只匹配一个关键词：
+
+    - ``set_config(...)``：应用程序接口（本项目的注入实现走这条）；
+    - ``SET LOCAL <guc>``：SQL 语句接口（同一件事的另一种写法）。
+
+    只是**读**上下文的策略定义（``current_setting(...)``）不算违规——
+    策略必须能引用 GUC 名，否则 RLS 根本写不出来。判定的分界是"写值"
+    还是"读值"，不是"有没有出现这个字符串"。
+
+    文档字符串同样不计：本项目的注释必须能解释"上下文是怎么注入的"，
+    如果解释本身被判违规，注释就会退化成含糊其辞。闸门约束的是可执行代码。
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    docstrings: set[int] = set()
+    for owner in ast.walk(tree):
+        if not isinstance(
+            owner, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+        ):
+            continue
+        body = owner.body
+        if (
+            body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)
+        ):
+            docstrings.add(id(body[0].value))
+
+    hits: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+            continue
+        if id(node) in docstrings:
+            continue
+        text_value = node.value
+        if "set_config" in text_value:
+            hits.append((node.lineno, "自行调用 set_config 设置会话上下文"))
+        elif RLS_SETTING_PREFIX in text_value and "set local" in text_value.lower():
+            hits.append((node.lineno, "自行用 SET LOCAL 设置 RLS 上下文"))
+    return hits
+
+
+def check_rls_context_single_writer(root: Path = ROOT) -> list[Violation]:
+    """R5：RLS 上下文只能由 ``packages/shared/rls.py`` 注入。
+
+    为什么必须是闸门：项目范围策略把 ``app.current_projects`` 当权限输入，
+    谁能写这个 GUC 谁就能给自己扩权。若业务代码可以顺手 ``set_config``，
+    那么"越权在数据库层被拒"这句话只在"没人这么写"的前提下成立——
+    那不是约束，是约定。收敛到一个注入点后，范围来源只剩 Principal 一处。
+    """
+    violations: list[Violation] = []
+    for path in _iter_py_files(root):
+        module = _module_name(path, root)
+        if module == RLS_CONTEXT_OWNER:
+            continue
+        for line, detail in _rls_context_hits(path):
+            violations.append(
+                Violation(
+                    rule="R5 RLS 上下文唯一注入点",
+                    file=path.relative_to(root).as_posix(),
+                    line=line,
+                    message=(
+                        f"{detail}：RLS 上下文只能由 {RLS_CONTEXT_OWNER} 从 "
+                        "Principal 注入。自行 set_config 等于自行决定可见范围"
+                    ),
+                )
+            )
+    return violations
+
+
+# --------------------------------------------------------------------------- #
 # R0 覆盖面防呆
 # --------------------------------------------------------------------------- #
 def check_layer_coverage(root: Path = ROOT) -> list[Violation]:
@@ -630,6 +713,7 @@ def run_all(root: Path = ROOT) -> dict[str, list[Violation]]:
         "R2 服务间直连": check_cross_service(imports) + check_stale_platform_dependencies(imports),
         "R3 导入期循环": check_import_cycles(root, imports),
         "R4 数据库身份旁路": check_database_identity_bypass(root),
+        "R5 RLS 上下文唯一注入点": check_rls_context_single_writer(root),
     }
 
 
@@ -656,7 +740,8 @@ def main() -> int:
         f"[PASS] 分层依赖：{len(LAYER_RULES)} 层规则 / R1 方向 0 违规 / "
         f"R2 跨服务 0 违规（平台能力 {len(PLATFORM_SERVICE_DEPENDENCIES)} 项）/ "
         f"R3 导入期循环 0 处 / R4 数据库身份旁路 0 处"
-        f"（装配点 {len(DATABASE_ACCESS_ALLOWLIST)} 个）"
+        f"（装配点 {len(DATABASE_ACCESS_ALLOWLIST)} 个）/ "
+        f"R5 RLS 上下文仅由 {RLS_CONTEXT_OWNER} 注入"
     )
     return 0
 

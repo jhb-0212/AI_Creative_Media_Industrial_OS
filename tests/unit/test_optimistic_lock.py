@@ -30,7 +30,13 @@ _TENANT = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
 
 def _principal(subject_id: str) -> Principal:
-    return Principal(subject_id=subject_id, tenant_id=_TENANT, roles=frozenset({"导演", "编剧"}))
+    return Principal(
+        subject_id=subject_id,
+        tenant_id=_TENANT,
+        organization_id=_TENANT,
+        roles=frozenset({"导演", "编剧"}),
+        project_ids=frozenset({"*"}),
+    )
 
 
 class _RecordingOutboxWriter(OutboxWriter):

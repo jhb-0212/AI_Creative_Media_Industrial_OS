@@ -41,6 +41,7 @@ def test_repository_has_no_layering_violation() -> None:
         "R2 服务间直连": [],
         "R3 导入期循环": [],
         "R4 数据库身份旁路": [],
+        "R5 RLS 上下文唯一注入点": [],
     }
 
 
@@ -298,3 +299,57 @@ def test_missing_allowlist_entry_is_reported_as_stale(tmp_path: Path) -> None:
 def test_repository_database_bypass_is_clean() -> None:
     """当前仓库的装配点没有旁路（R4 现状 0 违规）。"""
     assert arch.check_database_identity_bypass() == []
+
+
+# --------------------------------------------------------------------------- #
+# R5 RLS 上下文唯一注入点
+# --------------------------------------------------------------------------- #
+def test_service_setting_rls_context_is_reported(tmp_path: Path) -> None:
+    """业务模块自行 set_config 设置可见范围 → 报红。
+
+    这是最危险的一种"顺手实现"：谁能写 ``app.current_projects``，
+    谁就能给自己扩权，而数据库层的隔离策略会照样"生效"——只是输入被换了。
+    """
+    source = (
+        "async def f(session):\n"
+        "    await session.execute(text(\"SELECT set_config('app.current_projects', '*', true)\"))\n"
+    )
+    _write(tmp_path, "services/asset_service/api/routes.py", source)
+    violations = arch.check_rls_context_single_writer(tmp_path)
+    assert any("set_config" in v.message for v in violations), violations
+
+
+def test_set_local_form_is_also_reported(tmp_path: Path) -> None:
+    """``SET LOCAL`` 与 ``set_config`` 是同一件事，不能成为绕过写法。"""
+    _write(
+        tmp_path,
+        "workers/relay/consumer.py",
+        "SQL = \"SET LOCAL app.current_projects = '*'\"\n",
+    )
+    violations = arch.check_rls_context_single_writer(tmp_path)
+    assert any("SET LOCAL" in v.message for v in violations), violations
+
+
+def test_policy_definition_reading_guc_is_clean(tmp_path: Path) -> None:
+    """策略定义里 ``current_setting`` 读 GUC 是允许的（读值不等于写值）。"""
+    _write(
+        tmp_path,
+        "packages/shared/partition_guard.py",
+        "SQL = \"USING (tenant_id = current_setting('app.current_tenant_id', true))\"\n",
+    )
+    assert arch.check_rls_context_single_writer(tmp_path) == []
+
+
+def test_docstring_mentioning_context_is_clean(tmp_path: Path) -> None:
+    """文档里解释注入方式不算违规（否则注释会被迫含糊其辞）。"""
+    _write(
+        tmp_path,
+        "workers/relay/consumer.py",
+        '"""每租户一个事务：SET LOCAL app.current_tenant_id 后查询。"""\n',
+    )
+    assert arch.check_rls_context_single_writer(tmp_path) == []
+
+
+def test_repository_rls_context_is_single_writer() -> None:
+    """当前仓库的 RLS 上下文只有一个注入点（R5 现状 0 违规）。"""
+    assert arch.check_rls_context_single_writer() == []

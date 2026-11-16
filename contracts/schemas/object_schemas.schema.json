@@ -1900,7 +1900,8 @@
         "created_at",
         "created_by",
         "updated_at",
-        "audit_ref"
+        "audit_ref",
+        "project_id"
       ],
       "properties": {
         "adapter_id": {
@@ -1910,6 +1911,9 @@
           "type": "string"
         },
         "asset_version_id": {
+          "type": "string"
+        },
+        "project_id": {
           "type": "string"
         },
         "operator_ref": {
@@ -6220,13 +6224,17 @@
         "asset_version_id",
         "quality_profile_version",
         "detector_versions",
-        "findings"
+        "findings",
+        "project_id"
       ],
       "properties": {
         "qc_report_id": {
           "type": "string"
         },
         "asset_version_id": {
+          "type": "string"
+        },
+        "project_id": {
           "type": "string"
         },
         "quality_profile_version": {
@@ -6690,7 +6698,8 @@
         "updated_at",
         "audit_ref",
         "project_name",
-        "project_tier"
+        "project_tier",
+        "organization_id"
       ],
       "properties": {
         "entity_id": {
@@ -6722,6 +6731,9 @@
         },
         "audit_ref": {
           "type": ["string", "null"]
+        },
+        "organization_id": {
+          "type": "string"
         },
         "project_name": {
           "type": "string"

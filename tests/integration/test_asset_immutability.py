@@ -62,8 +62,14 @@ async def _one_qc_report(admin_engine: AsyncEngine) -> tuple[str, str]:
 async def test_asset_content_column_update_is_rejected(
     admin_engine: AsyncEngine,
 ) -> None:
-    """改写 sha256 必须被拒——即使以超级用户身份直连。"""
-    entity_id, _ = await _one_asset(admin_engine)
+    """改写 sha256 必须被拒——即使以超级用户身份直连。
+
+    目标值必须与当前值不同：触发器保护的是"改写"，同值赋值不算改写。
+    早先固定写 ``"f"*64``，一旦库里最新样本恰好就是该值，用例会在
+    "什么都没改"的前提下变红，看起来像触发器失效（实测踩过）。
+    """
+    entity_id, current_sha = await _one_asset(admin_engine)
+    target_sha = "0" * 64 if current_sha != "0" * 64 else "1" * 64
     async with admin_engine.connect() as conn:
         with pytest.raises(DBAPIError) as exc_info:
             await conn.execute(
@@ -71,7 +77,7 @@ async def test_asset_content_column_update_is_rejected(
                     "UPDATE asset_service.asset_versions SET sha256 = :sha "
                     "WHERE entity_id = :id"
                 ),
-                {"sha": "f" * 64, "id": entity_id},
+                {"sha": target_sha, "id": entity_id},
             )
     assert "不可变内容列" in str(exc_info.value)
 

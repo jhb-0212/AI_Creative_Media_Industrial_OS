@@ -17,12 +17,16 @@ import uuid
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.api.main import app
-from tests.conftest import make_test_token
+from tests.conftest import apply_db_context, make_test_token
 
 _SHA = "d" * 64
+# 资产必须归属具体项目（ADR-R17）。测试令牌默认持有全项目范围，
+# 因此这里用一个固定项目名即可；隔离用例在 test_project_scope.py 里。
+_PROJECT = "proj_asset_api"
 
 
 def _client(subject: str, roles: list[str]) -> AsyncClient:
@@ -71,6 +75,7 @@ async def test_asset_lifecycle_end_to_end(
     created = await worker_client.post(
         "/assets",
         json={
+            "project_id": _PROJECT,
             "asset_type": "IMAGE",
             "sha256": _SHA,
             "storage_ref": {"uri": "s3://bucket/frame.png"},
@@ -101,12 +106,7 @@ async def test_asset_lifecycle_end_to_end(
 
     # 持久化核对：换一个会话直接读回，确认不是响应里的幻觉。
     async with asset_sm() as session:
-        from sqlalchemy import text
-
-        await session.execute(
-            text("SELECT set_config('app.current_tenant_id', :tid, true)"),
-            {"tid": "00000000-0000-0000-0000-000000000000"},
-        )
+        await apply_db_context(session)
         row = (
             await session.execute(
                 text(
@@ -126,6 +126,7 @@ async def test_create_asset_wrong_role_is_403(approver_client: AsyncClient) -> N
     resp = await approver_client.post(
         "/assets",
         json={
+            "project_id": _PROJECT,
             "asset_type": "IMAGE",
             "sha256": _SHA,
             "storage_ref": {"uri": "s3://bucket/frame.png"},
@@ -141,6 +142,7 @@ async def test_worker_cannot_approve(worker_client: AsyncClient) -> None:
     created = await worker_client.post(
         "/assets",
         json={
+            "project_id": _PROJECT,
             "asset_type": "IMAGE",
             "sha256": _SHA,
             "storage_ref": {"uri": "s3://bucket/frame.png"},
@@ -157,6 +159,7 @@ async def test_duplicate_asset_id_is_idempotent(worker_client: AsyncClient) -> N
     """同 id 同内容重复登记 → 幂等返回同一版本（不是新建版本）。"""
     asset_id = f"asset_{uuid.uuid4().hex[:12]}"
     payload = {
+        "project_id": _PROJECT,
         "asset_type": "IMAGE",
         "sha256": _SHA,
         "storage_ref": {"uri": "s3://bucket/frame.png"},
@@ -174,6 +177,7 @@ async def test_overwriting_asset_version_is_rejected(worker_client: AsyncClient)
     """同 id 不同 sha256 = 覆盖旧版本，必须 409（不可变红线）。"""
     asset_id = f"asset_{uuid.uuid4().hex[:12]}"
     base = {
+        "project_id": _PROJECT,
         "asset_type": "IMAGE",
         "storage_ref": {"uri": "s3://bucket/frame.png"},
         "entity_id": asset_id,
@@ -207,6 +211,7 @@ async def test_read_asset_version_returns_envelope(
     created = await worker_client.post(
         "/assets",
         json={
+            "project_id": _PROJECT,
             "asset_type": "IMAGE",
             "sha256": _SHA,
             "storage_ref": {"uri": "s3://bucket/frame.png"},

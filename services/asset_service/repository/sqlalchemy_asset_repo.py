@@ -26,6 +26,8 @@ def _to_domain(model: AssetVersionModel) -> AssetVersion:
         entity_id=model.entity_id,
         created_by=model.created_by,
         tenant_id=model.tenant_id,
+        organization_id=model.organization_id,
+        project_id=model.project_id,
         status=status,
         schema_version=model.schema_version,
         entity_version=model.entity_version,
@@ -55,6 +57,7 @@ def _to_orm(asset: AssetVersion) -> AssetVersionModel:
         status=asset.status.value,
         owner_module=asset.owner_module,
         tenant_id=asset.tenant_id,
+        organization_id=asset.organization_id,
         created_at=asset.created_at,
         created_by=asset.created_by,
         updated_at=asset.updated_at,
@@ -68,6 +71,7 @@ def _to_orm(asset: AssetVersion) -> AssetVersionModel:
         tool_product=asset.tool_product,
         operator_ref=asset.operator_ref,
         version=asset.version,
+        project_id=asset.project_id,
     )
 
 

@@ -16,6 +16,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from tests.conftest import set_raw_rls_context
+
 # 测试租户（历史数据已回填到默认租户）。
 DEFAULT_TENANT = "00000000-0000-0000-0000-000000000000"
 # 另一个不匹配的租户。
@@ -36,12 +38,14 @@ async def _count_projects_without_context(
 async def _count_projects_with_context(
     sessionmaker: async_sessionmaker[AsyncSession], tenant_id: str
 ) -> int:
-    """注入 tenant 上下文后查询。"""
+    """注入 tenant 上下文后查询。
+
+    项目范围同时注入为 ``*``（该租户内全部项目）：本文件验证的是**租户**
+    这一维度，项目范围维度由 tests/unit/test_project_scope.py 单独验证。
+    两个维度分开测，失败时能直接看出是哪一层失守。
+    """
     async with sessionmaker() as session:
-        await session.execute(
-            text("SELECT set_config('app.current_tenant_id', :tid, true)"),
-            {"tid": tenant_id},
-        )
+        await set_raw_rls_context(session, tenant_id=tenant_id)
         result = await session.execute(
             text("SELECT count(*) FROM project_planning.projects")
         )
@@ -86,12 +90,12 @@ async def test_rls_blocks_cross_tenant_write(
         """
         INSERT INTO project_planning.projects
             (entity_id, entity_type, schema_version, entity_version, status,
-             owner_module, tenant_id, created_at, created_by, updated_at, audit_ref,
-             project_name, project_tier)
+             owner_module, tenant_id, organization_id, created_at, created_by,
+             updated_at, audit_ref, project_name, project_tier)
         VALUES
             (:entity_id, 'Project', 205, 1, 'DRAFT',
-             'project-planning', :tenant_id, now(), :created_by, now(), NULL,
-             :name, 'B')
+             'project-planning', :tenant_id, :tenant_id, now(), :created_by, now(),
+             NULL, :name, 'B')
         """
     )
 
@@ -114,10 +118,7 @@ async def test_rls_blocks_cross_tenant_write(
 
     # 反向确认：以正确租户上下文回查，该行确实没有落库。
     async with project_sm() as s2:
-        await s2.execute(
-            text("SELECT set_config('app.current_tenant_id', :t, true)"),
-            {"t": DEFAULT_TENANT},
-        )
+        await set_raw_rls_context(s2, tenant_id=DEFAULT_TENANT)
         count = await s2.scalar(
             text(
                 "SELECT count(*) FROM project_planning.projects WHERE entity_id = :eid"

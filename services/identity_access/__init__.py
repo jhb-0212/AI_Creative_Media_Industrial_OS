@@ -75,11 +75,18 @@ def issue_token(
     subject_id: str,
     tenant_id: str,
     roles: list[str],
+    subject_type: str = "human",
+    organization_id: str | None = None,
+    project_ids: list[str] | None = None,
 ) -> str:
     """签发一条访问令牌（身份服务内部使用，含私钥）。
 
     生产环境此函数应由独立 Authorization Service 调用，私钥不出该服务；
     此处仅作为身份服务的签发入口，供联调/测试与后续 Token 端点使用。
+
+    ``subject_type`` / ``organization_id`` / ``project_ids`` 的默认值刻意保守：
+    主体默认人类、组织默认与租户相同、项目范围默认为空（一个项目也访问不了）。
+    需要更宽范围必须显式声明，避免"忘了传"变成"默认全权"。
     """
     from packages.identity.jwt_core import encode_token
     from packages.shared.config import get_settings
@@ -93,6 +100,9 @@ def issue_token(
         issuer=settings.identity_issuer,
         audience=settings.identity_audience,
         ttl_seconds=settings.identity_access_token_ttl_seconds,
+        subject_type=subject_type,
+        organization_id=organization_id,
+        project_ids=project_ids,
     )
 
 

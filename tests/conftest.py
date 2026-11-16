@@ -18,11 +18,14 @@ from collections.abc import AsyncIterator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.api.main import app
+from packages.identity.principal import Principal
 from packages.shared.database import DomainPools
 from packages.shared.db_roles import DatabaseDomain
+from packages.shared.rls import set_request_context
 from services.identity_access import issue_token
 
 # 测试固定租户（历史数据已回填到此默认租户；新测试数据也用此租户，
@@ -39,16 +42,82 @@ def make_test_token(
     subject_id: str = "user_script",
     roles: list[str] | None = None,
     tenant_id: uuid.UUID = TEST_TENANT_ID,
+    project_ids: list[str] | None = None,
+    organization_id: str | None = None,
+    subject_type: str = "human",
 ) -> str:
     """签发一条测试访问令牌（身份服务内部签发，含私钥）。
 
     默认主体 user_script（编剧），角色可覆盖；tenant_id 默认测试租户。
-    测试据此构造认证头，走真实验签路径（R6/R9）。
+
+    ``project_ids`` 默认 ``["*"]``（租户内全部项目）：绝大多数用例要验证的是
+    业务规则本身而不是范围限制，给全范围可避免每条用例重复声明项目。
+    需要验证项目级隔离的用例显式传受限范围（如 ``["proj-a"]``）——这类用例在
+    tests/unit/test_project_scope.py 里集中管理，因为「范围必须被真实执行」
+    本身是要被证明的行为，不能靠默认值掩盖。
     """
     return issue_token(
         subject_id=subject_id,
         tenant_id=str(tenant_id),
         roles=roles or ["导演", "编剧", "制片"],
+        subject_type=subject_type,
+        organization_id=organization_id,
+        project_ids=project_ids if project_ids is not None else ["*"],
+    )
+
+
+async def apply_db_context(
+    session: AsyncSession,
+    *,
+    tenant_id: uuid.UUID = TEST_TENANT_ID,
+    project_ids: tuple[str, ...] = ("*",),
+) -> None:
+    """在测试会话内注入与生产一致的 RLS 上下文（租户 + 项目范围）。
+
+    直接复用生产注入函数，而不是在测试里另写一份裸 SQL：这样"生产如何设置
+    上下文"与"测试如何设置上下文"不可能出现两种口径——两份口径下，测试会
+    在错误的前提下全绿，比没有测试更危险。
+
+    需要验证隔离行为的用例显式传窄范围（例如 ``project_ids=("proj-a",)``）。
+    """
+    await set_request_context(
+        session,
+        Principal(
+            subject_id="probe",
+            tenant_id=tenant_id,
+            organization_id=tenant_id,
+            project_ids=frozenset(project_ids),
+        ),
+    )
+
+
+async def set_raw_rls_context(
+    session: AsyncSession,
+    *,
+    tenant_id: str,
+    projects: str = "*",
+    organization_id: str | None = None,
+) -> None:
+    """以裸 SQL 注入 RLS 上下文（租户 + 组织 + 项目范围），不经过生产装配。
+
+    与 ``apply_db_context`` 的分工：那个用生产函数，证明"生产路径正确"；
+    这个刻意绕过装配层，用在**证明裸 SQL 绕不过 RLS** 的用例里——
+    如果两者共用同一条代码路径，就变成"自己证明自己"。
+
+    ``organization_id`` 缺省等于 tenant（单组织租户基线），与迁移回填口径一致；
+    三个 GUC 缺任何一个，策略都会判否——这正是要证明的"未注入即看不见"。
+    """
+    await session.execute(
+        text("SELECT set_config('app.current_tenant_id', :tid, true)"),
+        {"tid": tenant_id},
+    )
+    await session.execute(
+        text("SELECT set_config('app.current_org_id', :org, true)"),
+        {"org": organization_id or tenant_id},
+    )
+    await session.execute(
+        text("SELECT set_config('app.current_projects', :projects, true)"),
+        {"projects": projects},
     )
 
 

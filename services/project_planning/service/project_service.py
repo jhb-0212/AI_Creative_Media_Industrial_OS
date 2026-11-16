@@ -13,11 +13,12 @@
 from __future__ import annotations
 
 import uuid
-from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.identity.principal import Principal
+from packages.identity.scope import assert_tenant_wide_scope
 from packages.shared.outbox_writer import OutboxWriter
 from services.project_planning.domain.enums import ProjectTier
 from services.project_planning.domain.project import Project
@@ -38,8 +39,7 @@ class ProjectService:
         *,
         project_name: str,
         project_tier: ProjectTier,
-        created_by: str,
-        tenant_id: UUID,
+        principal: Principal,
         entity_id: str | None = None,
     ) -> Project:
         """创建项目（幂等：重复 entity_id 返回既有项目）。
@@ -47,11 +47,16 @@ class ProjectService:
         契约要求：
         - project_id 使用 UUID，不复用（8.2）。
         - project_name、created_by 非空。
-        - tenant_id 来自可信身份上下文（Principal），标识项目所属租户，
-          是 RLS 行级隔离键（决策 5）。
+        - 租户与组织归属来自可信身份上下文（Principal）：tenant 是 RLS 隔离键
+          （决策 5），organization 是归属链的根（ADR-R17）。
         """
         project_name = project_name.strip()
-        created_by = created_by.strip()
+        created_by = principal.subject_id.strip()
+
+        # 新建归属根要求本组织内全部项目范围：新项目的 id 不在任何既有范围内，
+        # 若允许项目级用户创建，写进去之后他自己也读不回来（自锁）；
+        # 而放宽数据库 WITH CHECK 就等于允许"往看不见的项目里写数据"。
+        assert_tenant_wide_scope(principal, "PROJECT.CREATE")
 
         if not project_name:
             raise DomainError(
@@ -76,7 +81,8 @@ class ProjectService:
             project_name=project_name,
             project_tier=project_tier,
             created_by=created_by,
-            tenant_id=tenant_id,
+            tenant_id=principal.tenant_id,
+            organization_id=principal.organization_id,
         )
 
         # 用 INSERT 语义新增；并发下唯一约束兜底 check-then-act 竞态：
@@ -103,13 +109,13 @@ class ProjectService:
             aggregate_type="Project",
             aggregate_id=project.entity_id,
             event_type="PROJECT_CREATED",
-            tenant_id=tenant_id,
+            tenant_id=principal.tenant_id,
             payload={
                 "project_id": project.entity_id,
                 "project_name": project.project_name,
                 "project_tier": project.project_tier.value,
                 "created_by": project.created_by,
-                "tenant_id": str(tenant_id),
+                "tenant_id": str(principal.tenant_id),
                 "status": project.status.value,
             },
         )
