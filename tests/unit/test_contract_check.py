@@ -233,8 +233,25 @@ def test_missing_resource_schemas_all_exempted_is_empty() -> None:
 
 
 def test_check_resource_schemas_passes_on_current_contract() -> None:
-    """当前台账（12 个已实现 + 4 条豁免）应通过。"""
+    """当前台账（12 个已实现 + 1 条豁免）应通过。
+
+    豁免只剩 ScriptLock：Project / Episode / ScriptRevision 已进 object_schemas，
+    旧豁免属于「冗余豁免」，闸门现在会直接报红（审查 N4）。
+    """
     assert cc.check_implemented_resource_schemas() is True
+    assert set(cc._schema_exemptions()) == {"ScriptLock"}
+
+
+def test_check_resource_schemas_fails_for_redundant_exemption(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """对象已有 schema 却仍登记豁免 = 冗余豁免，必须报红（审查 N4）。"""
+    exempt = tmp_path / "exemptions.yaml"
+    exempt.write_text(
+        "exemptions:\n  Project: \"未进入 object_schemas\"\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(cc, "RESOURCE_EXEMPTIONS_PATH", exempt)
+    assert cc.check_implemented_resource_schemas() is False
 
 
 def test_check_resource_schemas_fails_for_unimplemented_object(
@@ -681,3 +698,86 @@ def test_load_yaml_mapping_error_has_full_path(tmp_path: Path) -> None:
     with pytest.raises(ValueError) as exc_info:
         cc.load_yaml_mapping(empty)
     assert str(empty) in str(exc_info.value)
+
+
+# --------------------------------------------------------------------------- #
+# 转移入口债务闸门（审查 N3：删条目/删文件/坏形状都不能变绿）
+# --------------------------------------------------------------------------- #
+def _gaps_without(*objects: str, tmp_path: Path) -> Path:
+    """基于真实债务文件，摘掉指定对象的 transition_entry_gaps 条目。"""
+    data = yaml.safe_load(cc.STATE_GAPS_PATH.read_text(encoding="utf-8"))
+    for name in objects:
+        data["transition_entry_gaps"].pop(name, None)
+    target = tmp_path / "gaps.yaml"
+    target.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    return target
+
+
+def test_transition_entry_gaps_passes_on_current_contract() -> None:
+    assert cc.check_transition_entry_gaps() is True
+
+
+def test_transition_entry_gaps_detects_dropped_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """删掉 Episode 的债务条目 → 反向完备性检查必须报红（不能打印 PASS）。"""
+    monkeypatch.setattr(cc, "STATE_GAPS_PATH", _gaps_without("Episode", tmp_path=tmp_path))
+    assert cc.check_transition_entry_gaps() is False
+
+
+def test_transition_entry_gaps_detects_missing_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """删掉整个债务文件 → 已知无入口的对象必须让闸门报红。"""
+    monkeypatch.setattr(cc, "STATE_GAPS_PATH", tmp_path / "does-not-exist.yaml")
+    assert cc.check_transition_entry_gaps() is False
+
+
+def test_transition_entry_gaps_bad_shape_raises_value_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """债务详情写成字符串 → ValueError（结构化 FAIL），而不是 AttributeError 崩溃。"""
+    bad = tmp_path / "gaps.yaml"
+    bad.write_text(
+        "transition_entry_gaps:\n  Project: oops\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(cc, "STATE_GAPS_PATH", bad)
+    with pytest.raises(ValueError) as exc_info:
+        cc.check_transition_entry_gaps()
+    assert "transition_entry_gaps.Project" in str(exc_info.value)
+
+
+def test_transition_entry_gaps_detects_stale_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """AssetVersion 已有已实现的状态变更 action，再登记债务即陈旧 → 报红。"""
+    data = yaml.safe_load(cc.STATE_GAPS_PATH.read_text(encoding="utf-8"))
+    data["transition_entry_gaps"]["AssetVersion"] = {
+        "reason": "陈旧登记",
+        "contract_ref": "x",
+        "unblocks_when": "y",
+    }
+    target = tmp_path / "gaps.yaml"
+    target.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    monkeypatch.setattr(cc, "STATE_GAPS_PATH", target)
+    assert cc.check_transition_entry_gaps() is False
+
+
+def test_transition_entry_gaps_contract_registration_is_not_stale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """契约先登记、运行时未实现不算陈旧（否则会逼着人删掉真实缺口）。
+
+    「已补上入口」只认运行时台账 implemented；把它伪造成 registry 里已有
+    PROJECT.STATUS.CHANGE（但未实现），债务条目必须仍然合法。
+    """
+    original = cc._status_change_action_keys
+
+    def _with_declared_status_change(resource_type: str) -> set[str]:
+        keys = original(resource_type)
+        if resource_type == "Project":
+            keys = keys | {"PROJECT.STATUS.CHANGE"}
+        return keys
+
+    monkeypatch.setattr(cc, "_status_change_action_keys", _with_declared_status_change)
+    assert cc.check_transition_entry_gaps() is True

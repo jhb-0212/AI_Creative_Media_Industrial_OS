@@ -152,12 +152,32 @@ def test_disabled_always_allows() -> None:
         assert breaker.allow() is True
         breaker.record_failure()
     assert breaker.state is CircuitState.CLOSED
+    assert breaker.enabled is False
 
 
-def test_invalid_parameters_rejected() -> None:
+def test_invalid_parameters_rejected_when_enabled() -> None:
+    """熔断开启时参数非法必须启动即失败（不能静默退化成「永不熔断」）。"""
     with pytest.raises(ValueError):
         CircuitBreaker(failure_threshold=0)
     with pytest.raises(ValueError):
         CircuitBreaker(recovery_timeout_seconds=0)
     with pytest.raises(ValueError):
         CircuitBreaker(recovery_timeout_seconds=-1)
+
+
+def test_threshold_zero_means_disabled_and_is_constructible() -> None:
+    """配置口径「阈值 0 = 关闭熔断」必须真的可构造（审查 N1）。
+
+    relay 入口按 ``threshold > 0`` 派生 ``enabled``，同时把原值 0 原样传给
+    dispatcher/breaker；若构造期先校验阈值再判断开关，文档写的关闭手段会让
+    进程启动崩溃。
+    """
+    breaker = CircuitBreaker(failure_threshold=0, enabled=False)
+    assert breaker.enabled is False
+    assert breaker.state is CircuitState.CLOSED
+    for _ in range(10):
+        assert breaker.allow() is True
+        breaker.record_failure()
+    assert breaker.state is CircuitState.CLOSED
+    # 归一化后阈值不低于 1：关闭态也不会把非法值带进后续比较。
+    assert breaker._failure_threshold >= 1

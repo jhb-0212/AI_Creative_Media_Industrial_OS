@@ -19,6 +19,11 @@
 6. 单条失败不阻塞同批其余事件，也不阻塞其他租户；失败事件保持未投递，
    按指数退避重试；超过 `max_attempts` 进入死信（dead_lettered_at），不再领取。
    死信不删除：它是"投递放弃"的事实，必须可查、可人工重放（P2-2）。
+7. **「没外发」不等于「失败一次」**（审查 N2）：处理器抛
+   ``DeliveryDeferredError`` 时表示它明确知道本次没有发出请求（例如端点熔断
+   拦截）。这类事件不计 attempts、不写退避、不推进死信——否则会被一串「根本
+   没试过」的轮次推成死信，直接违背 ADR-R13「事件不丢弃」。端点级拦截对整批
+   同样成立，因此本轮对该租户**立即停止**（不必逐条撞同一个闸门）。
 """
 
 from __future__ import annotations
@@ -40,6 +45,7 @@ from packages.shared.metrics import (
     OUTBOX_RELAY_RUN_ERRORS,
 )
 from packages.shared.rls import set_tenant_context
+from workers.relay.errors import DeliveryDeferredError
 
 logger = get_logger(__name__)
 
@@ -71,6 +77,9 @@ class RelayStats:
     unrouted: int = 0
     failed: int = 0
     dead_lettered: int = 0
+    # 本轮「未真正外发」而被推迟的事件数（熔断拦截等）。不计入 failed：
+    # 它既不是成功也不是一次失败尝试，混进 failed 会让退避/死信口径失真。
+    deferred: int = 0
 
 
 # 枚举有未投递事件的租户（唯一的跨租户入口，只返回元数据）。
@@ -188,7 +197,7 @@ class OutboxRelay:
                     "outbox_relay_tenant_failed", tenant_id=str(row["tenant_id"])
                 )
 
-        if stats.delivered or stats.unrouted or stats.failed:
+        if stats.delivered or stats.unrouted or stats.failed or stats.deferred:
             logger.info(
                 "outbox_relay_round",
                 tenants=stats.tenants_scanned,
@@ -196,6 +205,7 @@ class OutboxRelay:
                 unrouted=stats.unrouted,
                 failed=stats.failed,
                 dead_lettered=stats.dead_lettered,
+                deferred=stats.deferred,
             )
         return stats
 
@@ -236,6 +246,23 @@ class OutboxRelay:
                     continue
                 try:
                     await handler(event)
+                except DeliveryDeferredError as exc:
+                    # 明确知道「没发出去」：这是推迟，不是一次失败尝试。
+                    # 不递增 attempts、不写退避、不推进死信，事件保持未投递。
+                    stats.deferred += 1
+                    OUTBOX_RELAY_EVENTS_TOTAL.labels(
+                        event_type=event.event_type, result="deferred"
+                    ).inc()
+                    logger.warning(
+                        "outbox_relay_delivery_deferred",
+                        event_id=str(event.event_id),
+                        event_type=event.event_type,
+                        reason=str(exc),
+                    )
+                    # 端点级闸门（如熔断 OPEN）对同批其余事件同样成立，本轮对该
+                    # 租户立即停止，不再逐条撞同一个闸门；事务里没有写操作，
+                    # 提交即释放行锁，下一轮重新领取。
+                    break
                 except Exception:
                     stats.failed += 1
                     OUTBOX_RELAY_EVENTS_TOTAL.labels(

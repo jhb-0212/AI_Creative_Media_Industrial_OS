@@ -21,6 +21,14 @@
 后续请求快速失败（不真正外发），冷却期满放行一个半开探测。它与上面的「不重试」
 不冲突：熔断失败同样抛异常、由 relay 统一走退避/死信，只是「不撞墙」提前到
 发请求之前。
+
+端点故障 vs 事件故障（审查 N2 的分层，别把两者混为一谈）：
+- **端点级失败**（传输错误、5xx、408/425/429）说明「下游整体不行了」，计入熔断；
+- **事件级失败**（其余 4xx：签名错、payload 不合法、单条被拒）说明「这条事件不行」，
+  端点本身是活的，**不计入端点熔断**，否则一条毒事件重试几次就能把端点打成 OPEN，
+  误伤全部健康事件。
+被熔断拦截时抛的是 ``DeliveryDeferredError`` 子类——**本次没有外发**，relay 因此
+不会把它计成一次失败尝试（否则死信会吞掉从未尝试过的事件）。
 """
 
 from __future__ import annotations
@@ -35,22 +43,34 @@ import httpx
 
 from packages.shared.circuit_breaker import CircuitBreaker
 from workers.relay.consumer import OutboxEvent
+from workers.relay.errors import DeliveryDeferredError, OutboxDeliveryError
 
 
-class WebhookDeliveryError(RuntimeError):
+class WebhookDeliveryError(OutboxDeliveryError):
     """一次外发未成功（非 2xx 或传输层失败）。
 
-    继承 RuntimeError 而不是定义一堆状态码分支：relay 只关心「成功 / 未成功」，
-    细分由日志与 HTTP 状态码承担。
+    继承 ``OutboxDeliveryError`` 而不是定义一堆状态码分支：relay 只关心
+    「成功 / 未成功」，细分由日志与 HTTP 状态码承担。
     """
 
 
-class WebhookCircuitOpenError(WebhookDeliveryError):
+class WebhookCircuitOpenError(WebhookDeliveryError, DeliveryDeferredError):
     """熔断器处于 OPEN：请求被快速失败，未真正外发。
 
-    单独子类化是为了让日志/指标能区分「下游真的失败了」与「熔断主动拦截」，
-    但对 relay 的语义与 ``WebhookDeliveryError`` 完全一致（不 ack、走退避）。
+    同时是 ``WebhookDeliveryError``（既有调用方按投递异常捕获不受影响）与
+    ``DeliveryDeferredError``（relay 据此**不递增 attempts**）。两个父类表达的正是
+    这件事的两面：投递没成功，但也不是「又失败了一次」。
     """
+
+
+# 端点级失败的状态码：传输错误已在调用点单独处理，这里补「端点活着但整体不可用」
+# 的几种应答。5xx = 下游自身故障；408/425/429 = 下游要求稍后重试（限流/超时）。
+_ENDPOINT_FAILURE_STATUSES = frozenset({408, 425, 429})
+
+
+def is_endpoint_failure(status_code: int) -> bool:
+    """该状态码是否代表「端点级故障」（唯一判定口径，供熔断与测试共用）。"""
+    return status_code >= 500 or status_code in _ENDPOINT_FAILURE_STATUSES
 
 
 class WebhookDispatcher:
@@ -104,12 +124,22 @@ class WebhookDispatcher:
         try:
             response = await self._client.post(self._url, content=body, headers=headers)
         except httpx.HTTPError as exc:
+            # 传输层失败：请求可能根本没到对端，属于端点级故障。
             self._breaker.record_failure()
             raise WebhookDeliveryError(f"webhook 传输失败：{exc}") from exc
         if response.status_code >= 300:
-            self._breaker.record_failure()
+            if is_endpoint_failure(response.status_code):
+                self._breaker.record_failure()
+                raise WebhookDeliveryError(
+                    f"webhook 返回 {response.status_code}"
+                    "（端点级失败：已计入端点熔断）"
+                )
+            # 4xx 事件级失败：端点能应答，说明它是活的——清零连续失败，
+            # 失败归属这条事件，交给 relay 的事件级退避/死信处理。
+            self._breaker.record_success()
             raise WebhookDeliveryError(
-                f"webhook 返回 {response.status_code}（期望 2xx）"
+                f"webhook 返回 {response.status_code}"
+                "（事件级失败：不计入端点熔断，按事件退避/死信处理）"
             )
         self._breaker.record_success()
 

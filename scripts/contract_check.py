@@ -464,7 +464,13 @@ def missing_resource_schemas(
 
 
 def check_implemented_resource_schemas() -> bool:
-    """已实现 action 的资源类型必须有机器可读定义，或登记豁免原因。"""
+    """已实现 action 的资源类型必须有机器可读定义，或登记豁免原因。
+
+    三条校验，缺一条就会让台账变成「假绿」：
+    1. 已实现动作引用的类型：有 schema 或已豁免（否则 FAIL）；
+    2. 豁免了但已有 schema → 冗余豁免 FAIL（台账与实际契约自相矛盾）；
+    3. 豁免了但没被任何已实现动作引用 → 过期条目 FAIL。
+    """
     if not OBJECT_SCHEMAS_PATH.exists():
         print(f"[FAIL] 缺少对象 schema: {OBJECT_SCHEMAS_PATH}")
         return False
@@ -482,6 +488,17 @@ def check_implemented_resource_schemas() -> bool:
                 " 没有定义，也没有在 contracts/runtime/resource_schema_exemptions.yaml"
                 " 登记豁免原因"
             )
+        return False
+
+    # 豁免台账的另一种失真：对象已经有 schema 了却还登记豁免。留着不仅误导
+    # （台账说「没定义」，契约说「有定义」），还会在 serializer 探针被移除后
+    # 变成真正的「假绿后门」——所以冗余豁免必须删除（审查 N4）。
+    redundant = sorted(set(exemptions) & defs)
+    if redundant:
+        print(
+            f"[FAIL] 豁免台账包含**已有对象 schema** 的条目（冗余豁免必须删除）: "
+            f"{redundant}"
+        )
         return False
 
     # 豁免台账本身也要防呆：豁免了不存在的实现动作 = 过期条目，会掩盖真实缺口。
@@ -962,6 +979,38 @@ def check_implemented_permission_wiring() -> bool:
 # 状态可达性（把「静默不可达」变成显式债务）
 # --------------------------------------------------------------------------- #
 STATE_GAPS_PATH = CONTRACTS / "runtime" / "state_machine_gaps.yaml"
+
+
+def _declared_state_gaps() -> dict[str, dict[str, dict[str, object]]]:
+    """读取 ``gaps`` 分区，并**校验形状**（坏形状 = 契约损坏，抛 ValueError）。
+
+    为什么单独抽出来：闸门后面要按 ``detail.get(...)`` 取字段，若 YAML 把条目写成
+    字符串，就会在闸门内部抛 ``AttributeError`` 带 traceback 退出——那不是
+    「结构化 FAIL」，而是脚本崩了（审查 N3）。把形状校验收敛到读取处，
+    所有调用方（可达性闸门 / 入口债务闸门）自动一致。
+    """
+    if not STATE_GAPS_PATH.exists():
+        return {}
+    raw = load_yaml_mapping(STATE_GAPS_PATH).get("gaps") or {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"{STATE_GAPS_PATH.name} 的 gaps 必须是「对象 → 状态映射」")
+    result: dict[str, dict[str, dict[str, object]]] = {}
+    for obj_name, states in raw.items():
+        if not isinstance(states, dict):
+            raise ValueError(
+                f"{STATE_GAPS_PATH.name} 的 gaps.{obj_name} 必须是「状态 → 债务详情」映射，"
+                f"实际是 {type(states).__name__}"
+            )
+        for state, detail in states.items():
+            if not isinstance(detail, dict):
+                raise ValueError(
+                    f"{STATE_GAPS_PATH.name} 的 gaps.{obj_name}.{state} 必须是映射，"
+                    f"实际是 {type(detail).__name__}"
+                )
+        result[str(obj_name)] = states
+    return result
+
+
 # 状态名提取：契约里的状态都是大写下划线形式（GENERATED / TECHNICAL_QC）。
 # 只取长度 >=3 的全大写词，避免把中文说明或单字母误判成状态。
 _STATE_TOKEN_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
@@ -997,8 +1046,7 @@ def check_state_reachability() -> bool:
     """
     sm_path = CONTRACTS / "state_machines" / "state_machines.yaml"
     objects = load_yaml_mapping(sm_path).get("objects", [])
-    gaps = load_yaml_mapping(STATE_GAPS_PATH) if STATE_GAPS_PATH.exists() else {}
-    declared: dict[str, dict[str, dict[str, str]]] = gaps.get("gaps") or {}
+    declared = _declared_state_gaps()
     ok = True
     checked = 0
     gap_count = 0
@@ -1047,6 +1095,44 @@ def check_state_reachability() -> bool:
     return ok
 
 
+_TRANSITION_DEBT_REQUIRED = ("reason", "contract_ref", "unblocks_when")
+
+
+def _implemented_action_keys() -> set[str]:
+    """运行时台账（action_implementations.yaml）里标记为「已实现」的 action 集合。
+
+    「入口是否真的存在」只认这一份：契约登记（action_registry）可以先行，凭它
+    判定会把「已登记未实现」误算成入口已补上（审查 N3）。
+    """
+    ledger = load_yaml_mapping(LEDGER_PATH)
+    return {str(key) for key in (ledger.get("implemented") or {})}
+
+
+def _declared_transition_entry_gaps() -> dict[str, dict[str, object]]:
+    """读取并校验 ``transition_entry_gaps`` 分区（形状坏 = 契约损坏 → ValueError）。
+
+    文件缺失返回空登记：**不再无条件 PASS**——是否真的「无债务」由调用方的反向
+    完备性检查判定，删文件不能把缺口变绿。
+    """
+    if not STATE_GAPS_PATH.exists():
+        return {}
+    raw = load_yaml_mapping(STATE_GAPS_PATH).get("transition_entry_gaps") or {}
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"{STATE_GAPS_PATH.name} 的 transition_entry_gaps 必须是「对象 → 债务详情」映射，"
+            f"实际是 {type(raw).__name__}"
+        )
+    declared: dict[str, dict[str, object]] = {}
+    for obj_name, detail in raw.items():
+        if not isinstance(detail, dict):
+            raise ValueError(
+                f"{STATE_GAPS_PATH.name} 的 transition_entry_gaps.{obj_name} 必须是映射，"
+                f"实际是 {type(detail).__name__}"
+            )
+        declared[str(obj_name)] = detail
+    return declared
+
+
 def _status_change_action_keys(resource_type: str) -> set[str]:
     """返回 action_registry 里某 resource_type 的「状态变更类」action_key。
 
@@ -1072,24 +1158,26 @@ def check_transition_entry_gaps() -> bool:
     与 check_state_reachability 的差异：后者只验证「状态在域转移表里可达」，
     但「可达」不等于「可执行」——Project/Episode 的转移在域表里可达，却没有任何
     action 能触发（停在 DRAFT 无法推进）。本函数校验 state_machine_gaps.yaml 的
-    transition_entry_gaps 分区：
+    transition_entry_gaps 分区，**双向**校验：
 
-    1. 登记对象必须是已实现状态机（_STATE_MACHINE_SOURCES）；
-    2. reason / contract_ref / unblocks_when 三项完整（债务不能含糊）；
-    3. 防陈旧：若该对象在 action_registry 里已出现「状态变更类」action，说明入口
-       已补上，登记就变成陈旧债务，必须删条目（否则报红）。
+    1. 正向：登记对象必须是已实现状态机（_STATE_MACHINE_SOURCES）；
+    2. 正向：reason / contract_ref / unblocks_when 三项完整（债务不能含糊）；
+    3. 正向防陈旧：若该对象**已有已实现的状态变更 action**，说明入口真的补上了，
+       登记就变成陈旧债务，必须删条目；
+    4. 反向完备性：已实现状态机里「有转移边、却没有任何已实现的状态变更 action」
+       的对象**必须**登记债务——否则删掉条目、甚至删掉整个债务文件，闸门都会
+       打印 PASS，P2-1 重新变成静默缺口（审查 N3）。
 
-    这样「绿着但不可执行」不再靠人眼发现，而是被闸门显式约束。
+    两个刻意的口径：
+    - 「已补上入口」只认**运行时台账 implemented** 的动作，不认 action_registry 里
+      的登记。本项目要求「先在契约登记、再实现」，若按契约登记判定，先登记
+      PROJECT.STATUS.CHANGE（not_implemented）就会把真实缺口误判成陈旧债务，
+      反而逼着人删掉它。
+    - 债务详情必须是映射：坏形状抛 ValueError（由 main 统一转 `[FAIL]`），
+      不能让闸门带着 traceback 崩掉。
     """
-    if not STATE_GAPS_PATH.exists():
-        # 无债务文件时视为「无登记」，不阻塞（与 check_state_reachability 一致）。
-        print("[PASS] 状态转移入口债务：未登记（无 transition_entry_gaps 文件）")
-        return True
-    gaps = load_yaml_mapping(STATE_GAPS_PATH)
-    declared = gaps.get("transition_entry_gaps") or {}
-    if not isinstance(declared, dict):
-        print("[FAIL] transition_entry_gaps 必须是映射")
-        return False
+    declared = _declared_transition_entry_gaps()
+    implemented = _implemented_action_keys()
     ok = True
     count = 0
 
@@ -1100,24 +1188,42 @@ def check_transition_entry_gaps() -> bool:
             continue
         count += 1
         missing = [
-            key
-            for key in ("reason", "contract_ref", "unblocks_when")
-            if not str((detail or {}).get(key, "")).strip()
+            key for key in _TRANSITION_DEBT_REQUIRED if not str(detail.get(key, "")).strip()
         ]
         if missing:
             print(f"[FAIL] {obj_name} 转移入口债务登记缺字段: {missing}")
             ok = False
-        # 防陈旧：入口已补上却未删债务。
-        status_actions = _status_change_action_keys(obj_name)
-        if status_actions:
+        # 防陈旧：入口已实现却未删债务。
+        live_actions = _status_change_action_keys(obj_name) & implemented
+        if live_actions:
             print(
-                f"[FAIL] {obj_name} 已存在状态变更 action {sorted(status_actions)}"
-                "——转移入口债务已陈旧，必须删条目"
+                f"[FAIL] {obj_name} 已有**已实现**的状态变更 action "
+                f"{sorted(live_actions)}——转移入口债务已陈旧，必须删条目"
             )
             ok = False
 
+    # 反向完备性：没有已实现入口的对象，必须把缺口写在债务文件里。
+    for obj_name in sorted(_STATE_MACHINE_SOURCES):
+        if obj_name in declared:
+            continue
+        if _status_change_action_keys(obj_name) & implemented:
+            continue
+        module_path, var_name = _STATE_MACHINE_SOURCES[obj_name]
+        if not _load_impl_transitions(module_path, var_name):
+            # 没有转移边的状态机不存在「转移入口」问题，不制造假债务。
+            continue
+        print(
+            f"[FAIL] {obj_name} 有转移边但没有任何已实现的状态变更 action，"
+            "却未在 state_machine_gaps.yaml 的 transition_entry_gaps 登记债务"
+            "——缺口不能靠「删条目/删文件」变绿"
+        )
+        ok = False
+
     if ok:
-        print(f"[PASS] 状态转移入口债务：显式登记 {count} 项（无陈旧/越界登记）")
+        print(
+            f"[PASS] 状态转移入口债务：显式登记 {count} 项"
+            f"（{len(_STATE_MACHINE_SOURCES)} 个状态机无陈旧/越界/漏登记）"
+        )
     return ok
 
 

@@ -49,8 +49,11 @@ CI，但它不是「契约自洽」，只是「没检查」。
    `check_implemented_resource_schemas()`：已实现 action 的 resource_type
    （按 `/` 拆分）必须在 `object_schemas` 有定义，或在
    `contracts/runtime/resource_schema_exemptions.yaml` 登记非空 reason；
-   豁免条目若不被任何已实现动作引用则视为过期并报错。
-   负向用例：把 ShotDraft 伪造成已实现即报红；豁免一条无人引用的类型也报红。
+   豁免条目若不被任何已实现动作引用则视为过期并报错；
+   豁免条目若对应的类型**已经有 schema** 则视为冗余并报错（2026-11-16 第二轮
+   复核 N4 补充：冗余豁免会让台账与契约自相矛盾，并为「删掉探针就假绿」留后门）。
+   负向用例：把 ShotDraft 伪造成已实现即报红；豁免一条无人引用的类型也报红；
+   豁免一条已有 schema 的类型（如 Project）同样报红。
 
 ## 影响
 

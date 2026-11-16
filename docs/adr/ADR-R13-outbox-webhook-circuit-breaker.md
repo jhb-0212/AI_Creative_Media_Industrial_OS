@@ -38,8 +38,18 @@ README 铁律 3 把「熔断」列为硬要求，但仓库长期没有 `CircuitB
 - **HALF_OPEN**：只放行**一个**探测请求；成功回 CLOSED、失败回 OPEN 并重新计时。
 
 接入点：`WebhookDispatcher.__call__` 在发请求前先 `breaker.allow()`，OPEN 时抛
-`WebhookCircuitOpenError`（`WebhookDeliveryError` 子类，对 relay 语义不变——
-不 ack、走退避）。真实失败/成功分别 `record_failure()`/`record_success()`。
+`WebhookCircuitOpenError`。真实失败/成功分别 `record_failure()`/`record_success()`。
+
+**端点故障 ≠ 事件故障（2026-11-16 第二轮复核 N2 修订）**：只有「端点级失败」计入
+熔断——传输层错误、5xx、408/425/429；其余 4xx（签名错、payload 不合法、单条被拒）
+说明端点活着但这条事件不行，**不计入端点熔断**（否则一条毒事件重试几次就能把整个
+端点打成 OPEN，误伤全部健康事件），仍按事件级退避/死信处理。
+
+`WebhookCircuitOpenError` 同时继承 `WebhookDeliveryError`（既有调用方按投递异常
+捕获不受影响）与 `DeliveryDeferredError`（`workers/relay/errors.py`）。后者是
+「本次没有真正外发」的窄语义标记：relay 据此**不递增 attempts、不写退避、不推进
+死信**，并立即结束本租户本轮（端点级闸门对整批同样成立）。否则一批从未外发过的
+事件会被一串「根本没试过」的轮次推成死信，直接违背「事件不丢弃」。
 
 ### 2.2 进程内、无共享存储
 
@@ -73,6 +83,12 @@ README 铁律 3 把「熔断」列为硬要求，但仓库长期没有 `CircuitB
 `threshold <= 0` 时 `circuit_enabled=False`，熔断器退化为「永远放行」——与
 `RateLimiter` 的退化约定一致，未配置/显式关闭时不改变调用方代码。
 
+**关闭态的参数口径（第二轮复核 N1 修订）**：`CircuitBreaker` 只在 `enabled=True`
+时校验阈值/冷却期；`enabled=False` 时跳过校验并把阈值归一化到 `>=1`。原实现
+「先校验阈值、再判断开关」，使文档承诺的「阈值 0 = 关闭熔断」在配置了 webhook
+URL 时让 relay 启动即 `ValueError` 崩溃——配置开关必须真的可用，这是启动期
+硬伤而不是运行时边缘问题。
+
 ## 3. 明确不做（本次边界，登记取舍）
 
 - **不做分布式熔断**（见 2.2）。
@@ -82,21 +98,34 @@ README 铁律 3 把「熔断」列为硬要求，但仓库长期没有 `CircuitB
 - **不做自适应阈值/半开探测窗口**：固定阈值 + 固定冷却期足够当前规模，
   自适应调节会把「行为随负载变化」引入排障面（与 `outbox_relay_batch_size`
   的固定参数决策一致）。
-- **不改 relay 的失败语义**：熔断快速失败仍走 `_FAIL` 退避/死信路径，
-  事件不丢弃、不改变「至少一次」投递契约。
+- **不改「至少一次」投递契约**：熔断快速失败不 ack、事件不丢弃；但**改变失败口径**
+  ——被熔断拦截的轮次不计入 `attempts`（见 2.1 的 N2 修订），它只推迟重试，
+  不是一次失败尝试。
 
 ## 4. 落地物
 
 - `packages/shared/circuit_breaker.py`：`CircuitBreaker` + `CircuitState`。
+- `workers/relay/errors.py`：`OutboxDeliveryError` / `DeliveryDeferredError`
+  （「没外发」≠「失败一次」的共享错误契约）。
 - `workers/relay/webhook.py`：`WebhookDispatcher` 接入熔断，新增
-  `WebhookCircuitOpenError`。
+  `WebhookCircuitOpenError`、`is_endpoint_failure()`（端点级失败的唯一判定口径）。
+- `workers/relay/consumer.py`：`DeliveryDeferredError` 分支——不计 attempts、
+  不写退避/死信，本轮对该租户停止；`RelayStats.deferred` 单独计数。
 - `workers/relay/__main__.py`：熔断参数从 config 透传。
 - `packages/shared/metrics.py`：`OUTBOX_WEBHOOK_CIRCUIT_STATE`（三值 Gauge）。
 - `packages/shared/config.py`：两个熔断配置项。
-- 测试：`tests/unit/test_circuit_breaker.py`（状态机）+ `test_outbox_webhook.py`
-  （熔断接入路径）。
+- 测试：`tests/unit/test_circuit_breaker.py`（状态机 + 关闭态口径）、
+  `test_outbox_webhook.py`（熔断接入、4xx 不开闸、熔断拦截标记为 deferred）、
+  `tests/integration/test_outbox_relay_retry.py`（推迟不计 attempts）。
 
-## 5. 演进路线
+## 5. 修订记录
+
+| 日期 | 修订 | 起因 |
+|---|---|---|
+| 2026-11-16 | 落地 R9：三态熔断 + 端到端接入 | 审查 R9 |
+| 2026-11-16 | ① 关闭态跳过参数校验（N1）；② 4xx 不计端点失败、熔断拦截不计 attempts（N2） | 第二轮复核 `docs/audits/2026-11-16-review-round2.md` |
+
+## 6. 演进路线
 
 1. 多端点时引入 `endpoint → CircuitBreaker` 映射（当前单端点，不预建）。
 2. 若下游故障模式需要全局一致（多副本共享熔断），评估 Redis 共享状态。
