@@ -88,7 +88,9 @@ jobs:
           POSTGRES_DB: ai_film_industrial
 
       - name: Unit & integration tests
-        run: uv run pytest tests/unit tests/integration -q
+        # architecture 用例是纯静态分析（AST），不需要数据库，但和单测同属
+        # 「铁律 1 分层」的守卫，放同一 job 里跑，避免再造一个 job。
+        run: uv run pytest tests/unit tests/integration tests/architecture -q
         env:
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
@@ -121,6 +123,8 @@ jobs:
         run: uv sync --frozen --extra dev
       - name: Contract consistency check
         run: uv run python scripts/contract_check.py
+      - name: Layering check (铁律 1：依赖方向 + 服务间直连 + 导入期循环)
+        run: uv run python scripts/architecture_check.py
 
   permission-negative-tests:
     runs-on: ubuntu-24.04

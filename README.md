@@ -57,6 +57,19 @@ docs/          # 架构/ADR/runbook/SOP
 4. **全程 AI 辅助开发**：AI 提效不降质量、不破红线，产出经人机复核 + 契约校验 + 测试 + CI 把关
 5. **工业级最佳实践（Enterprise-Grade）**：防呆设计（Fool-proof）+ 自动化约束 + 极简演进；不打补丁、系统性根治、不叠床架屋，任何修改都按此验收
 
+## 自动化闸门
+
+铁律靠机器守，不靠记性。每一条都在 CI 里跑，本地可用同一命令复现：
+
+| 闸门 | 守什么 | 命令 |
+|---|---|---|
+| `ruff` | 代码风格与常见缺陷（铁律 2） | `ruff check .` |
+| `mypy` | 类型契约（铁律 2/4） | `mypy packages services apps workers` |
+| `pytest` | 单元/集成/分层/权限负向用例（铁律 4） | `pytest tests` |
+| `contract_check` | 契约 ↔ 实现一致：Schema/OpenAPI/Action/状态机/事件/债务台账（铁律 3/4） | `python scripts/contract_check.py` |
+| `architecture_check` | 分层依赖方向、服务间直连、导入期循环（铁律 1） | `python scripts/architecture_check.py` |
+| `alembic check` | 迁移与模型无漂移（铁律 3） | `alembic check` |
+
 ## 快速开始
 
 ```bash
