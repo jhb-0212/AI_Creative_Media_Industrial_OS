@@ -222,3 +222,18 @@ events:
       - decided_at
       - tenant_id
     contract_ref: contracts/schemas/object_schemas.schema.json#GateDecision
+  - event_type: APPROVAL_TICKET_CREATED
+    aggregate_type: ApprovalTicket
+    emitted_by: services/workflow/service/approval_service.py
+    payload_required: [ticket_id, flow_id, action_key, resource_id, mode, groups, tenant_id]
+    contract_ref: contracts/schemas/object_schemas.schema.json#ApprovalTicket
+  - event_type: APPROVAL_VOTE_SUBMITTED
+    aggregate_type: ApprovalTicket
+    emitted_by: services/workflow/service/approval_service.py
+    payload_required: [ticket_id, step_id, group_name, voter_subject_id, decision, tenant_id]
+    contract_ref: contracts/schemas/object_schemas.schema.json#ApprovalTicket
+  - event_type: APPROVAL_TICKET_COMPLETED
+    aggregate_type: ApprovalTicket
+    emitted_by: services/workflow/service/approval_service.py
+    payload_required: [ticket_id, flow_id, action_key, resource_type, resource_id, decision, votes, tenant_id]
+    contract_ref: contracts/schemas/object_schemas.schema.json#ApprovalTicket

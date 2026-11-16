@@ -47,6 +47,8 @@ class DatabaseDomain(StrEnum):
     # 资产域角色代表"生成/检测流水线"。若两者共用身份，资产写入路径就同时握有
     # 裁决写入权——「Agent 不得自批自用」在数据库层失去最后一道边界。
     QC_GOVERNANCE = "qc_governance"
+    # 通用审批引擎（services.workflow）——流程配置、票据与选票，独立 schema
+    WORKFLOW = "workflow"
     # Outbox 投递（workers.relay）——只能读事件、回写投递状态
     OUTBOX_RELAY = "outbox_relay"
     # 身份与吊销（services.identity_access）——只能读写 auth schema
@@ -63,6 +65,7 @@ _DOMAIN_ROLES: Final[Mapping[DatabaseDomain, str]] = MappingProxyType(
         DatabaseDomain.PROJECT_PLANNING: "svc_project_planning",
         DatabaseDomain.ASSET: "svc_asset",
         DatabaseDomain.QC_GOVERNANCE: "svc_qc_governance",
+        DatabaseDomain.WORKFLOW: "svc_workflow",
         DatabaseDomain.OUTBOX_RELAY: "svc_outbox_relay",
         DatabaseDomain.IDENTITY: "svc_identity",
     }

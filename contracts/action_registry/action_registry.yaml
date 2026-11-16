@@ -3,7 +3,7 @@
 # 校验口径：action_key 全局唯一、命名规范、audit_event 与 negative_test_id 一一对应
 registry_source: 'AFS-ARCH-MASTER-V2.0.5 / 31.6 Action Registry'
 registry_version: 'V2.0.5'
-total_actions: 81
+total_actions: 83
 actions:
   - action_key: 'PROJECT.CREATE'
     resource_type: 'Project'
@@ -895,4 +895,29 @@ actions:
     audit_event: 'SCRIPT_READ'
     negative_test_id: 'ACT-SCRIPT-NEG-004'
     negative_test_desc: '无读取权限角色访问剧本版本拒绝'
+    status: 'ACTIVE'
+  # --- 通用审批引擎（ADR-R11-G，修订 V205-R14-A3）---
+  # 为什么不沿用各业务的 *.APPROVE：联合审批语义（+）在授权层一律 fail-closed，
+  # 且每个业务域重写角色/状态/并发会产生 N 套漂移实现。新增审批统一走引擎。
+  - action_key: 'WORKFLOW.START_APPROVAL'
+    resource_type: 'ApprovalTicket'
+    scope: 'project/delivery'
+    risk_level: 'HIGH'
+    token_required: true
+    allowed_principals: '导演/制片/授权制片'
+    approval_requirement: '按目标动作的审批绑定发起票据；不得代替审批人投票。'
+    audit_event: 'APPROVAL_TICKET_CREATED'
+    negative_test_id: 'ACT-WORKFLOW-NEG-001'
+    negative_test_desc: '越权发起审批（项目不在范围/目标动作无绑定）拒绝'
+    status: 'ACTIVE'
+  - action_key: 'WORKFLOW.SUBMIT_VOTE'
+    resource_type: 'ApprovalTicket'
+    scope: 'project/delivery'
+    risk_level: 'CRITICAL'
+    token_required: true
+    allowed_principals: '授权审批人'
+    approval_requirement: '分组资格由审批绑定判定；Agent 与无资格主体不得投票。'
+    audit_event: 'APPROVAL_VOTE_SUBMITTED'
+    negative_test_id: 'ACT-WORKFLOW-NEG-002'
+    negative_test_desc: '无权限投票/重复投票/终态票据投票拒绝'
     status: 'ACTIVE'

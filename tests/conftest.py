@@ -162,6 +162,12 @@ def qc_sm(db_pools: DomainPools) -> async_sessionmaker[AsyncSession]:
 
 
 @pytest.fixture
+def workflow_sm(db_pools: DomainPools) -> async_sessionmaker[AsyncSession]:
+    """审批引擎域会话工厂（读写 workflow schema，其它业务域角色无权）。"""
+    return db_pools.sessionmaker(DatabaseDomain.WORKFLOW)
+
+
+@pytest.fixture
 def relay_sm(db_pools: DomainPools) -> async_sessionmaker[AsyncSession]:
     """Outbox 投递域会话工厂（只读事件 + 改投递状态列）。"""
     return db_pools.sessionmaker(DatabaseDomain.OUTBOX_RELAY)

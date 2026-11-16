@@ -159,5 +159,43 @@ amendments:
         organization_id 在存量行上按 tenant_id 回填（单组织租户基线）。多组织
         租户需要一次显式的组织重分配作业，该作业不在本次修订范围内。
 
+  - id: 'V205-R14-A3'
+    title: '通用审批工作流引擎：动作、票据对象与状态机'
+    retroactive: false
+    recorded_at: '2026-11-16'
+    discovered_by: '包 D 实现 DELIVERY.MANIFEST.APPROVE 时发现：allowed_principals 含 +（AND 语义），授权层按设计 fail-closed，业务专用 APPROVE 动作无法落地'
+    reason: >-
+      冻结契约把多主体审批写成动作级 `+`/`、` 标记，但没有给出「第二方同意」的可信载体；
+      逐业务实现会产生 N 套角色/并发/事件语义漂移。本次修订新增两个通用审批动作、
+      ApprovalTicket 对象及其状态机，把 AND/OR 判定收敛到引擎，业务侧只消费 Outbox
+      的 APPROVAL_TICKET_COMPLETED 事件。详见 docs/adr/ADR-R11-generic-approval-workflow.md。
+      permission_matrix.action_matrix.total 作为 action_registry.yaml 的派生视图，
+      随本次修订由 81 同步为 83（不引入第二套事实源）。
+    adr: 'docs/adr/ADR-R11-generic-approval-workflow.md'
+    approved_by: '项目所有者（通用审批引擎架构指令）'
+    approved_at: '2026-11-16'
+    source_commits:
+      - '085db0c'  # feat(D2): Gate 决策链落地（引出联合审批阻断）
+    additions:
+      actions:
+        - action_key: 'WORKFLOW.START_APPROVAL'
+          why: '通用审批入口；取代新增业务专用 *.APPROVE 端点'
+        - action_key: 'WORKFLOW.SUBMIT_VOTE'
+          why: '通用投票入口；分组资格由 approval_bindings.yaml 判定'
+      schema_objects:
+        - object: 'ApprovalTicket'
+          why: '票据是审批进度的对外投影，响应必须受对象契约约束'
+      state_machines:
+        - object: 'ApprovalTicket'
+          why: 'PENDING→APPROVED/REJECTED；终态不可复活；CANCELLED 不可达已登记'
+    counts_after:
+      actions: 83
+      openapi_operations: 83
+      schema_objects: 80
+      state_machines: 39
+    residual_risks:
+      - '本修订只交付引擎与事件；业务域消费 APPROVAL_TICKET_COMPLETED 后推进自身状态的处理器仍需逐域接入'
+      - '审批组角色映射（approval_bindings.yaml）为 Phase 1 临时解释，契约细化后需复核'
+
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

@@ -1,0 +1,65 @@
+# 审批绑定台账（目标动作 → 会签/或签模式与参与分组）
+#
+# 为什么需要它：冻结契约用 `+` 表达 AND（多主体共同审批），授权层刻意不拆
+# `+`（拆开会把 AND 误读成 OR）。ADR-R11-G 把多主体语义交给通用审批引擎，
+# 本台账是它的唯一配置源：原文指纹 + 模式 + 分组角色。
+#
+# 写入口径：
+# - contract_text 必须与 action_registry 的 allowed_principals 逐字相等；
+# - mode ∈ {ALL, ANY}；ALL=每组都要同意，ANY=任一组同意即可；
+# - 组内 roles 为 OR；组名在票据内唯一；
+# - reason / unblocks_when 必填，防止"临时解释"变成永久隐性策略。
+version: 1
+
+bindings:
+  DELIVERY.MANIFEST.APPROVE:
+    contract_text: '交付负责人+内部 QC/权利职责'
+    mode: ALL
+    groups:
+      - name: delivery_owner
+        roles:
+          - 交付负责人
+      - name: qc_rights
+        roles:
+          - QC Worker
+          - 版权
+    reason: >-
+      契约明确写 `交付负责人+内部 QC/权利职责`，`+` 是 AND。组内 「内部 QC/权利职责」
+      用 `/` 表达 OR，映射为已有的 QC Worker 与 版权 两个角色（取自契约其它动作的
+      既有角色词表）。这是 Phase 1 的最小解释，不改变 AND 语义。
+    unblocks_when: >-
+      契约 31.6 为主表动作定义机器可读的审批组与角色后，删除本绑定改用契约原文。
+
+  COMMUNITY.REUSE.APPROVE:
+    contract_text: '源权利人+目标项目负责人+相关职责审批'
+    mode: ALL
+    groups:
+      - name: source_rights_holder
+        roles:
+          - 版权
+      - name: target_project_owner
+        roles:
+          - 制片
+      - name: duty_approver
+        roles:
+          - 授权审核人
+    reason: >-
+      契约三级 AND。该动作是 PHASE_GATED（Phase 2+），此处仅登记绑定供引擎与
+      契约闸门校验，不开放运行时入口。
+    unblocks_when: 'Phase 2 启用该动作时按契约补正角色后复核本绑定'
+
+  CREATOR.RELEASE.REVOKE:
+    contract_text: '创作者本人、版权/安全职责人或受信 Rights Revocation Worker'
+    mode: ANY
+    groups:
+      - name: creator_self
+        roles:
+          - Creator
+      - name: rights_safety
+        roles:
+          - 版权
+          - 安全
+    reason: >-
+      契约用「、」列出两个 OR 方（创作者本人 / 版权安全职责人），因此是 ANY 而非
+      ALL；`或` 是显式 OR 标记。该动作是 PHASE_GATED（Phase 2），当前仅登记。
+    unblocks_when: 'Phase 2 启用该动作时按契约补正角色后复核本绑定'

@@ -16,11 +16,11 @@
 
 | 正文类目 | 文件 | 字节 | SHA-256 | 对应章节 |
 |---|---|---|---|---|
-| ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 172273 | `0a059be7aeb9c1cde92a053b3d64f008fa718c2e83c9fb176299ce67a487341a` | 8.x 对象契约 / C.3 数据契约 |
-| ② OpenAPI 草案 | `contracts/openapi/openapi.draft.yaml` | 109521 | `f51d36419865e18e451c71a14b73bd68954fde9bb8533a8ebc4b021777006647` | 31.6（由 Action Registry 派生） |
-| ③ 状态机 | `contracts/state_machines/state_machines.yaml` | 22253 | `3cece6636d16db18163df58080813129f37ee926efc650f75cc7ca05b5710eef` | 31.5 / 8.6 / 32.6 / 33.3 / 34.7 |
-| ④ Action Registry | `contracts/action_registry/action_registry.yaml` | 41771 | `b8440d8a93b375285b96ee17ef6853723d3dc4162cfedac48dfb6e963633a385` | 31.6 唯一注册表 |
-| ⑤ 权限矩阵 | `contracts/permission/permission_matrix.yaml` | 4212 | `cc7fc740ae4f875bc0ad95d5719f0d98c7d1c90b062900c1124bb9c9936183a1` | C.5 / 31.6 |
+| ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 173910 | `a28f150af16d3ea80fbea131f185f17258bda1ea0371d768149e1068130fac79` | 8.x 对象契约 / C.3 数据契约 |
+| ② OpenAPI 草案 | `contracts/openapi/openapi.draft.yaml` | 110778 | `8b9e16e98f5e7ca400bd1ee571521171ae7f7d7988c30b060fe5603c978254ae` | 31.6（由 Action Registry 派生） |
+| ③ 状态机 | `contracts/state_machines/state_machines.yaml` | 22763 | `d4178326cdb54fcce36f29e91dfd2de01422c67381ac7d63675238972f0bc098` | 31.5 / 8.6 / 32.6 / 33.3 / 34.7 |
+| ④ Action Registry | `contracts/action_registry/action_registry.yaml` | 43063 | `00ec8dc7abe6e5410049a89a53cd8f011457568caa0e75d0195fccff63c992e5` | 31.6 唯一注册表 |
+| ⑤ 权限矩阵 | `contracts/permission/permission_matrix.yaml` | 4212 | `c3845fbad7d2a326564079bf6e58645d1c5240b953c0784fc90811a28769f0bb` | C.5 / 31.6 |
 | ⑥ 预算与成本口径 | `contracts/budget/budget_caliber.yaml` | 2511 | `29e1d7d470f115ff41b07daaebfb198ccea9246316a2dd4b43a28b52596a0aef` | C.2 / 34.6 |
 | ⑦ 指标字典 | `contracts/metrics/metric_dictionary.yaml` | 7567 | `fb909bccf1da14c74efaad77d77cf73d86c34126b41052def1d0185e4ea4f8cb` | 31.10 / 34.13 |
 | ⑧ 冻结包清单 | `contracts/phase0/phase0_manifest.md` | — | 自指不登记，见 `phase0_manifest.md.sha256` | 31.11 契约证据清单 |
@@ -32,6 +32,7 @@
 
 - `V205-R14-A1`
 - `V205-R14-A2`
+- `V205-R14-A3`
 
 契约名称全集必须精确等于「基线清单 ∪ 已批准修订」，由
 `scripts/freeze_manifest.py --check` 逐名称判定（不是只看数量）。

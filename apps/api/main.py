@@ -87,6 +87,7 @@ from services.project_planning.api.episode_routes import router as episode_route
 from services.project_planning.api.project_routes import router as project_router  # noqa: E402
 from services.project_planning.api.script_routes import router as script_router  # noqa: E402
 from services.qc_governance.api.gate_routes import router as gate_router  # noqa: E402
+from services.workflow.api.approval_routes import router as workflow_router  # noqa: E402
 
 app.include_router(project_router)
 app.include_router(script_router)
@@ -94,6 +95,7 @@ app.include_router(episode_router)
 app.include_router(asset_router)
 app.include_router(delivery_router)
 app.include_router(gate_router)
+app.include_router(workflow_router)
 
 
 # 探针与指标端点不参与限流：编排系统高频抓取，被限流会误判实例不可用。

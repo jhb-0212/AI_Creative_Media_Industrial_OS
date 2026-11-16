@@ -193,8 +193,16 @@ async def test_replay_is_idempotent_and_does_not_duplicate_event(
     assert second.status_code == 201, second.text
     assert first.json()["decided_at"] == second.json()["decided_at"]
 
+    # 改写冲突必须复用**同一幂等键**（gate_instance_id 等），只改内容。
+    # 早先版本用 _body() 生成随机 instance，却靠数据库里残留的固定 entity_id
+    # 主键冲突假绿——干净库上会误判为 201。这里显式复用幂等键，使断言自包含。
     conflict = await director_client.post(
-        "/gate-decisions", json=_body(entity_id="gate-replay-1", reason_code="OTHER")
+        "/gate-decisions",
+        json=_body(
+            entity_id=f"gate-conflict-{uuid.uuid4().hex[:12]}",
+            gate_instance_id=body["gate_instance_id"],
+            reason_code="OTHER",
+        ),
     )
     assert conflict.status_code == 409, conflict.text
 

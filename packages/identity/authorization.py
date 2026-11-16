@@ -395,6 +395,20 @@ def decide(
     )
 
 
+def holds_any_role(principal: Principal, roles: frozenset[str] | tuple[str, ...]) -> bool:
+    """主体是否持有给定角色中的任一角色（细粒度资格判定，不替代授权）。
+
+    为什么放在 identity 包：角色比对只允许一处实现。W3 闸门禁止 services 层
+    直接访问 ``principal.roles`` / ``principal.has_any_role``——那样会绕开
+    Agent、CRITICAL、组织与项目四类判定。审批分组资格是 ``authorize()``
+    之后的**额外**约束，必须复用本函数而不是另起一套比对。
+
+    调用契约：先 ``authorize(principal, action, resource=...)``，再用本函数做
+    更细的主体筛选；本函数单独使用不构成授权。
+    """
+    return bool(principal.roles & frozenset(roles))
+
+
 __all__ = [
     "ActionSpec",
     "AuthorizationDecision",
@@ -404,5 +418,6 @@ __all__ = [
     "RiskLevel",
     "ScopeDimension",
     "decide",
+    "holds_any_role",
     "parse_scope",
 ]

@@ -14,6 +14,11 @@
 # - 解开后要立刻删条目，否则闸门会以「陈旧债务」报红。
 
 gaps:
+  ApprovalTicket:
+    CANCELLED:
+      reason: "契约列出异常/失效 CANCELLED，但没有撤销审批的动作契约，不能凭空造边"
+      contract_ref: "contracts/state_machines/state_machines.yaml:ApprovalTicket"
+      unblocks_when: "契约新增 WORKFLOW.CANCEL_APPROVAL 动作并定义前置条件后补边并删本条目"
   AssetVersion:
     REJECTED:
       reason: "契约只写「可进入 REJECTED」，未给来源边与触发前置条件（拒绝需理由与证据）"

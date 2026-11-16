@@ -6880,6 +6880,76 @@
       ],
       "additionalProperties": true,
       "x-afs-required-basis": "required = C.3.1 通用信封 + 业务字段（project_id/episode_ref/title；requested_by 可选，由 ScriptRevision.to_dict 实现确定）"
+    },
+    "ApprovalTicket": {
+      "type": "object",
+      "description": "通用审批票据（审批进度投影；投票事实在 ApprovalStep）",
+      "required": [
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "flow_id",
+        "version",
+        "audit_ref",
+        "completed_at"
+      ],
+      "properties": {
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "flow_id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "audit_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "completed_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "x-afs-sources": [
+        "ADR-R11-G 通用审批工作流引擎（Phase 1 新增建模，PENDING_PHASE1_REVIEW）"
+      ],
+      "additionalProperties": true
     }
   }
 }

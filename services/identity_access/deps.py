@@ -109,6 +109,10 @@ get_qc_uow = build_tenant_uow_dependency(
 get_read_qc_uow = build_tenant_uow_dependency(
     get_principal, domain=DatabaseDomain.QC_GOVERNANCE, read_only=True
 )
+# 通用审批引擎（services.workflow）：独立角色，业务域无审批表写入权。
+get_workflow_uow = build_tenant_uow_dependency(
+    get_principal, domain=DatabaseDomain.WORKFLOW
+)
 
 
 def require_action(action_key: str) -> Callable[..., Awaitable[Principal]]:
@@ -142,5 +146,6 @@ __all__ = [
     "get_read_asset_uow",
     "get_read_project_uow",
     "get_read_qc_uow",
+    "get_workflow_uow",
     "require_action",
 ]

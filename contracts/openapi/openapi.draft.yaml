@@ -7,7 +7,7 @@ info:
   version: draft
   x-afs-source-document: AFS-ARCH-MASTER-V2.0.5
   x-afs-registry-version: V2.0.5
-  x-afs-total-actions: 80
+  x-afs-total-actions: 83
 servers:
 - url: /api/v1
 tags:
@@ -2794,6 +2794,36 @@ paths:
           description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
         '404':
           description: 资源不存在
+  /actions/workflow.start_approval:
+    post:
+      operationId: workflow.start_approval
+      tags:
+      - Workflow
+      summary: WORKFLOW.START_APPROVAL（资源 ApprovalTicket，风险 HIGH）
+      description: 按目标动作的审批绑定发起票据；发起人不得代替审批人投票。
+      x-afs-action-key: WORKFLOW.START_APPROVAL
+      x-afs-scope: project/delivery
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 导演/制片/授权制片
+      x-afs-audit-event: APPROVAL_TICKET_CREATED
+      x-afs-negative-test: ACT-WORKFLOW-NEG-001
+      x-afs-status: ACTIVE
+  /actions/workflow.submit_vote:
+    post:
+      operationId: workflow.submit_vote
+      tags:
+      - Workflow
+      summary: WORKFLOW.SUBMIT_VOTE（资源 ApprovalTicket，风险 CRITICAL）
+      description: 分组资格由 approval_bindings 判定；Agent 不得投票。
+      x-afs-action-key: WORKFLOW.SUBMIT_VOTE
+      x-afs-scope: project/delivery
+      x-afs-risk-level: CRITICAL
+      x-afs-token-required: true
+      x-afs-allowed-principals: 授权审批人
+      x-afs-audit-event: APPROVAL_VOTE_SUBMITTED
+      x-afs-negative-test: ACT-WORKFLOW-NEG-002
+      x-afs-status: ACTIVE
 components:
   schemas:
     ActionRequestEnvelope:

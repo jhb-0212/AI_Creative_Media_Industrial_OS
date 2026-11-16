@@ -2,7 +2,7 @@
 # 未登记状态的转移一律拒绝（31.5 规则）
 source: AFS-ARCH-MASTER-V2.0.5 各章节状态机定义（由 Markdown 基线派生）
 authority_rule: 同一对象多处定义时，按 31.5 唯一权威状态机 > 32.6/C.7 > 34.x > 33.3 > C.3 取权威；24.11 为摘要不计入权威；差异不静默合并，见 conflict 字段。
-total_objects: 38
+total_objects: 39
 conflict_count: 5
 conflict_rulings:
 - object: CharacterCanon
@@ -334,3 +334,11 @@ objects:
   all_sources:
   - 8.1 核心实体
   - 31.6 Action Registry
+- object: ApprovalTicket
+  authoritative_source: ADR-R11-G 通用审批工作流引擎（Phase 1 新增建模）
+  states: PENDING→APPROVED；PENDING→REJECTED；异常/失效：CANCELLED
+  note: 票据是审批进度的状态投影，选票是 append-only 事实。终态不可原地复活；CANCELLED 可表示但当前无触发动作，见 state_machine_gaps.yaml。
+  source_kind: text_authority_only
+  registration_status: PENDING_PHASE1_REVIEW
+  all_sources:
+  - ADR-R11-G 通用审批工作流引擎

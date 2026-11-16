@@ -32,3 +32,20 @@ bindings:
       契约 7.5 为 Gate 0—4 与 A2 子 Gate 分别定义授权职责主体（或增加短时
       CapabilityToken 的 Gate 级授权声明）后，删除本绑定并改用契约原文。
     gate_specific: false
+  WORKFLOW.SUBMIT_VOTE:
+    contract_text: '授权审批人'
+    roles:
+      - 导演
+      - 制片
+      - 授权制片
+      - 交付负责人
+      - QC Worker
+      - 版权
+      - 授权审核人
+    reason: >-
+      通用审批动作的允许主体写成描述性短语。动作级只负责排除 Agent 与无关主体；
+      **具体能否投某一组由 approval_bindings.yaml 的分组角色决定**，因此这里的角色集
+      是可投票主体的上界而非授权判定本身。收紧上界只会让合法审批人无法进入，
+      不会扩大单组投票权。
+    unblocks_when: >-
+      契约把「授权审批人」定义为可机读的角色或 CapabilityToken 范围后删除本绑定。

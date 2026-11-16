@@ -146,6 +146,10 @@ _STATE_MACHINE_SOURCES: dict[str, tuple[str, str]] = {
         "services.asset_service.domain.state_machine",
         "ASSET_ALLOWED_TRANSITIONS",
     ),
+    "ApprovalTicket": (
+        "services.workflow.domain.state_machine",
+        "TICKET_ALLOWED_TRANSITIONS",
+    ),
 }
 
 
@@ -747,6 +751,10 @@ _RESOURCE_SERIALIZERS: dict[str, tuple[str, str]] = {
         "services.qc_governance.domain.gate_decision",
         "GateDecision",
     ),
+    "ApprovalTicket": (
+        "services.workflow.domain.approval",
+        "ApprovalTicket",
+    ),
 }
 
 
@@ -762,6 +770,7 @@ def _serializer_factories() -> dict[str, object]:
     from services.project_planning.domain.script import ScriptRevision
     from services.qc_governance.domain.enums import GateDecisionValue, GateKey
     from services.qc_governance.domain.gate_decision import GateDecision
+    from services.workflow.domain.approval import ApprovalTicket
 
     tenant_id = uuid4()
     return {
@@ -841,6 +850,14 @@ def _serializer_factories() -> dict[str, object]:
             decided_by="probe",
             created_by="probe",
             tenant_id=tenant_id,
+        ),
+        "ApprovalTicket": ApprovalTicket(
+            entity_id="probe-ticket",
+            flow_id="probe-flow",
+            project_id="probe-project",
+            tenant_id=tenant_id,
+            organization_id=tenant_id,
+            created_by="probe",
         ),
     }
 
@@ -1456,8 +1473,10 @@ def _enum_classes_in_file(path: Path) -> list[str]:
             base.attr if isinstance(base, ast.Attribute) else getattr(base, "id", "")
             for base in node.bases
         }
-        # 只认 ``(str, Enum)`` / ``(Enum,)`` 两种本项目在用的形态。
-        if "Enum" in base_names:
+        # 认 ``(str, Enum)`` / ``(Enum,)`` / ``(StrEnum,)`` 三种形态。
+        # StrEnum 曾漏检：workflow 三个枚举全部用 StrEnum，反向完备性因此
+        # 看不见它们，等于新增枚举默认免检——正是本闸门要防的情形。
+        if "Enum" in base_names or "StrEnum" in base_names:
             names.append(node.name)
     return names
 
@@ -1671,6 +1690,73 @@ def check_principal_bindings() -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# 审批绑定台账（多主体语义的唯一配置源）
+# --------------------------------------------------------------------------- #
+APPROVAL_BINDINGS_PATH = CONTRACTS / "runtime" / "approval_bindings.yaml"
+
+
+def check_approval_bindings() -> bool:
+    """校验审批绑定没有把 AND 悄悄改成 OR（或反向）。"""
+    if not APPROVAL_BINDINGS_PATH.exists():
+        print(f"[FAIL] 缺少审批绑定台账: {APPROVAL_BINDINGS_PATH}")
+        return False
+    ledger = load_yaml_mapping(APPROVAL_BINDINGS_PATH)
+    bindings = ledger.get("bindings") or {}
+    if not isinstance(bindings, dict):
+        print("[FAIL] approval_bindings.bindings 必须是映射")
+        return False
+
+    raw_registry = load_yaml_mapping(ACTION_REGISTRY_PATH)
+    actions = {
+        str(a.get("action_key")): a
+        for a in (raw_registry.get("actions") or [])
+        if a
+    }
+    ok = True
+    for action_key, entry in bindings.items():
+        entry = entry or {}
+        if action_key not in actions:
+            print(f"[FAIL] 审批绑定登记了未注册动作: {action_key}")
+            ok = False
+            continue
+        original = str(actions[action_key].get("allowed_principals", ""))
+        if str(entry.get("contract_text", "")) != original:
+            print(
+                f"[FAIL] 审批绑定 {action_key} 原文与契约不一致: "
+                f"{entry.get('contract_text')!r} != {original!r}"
+            )
+            ok = False
+        if entry.get("mode") not in ("ALL", "ANY"):
+            print(f"[FAIL] 审批绑定 {action_key} 的 mode 非法: {entry.get('mode')!r}")
+            ok = False
+        groups = entry.get("groups") or []
+        if not isinstance(groups, list) or not groups:
+            print(f"[FAIL] 审批绑定 {action_key} 缺 groups")
+            ok = False
+            continue
+        names = []
+        for group in groups:
+            name = str((group or {}).get("name", ""))
+            roles = (group or {}).get("roles") or []
+            if not name or not roles or not all(
+                isinstance(role, str) and role.strip() for role in roles
+            ):
+                print(f"[FAIL] 审批绑定 {action_key} 的分组 {name!r} 非法")
+                ok = False
+            names.append(name)
+        if len(names) != len(set(names)):
+            print(f"[FAIL] 审批绑定 {action_key} 分组名重复: {names}")
+            ok = False
+        for field in ("reason", "unblocks_when"):
+            if not entry.get(field):
+                print(f"[FAIL] 审批绑定 {action_key} 缺 {field}")
+                ok = False
+    if ok:
+        print(f"[PASS] 审批绑定台账：{len(bindings)} 个动作原文逐字一致")
+    return ok
+
+
+# --------------------------------------------------------------------------- #
 # 入口
 # --------------------------------------------------------------------------- #
 def main() -> int:
@@ -1699,6 +1785,7 @@ def main() -> int:
         ok &= check_event_catalog()
         ok &= check_enum_parity()
         ok &= check_principal_bindings()
+        ok &= check_approval_bindings()
     except ValueError as exc:
         # 契约文件缺失/为空/非映射时，load_yaml_mapping 统一抛 ValueError；
         # 这是脚本级致命错误（契约损坏无法继续校验），在此统一兜底报红。
