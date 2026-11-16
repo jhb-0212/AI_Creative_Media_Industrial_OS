@@ -49,15 +49,15 @@ async def _count_projects_with_context(
 
 
 async def test_rls_blocks_without_tenant_context(
-    db_sessionmaker: async_sessionmaker[AsyncSession],
+    project_sm: async_sessionmaker[AsyncSession],
 ) -> None:
     """未注入 tenant 上下文时，裸 SQL 查询返回 0 行（fail-closed）。"""
-    count = await _count_projects_without_context(db_sessionmaker)
+    count = await _count_projects_without_context(project_sm)
     assert count == 0
 
 
 async def test_rls_isolates_across_tenants(
-    db_sessionmaker: async_sessionmaker[AsyncSession],
+    project_sm: async_sessionmaker[AsyncSession],
 ) -> None:
     """注入不匹配 tenant 时返回 0 行，匹配默认 tenant 时返回真实行数。
 
@@ -65,16 +65,16 @@ async def test_rls_isolates_across_tenants(
     不主动加 tenant 过滤，也只会看到当前租户数据。
     """
     # 默认 tenant（历史数据归属）应能看到数据。
-    default_count = await _count_projects_with_context(db_sessionmaker, DEFAULT_TENANT)
+    default_count = await _count_projects_with_context(project_sm, DEFAULT_TENANT)
     assert default_count > 0
 
     # 另一个不匹配的 tenant 应看不到任何数据（越权被按死）。
-    other_count = await _count_projects_with_context(db_sessionmaker, OTHER_TENANT)
+    other_count = await _count_projects_with_context(project_sm, OTHER_TENANT)
     assert other_count == 0
 
 
 async def test_rls_blocks_cross_tenant_write(
-    db_sessionmaker: async_sessionmaker[AsyncSession],
+    project_sm: async_sessionmaker[AsyncSession],
 ) -> None:
     """RLS 也约束写入：无 tenant 上下文的会话无法 INSERT（fail-closed）。
 
@@ -98,7 +98,7 @@ async def test_rls_blocks_cross_tenant_write(
     # 无 tenant 上下文的写必须被 RLS 的 WITH CHECK 拒绝（SQLSTATE 42501）。
     # 不能用「捕获任意异常即通过」：那会把连接错误、语法错误也算成隔离生效。
     with pytest.raises(DBAPIError) as exc_info:
-        async with db_sessionmaker() as session:
+        async with project_sm() as session:
             await session.execute(
                 insert,
                 {
@@ -113,7 +113,7 @@ async def test_rls_blocks_cross_tenant_write(
     assert "row-level security" in str(exc_info.value).lower()
 
     # 反向确认：以正确租户上下文回查，该行确实没有落库。
-    async with db_sessionmaker() as s2:
+    async with project_sm() as s2:
         await s2.execute(
             text("SELECT set_config('app.current_tenant_id', :t, true)"),
             {"t": DEFAULT_TENANT},

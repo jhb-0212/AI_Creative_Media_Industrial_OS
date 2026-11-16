@@ -32,7 +32,7 @@ def _write(root: Path, relative: str, source: str) -> None:
 # 仓库现状
 # --------------------------------------------------------------------------- #
 def test_repository_has_no_layering_violation() -> None:
-    """当前仓库必须 0 违规（R0/R1/R2/R3 全部）。"""
+    """当前仓库必须 0 违规（R0/R1/R2/R3/R4 全部）。"""
     results = arch.run_all()
     flattened = {rule: [v.message for v in violations] for rule, violations in results.items()}
     assert flattened == {
@@ -40,6 +40,7 @@ def test_repository_has_no_layering_violation() -> None:
         "R1 层间依赖方向": [],
         "R2 服务间直连": [],
         "R3 导入期循环": [],
+        "R4 数据库身份旁路": [],
     }
 
 
@@ -234,3 +235,66 @@ def test_syntax_error_is_reported_as_value_error(tmp_path: Path) -> None:
     with pytest.raises(ValueError) as exc_info:
         arch.collect_imports(tmp_path)
     assert "packages/broken.py" in str(exc_info.value)
+
+
+# --------------------------------------------------------------------------- #
+# R4 数据库身份旁路
+# --------------------------------------------------------------------------- #
+def test_business_module_building_its_own_pool_is_reported(tmp_path: Path) -> None:
+    """业务模块自建连接池 → 报红（否则它可以挑一个权限更大的角色连库）。"""
+    _write(
+        tmp_path,
+        "services/asset_service/repository/repo.py",
+        "from packages.shared.database import create_engine\n",
+    )
+    violations = arch.check_database_identity_bypass(tmp_path)
+    assert any("create_engine" in v.message for v in violations), violations
+
+
+def test_business_module_reaching_state_pools_is_reported(tmp_path: Path) -> None:
+    """业务模块从 app.state 挑池 → 报红（等于绕开依赖注入的域绑定）。"""
+    _write(
+        tmp_path,
+        "services/project_planning/api/routes.py",
+        "def f(request):\n    return request.app.state.pools\n",
+    )
+    violations = arch.check_database_identity_bypass(tmp_path)
+    assert any("app.state.pools" in v.message for v in violations), violations
+
+
+def test_getattr_form_is_also_reported(tmp_path: Path) -> None:
+    """getattr 写法与属性访问等价，不能成为绕过闸门的语法技巧。"""
+    _write(
+        tmp_path,
+        "apps/api/routes.py",
+        'def f(request):\n    return getattr(request.app.state, "pools", None)\n',
+    )
+    violations = arch.check_database_identity_bypass(tmp_path)
+    assert any("getattr" in v.message for v in violations), violations
+
+
+def test_allowlisted_assembly_point_is_clean(tmp_path: Path) -> None:
+    """登记在案的装配点不该报红（白名单按模块名精确匹配）。
+
+    临时仓库里其余白名单条目必然"无引用"，会触发陈旧登记——那是另一条规则
+    的正确行为，因此这里只断言"没有针对该文件本身的违规"。
+    """
+    _write(
+        tmp_path,
+        "packages/shared/unit_of_work.py",
+        "from packages.shared.database import DomainPools\n",
+    )
+    violations = arch.check_database_identity_bypass(tmp_path)
+    assert not [v for v in violations if v.file.endswith("unit_of_work.py")], violations
+
+
+def test_missing_allowlist_entry_is_reported_as_stale(tmp_path: Path) -> None:
+    """白名单条目若已无任何引用 → 报陈旧登记（白名单不许常驻）。"""
+    violations = arch.check_database_identity_bypass(tmp_path)
+    stale = [v for v in violations if "陈旧登记" in v.message]
+    assert stale, "空仓库下所有白名单条目都是陈旧的，必须报出来"
+
+
+def test_repository_database_bypass_is_clean() -> None:
+    """当前仓库的装配点没有旁路（R4 现状 0 违规）。"""
+    assert arch.check_database_identity_bypass() == []

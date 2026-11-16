@@ -147,6 +147,12 @@ apps ──▶ services ──▶ (领域模型/仓储)
   新增顶层代码目录必须在规则表登记，否则闸门 R0 直接报红。
 - **apps 是薄层**：只做协议适配（HTTP 鉴权、请求校验、DTO 转换），业务逻辑全部下沉到 services。
 - **services 是内核**：每个模块拥有明确数据写权限（14.2 所有权矩阵），跨模块只经 API/命令 + Outbox 事件，禁止共享 ORM Model 直写他表。
+  这条**不只靠代码约定**：每个业务域一个 PostgreSQL 角色与连接池
+  （`packages/shared/db_roles.py`，迁移 `c2d3e4f5a6b7`），用错域的写入在数据库层报
+  `permission denied`；闸门 R4 同时禁止业务模块自建/自选连接池。见
+  `docs/adr/ADR-R16-database-role-per-domain.md`。
+  路由一律经 `services/identity_access/deps.py` 导出的具名依赖
+  （`get_project_uow` / `get_asset_uow`）取得工作单元，不存在"万能默认池"。
 - **workers 消费事件**：通过 Outbox 模式保证事务一致性，消费者 Inbox 去重、幂等。
 - **adapters 不写权威状态**：只处理外部系统差异，回传结果进入平台资产暂存与验证。
 - **contracts 是单一事实源**：代码从契约派生，CI 校验契约与实现一致（不重复维护两份）。

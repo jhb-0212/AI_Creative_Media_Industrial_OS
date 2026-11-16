@@ -19,16 +19,20 @@
 
 对应不变量（由 ``tests/integration/test_tenant_isolation_invariants.py`` 断言）：
 1. 每个 outbox 分区 ``relrowsecurity = true`` 且有租户策略；
-2. app_role 对任何分区**没有**直连权限（只能通过父表访问）；
+2. 任何应用角色对任何分区**没有**直连权限（只能通过父表访问）；
 3. 通过父表、无租户上下文查询返回 0 行（fail-closed）。
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 
 OUTBOX_SCHEMA = "outbox"
 OUTBOX_PARENT = "outbox_events"
+# 历史角色名：仅供 ``b7c8d9e0f1a2`` 这类已应用迁移显式引用（它当时的
+# 保护对象就是这一角色）。新代码不要再用它——应用侧角色已按域拆分，
+# 见 ``packages.shared.db_roles``。
 APP_ROLE = "app_role"
 # 与父表策略同名：策略名按表作用域独立，同名便于排障时一眼认出。
 PARTITION_POLICY = "tenant_isolation_outbox_events"
@@ -46,10 +50,15 @@ def quote_ident(name: str) -> str:
 def protect_partition_statements(
     partition: str,
     *,
+    roles: Sequence[str],
     schema: str = OUTBOX_SCHEMA,
-    role: str = APP_ROLE,
 ) -> tuple[str, ...]:
     """返回"让某个分区进入受保护状态"所需的全部 SQL（幂等）。
+
+    ``roles`` 是**必须显式给出**的回收名单，不提供默认值：角色集合属于部署
+    事实（按域拆分前后不同），任何隐式默认都会让"新加的角色忘了回收"变成
+    一个静默的越权口子。调用方要么传历史角色（老迁移），要么传
+    ``all_business_roles()``（当前全部业务角色）。
 
     顺序有意义：先开 RLS 再建策略（策略可以在 RLS 未开时创建，但先开语义清楚），
     最后回收直连授权——保证任何中间失败重跑都能收敛到同一状态。
@@ -66,15 +75,18 @@ def protect_partition_statements(
             tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid
         )
         """.strip(),
-        f"REVOKE ALL ON {qualified} FROM {quote_ident(role)}",
+        *(
+            f"REVOKE ALL ON {qualified} FROM {quote_ident(role)}"
+            for role in roles
+        ),
     )
 
 
 def unprotect_partition_statements(
     partition: str,
     *,
+    roles: Sequence[str],
     schema: str = OUTBOX_SCHEMA,
-    role: str = APP_ROLE,
 ) -> tuple[str, ...]:
     """回滚语句（仅迁移 downgrade 使用）：恢复"分区可直连但不隔离"的旧状态。"""
     qualified = f"{quote_ident(schema)}.{quote_ident(partition)}"
@@ -82,7 +94,10 @@ def unprotect_partition_statements(
     return (
         f"DROP POLICY IF EXISTS {policy} ON {qualified}",
         f"ALTER TABLE {qualified} DISABLE ROW LEVEL SECURITY",
-        f"GRANT SELECT, INSERT, UPDATE ON {qualified} TO {quote_ident(role)}",
+        *(
+            f"GRANT SELECT, INSERT, UPDATE ON {qualified} TO {quote_ident(role)}"
+            for role in roles
+        ),
     )
 
 

@@ -12,15 +12,13 @@ from apps.api.main import app
 def client() -> TestClient:
     """用 with 触发 lifespan（启动/关闭路径与生产一致）。
 
-    lifespan 会重新装配 app.state 的引擎/会话工厂；退出后恢复 conftest 注入的
-    测试引擎，避免污染同会话后续用例。
+    lifespan 会重新装配 ``app.state.pools``（按域建池）；退出后恢复 conftest
+    注入的测试池，避免污染同会话后续用例，也避免测试池被提前 dispose。
     """
-    previous_engine = getattr(app.state, "engine", None)
-    previous_sessionmaker = getattr(app.state, "sessionmaker", None)
+    previous_pools = getattr(app.state, "pools", None)
     with TestClient(app) as c:
         yield c
-    app.state.engine = previous_engine
-    app.state.sessionmaker = previous_sessionmaker
+    app.state.pools = previous_pools
 
 
 def test_health_returns_ok(client: TestClient) -> None:
@@ -53,10 +51,16 @@ def test_readyz_fails_closed_when_database_unavailable(
 ) -> None:
     """库不可用时必须 503（fail-closed），不能把流量放进来变成 500。"""
 
-    def _broken_sessionmaker() -> None:
-        raise RuntimeError("database unreachable")
+    class _BrokenPools:
+        """模拟"连接池取会话即失败"——覆盖 readyz 的异常分支。"""
 
-    monkeypatch.setattr(app.state, "sessionmaker", _broken_sessionmaker)
+        def sessionmaker(self, _domain: object) -> object:
+            def _broken() -> None:
+                raise RuntimeError("database unreachable")
+
+            return _broken
+
+    monkeypatch.setattr(app.state, "pools", _BrokenPools())
     resp = client.get("/readyz")
     assert resp.status_code == 503
     body = resp.json()

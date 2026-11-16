@@ -1,16 +1,16 @@
-"""RLS 跨租户隔离负向测试（B：证明 app_role 下 RLS 真实生效）。
+"""RLS 跨租户隔离负向测试（B：证明按域角色下 RLS 真实生效）。
 
 安全边界（决策 5，务必理解为何不加 FORCE RLS）：
 - 迁移 8f2a1b3c4d5e 对 projects / episodes / script_revisions 启用 RLS，
   策略 ``USING (tenant_id = current_setting('app.current_tenant_id'))``；
   对 FOR ALL 策略，WITH CHECK 默认沿用 USING，故 INSERT 也被拦截。
-- 应用与测试以 ``app_role`` 连库（packages/shared/database.build_database_url），
-  app_role 为「非表 owner + NOSUPERUSER + NOBYPASSRLS」，因此 RLS 对其
-  真实生效。
+- 应用与测试以**业务域角色**连库（``DatabaseDomain.PROJECT_PLANNING`` →
+  ``svc_project_planning``，见 packages/shared/db_roles）；该角色为
+  「非表 owner + NOSUPERUSER + NOBYPASSRLS」，因此 RLS 对其真实生效。
 - 表 owner 是 postgres **超级用户**，而超级用户永远绕过 RLS——所以
   ``FORCE ROW LEVEL SECURITY`` 在本拓扑下不会产生任何额外约束（FORCE 只
   约束非超级用户的 owner）。真正的防呆是「应用绝不以 owner/superuser 连接」，
-  该不变量由 build_database_url 固定使用 app_role 保证。
+  该不变量由 ``build_database_url(domain)`` 固定使用域角色保证。
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from apps.api.main import app
+from packages.shared.db_roles import DatabaseDomain
 
 # 两个互不相干的租户（随机 UUID，避免与历史数据冲突）。
 TENANT_A = uuid.uuid4()
@@ -76,7 +77,7 @@ async def _delete_project(sm, tenant_id, entity_id: str) -> None:
 
 async def test_cross_tenant_insert_rejected() -> None:
     """租户 A 上下文写入 tenant_id=B 的行 → 被 RLS WITH CHECK 拒绝。"""
-    sm = app.state.sessionmaker
+    sm = app.state.pools.sessionmaker(DatabaseDomain.PROJECT_PLANNING)
     entity_id = f"rls_bad_{uuid.uuid4().hex[:8]}"
     with pytest.raises(DBAPIError) as exc_info:
         async with sm() as session:
@@ -100,7 +101,7 @@ async def test_cross_tenant_insert_rejected() -> None:
 
 async def test_cross_tenant_rows_invisible_and_not_writable() -> None:
     """A 看不到 B 的行；A 对 B 行的 UPDATE/DELETE 影响 0 行。"""
-    sm = app.state.sessionmaker
+    sm = app.state.pools.sessionmaker(DatabaseDomain.PROJECT_PLANNING)
     eid_a = f"rls_a_{uuid.uuid4().hex[:8]}"
     eid_b = f"rls_b_{uuid.uuid4().hex[:8]}"
     try:

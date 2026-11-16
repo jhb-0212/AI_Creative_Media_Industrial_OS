@@ -20,7 +20,9 @@ x-db-env: &db-env
   POSTGRES_USER: postgres
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
   POSTGRES_DB: ai_film_industrial
-  POSTGRES_APP_USER: app_role
+  # 业务域角色名由代码固定（packages/shared/db_roles）：
+  # api 起四个域池、relay 只起投递域池，各自连接身份不同。
+  # 这里只注入口令，不提供"应用用户名"开关——用户名可配置等于权限边界可配。
   POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-app_dev_password}
 
 services:

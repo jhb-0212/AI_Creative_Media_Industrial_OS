@@ -1,13 +1,18 @@
 """Outbox relay 多租户投递测试（R06 方案 B 的核心不变量）。
 
 要证明的三件事（缺一条方案 B 就不成立）：
-1. relay 用 app_role，单租户上下文内**只能**读到本租户事件——越界的不是
-   「代码自觉」，而是 RLS 拒绝；
+1. relay 用**投递域角色**，单租户上下文内只能读到本租户事件——越界的不是
+   「代码自觉」，而是 RLS 拒绝；同时它连事件正文都改不了（列级授权）；
 2. 没有处理器的事件保持未投递（不 ack），积压不消失；
 3. 处理器失败的事件同样保持未投递，且不影响同批/其他租户。
 
-清理用超级用户连接：`outbox.outbox_events` 对 app_role 已撤销 DELETE
-（append-only，迁移 d4e5f6a7b8c9）。测试清理本身就是该不变量的一个证明。
+角色分工（B1 拆分后）：追加事件走**项目规划域**（业务域有权 INSERT outbox），
+投递与回写状态走**投递域**（只能 SELECT + 改状态列）。测试因此显式区分两个
+会话工厂——这本身就是"谁能写什么"的证明。
+
+清理用超级用户连接：`outbox.outbox_events` 对所有业务角色都没有 DELETE
+（append-only，迁移 d4e5f6a7b8c9 / c2d3e4f5a6b7）。测试清理本身就是该不变量
+的一个证明。
 """
 
 from __future__ import annotations
@@ -26,12 +31,23 @@ from sqlalchemy.ext.asyncio import (
 
 from apps.api.main import app
 from packages.shared.database import build_migration_url
+from packages.shared.db_roles import DatabaseDomain
 from packages.shared.outbox_writer import record_event
 from packages.shared.rls import set_tenant_context
 from workers.relay.consumer import OutboxEvent, OutboxRelay
 
 TENANT_A = uuid.uuid4()
 TENANT_B = uuid.uuid4()
+
+
+def _project_sm() -> async_sessionmaker[AsyncSession]:
+    """项目规划域会话工厂（业务侧写事件用它，与生产写路径同一角色）。"""
+    return app.state.pools.sessionmaker(DatabaseDomain.PROJECT_PLANNING)
+
+
+def _relay_sm() -> async_sessionmaker[AsyncSession]:
+    """投递域会话工厂（与生产 relay 同一角色：读事件 + 改投递状态）。"""
+    return app.state.pools.sessionmaker(DatabaseDomain.OUTBOX_RELAY)
 
 
 @pytest.fixture(scope="module")
@@ -91,12 +107,19 @@ async def _published_at(
 
 async def test_drain_only_reads_own_tenant() -> None:
     """租户 A 的事件被投递；租户 B 的事件不受影响（RLS 挡住 A 的读取）。"""
-    sm = app.state.sessionmaker
+    project_sm = _project_sm()
+    relay_sm = _relay_sm()
     event_a = await _append_event(
-        sm, tenant_id=TENANT_A, event_type="SCRIPT_LOCK_APPROVED", aggregate_id="agg-a"
+        project_sm,
+        tenant_id=TENANT_A,
+        event_type="SCRIPT_LOCK_APPROVED",
+        aggregate_id="agg-a",
     )
     event_b = await _append_event(
-        sm, tenant_id=TENANT_B, event_type="SCRIPT_LOCK_APPROVED", aggregate_id="agg-b"
+        project_sm,
+        tenant_id=TENANT_B,
+        event_type="SCRIPT_LOCK_APPROVED",
+        aggregate_id="agg-b",
     )
 
     seen: list[OutboxEvent] = []
@@ -104,7 +127,7 @@ async def test_drain_only_reads_own_tenant() -> None:
     async def handler(event: OutboxEvent) -> None:
         seen.append(event)
 
-    relay = OutboxRelay(sm, {"SCRIPT_LOCK_APPROVED": handler})
+    relay = OutboxRelay(relay_sm, {"SCRIPT_LOCK_APPROVED": handler})
     stats = await relay.drain_tenant(TENANT_A)
 
     assert stats.delivered == 1
@@ -112,48 +135,57 @@ async def test_drain_only_reads_own_tenant() -> None:
     assert [e.tenant_id for e in seen] == [TENANT_A]
     assert seen[0].event_id == event_a
 
-    assert await _published_at(sm, TENANT_A, event_a) is not None
-    assert await _published_at(sm, TENANT_B, event_b) is None
+    assert await _published_at(relay_sm, TENANT_A, event_a) is not None
+    assert await _published_at(relay_sm, TENANT_B, event_b) is None
 
 
 async def test_unrouted_event_stays_unpublished() -> None:
     """没有处理器的事件不 ack：积压必须留痕，不能谎报已投递。"""
-    sm = app.state.sessionmaker
+    project_sm = _project_sm()
+    relay_sm = _relay_sm()
     event_id = await _append_event(
-        sm, tenant_id=TENANT_A, event_type="SHOT_GENERATED", aggregate_id="agg-x"
+        project_sm, tenant_id=TENANT_A, event_type="SHOT_GENERATED", aggregate_id="agg-x"
     )
 
-    relay = OutboxRelay(sm, {"SCRIPT_LOCK_APPROVED": lambda e: None})
+    relay = OutboxRelay(relay_sm, {"SCRIPT_LOCK_APPROVED": lambda e: None})
     stats = await relay.drain_tenant(TENANT_A)
 
     assert stats.unrouted == 1
     assert stats.delivered == 0
-    assert await _published_at(sm, TENANT_A, event_id) is None
+    assert await _published_at(relay_sm, TENANT_A, event_id) is None
 
 
 async def test_handler_failure_keeps_event_unpublished() -> None:
     """处理器抛异常 → 不 ack，事件留待下一轮重试（至少一次语义的前提）。"""
-    sm = app.state.sessionmaker
+    project_sm = _project_sm()
+    relay_sm = _relay_sm()
     event_id = await _append_event(
-        sm, tenant_id=TENANT_A, event_type="SCRIPT_LOCK_APPROVED", aggregate_id="agg-f"
+        project_sm,
+        tenant_id=TENANT_A,
+        event_type="SCRIPT_LOCK_APPROVED",
+        aggregate_id="agg-f",
     )
 
     async def broken_handler(event: OutboxEvent) -> None:
         raise RuntimeError("下游不可用")
 
-    relay = OutboxRelay(sm, {"SCRIPT_LOCK_APPROVED": broken_handler})
+    relay = OutboxRelay(relay_sm, {"SCRIPT_LOCK_APPROVED": broken_handler})
     stats = await relay.drain_tenant(TENANT_A)
 
     assert stats.failed == 1
     assert stats.delivered == 0
-    assert await _published_at(sm, TENANT_A, event_id) is None
+    assert await _published_at(relay_sm, TENANT_A, event_id) is None
 
 
 async def test_default_handler_acks_when_downstream_succeeds() -> None:
     """兜底处理器成功 → 事件被 ack（这是「配置了下游」与「没有下游」的区别）。"""
-    sm = app.state.sessionmaker
+    project_sm = _project_sm()
+    relay_sm = _relay_sm()
     event_id = await _append_event(
-        sm, tenant_id=TENANT_A, event_type="SCRIPT_LOCK_APPROVED", aggregate_id="agg-d"
+        project_sm,
+        tenant_id=TENANT_A,
+        event_type="SCRIPT_LOCK_APPROVED",
+        aggregate_id="agg-d",
     )
     seen: list[OutboxEvent] = []
 
@@ -161,23 +193,27 @@ async def test_default_handler_acks_when_downstream_succeeds() -> None:
         seen.append(event)
 
     # 专用处理器表为空 → 走兜底处理器（模拟统一 webhook 通道）。
-    relay = OutboxRelay(sm, {}, default_handler=default_handler)
+    relay = OutboxRelay(relay_sm, {}, default_handler=default_handler)
     stats = await relay.drain_tenant(TENANT_A)
 
     assert stats.delivered == 1
     assert [e.event_id for e in seen] == [event_id]
-    assert await _published_at(sm, TENANT_A, event_id) is not None
+    assert await _published_at(relay_sm, TENANT_A, event_id) is not None
 
 
 async def test_tenant_enumeration_exposes_only_backlog_metadata() -> None:
     """枚举函数只返回「有积压的租户」与元数据，绝不返回事件负载。"""
-    sm = app.state.sessionmaker
+    project_sm = _project_sm()
+    relay_sm = _relay_sm()
     await _append_event(
-        sm, tenant_id=TENANT_B, event_type="SCRIPT_LOCK_APPROVED", aggregate_id="agg-e"
+        project_sm,
+        tenant_id=TENANT_B,
+        event_type="SCRIPT_LOCK_APPROVED",
+        aggregate_id="agg-e",
     )
     empty_tenant = uuid.uuid4()
 
-    async with sm() as session:
+    async with relay_sm() as session:
         columns = (
             await session.execute(text("SELECT * FROM outbox.list_active_tenants()"))
         ).keys()

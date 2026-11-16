@@ -18,8 +18,8 @@ from packages.shared.contract_models import contract_model
 from packages.shared.unit_of_work import UnitOfWork
 from services.identity_access.deps import (
     Principal,
-    get_read_tenant_uow,
-    get_tenant_uow,
+    get_project_uow,
+    get_read_project_uow,
     require_role,
 )
 from services.project_planning.domain.enums import ProjectTier
@@ -50,13 +50,13 @@ def _build_service(session: AsyncSession) -> ProjectService:
     return ProjectService(repository, SqlAlchemyOutboxWriter(session))
 
 
-def _get_service(uow: UnitOfWork = Depends(get_tenant_uow)) -> ProjectService:
+def _get_service(uow: UnitOfWork = Depends(get_project_uow)) -> ProjectService:
     """写用例服务装配（提交点由路由显式控制）。"""
     return _build_service(uow.session)
 
 
 def _get_read_service(
-    uow: UnitOfWork = Depends(get_read_tenant_uow),
+    uow: UnitOfWork = Depends(get_read_project_uow),
 ) -> ProjectService:
     """只读用例服务装配（只读事务，数据库层拒绝写入）。"""
     return _build_service(uow.session)
@@ -66,7 +66,7 @@ def _get_read_service(
 async def create_project(
     body: CreateProjectRequest,
     principal: Principal = Depends(require_role("PROJECT.CREATE")),
-    uow: UnitOfWork = Depends(get_tenant_uow),
+    uow: UnitOfWork = Depends(get_project_uow),
     service: ProjectService = Depends(_get_service),
 ) -> dict[str, Any]:
     """创建项目（幂等）。created_by / tenant_id 来自可信 Principal。"""

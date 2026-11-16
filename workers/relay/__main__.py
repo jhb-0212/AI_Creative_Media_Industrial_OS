@@ -3,7 +3,9 @@
 - 循环节奏与批量大小来自配置（OUTBOX_RELAY_INTERVAL_SECONDS / BATCH_SIZE）。
 - SIGTERM / SIGINT 触发优雅退出：置位 stop 事件，等在途一轮结束后再关闭引擎，
   避免把「已投递未 ack」的事务半途掐断（那会变成本可避免的重复投递）。
-- 进程只起引擎与会话工厂，不起 API：relay 与 API 共用同一镜像、同一 app_role。
+- 进程只起引擎与会话工厂，不起 API：relay 与 API 共用同一镜像，但使用
+  独立的数据库角色（``DatabaseDomain.OUTBOX_RELAY``），因此 relay 只能读事件
+  与回写投递状态，改不了任何业务表。
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ import signal
 
 from packages.shared.config import get_settings
 from packages.shared.database import create_engine, create_sessionmaker
+from packages.shared.db_roles import DatabaseDomain
 from packages.shared.logging import get_logger, setup_logging
 from workers.relay.consumer import OutboxRelay
 from workers.relay.handlers import HANDLERS
@@ -36,7 +39,9 @@ async def _run_forever(relay: OutboxRelay, interval: float, stop: asyncio.Event)
 
 async def _main_async(*, interval: float, batch_size: int, once: bool) -> None:
     settings = get_settings()
-    engine = create_engine()
+    # Relay 用投递域角色：只能读事件、回写投递状态列，写不了任何业务表。
+    # 与 API 共镜像但不同连接身份，这是"relay 不能改业务数据"的实际保证。
+    engine = create_engine(DatabaseDomain.OUTBOX_RELAY)
     sessionmaker = create_sessionmaker(engine)
     # 兜底处理器：配了 webhook 才存在。没配时事件保持未投递（积压可见），
     # 而不是被「成功」丢弃。

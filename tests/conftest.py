@@ -21,7 +21,8 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.api.main import app
-from packages.shared.database import create_engine, create_sessionmaker
+from packages.shared.database import DomainPools
+from packages.shared.db_roles import DatabaseDomain
 from services.identity_access import issue_token
 
 # 测试固定租户（历史数据已回填到此默认租户；新测试数据也用此租户，
@@ -52,21 +53,46 @@ def make_test_token(
 
 
 @pytest.fixture(scope="session", autouse=True)
-async def db_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    """为整个测试会话装配独立引擎 + 会话工厂，并挂到 app.state（P0-4 根治）。
+async def db_pools() -> AsyncIterator[DomainPools]:
+    """为整个测试会话装配按域隔离的连接池，并挂到 app.state（P0-4 根治）。
 
     ASGITransport 不触发 lifespan，因此生产代码的 lifespan 不会在测试里执行；
-    这里由 conftest 注入独立引擎，保证 app.state.sessionmaker 在测试期间可用，
-    同时与生产引擎彻底隔离（ADR 3.4：测试用独立引擎，生产代码零测试感知）。
+    这里由 conftest 注入独立 ``DomainPools``，保证 ``app.state.pools`` 在测试期间
+    可用，同时与生产池彻底隔离（ADR 3.4：测试用独立引擎，生产代码零测试感知）。
+
+    测试拿到的池**也是按域角色连接**的：测试里写错域会被数据库拒绝，
+    这正是被测行为的一部分，不允许测试用超级用户绕过。
     """
-    engine = create_engine()
-    sessionmaker = create_sessionmaker(engine)
-    app.state.engine = engine
-    app.state.sessionmaker = sessionmaker
+    pools = DomainPools.create()
+    app.state.pools = pools
     try:
-        yield sessionmaker
+        yield pools
     finally:
-        await engine.dispose()
+        await pools.dispose()
+
+
+@pytest.fixture
+def project_sm(db_pools: DomainPools) -> async_sessionmaker[AsyncSession]:
+    """项目规划域会话工厂（能读写 project_planning，不能写资产/资产被拒）。"""
+    return db_pools.sessionmaker(DatabaseDomain.PROJECT_PLANNING)
+
+
+@pytest.fixture
+def asset_sm(db_pools: DomainPools) -> async_sessionmaker[AsyncSession]:
+    """资产域会话工厂（能读写 asset_service，写不了 project_planning）。"""
+    return db_pools.sessionmaker(DatabaseDomain.ASSET)
+
+
+@pytest.fixture
+def relay_sm(db_pools: DomainPools) -> async_sessionmaker[AsyncSession]:
+    """Outbox 投递域会话工厂（只读事件 + 改投递状态列）。"""
+    return db_pools.sessionmaker(DatabaseDomain.OUTBOX_RELAY)
+
+
+@pytest.fixture
+def identity_sm(db_pools: DomainPools) -> async_sessionmaker[AsyncSession]:
+    """身份域会话工厂（只读写 auth 吊销表）。"""
+    return db_pools.sessionmaker(DatabaseDomain.IDENTITY)
 
 
 @pytest.fixture

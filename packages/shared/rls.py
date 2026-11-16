@@ -22,7 +22,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.identity.principal import Principal
-from packages.shared.unit_of_work import UnitOfWork
+from packages.shared.db_roles import DatabaseDomain
+from packages.shared.unit_of_work import UnitOfWork, build_domain_uow_dependency
 
 # RLS 上下文配置键（单一事实源，与迁移中的 RLS 策略 USING 子句对齐）。
 RLS_TENANT_SETTING = "app.current_tenant_id"
@@ -46,13 +47,17 @@ async def set_tenant_context(session: AsyncSession, tenant_id: object) -> None:
 
 def build_tenant_uow_dependency(
     get_principal: PrincipalDependency,
-    uow_dependency: Callable[..., AsyncIterator[UnitOfWork]],
+    *,
+    domain: DatabaseDomain,
+    read_only: bool = False,
 ) -> Callable[..., AsyncIterator[UnitOfWork]]:
     """构造 tenant-aware 工作单元依赖：解析 Principal → 注入 RLS 上下文 → 提供 UoW。
 
-    读写共用同一装配逻辑：传 ``get_uow`` 得写单元，传 ``get_read_uow`` 得只读
-    单元（数据库层拒绝写语句）。RLS 上下文与事务同生命周期，事务结束自动清除。
+    域是必填参数：它决定连接池与数据库角色（见 ``packages.shared.db_roles``），
+    读写由 ``read_only`` 区分（数据库层拒绝写语句）。RLS 上下文与事务同生命
+    周期，事务结束自动清除。
     """
+    uow_dependency = build_domain_uow_dependency(domain, read_only=read_only)
 
     async def get_tenant_uow(
         principal: Principal = Depends(get_principal),

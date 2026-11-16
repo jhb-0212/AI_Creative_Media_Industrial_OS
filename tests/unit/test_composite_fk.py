@@ -35,7 +35,7 @@ async def client() -> AsyncClient:
 
 
 async def test_composite_fk_rejects_dangling_episode(
-    db_sessionmaker: async_sessionmaker[AsyncSession],
+    project_sm: async_sessionmaker[AsyncSession],
 ) -> None:
     """数据库层拒绝引用不存在 Episode 的 script_revision。
 
@@ -46,7 +46,7 @@ async def test_composite_fk_rejects_dangling_episode(
     dangling_project = f"proj_dangling_{uuid.uuid4().hex[:8]}"
     dangling_ref = f"EP{uuid.uuid4().hex[:4].upper()}"
 
-    async with db_sessionmaker() as session:
+    async with project_sm() as session:
         # 注入 RLS 上下文（app_role 连接下 RLS 生效，需设置 tenant 才能写）。
         await session.execute(
             text(

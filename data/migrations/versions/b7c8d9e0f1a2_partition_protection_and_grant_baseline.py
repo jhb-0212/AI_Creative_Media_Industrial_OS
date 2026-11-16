@@ -89,8 +89,10 @@ def _outbox_partitions() -> list[str]:
 def upgrade() -> None:
     """分区保护到位 + 默认零授权 + append-only 授权收紧。"""
     # 1. 已存在分区：开 RLS、建策略、回收直连权限（幂等，重复执行无害）。
+    #    角色显式传 (APP_ROLE,)：本迁移的历史语义就是"回收当时唯一的应用角色"，
+    #    后续角色拆分由更新的迁移负责，不在此处推测未来的角色集合。
     for partition in _outbox_partitions():
-        for statement in protect_partition_statements(partition):
+        for statement in protect_partition_statements(partition, roles=(APP_ROLE,)):
             op.execute(statement)
 
     # 2. 默认权限反转：新表/新序列不再自动获得 app_role 权限。
@@ -126,5 +128,5 @@ def downgrade() -> None:
         op.execute(statement)
 
     for partition in _outbox_partitions():
-        for statement in unprotect_partition_statements(partition):
+        for statement in unprotect_partition_statements(partition, roles=(APP_ROLE,)):
             op.execute(statement)

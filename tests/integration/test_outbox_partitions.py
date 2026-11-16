@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from packages.shared.database import build_migration_url
+from packages.shared.db_roles import DatabaseDomain, all_business_roles, role_for
 from packages.shared.outbox_writer import record_event
 from packages.shared.rls import set_tenant_context
 
@@ -65,10 +66,10 @@ async def test_current_month_partition_exists(admin_engine: AsyncEngine) -> None
 
 
 async def test_write_routes_to_month_partition(
-    db_sessionmaker: async_sessionmaker[AsyncSession],
+    project_sm: async_sessionmaker[AsyncSession],
 ) -> None:
     """写入必须路由到 occurred_at 所在月份的分区，而不是 DEFAULT。"""
-    async with db_sessionmaker() as session:
+    async with project_sm() as session:
         await set_tenant_context(session, TENANT)
         event_id = record_event(
             session,
@@ -95,27 +96,49 @@ async def test_write_routes_to_month_partition(
 
 
 async def test_rls_still_blocks_without_tenant_context(
-    db_sessionmaker: async_sessionmaker[AsyncSession],
+    project_sm: async_sessionmaker[AsyncSession],
 ) -> None:
     """分区化之后父表策略仍生效：无租户上下文读到 0 行。"""
-    async with db_sessionmaker() as session:
+    async with project_sm() as session:
         count = (
             await session.execute(text("SELECT count(*) FROM outbox.outbox_events"))
         ).scalar_one()
     assert count == 0
 
 
-async def test_app_role_has_no_delete_privilege(admin_engine: AsyncEngine) -> None:
-    """append-only 不因分区化而回退：app_role 对父表不得有 DELETE。"""
+async def test_no_business_role_has_delete_privilege(admin_engine: AsyncEngine) -> None:
+    """append-only 不因分区化而回退：任何应用角色对父表都不得有 DELETE。"""
     async with admin_engine.connect() as conn:
-        privileges = (
+        rows = (
             await conn.execute(
                 text(
-                    "SELECT privilege_type FROM information_schema.role_table_grants "
-                    "WHERE table_schema = 'outbox' AND table_name = 'outbox_events' "
-                    "AND grantee = 'app_role'"
-                )
+                    """
+                    SELECT
+                      r.rolname,
+                      has_table_privilege(
+                        r.rolname, 'outbox.outbox_events', 'SELECT') AS can_select,
+                      has_table_privilege(
+                        r.rolname, 'outbox.outbox_events', 'INSERT') AS can_insert,
+                      has_table_privilege(
+                        r.rolname, 'outbox.outbox_events', 'UPDATE') AS can_update,
+                      has_table_privilege(
+                        r.rolname, 'outbox.outbox_events', 'DELETE') AS can_delete
+                    FROM pg_roles r
+                    WHERE r.rolname = ANY(:roles)
+                    """
+                ),
+                {"roles": list(all_business_roles())},
             )
-        ).scalars()
-        granted = set(privileges)
-    assert granted == {"SELECT", "INSERT", "UPDATE"}
+        ).mappings().all()
+
+    assert {row["rolname"] for row in rows} == set(all_business_roles()), (
+        "业务域角色不齐：数据库里缺角色或 db_roles 登记多出角色"
+    )
+    for row in rows:
+        role = row["rolname"]
+        assert row["can_delete"] is False, f"{role} 竟有 outbox 事件删除权"
+        if role == role_for(DatabaseDomain.IDENTITY):
+            # 身份域与事件流无关：连读都不该有（吊销检查走自己的 schema）。
+            assert not any(
+                (row["can_select"], row["can_insert"], row["can_update"])
+            ), f"{role} 不该有任何 outbox 权限"

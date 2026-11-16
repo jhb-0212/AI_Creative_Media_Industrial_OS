@@ -470,6 +470,116 @@ def check_import_cycles(root: Path = ROOT, imports: list[ImportRecord] | None = 
 
 
 # --------------------------------------------------------------------------- #
+# R4 数据库身份旁路
+# --------------------------------------------------------------------------- #
+#: 直接构造连接池 / DSN 的入口名。业务代码只应经依赖注入拿到"自己域"的工作单元，
+#: 一旦允许直接建池，就等于允许它挑一个权限更大的角色去连库。
+_DB_FACTORY_NAMES: frozenset[str] = frozenset(
+    {"DomainPools", "create_engine", "create_sessionmaker", "build_database_url"}
+)
+
+#: 允许直接接触连接池装配的模块（必须有理由；无命中即报「陈旧登记」）。
+DATABASE_ACCESS_ALLOWLIST: dict[str, str] = {
+    "packages.shared.database": (
+        "连接池的定义与 lifespan 挂载点：DomainPools 在此创建并挂到 app.state"
+    ),
+    "packages.shared.unit_of_work": (
+        "域感知工作单元依赖的构造点：把 domain 映射到连接池，是所有路由拿到 UoW 的唯一入口"
+    ),
+    "services.identity_access.deps": (
+        "身份治理依赖装配点：集中导出 get_project_uow / get_asset_uow 与吊销检查取池，"
+        "业务路由不得自建"
+    ),
+    "apps.api.main": (
+        "就绪探针用身份域池探活（最小权限域），不承载任何业务读写"
+    ),
+    "workers.relay.__main__": (
+        "Relay 进程入口：只起投递域连接池，与 API 进程身份不同"
+    ),
+}
+
+#: 允许出现 ``app.state.pools`` 的模块（与上表分列：import 工厂 ≠ 访问运行时池）。
+_STATE_POOLS_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        "packages.shared.database",
+        "packages.shared.unit_of_work",
+        "services.identity_access.deps",
+        "apps.api.main",
+    }
+)
+
+
+def _database_access_hits(path: Path) -> list[tuple[int, str]]:
+    """返回该文件里"直接取数据库身份"的 (行号, 说明) 列表。"""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    hits: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "packages.shared.database":
+            for alias in node.names:
+                if alias.name in _DB_FACTORY_NAMES:
+                    hits.append((node.lineno, f"直接 import {alias.name}"))
+        if isinstance(node, ast.Attribute) and node.attr == "pools":
+            parent = node.value
+            if isinstance(parent, ast.Attribute) and parent.attr == "state":
+                hits.append((node.lineno, "直接访问 app.state.pools"))
+        # getattr(obj, "pools", ...) 与属性访问等价，必须同样计入——
+        # 否则"换个写法"就能从闸门下走过，闸门只证明了字面形态。
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value == "pools"
+        ):
+            hits.append((node.lineno, '经 getattr 取 app.state.pools'))
+    return hits
+
+
+def check_database_identity_bypass(root: Path = ROOT) -> list[Violation]:
+    """R4：业务模块不得自行挑选数据库连接身份。
+
+    为什么这条必须是闸门而不是文档：按域拆角色之后，"跨模块写表被数据库拒绝"
+    的前提是**每个模块只拿到自己域的池**。若某模块能自己 ``create_engine(...)``
+    或从 ``app.state.pools`` 里挑一个池，权限边界就退化回"代码自觉"。
+    """
+    violations: list[Violation] = []
+    used: set[str] = set()
+    for path in _iter_py_files(root):
+        module = _module_name(path, root)
+        for line, detail in _database_access_hits(path):
+            if module in DATABASE_ACCESS_ALLOWLIST or module in _STATE_POOLS_ALLOWLIST:
+                used.add(module)
+                continue
+            violations.append(
+                Violation(
+                    rule="R4 数据库身份旁路",
+                    file=path.relative_to(root).as_posix(),
+                    line=line,
+                    message=(
+                        f"{detail}：业务模块只能经依赖注入拿自己域的工作单元。"
+                        "自行建池/挑选池会让越权写入绕过数据库角色边界"
+                    ),
+                )
+            )
+
+    for module, reason in DATABASE_ACCESS_ALLOWLIST.items():
+        if module not in used:
+            violations.append(
+                Violation(
+                    rule="R4 数据库身份旁路",
+                    file="scripts/architecture_check.py",
+                    line=0,
+                    message=(
+                        f"陈旧登记：{module!r} 已不再直接接触连接池，请从 "
+                        f"DATABASE_ACCESS_ALLOWLIST 删除（原理由：{reason}）"
+                    ),
+                )
+            )
+    return violations
+
+
+# --------------------------------------------------------------------------- #
 # R0 覆盖面防呆
 # --------------------------------------------------------------------------- #
 def check_layer_coverage(root: Path = ROOT) -> list[Violation]:
@@ -519,6 +629,7 @@ def run_all(root: Path = ROOT) -> dict[str, list[Violation]]:
         "R1 层间依赖方向": check_layer_direction(imports),
         "R2 服务间直连": check_cross_service(imports) + check_stale_platform_dependencies(imports),
         "R3 导入期循环": check_import_cycles(root, imports),
+        "R4 数据库身份旁路": check_database_identity_bypass(root),
     }
 
 
@@ -544,7 +655,8 @@ def main() -> int:
     print(
         f"[PASS] 分层依赖：{len(LAYER_RULES)} 层规则 / R1 方向 0 违规 / "
         f"R2 跨服务 0 违规（平台能力 {len(PLATFORM_SERVICE_DEPENDENCIES)} 项）/ "
-        "R3 导入期循环 0 处"
+        f"R3 导入期循环 0 处 / R4 数据库身份旁路 0 处"
+        f"（装配点 {len(DATABASE_ACCESS_ALLOWLIST)} 个）"
     )
     return 0
 

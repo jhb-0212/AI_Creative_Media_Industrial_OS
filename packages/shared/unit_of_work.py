@@ -8,6 +8,9 @@
   一旦提交失败，客户端已经收到了成功响应。
 - 只读单元用 ``SET TRANSACTION READ ONLY`` 在**数据库层**兜底：
   GET 用例即使误写也写不进去（防呆，不靠代码自觉）。
+- 工作单元必须声明业务域（``build_domain_uow_dependency``）：域决定连接池，
+  连接池决定数据库角色，角色决定能写哪些表。三者是一条链，缺任一环都只是
+  "约定"，不是约束。
 
 取消语义：``CancelledError`` / ``GeneratorExit`` 属 BaseException，不在此
 ``await rollback``（取消态里再次 await 会二次取消），由 ``async with`` 退出时
@@ -16,12 +19,15 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
 from fastapi import Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from packages.shared.database import DomainPools
+from packages.shared.db_roles import DatabaseDomain
 
 SessionMaker = async_sessionmaker[AsyncSession]
 
@@ -64,13 +70,20 @@ async def unit_of_work(
             raise
 
 
-async def get_uow(request: Request) -> AsyncIterator[UnitOfWork]:
-    """写工作单元依赖（会话工厂来自 lifespan 挂在 app.state 的实例）。"""
-    async with unit_of_work(request.app.state.sessionmaker) as uow:
-        yield uow
+def build_domain_uow_dependency(
+    domain: DatabaseDomain, *, read_only: bool = False
+) -> Callable[..., AsyncIterator[UnitOfWork]]:
+    """构造绑定到某业务域的工作单元依赖（该域连接池 + 该域数据库角色）。
 
+    权限边界由连接身份决定：用项目规划域的工作单元去写资产表，会在数据库
+    层得到 ``permission denied``，不需要任何 Python 层判断参与。
+    """
 
-async def get_read_uow(request: Request) -> AsyncIterator[UnitOfWork]:
-    """只读工作单元依赖（GET/HEAD 用例使用，数据库层拒绝写入）。"""
-    async with unit_of_work(request.app.state.sessionmaker, read_only=True) as uow:
-        yield uow
+    async def dependency(request: Request) -> AsyncIterator[UnitOfWork]:
+        pools: DomainPools = request.app.state.pools
+        async with unit_of_work(
+            pools.sessionmaker(domain), read_only=read_only
+        ) as uow:
+            yield uow
+
+    return dependency

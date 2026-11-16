@@ -30,6 +30,7 @@ from packages.errors.error_codes import (
 )
 from packages.shared.config import get_settings
 from packages.shared.database import lifespan
+from packages.shared.db_roles import DatabaseDomain
 from packages.shared.logging import get_logger, set_trace_id, setup_logging
 from packages.shared.metrics import (
     HTTP_REQUEST_DURATION_SECONDS,
@@ -269,8 +270,11 @@ async def readyz() -> JSONResponse:
     读不到版本表同样按 unready 处理（fail-closed，不猜）。
     """
     try:
-        sessionmaker = app.state.sessionmaker
-        async with sessionmaker() as session:
+        # 就绪探针走身份域连接池：它只需要 SELECT 1 与 alembic_version，
+        # 是权限最小的域。用它探活，等价于探"任意一个域能否连库"，
+        # 又不会因为某个业务域的表权限配置错误而让探针说不清原因。
+        pools = app.state.pools
+        async with pools.sessionmaker(DatabaseDomain.IDENTITY)() as session:
             await session.execute(text("SELECT 1"))
             revision = (
                 await session.execute(text("SELECT version_num FROM alembic_version"))

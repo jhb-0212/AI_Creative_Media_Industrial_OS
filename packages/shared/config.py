@@ -35,10 +35,15 @@ class Settings(BaseSettings):
     postgres_user: str = "postgres"
     postgres_password: SecretStr = SecretStr("")
     postgres_db: str = "ai_film_industrial"
-    # 应用角色（RLS 生效前提：非超级用户、NOBYPASSRLS）。应用与测试以该角色
-    # 连接数据库，使 PostgreSQL RLS 行级安全真正执行（postgres 超级用户会
-    # BYPASSRLS 导致 RLS 失效）。迁移 9e3b4c5d6e7f 创建该角色。
-    postgres_app_user: str = "app_role"
+    # 业务域角色口令（统一一份）。
+    #
+    # 为什么这里**没有** ``postgres_app_user``：连接用户名必须等于业务域角色名
+    # （``packages.shared.db_roles`` 的唯一事实源）。一旦用户名可配置，权限
+    # 边界就变成了配置项——把 ``POSTGRES_APP_USER`` 改成 postgres 就能绕过
+    # 全部按域授权。角色名因此写死在代码里，配置里不再存在这个开关。
+    #
+    # 口令仍可配置（生产由密钥系统注入）；RLS 生效前提是该角色为
+    # NOSUPERUSER / NOBYPASSRLS，由迁移 c2d3e4f5a6b7 保证。
     postgres_app_password: SecretStr = SecretStr("app_dev_password")
 
     # Redis（可能内嵌口令，按密钥处理，repr 不落明文）

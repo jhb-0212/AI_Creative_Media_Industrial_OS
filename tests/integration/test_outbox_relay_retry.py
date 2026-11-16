@@ -22,12 +22,23 @@ from sqlalchemy.ext.asyncio import (
 
 from apps.api.main import app
 from packages.shared.database import build_migration_url
+from packages.shared.db_roles import DatabaseDomain
 from packages.shared.outbox_writer import record_event
 from packages.shared.rls import set_tenant_context
 from workers.relay.consumer import OutboxEvent, OutboxRelay
 from workers.relay.errors import DeliveryDeferredError
 
 TENANT = uuid.uuid4()
+
+
+def _project_sm() -> async_sessionmaker[AsyncSession]:
+    """项目规划域会话工厂（业务侧追加事件）。"""
+    return app.state.pools.sessionmaker(DatabaseDomain.PROJECT_PLANNING)
+
+
+def _relay_sm() -> async_sessionmaker[AsyncSession]:
+    """投递域会话工厂（relay 领取 / 回写状态）。"""
+    return app.state.pools.sessionmaker(DatabaseDomain.OUTBOX_RELAY)
 
 
 @pytest.fixture(scope="module")
@@ -87,9 +98,10 @@ async def _failing_handler(event: OutboxEvent) -> None:
 async def test_failure_backs_off_and_is_not_reclaimed(
     admin_engine: AsyncEngine,
 ) -> None:
-    sm = app.state.sessionmaker
-    event_id = await _append_event(sm)
-    relay = OutboxRelay(sm, {"SCRIPT_LOCK_APPROVED": _failing_handler})
+    project_sm = _project_sm()
+    relay_sm = _relay_sm()
+    event_id = await _append_event(project_sm)
+    relay = OutboxRelay(relay_sm, {"SCRIPT_LOCK_APPROVED": _failing_handler})
 
     stats = await relay.drain_tenant(TENANT)
     assert stats.failed == 1
@@ -108,10 +120,11 @@ async def test_failure_backs_off_and_is_not_reclaimed(
 
 
 async def test_max_attempts_marks_dead_letter(admin_engine: AsyncEngine) -> None:
-    sm = app.state.sessionmaker
-    event_id = await _append_event(sm)
+    project_sm = _project_sm()
+    relay_sm = _relay_sm()
+    event_id = await _append_event(project_sm)
     relay = OutboxRelay(
-        sm, {"SCRIPT_LOCK_APPROVED": _failing_handler}, max_attempts=1
+        relay_sm, {"SCRIPT_LOCK_APPROVED": _failing_handler}, max_attempts=1
     )
 
     stats = await relay.drain_tenant(TENANT)
@@ -148,10 +161,11 @@ async def test_dead_letter_not_counted_in_backlog(admin_engine: AsyncEngine) -> 
     复核 R2：死信不得计入 backlog——否则 OUTBOX_RELAY_BACKLOG 报警永远消不掉，
     租户也永远留在扫描列表里每轮白扫。证明枚举函数的口径与 _CLAIM 领取口径一致。
     """
-    sm = app.state.sessionmaker
-    await _append_event(sm)
+    project_sm = _project_sm()
+    relay_sm = _relay_sm()
+    await _append_event(project_sm)
     relay = OutboxRelay(
-        sm, {"SCRIPT_LOCK_APPROVED": _failing_handler}, max_attempts=1
+        relay_sm, {"SCRIPT_LOCK_APPROVED": _failing_handler}, max_attempts=1
     )
     await relay.drain_tenant(TENANT)
 
@@ -184,11 +198,12 @@ async def test_deferred_delivery_does_not_consume_attempts(
     ADR-R13「事件不丢弃」。这里用 max_attempts=1 把口径钉死：只要被计一次，
     第一轮就会死信。
     """
-    sm = app.state.sessionmaker
-    first = await _append_event(sm)
-    second = await _append_event(sm)
+    project_sm = _project_sm()
+    relay_sm = _relay_sm()
+    first = await _append_event(project_sm)
+    second = await _append_event(project_sm)
     relay = OutboxRelay(
-        sm, {"SCRIPT_LOCK_APPROVED": _deferred_handler}, max_attempts=1
+        relay_sm, {"SCRIPT_LOCK_APPROVED": _deferred_handler}, max_attempts=1
     )
 
     for _ in range(3):

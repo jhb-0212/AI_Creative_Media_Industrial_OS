@@ -83,60 +83,60 @@ async def _count_events(
 
 
 async def test_worker_unit_of_work_commits_persistently(
-    db_sessionmaker: async_sessionmaker[AsyncSession],
+    project_sm: async_sessionmaker[AsyncSession],
 ) -> None:
     """Worker 场景：不依赖 request，同一原语显式 commit 后数据可见。"""
     aggregate_id = f"uow-worker-{uuid.uuid4().hex[:8]}"
 
-    async with unit_of_work(db_sessionmaker) as uow:
+    async with unit_of_work(project_sm) as uow:
         await _insert_event(
             uow.session, aggregate_id=aggregate_id, event_id=uuid.uuid4()
         )
         await uow.commit()
 
-    assert await _count_events(db_sessionmaker, aggregate_id=aggregate_id) == 1
+    assert await _count_events(project_sm, aggregate_id=aggregate_id) == 1
 
 
 async def test_unit_of_work_rolls_back_on_failure(
-    db_sessionmaker: async_sessionmaker[AsyncSession],
+    project_sm: async_sessionmaker[AsyncSession],
 ) -> None:
     """异常路径：业务变更与事件一起回滚，不留半条数据。"""
     aggregate_id = f"uow-fail-{uuid.uuid4().hex[:8]}"
 
     with pytest.raises(RuntimeError):
-        async with unit_of_work(db_sessionmaker) as uow:
+        async with unit_of_work(project_sm) as uow:
             await _insert_event(
                 uow.session, aggregate_id=aggregate_id, event_id=uuid.uuid4()
             )
             raise RuntimeError("worker crashed mid-transaction")
 
-    assert await _count_events(db_sessionmaker, aggregate_id=aggregate_id) == 0
+    assert await _count_events(project_sm, aggregate_id=aggregate_id) == 0
 
 
 async def test_unit_of_work_without_commit_does_not_persist(
-    db_sessionmaker: async_sessionmaker[AsyncSession],
+    project_sm: async_sessionmaker[AsyncSession],
 ) -> None:
     """忘记提交 = 不落库（fail-closed），不允许「响应成功但数据丢失」。"""
     aggregate_id = f"uow-nocommit-{uuid.uuid4().hex[:8]}"
 
-    async with unit_of_work(db_sessionmaker) as uow:
+    async with unit_of_work(project_sm) as uow:
         await _insert_event(
             uow.session, aggregate_id=aggregate_id, event_id=uuid.uuid4()
         )
 
-    assert await _count_events(db_sessionmaker, aggregate_id=aggregate_id) == 0
+    assert await _count_events(project_sm, aggregate_id=aggregate_id) == 0
 
 
 async def test_read_only_unit_rejects_writes(
-    db_sessionmaker: async_sessionmaker[AsyncSession],
+    project_sm: async_sessionmaker[AsyncSession],
 ) -> None:
     """只读单元：INSERT 被 PostgreSQL 拒绝（GET 用例无法误写）。"""
     aggregate_id = f"uow-readonly-{uuid.uuid4().hex[:8]}"
 
     with pytest.raises(DBAPIError, match="read-only"):
-        async with unit_of_work(db_sessionmaker, read_only=True) as uow:
+        async with unit_of_work(project_sm, read_only=True) as uow:
             await _insert_event(
                 uow.session, aggregate_id=aggregate_id, event_id=uuid.uuid4()
             )
 
-    assert await _count_events(db_sessionmaker, aggregate_id=aggregate_id) == 0
+    assert await _count_events(project_sm, aggregate_id=aggregate_id) == 0

@@ -64,17 +64,3 @@ def build_revocation_check(
         return await is_token_revoked(sessionmaker, jti)
 
     return check
-
-
-async def check_request_revocation(request: Request, jti: str) -> bool:
-    """从 app.state 取会话工厂并检查吊销（FastAPI 依赖链专用）。"""
-    sessionmaker: async_sessionmaker[AsyncSession] | None = getattr(
-        request.app.state, "sessionmaker", None
-    )
-    if sessionmaker is None:
-        # fail-closed：无法确认吊销状态时拒绝（详见模块 docstring）。
-        raise DomainError(
-            ErrorRegistry.AUTH_UNAUTHENTICATED,
-            detail="无法校验令牌吊销状态",
-        )
-    return await is_token_revoked(sessionmaker, jti)

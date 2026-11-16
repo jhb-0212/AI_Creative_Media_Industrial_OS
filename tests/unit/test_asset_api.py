@@ -64,7 +64,7 @@ async def test_asset_lifecycle_end_to_end(
     worker_client: AsyncClient,
     qc_client: AsyncClient,
     approver_client: AsyncClient,
-    db_sessionmaker: async_sessionmaker[AsyncSession],
+    asset_sm: async_sessionmaker[AsyncSession],
 ) -> None:
     asset_id = f"asset_{uuid.uuid4().hex[:12]}"
 
@@ -100,7 +100,7 @@ async def test_asset_lifecycle_end_to_end(
     assert approved.json()["status"] == "APPROVED"
 
     # 持久化核对：换一个会话直接读回，确认不是响应里的幻觉。
-    async with db_sessionmaker() as session:
+    async with asset_sm() as session:
         from sqlalchemy import text
 
         await session.execute(

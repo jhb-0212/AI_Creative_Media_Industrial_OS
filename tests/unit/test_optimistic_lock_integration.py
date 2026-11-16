@@ -70,7 +70,7 @@ async def _set_rls_context(session: object) -> None:
 
 
 async def test_optimistic_lock_prevents_lost_update(
-    client: AsyncClient, db_sessionmaker: async_sessionmaker[AsyncSession]
+    client: AsyncClient, project_sm: async_sessionmaker[AsyncSession]
 ) -> None:
     """两个并发会话基于同一旧版本推进，第二个必须抛并发冲突。
 
@@ -95,7 +95,7 @@ async def test_optimistic_lock_prevents_lost_update(
     script_id = resp.json()["entity_id"]
 
     # 会话 A：读取 -> 迁移（DRAFT→LOCK_PENDING）-> 保存（version 1 -> 2）。
-    async with db_sessionmaker() as session_a:
+    async with project_sm() as session_a:
         await _set_rls_context(session_a)
         repo_a = SqlAlchemyScriptRepository(session_a)
         script_a = await repo_a.get_by_id(script_id)
@@ -107,7 +107,7 @@ async def test_optimistic_lock_prevents_lost_update(
 
     # 会话 B：读取到已被 A 推进的版本（version=2），基于陈旧版本号 save
     # 必须抛 ConcurrentModificationError。
-    async with db_sessionmaker() as session_b:
+    async with project_sm() as session_b:
         await _set_rls_context(session_b)
         repo_b = SqlAlchemyScriptRepository(session_b)
         script_b = await repo_b.get_by_id(script_id)

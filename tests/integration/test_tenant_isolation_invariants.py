@@ -6,7 +6,7 @@ RLS 负向测试"来解决，而要单独立这组断言：
 - 旧测试只覆盖 ``project_planning`` 三张表（``test_rls_isolation.py``），
   分区是**动态创建**的对象，任何"逐表手写用例"的写法都会在新分区出现时失效；
 - 因此这里断言的是**规律**而不是某张表：凡是 outbox 分区，必须
-  ① ``relrowsecurity=true``、② 有租户策略、③ app_role 无任何直连权限；
+  ① ``relrowsecurity=true``、② 有租户策略、③ 任何应用角色都无直连权限；
 - 以及 append-only 对象（``qc_reports`` / ``asset_versions``）不接受应用的
   整行删改。
 
@@ -29,8 +29,8 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from packages.shared.database import build_migration_url
+from packages.shared.db_roles import DatabaseDomain, all_business_roles, role_for
 from packages.shared.partition_guard import (
-    APP_ROLE,
     OUTBOX_PARENT,
     OUTBOX_SCHEMA,
     PARTITION_POLICY,
@@ -78,24 +78,32 @@ async def _partitions(engine: AsyncEngine) -> list[str]:
 
 
 async def _direct_privileges(session: AsyncSession, table: str) -> set[str]:
-    """app_role 在该表上的直连权限（不含通过父表继承的能力）。"""
+    """全部业务角色在该表上的直连权限（不含通过父表继承的能力）。
+
+    角色拆分后不再有单一 ``app_role``：断言必须是"任何应用角色都不能直连"，
+    只查一个角色会漏掉新加的角色（那正是最可能忘回收的那个）。
+    """
     rows = await session.execute(
         sa.text(
             """
-            SELECT privilege_type
+            SELECT grantee, privilege_type
             FROM information_schema.role_table_grants
-            WHERE grantee = :role AND table_schema = :schema AND table_name = :table
+            WHERE grantee = ANY(:roles) AND table_schema = :schema AND table_name = :table
             """
         ),
-        {"role": APP_ROLE, "schema": OUTBOX_SCHEMA, "table": table},
+        {
+            "roles": list(all_business_roles()),
+            "schema": OUTBOX_SCHEMA,
+            "table": table,
+        },
     )
-    return {str(privilege) for privilege in rows.scalars()}
+    return {f"{grantee}:{privilege}" for grantee, privilege in rows}
 
 
 async def test_every_outbox_partition_is_protected(
     admin_engine: AsyncEngine,
 ) -> None:
-    """每个分区都必须开启 RLS、带租户策略，且 app_role 不能直连。"""
+    """每个分区都必须开启 RLS、带租户策略，且任何应用角色都不能直连。"""
     partitions = await _partitions(admin_engine)
     assert partitions, "outbox.outbox_events 没有任何分区，环境不完整"
 
@@ -129,36 +137,36 @@ async def test_every_outbox_partition_is_protected(
         for partition in partitions:
             privileges = await _direct_privileges(session, partition)
             assert privileges == set(), (
-                f"分区 {partition} 仍对 {APP_ROLE} 直连授权: {sorted(privileges)}"
+                f"分区 {partition} 仍对应用角色直连授权: {sorted(privileges)}"
             )
 
 
-async def test_direct_partition_access_is_denied_for_app_role(
+async def test_direct_partition_access_is_denied_for_business_roles(
     admin_engine: AsyncEngine,
-    db_sessionmaker: async_sessionmaker[AsyncSession],
+    relay_sm: async_sessionmaker[AsyncSession],
 ) -> None:
-    """app_role 直接点名分区必须被拒绝（不能靠"没人会这么写"来防守）。"""
+    """应用角色直接点名分区必须被拒绝（不能靠"没人会这么写"来防守）。"""
     partitions = await _partitions(admin_engine)
     assert partitions
 
     target = f"{quote_ident(OUTBOX_SCHEMA)}.{quote_ident(partitions[-1])}"
-    async with db_sessionmaker() as session:
+    async with relay_sm() as session:
         with pytest.raises(DBAPIError) as exc_info:
             await session.execute(sa.text(f"SELECT count(*) FROM {target}"))
     assert "permission denied" in str(exc_info.value).lower()
 
 
 async def test_outbox_parent_still_fails_closed_without_tenant(
-    db_sessionmaker: async_sessionmaker[AsyncSession],
+    relay_sm: async_sessionmaker[AsyncSession],
 ) -> None:
     """父表路径保持原语义：无租户上下文时 0 行（应用不因本次收紧而失效）。"""
-    async with db_sessionmaker() as session:
+    async with relay_sm() as session:
         count = await session.scalar(sa.text("SELECT count(*) FROM outbox.outbox_events"))
     assert count == 0
 
 
 async def test_append_only_tables_reject_row_mutation(
-    db_sessionmaker: async_sessionmaker[AsyncSession],
+    relay_sm: async_sessionmaker[AsyncSession],
     admin_engine: AsyncEngine,
 ) -> None:
     """qc_reports 不可 UPDATE、asset_versions 不可 DELETE（append-only 落到授权）。"""
@@ -176,14 +184,14 @@ async def test_append_only_tables_reject_row_mutation(
                       AND table_name = :table
                     """
                 ),
-                {"role": APP_ROLE, "table": table},
+                {"role": role_for(DatabaseDomain.ASSET), "table": table},
             )
             granted = {str(privilege) for privilege in rows.scalars()}
             assert granted == expected, (
                 f"{table} 授权口径不符：实际 {sorted(granted)}，期望 {sorted(expected)}"
             )
 
-    async with db_sessionmaker() as session:
+    async with relay_sm() as session:
         with pytest.raises(DBAPIError) as exc_info:
             await session.execute(
                 sa.text("UPDATE asset_service.qc_reports SET findings = findings")
