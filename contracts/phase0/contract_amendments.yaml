@@ -1,0 +1,104 @@
+# 契约修订登记（Phase 0 冻结后的唯一合法变更入口）
+#
+# 为什么需要这个文件
+# ----------------
+# 基线 V2.0.5 冻结时 Action=75 / OpenAPI=75 / Schema=76 / 状态机=35。
+# 此后为 Phase 1 主链增加了 6 个 Action、3 个对象、3 个状态机——这些增量本身
+# 是业务需要的，但**没有任何一条走过修订流程**：派生文件被直接改，
+# 冻结清单没有重新生成，于是出现「contract_check 内部 81↔81 自洽通过，
+# 却无法证明仍符合 V2.0.5」的局面（第三轮审查 F1）。
+#
+# 本文件补的就是这条断掉的权威链：
+#
+#   V2.0.5 主文档（权威源，哈希见 frozen_inventory.yaml）
+#          +
+#   本文件登记的已批准修订
+#          ↓
+#   当前契约全集（必须逐名称精确等于「基线 ∪ 修订」）
+#
+# 它不引入第二套事实源：基线名称全集在 frozen_inventory.yaml，
+# 本文件只登记「相对基线的增删及其理由」，判定逻辑唯一实现在
+# scripts/freeze_manifest.py。
+#
+# 写入口径（违反即闸门报红）
+# ------------------------
+# 1. 新增/删除任何 Action、Schema 对象、状态机，必须先改基线文档（新修订）
+#    或在此登记修订，再改派生文件；顺序反了就是「先斩后奏」，闸门会拦住。
+# 2. 每条修订必须给：id、title、reason、adr、source_commits、approved_by、
+#    approved_at，缺一项即 FAIL（债务不能含糊）。
+# 3. 修订只能追加，不得改写历史条目；撤销一条修订用新的 `revocations` 记录，
+#    保留原始痕迹。
+# 4. 补登记（retroactive: true）必须如实标注——事后追认不等于当时合规，
+#    记录里要写清「何时发现、由哪一轮审查发现」。
+#
+# 禁止事项
+# --------
+# - 不得为了让闸门变绿而把实际增量删掉（会破坏已上线的读写接口）；
+# - 不得把「未实现」的契约登记为已批准修订来凑数；
+# - 不得在此文件里写授权规则/角色/预算口径（那些归 permission_matrix.yaml）。
+
+schema_version: '1.0'
+baseline_ref:
+  inventory: contracts/phase0/frozen_inventory.yaml
+  document: docs/baseline/AI影视工业化生产平台V2.0.5.md
+  revision: 'V205-R14'
+
+amendments:
+  - id: 'V205-R14-A1'
+    title: 'Phase 1 主链落地所必需的对象与读写契约增补'
+    retroactive: true
+    recorded_at: '2026-11-16'
+    discovered_by: 'docs/audits/2026-11-16-review-round3.md（第三轮深度审查，F1）'
+    reason: >-
+      基线只冻结到 Phase 0 契约，未包含 Phase 1 主链的第一段可执行闭环
+      （项目创建 → 集数登记 → 剧本版本导入与锁定）。实现这段闭环必须有
+      Project / Episode / ScriptRevision 三个对象及其状态机，以及对应的
+      READ / CREATE 动作；否则 API 无法落地。增量本身是基线遗漏，不是越权扩展，
+      因此以修订方式追认，而不是删除已上线的读写接口。
+    adr: 'docs/adr/ADR-R15-contract-freeze-lifecycle.md'
+    approved_by: '项目所有者（本次审查应答）'
+    approved_at: '2026-11-16'
+    source_commits:
+      - '41816f5'  # feat: 实现 Phase 1 主链第一环——项目创建领域模型
+      - '3bc8d90'  # feat: 端点接入 RBAC，运行时执行角色级授权
+      - '52dbd4a'  # feat(security): 读接口接入 RBAC 与生产密钥防呆
+      - '98a8917'  # R08b: 资产读能力（ASSET.VERSION.READ）
+    additions:
+      actions:
+        - action_key: 'EPISODE.CREATE'
+          why: '集数登记是主链第二环，缺失则 Script 无法归属集数'
+        - action_key: 'SCRIPT.LOCK.REQUEST'
+          why: '剧本锁定申请是人工确认环节的入口，与 SCRIPT.LOCK.APPROVE 职责分离'
+        - action_key: 'PROJECT.READ'
+          why: '项目读取接口已上线，无对应 Action 即无法做角色授权与审计'
+        - action_key: 'EPISODE.READ'
+          why: '集数读取接口已上线，同上'
+        - action_key: 'SCRIPT.READ'
+          why: '剧本读取接口已上线，同上'
+        - action_key: 'ASSET.VERSION.READ'
+          why: '资产版本读取是 QC 与交付链路的必要读能力'
+      schema_objects:
+        - object: 'Project'
+          why: '主链起点对象；基线 8.x 有字段契约但未纳入 76 对象冻结范围'
+        - object: 'Episode'
+          why: '主链第二环对象，Script 的归属单元'
+        - object: 'ScriptRevision'
+          why: '剧本版本对象，锁定与审批的载体'
+      state_machines:
+        - object: 'Project'
+          why: '项目生命周期（DRAFT→ACTIVE→ARCHIVED）需要显式状态机约束'
+        - object: 'Episode'
+          why: '集数生命周期随项目推进'
+        - object: 'ScriptRevision'
+          why: '剧本版本锁定/审批状态必须可机读校验'
+    counts_after:
+      actions: 81
+      openapi_operations: 81
+      schema_objects: 79
+      state_machines: 38
+    residual_risks:
+      - '本修订为事后追认，冻结期内确实存在「派生文件先于权威记录变更」的窗口'
+      - 'Project/Episode/ScriptRevision 的权限矩阵条目仍需在包 B（身份与数据所有权）中补齐资源范围授权'
+
+# 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
+revocations: []

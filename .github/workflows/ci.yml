@@ -87,10 +87,11 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: ai_film_industrial
 
-      - name: Unit & integration tests
-        # architecture 用例是纯静态分析（AST），不需要数据库，但和单测同属
-        # 「铁律 1 分层」的守卫，放同一 job 里跑，避免再造一个 job。
-        run: uv run pytest tests/unit tests/integration tests/architecture -q
+      - name: Tests (unit / integration / architecture / permission)
+        # 口径与 README 一致：`pytest tests` 一次性跑全部已有测试套件。
+        # 此前只列三个目录，与 README 宣称的 `pytest tests` 不一致（第三轮审查 F6）；
+        # 空的 tests/e2e、tests/resilience、tests/contract 已删除，不再有空壳目录。
+        run: uv run pytest tests -q
         env:
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
@@ -121,7 +122,12 @@ jobs:
           enable-cache: true
       - name: Install dependencies
         run: uv sync --frozen --extra dev
-      - name: Contract consistency check
+      - name: Contract freeze check (基线未变 + 产物哈希 + 演进有据)
+        # 第三轮审查 F1：contract_check 只能证明派生文件互相一致（81↔81），
+        # 不能证明仍符合 V2.0.5 基线（75/75/76/35）。本步骤补上基线一致性判定：
+        # 基线正文哈希、十一类产物哈希、以及「实际 == 基线 ∪ 已批准修订」。
+        run: uv run python scripts/freeze_manifest.py --check
+      - name: Contract consistency check (派生之间交叉一致性)
         run: uv run python scripts/contract_check.py
       - name: Layering check (铁律 1：依赖方向 + 服务间直连 + 导入期循环)
         run: uv run python scripts/architecture_check.py

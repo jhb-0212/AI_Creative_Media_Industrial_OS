@@ -230,3 +230,8 @@ apps ──▶ services ──▶ (领域模型/仓储)
 | E 组（成本配额） | services/budget-quota/、services/model-gateway/ |
 | F 组（Creator 域） | services/ 预留，Phase 1 标 NOT_ENABLED |
 | G 组（交付证据） | services/asset-service/、tests/e2e/、docs/runbooks/ |
+
+> **测试目录口径**：`tests/e2e`、`tests/resilience`、`tests/contract` 目前**不存在**
+> （2026-11-16 第三轮审查后移除空壳）。此前它们只有 `.gitkeep`，却在 README 与 CI 口径里
+> 被当作「已有测试套件」，属于空壳承诺。上表中标记这些目录的验收组，在对应测试真正落地时
+> 再建目录；空目录不得作为「已规划完成」的证据。
