@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     outbox_webhook_url: str = ""
     outbox_webhook_secret: SecretStr = SecretStr("")
     outbox_webhook_timeout_seconds: float = 5.0
+    # 端点熔断（R9）：连续失败达到阈值后 OPEN，冷却期满半开探测。
+    # 与事件级退避+死信分层：退避解决「单条事件重试」，熔断解决「下游整体
+    # 故障时新事件不再逐条撞墙」。0 表示关闭熔断（退化永远放行）。
+    outbox_webhook_circuit_failure_threshold: int = 5
+    outbox_webhook_circuit_recovery_seconds: float = 30.0
 
     # 错误码目录（GET /errors/{code}）。它是内部调试面，不是公共 API：
     # - 默认关闭（false），关闭时一律返回 NOT_FOUND，与未知错误码不可区分；

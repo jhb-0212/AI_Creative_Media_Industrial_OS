@@ -67,6 +67,14 @@ OUTBOX_RELAY_RUN_ERRORS = Counter(
     ["stage"],
 )
 
+# Webhook 端点熔断状态（复核 R9）。三值 Gauge：当前状态为 1、其余为 0，
+# 不打 endpoint 标签——webhook 是单值配置，endpoint 不是高基数维度。
+OUTBOX_WEBHOOK_CIRCUIT_STATE = Gauge(
+    "outbox_webhook_circuit_state",
+    "Webhook 端点熔断器当前状态（1=当前态；state=closed/open/half_open）",
+    ["state"],
+)
+
 
 def metrics_response() -> Response:
     """渲染 Prometheus 文本格式（/metrics 端点直接返回）。"""

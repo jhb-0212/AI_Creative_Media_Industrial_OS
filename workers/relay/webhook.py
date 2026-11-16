@@ -16,6 +16,11 @@
    必须能按这个键去重；把键放在最显眼的标准头上，比写在 body 里更不容易漏。
 3. **签名**：`X-Outbox-Signature = HMAC-SHA256(secret, "{timestamp}.{body}")`。
    时间戳进签名，收方可拒绝过旧请求，避免签名被无限期重放。
+
+端点熔断（R9）：``CircuitBreaker`` 在发请求前拦截——连续失败达到阈值后 OPEN，
+后续请求快速失败（不真正外发），冷却期满放行一个半开探测。它与上面的「不重试」
+不冲突：熔断失败同样抛异常、由 relay 统一走退避/死信，只是「不撞墙」提前到
+发请求之前。
 """
 
 from __future__ import annotations
@@ -28,6 +33,7 @@ from typing import Any
 
 import httpx
 
+from packages.shared.circuit_breaker import CircuitBreaker
 from workers.relay.consumer import OutboxEvent
 
 
@@ -39,10 +45,19 @@ class WebhookDeliveryError(RuntimeError):
     """
 
 
+class WebhookCircuitOpenError(WebhookDeliveryError):
+    """熔断器处于 OPEN：请求被快速失败，未真正外发。
+
+    单独子类化是为了让日志/指标能区分「下游真的失败了」与「熔断主动拦截」，
+    但对 relay 的语义与 ``WebhookDeliveryError`` 完全一致（不 ack、走退避）。
+    """
+
+
 class WebhookDispatcher:
-    """把事件 POST 到配置的端点，带签名与幂等键。
+    """把事件 POST 到配置的端点，带签名与幂等键，端点级熔断兜底。
 
     ``transport`` 仅用于测试注入 ``httpx.MockTransport``；生产为 None（真实网络）。
+    ``breaker`` 用于测试注入假时钟熔断器；为 None 时按 ``circuit_enabled`` 构造。
     """
 
     def __init__(
@@ -52,15 +67,30 @@ class WebhookDispatcher:
         *,
         timeout_seconds: float = 5.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        breaker: CircuitBreaker | None = None,
+        circuit_failure_threshold: int = 5,
+        circuit_recovery_seconds: float = 30.0,
+        circuit_enabled: bool = True,
     ) -> None:
         if not secret:
             raise ValueError("webhook 密钥为空：拒绝发送未签名的事件")
         self._url = url
         self._secret = secret.encode("utf-8")
         self._client = httpx.AsyncClient(timeout=timeout_seconds, transport=transport)
+        # 熔断器：注入的 breaker 优先（测试可控时钟/状态）；否则按参数构造。
+        self._breaker = breaker if breaker is not None else CircuitBreaker(
+            failure_threshold=circuit_failure_threshold,
+            recovery_timeout_seconds=circuit_recovery_seconds,
+            enabled=circuit_enabled,
+        )
 
     async def __call__(self, event: OutboxEvent) -> None:
-        """投递一条事件；未成功即抛 ``WebhookDeliveryError``。"""
+        """投递一条事件；未成功即抛 ``WebhookDeliveryError``。
+
+        熔断器 OPEN 时直接抛 ``WebhookCircuitOpenError``（快速失败，不真正外发）。
+        """
+        if not self._breaker.allow():
+            raise WebhookCircuitOpenError("webhook 端点熔断开启，快速失败（未外发）")
         body = self._encode(event)
         timestamp = str(int(time.time()))
         headers = {
@@ -74,11 +104,14 @@ class WebhookDispatcher:
         try:
             response = await self._client.post(self._url, content=body, headers=headers)
         except httpx.HTTPError as exc:
+            self._breaker.record_failure()
             raise WebhookDeliveryError(f"webhook 传输失败：{exc}") from exc
         if response.status_code >= 300:
+            self._breaker.record_failure()
             raise WebhookDeliveryError(
                 f"webhook 返回 {response.status_code}（期望 2xx）"
             )
+        self._breaker.record_success()
 
     async def aclose(self) -> None:
         """关闭连接池（relay 退出时调用）。"""

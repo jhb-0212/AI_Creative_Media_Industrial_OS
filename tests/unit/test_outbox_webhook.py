@@ -18,7 +18,11 @@ import httpx
 import pytest
 
 from workers.relay.consumer import OutboxEvent
-from workers.relay.webhook import WebhookDeliveryError, WebhookDispatcher
+from workers.relay.webhook import (
+    WebhookCircuitOpenError,
+    WebhookDeliveryError,
+    WebhookDispatcher,
+)
 
 SECRET = "s3cret-for-test"
 
@@ -102,3 +106,69 @@ def test_empty_secret_refuses_to_construct() -> None:
     """无密钥就不构造：拒绝发送任何人都能伪造的事件。"""
     with pytest.raises(ValueError):
         WebhookDispatcher("https://example.test/hook", "")
+
+
+async def test_circuit_open_fast_fails_without_sending() -> None:
+    """熔断 OPEN 时快速失败，不真正外发（R9）。
+
+    与 test_circuit_open_blocks_all_further_deliveries 的分工：
+    这里断言「快速失败抛的是 WebhookCircuitOpenError 子类、可被
+    WebhookDeliveryError 捕获」，后者断言「外发次数不再增长」。
+    """
+    calls = 0
+
+    async def receiver(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(503)
+
+    dispatcher = WebhookDispatcher(
+        "https://example.test/hook",
+        SECRET,
+        transport=httpx.MockTransport(receiver),
+        circuit_failure_threshold=1,
+        circuit_recovery_seconds=30.0,
+    )
+    try:
+        # 第一次请求 503 → 记失败 → OPEN。
+        with pytest.raises(WebhookDeliveryError):
+            await dispatcher(_event())
+
+        # 熔断 OPEN：抛的是 WebhookCircuitOpenError，且它仍是
+        # WebhookDeliveryError 的子类（relay 的 except Exception 能接住）。
+        with pytest.raises(WebhookCircuitOpenError):
+            await dispatcher(_event())
+    finally:
+        await dispatcher.aclose()
+
+    assert calls == 1  # 第二次被熔断拦截，未真正外发。
+
+
+async def test_circuit_open_blocks_all_further_deliveries() -> None:
+    """熔断 OPEN 后，任意事件都不再外发，直到冷却期满半开探测（R9）。"""
+    calls = 0
+
+    async def receiver(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(503)
+
+    dispatcher = WebhookDispatcher(
+        "https://example.test/hook",
+        SECRET,
+        transport=httpx.MockTransport(receiver),
+        circuit_failure_threshold=1,
+        circuit_recovery_seconds=30.0,
+    )
+    try:
+        with pytest.raises(WebhookDeliveryError):
+            await dispatcher(_event())
+        assert calls == 1
+
+        # 后续三条事件全部被熔断快速失败，不增加外发次数。
+        for _ in range(3):
+            with pytest.raises(WebhookCircuitOpenError):
+                await dispatcher(_event())
+        assert calls == 1
+    finally:
+        await dispatcher.aclose()
