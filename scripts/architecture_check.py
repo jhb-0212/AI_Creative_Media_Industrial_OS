@@ -663,6 +663,80 @@ def check_rls_context_single_writer(root: Path = ROOT) -> list[Violation]:
 
 
 # --------------------------------------------------------------------------- #
+# R6 服务内分层（domain / service 不得依赖框架与驱动）
+# --------------------------------------------------------------------------- #
+#: 服务内部目录口径：``services/<domain>/{domain,service}``。
+_SERVICE_INNER_DIRS = ("domain", "service")
+
+#: 这些顶层包属于"框架/驱动"，只能出现在 api（协议适配）与 repository（持久化）层。
+_FRAMEWORK_PACKAGES = frozenset({"fastapi", "starlette", "sqlalchemy", "asyncpg"})
+
+#: 允许豁免的 (文件, 理由)。当前为空，刻意保留结构：
+#: 豁免必须逐条写明理由，而不是加一个"目录级白名单"——后者一旦存在，
+#: 整个目录就永久免检。
+_SERVICE_INNER_ALLOWLIST: dict[str, str] = {}
+
+
+def check_service_internal_layering(imports: list[ImportRecord]) -> list[Violation]:
+    """R6：`services/<domain>/domain`、`services/<domain>/service` 不得 import 框架/驱动。
+
+    为什么需要这条（审查第 8 条 + 第 16 条）：
+    顶层闸门只看 ``services → packages`` 的方向，服务内部是"法外之地"——
+    四个 service 曾直接 ``from sqlalchemy.exc import IntegrityError``，
+    于是一个**驱动异常**变成了业务层的判定依据：它同时表示"唯一约束冲突"
+    与"乐观锁冲突"，而两者处置方式相反。把数据库语义挡在服务层之外，
+    靠的不是 review 记性，而是这条规则。
+
+    口径（宁紧不松）：
+    - `domain/`：纯领域模型与状态机，不得出现任何框架/驱动；
+    - `service/`：应用服务，可以用 Principal/DomainError 等平台能力，
+      但不得直接碰驱动异常、Session、SQL 语句；
+    - `api/`（协议适配）与 `repository/`（持久化实现）**不在本规则内**——
+      它们正是应该接触 HTTP 与 SQL 的两层。
+    """
+    violations: list[Violation] = []
+
+    for record in imports:
+        parts = record.source_file.split("/")
+        if len(parts) < 3 or parts[0] != "services":
+            continue
+        if parts[2] not in _SERVICE_INNER_DIRS:
+            continue
+        if record.source_file in _SERVICE_INNER_ALLOWLIST:
+            continue
+        top = record.target_module.split(".")[0]
+        if top not in _FRAMEWORK_PACKAGES:
+            continue
+        violations.append(
+            Violation(
+                rule="R6 服务内分层",
+                file=record.source_file,
+                line=record.line,
+                message=(
+                    f"{parts[2]}/ 层 import 了 {top}：领域模型不得依赖框架，"
+                    "应用服务不得依赖数据库驱动。驱动异常请在 repository 层翻译成"
+                    "领域异常（packages/errors/repository_errors.py）"
+                ),
+            )
+        )
+
+    stale = [
+        path for path in _SERVICE_INNER_ALLOWLIST
+        if not any(r.source_file == path for r in imports)
+    ]
+    violations.extend(
+        Violation(
+            rule="R6 服务内分层",
+            file="scripts/architecture_check.py",
+            line=0,
+            message=f"陈旧豁免：{path!r} 已不在扫描范围内，请从白名单删除",
+        )
+        for path in stale
+    )
+    return violations
+
+
+# --------------------------------------------------------------------------- #
 # R0 覆盖面防呆
 # --------------------------------------------------------------------------- #
 def check_layer_coverage(root: Path = ROOT) -> list[Violation]:
@@ -714,6 +788,7 @@ def run_all(root: Path = ROOT) -> dict[str, list[Violation]]:
         "R3 导入期循环": check_import_cycles(root, imports),
         "R4 数据库身份旁路": check_database_identity_bypass(root),
         "R5 RLS 上下文唯一注入点": check_rls_context_single_writer(root),
+        "R6 服务内分层": check_service_internal_layering(imports),
     }
 
 
@@ -741,7 +816,8 @@ def main() -> int:
         f"R2 跨服务 0 违规（平台能力 {len(PLATFORM_SERVICE_DEPENDENCIES)} 项）/ "
         f"R3 导入期循环 0 处 / R4 数据库身份旁路 0 处"
         f"（装配点 {len(DATABASE_ACCESS_ALLOWLIST)} 个）/ "
-        f"R5 RLS 上下文仅由 {RLS_CONTEXT_OWNER} 注入"
+        f"R5 RLS 上下文仅由 {RLS_CONTEXT_OWNER} 注入 / "
+        f"R6 domain/service 层 0 处框架依赖"
     )
     return 0
 

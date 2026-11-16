@@ -1,0 +1,64 @@
+# 枚举绑定台账（代码枚举 ↔ 契约枚举）
+#
+# 为什么需要它：
+# - 枚举是**双写**的：契约里有一份（`contracts/enums/enum_registry.yaml`，
+#   部分对象只在 `contracts/state_machines/state_machines.yaml` 里），代码里
+#   有一份（`services/*/domain/enums.py`）。
+# - 双写已经实际漂移过：`AssetStatus` 只有 5 个值，契约登记 10 个
+#   （缺 ARCHIVED / QUARANTINED / REJECTED / REWORK / SUPERSEDED），而当时
+#   全仓闸门全绿——因为**没有任何闸门比对枚举**。
+# - 漂移的后果不是"少一个常量"，而是：读到契约允许、代码不认识的状态直接
+#   ValueError（表现为 500），以及"运行时不可达"靠"枚举里没有"来隐式表达，
+#   没人能分辨"契约要求但没实现"与"实现漏了"。
+#
+# 本台账把绑定关系写成数据，由 `scripts/contract_check.py::check_enum_parity`
+# 双向校验：
+#   1. 每个绑定的代码枚举值集合必须与契约状态集合**完全相等**（缺值与多值都报红）；
+#   2. `services/*/domain/enums.py` 里的每个枚举类必须出现在 bindings 或
+#      exemptions 之一——新增枚举不登记即报红（否则"忘登记"等于"免检"）；
+#   3. exemptions 必须写 reason，且台账里登记的实现类必须真实存在
+#      （陈旧条目报红，防止豁免表变成历史垃圾场）。
+#
+# 写入口径：
+# - `source: enum_registry` 表示取 `enum_registry.yaml` 的 `states`；
+#   `source: state_machines` 表示该对象只在状态机契约里登记，取 `states` 文本
+#   中的全大写状态词。
+# - 代码枚举值集合与契约**不相等**时，只能改契约（走修订流程）或改代码，
+#   不允许在台账里"放宽"——台账没有放宽能力，这是刻意的。
+version: 1
+
+bindings:
+  AssetVersion:
+    module: services.asset_service.domain.enums
+    enum: AssetStatus
+    source: enum_registry
+  Project:
+    module: services.project_planning.domain.enums
+    enum: ProjectStatus
+    source: state_machines
+  ScriptRevision:
+    module: services.project_planning.domain.enums
+    enum: ScriptStatus
+    source: state_machines
+  Episode:
+    module: services.project_planning.domain.enums
+    enum: EpisodeStatus
+    source: state_machines
+
+exemptions:
+  - module: services.asset_service.domain.enums
+    enum: DeviationClass
+    reason: >-
+      契约 QCReport.deviation_class 给了取值（INTENTIONAL / UNINTENTIONAL /
+      UNCERTAIN），但 enum_registry.yaml 未登记该对象，无可比对的状态集合。
+      等契约补登记为枚举对象后必须转入 bindings。
+  - module: services.asset_service.domain.enums
+    enum: IntentMatchStatus
+    reason: >-
+      同上：QCReport.intent_match_status 的取值在正文定义、未进 enum_registry，
+      无可机读比对源。
+  - module: services.project_planning.domain.enums
+    enum: ProjectTier
+    reason: >-
+      S/A/B 是 17.4「项目等级 × 镜头等级」的分档取值，不是对象生命周期状态，
+      不是状态机状态，也不在 enum_registry 的 states 里。

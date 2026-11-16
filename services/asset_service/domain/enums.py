@@ -21,13 +21,34 @@ from enum import Enum
 
 
 class AssetStatus(str, Enum):
-    """AssetVersion 生命周期（仅登记有明确来源边的状态）。"""
+    """AssetVersion 生命周期（与 `contracts/enums/enum_registry.yaml` 逐值对齐）。
+
+    **状态可表示 ≠ 状态可进入**。这里登记契约声明的全部 10 个状态，但运行时可
+    转移的只有 `ASSET_ALLOWED_TRANSITIONS` 里的 4 条边——旁支状态（REJECTED /
+    QUARANTINED / REWORK / SUPERSEDED / ARCHIVED）在正文只有「可进入」，没有
+    来源边，按 31.5「未登记转移一律拒绝」，服务层无法把资产推进到这些状态。
+
+    为什么仍要全部登记（此前只登记了 5 个）：
+    - 枚举是**数据可表示的集合**，不是"当前流程能到达的集合"。缺值会让
+      `AssetStatus(model.status)` 在读到旁支状态时抛 ValueError，而旁支状态
+      是契约允许存在的数据（例如合规流程隔离出来的资产），读一次就 500；
+    - 缺值让「契约 ↔ 代码」的比对只能靠人工记忆（实际已漂移），补全后才能
+      由 `contract_check` 的枚举一致性闸门机械校验；
+    - 不可达性由 `contracts/runtime/state_machine_gaps.yaml` 显式登记并由闸门
+      双向校验（登记了却已可达 → 报陈旧债务），不靠"枚举里没有"来暗示。
+    """
 
     GENERATED = "GENERATED"
     TECHNICAL_QC = "TECHNICAL_QC"
     HUMAN_REVIEW = "HUMAN_REVIEW"
     APPROVED = "APPROVED"
     GOLD = "GOLD"
+    # 以下五个为契约登记、运行时不可达的旁支状态（见模块 docstring）。
+    REJECTED = "REJECTED"
+    QUARANTINED = "QUARANTINED"
+    REWORK = "REWORK"
+    SUPERSEDED = "SUPERSEDED"
+    ARCHIVED = "ARCHIVED"
 
 
 class DeviationClass(str, Enum):

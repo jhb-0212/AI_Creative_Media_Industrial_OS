@@ -32,7 +32,7 @@ def _write(root: Path, relative: str, source: str) -> None:
 # 仓库现状
 # --------------------------------------------------------------------------- #
 def test_repository_has_no_layering_violation() -> None:
-    """当前仓库必须 0 违规（R0/R1/R2/R3/R4 全部）。"""
+    """当前仓库必须 0 违规（R0–R6 全部）。"""
     results = arch.run_all()
     flattened = {rule: [v.message for v in violations] for rule, violations in results.items()}
     assert flattened == {
@@ -42,6 +42,7 @@ def test_repository_has_no_layering_violation() -> None:
         "R3 导入期循环": [],
         "R4 数据库身份旁路": [],
         "R5 RLS 上下文唯一注入点": [],
+        "R6 服务内分层": [],
     }
 
 
@@ -353,3 +354,62 @@ def test_docstring_mentioning_context_is_clean(tmp_path: Path) -> None:
 def test_repository_rls_context_is_single_writer() -> None:
     """当前仓库的 RLS 上下文只有一个注入点（R5 现状 0 违规）。"""
     assert arch.check_rls_context_single_writer() == []
+
+
+# --------------------------------------------------------------------------- #
+# R6 服务内分层（domain / service 不得依赖框架与驱动）
+# --------------------------------------------------------------------------- #
+def _r6(tmp_path: Path) -> list[arch.Violation]:
+    """在临时树上跑 R6（临时树里只有本用例写入的文件）。"""
+    return arch.check_service_internal_layering(arch.collect_imports(tmp_path))
+
+
+def test_service_layer_driver_import_is_reported(tmp_path: Path) -> None:
+    """应用服务直接 import 驱动异常 → 报红。
+
+    这正是审查第 16 条的真实形态：一个 ``IntegrityError`` 同时表示
+    "重复提交"与"乐观锁冲突"，于是服务层的分支逻辑靠猜。
+    """
+    _write(
+        tmp_path,
+        "services/asset_service/service/asset_service.py",
+        "from sqlalchemy.exc import IntegrityError\n",
+    )
+    violations = _r6(tmp_path)
+    assert any("sqlalchemy" in v.message for v in violations), violations
+
+
+def test_domain_layer_framework_import_is_reported(tmp_path: Path) -> None:
+    """领域模型 import FastAPI → 报红（领域层不该知道 HTTP 存在）。"""
+    _write(
+        tmp_path,
+        "services/project_planning/domain/project.py",
+        "from fastapi import HTTPException\n",
+    )
+    violations = _r6(tmp_path)
+    assert any("fastapi" in v.message for v in violations), violations
+
+
+def test_api_layer_may_import_framework(tmp_path: Path) -> None:
+    """``api/`` 是协议适配层，可以 import FastAPI（否则这条规则就是错的）。"""
+    _write(
+        tmp_path,
+        "services/project_planning/api/routes.py",
+        "from fastapi import APIRouter\n",
+    )
+    assert _r6(tmp_path) == []
+
+
+def test_repository_layer_may_import_driver(tmp_path: Path) -> None:
+    """``repository/`` 是持久化实现层，可以 import SQLAlchemy（翻译就在这一层）。"""
+    _write(
+        tmp_path,
+        "services/project_planning/repository/repo.py",
+        "from sqlalchemy.exc import IntegrityError\n",
+    )
+    assert _r6(tmp_path) == []
+
+
+def test_repository_service_layering_is_clean() -> None:
+    """当前仓库的 domain/service 层没有框架依赖（R6 现状 0 违规）。"""
+    assert arch.check_service_internal_layering(arch.collect_imports()) == []

@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.persistence import translate_integrity_errors
 from services.asset_service.domain.enums import DeviationClass, IntentMatchStatus
 from services.asset_service.domain.qc_report import QCReport
 from services.asset_service.repository.orm import QCReportModel
@@ -82,8 +83,11 @@ class SqlAlchemyQCReportRepository(QCReportRepository):
         self._session = session
 
     async def add(self, report: QCReport) -> None:
-        async with self._session.begin_nested():
-            self._session.add(_to_orm(report))
+        # 主键冲突（并发重复证据）与外键悬空（报告挂在不存在的资产上）都会被
+        # 数据库拒绝；这里翻译成领域异常，服务层只处理语义，不处理驱动细节。
+        with translate_integrity_errors(entity=f"qc_report_id={report.qc_report_id}"):
+            async with self._session.begin_nested():
+                self._session.add(_to_orm(report))
 
     async def get_by_id(self, qc_report_id: str) -> QCReport | None:
         stmt = select(QCReportModel).where(QCReportModel.qc_report_id == qc_report_id)

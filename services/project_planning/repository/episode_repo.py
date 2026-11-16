@@ -18,7 +18,7 @@ class EpisodeRepository(ABC):
 
     @abstractmethod
     async def add(self, episode: Episode) -> None:
-        """新增集数（INSERT 语义，主键/唯一约束冲突抛 IntegrityError）。"""
+        """新增集数（INSERT 语义，主键/唯一约束冲突抛 DuplicateEntityError）。"""
         raise NotImplementedError
 
     @abstractmethod

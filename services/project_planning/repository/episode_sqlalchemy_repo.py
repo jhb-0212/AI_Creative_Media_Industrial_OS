@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.persistence import translate_integrity_errors
 from services.project_planning.domain.enums import EpisodeStatus
 from services.project_planning.domain.episode import Episode
 from services.project_planning.repository._versioning import (
@@ -82,8 +83,10 @@ class SqlAlchemyEpisodeRepository(EpisodeRepository):
 
     async def add(self, episode: Episode) -> None:
         # INSERT 语义 + SAVEPOINT：并发重复插入由唯一约束捕获（幂等兜底）。
-        async with self._session.begin_nested():
-            self._session.add(_to_orm(episode))
+        # 驱动异常在这里翻译成 DuplicateEntityError（服务层不认 SQLAlchemy）。
+        with translate_integrity_errors(entity=f"episode_id={episode.entity_id}"):
+            async with self._session.begin_nested():
+                self._session.add(_to_orm(episode))
 
     async def save(self, episode: Episode, expected_version: int) -> None:
         # 乐观锁条件更新（语义同 ScriptRepository.save）；仅登记变更，不 commit。

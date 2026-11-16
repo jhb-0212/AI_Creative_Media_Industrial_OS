@@ -1382,6 +1382,187 @@ def check_event_catalog() -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# 枚举一致性（代码枚举 ↔ 契约枚举，防双写漂移）
+# --------------------------------------------------------------------------- #
+ENUM_BINDINGS_PATH = CONTRACTS / "runtime" / "enum_bindings.yaml"
+ENUM_REGISTRY_PATH = CONTRACTS / "enums" / "enum_registry.yaml"
+
+#: 代码枚举所在的约定路径。新增域时按此布局放置，即自动纳入「未登记即报红」。
+_ENUM_MODULE_GLOB = "services/*/domain/enums.py"
+
+
+def _enum_classes_in_file(path: Path) -> list[str]:
+    """返回该文件中定义的枚举类名（AST 级，不导入模块）。
+
+    用 AST 而不是 ``import``：这里要回答的是「代码里有哪些枚举类」，
+    导入会触发业务模块副作用，也会让"写坏的枚举"以 ImportError 形式
+    混进契约校验，掩盖真正的问题。
+    """
+    import ast
+
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    names: list[str] = []
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        base_names = {
+            base.attr if isinstance(base, ast.Attribute) else getattr(base, "id", "")
+            for base in node.bases
+        }
+        # 只认 ``(str, Enum)`` / ``(Enum,)`` 两种本项目在用的形态。
+        if "Enum" in base_names:
+            names.append(node.name)
+    return names
+
+
+def _code_enum_values(module_path: str, enum_name: str) -> set[str]:
+    """反射取代码枚举的取值集合（``str`` 混入枚举的 value）。"""
+    import importlib
+
+    module = importlib.import_module(module_path)
+    enum_cls = getattr(module, enum_name, None)
+    if enum_cls is None:
+        raise ValueError(f"{module_path} 中不存在枚举 {enum_name}")
+    return {str(member.value) for member in enum_cls}
+
+
+def _contract_enum_states(object_name: str, source: str) -> set[str]:
+    """取契约里该对象的状态集合（按台账声明的来源）。
+
+    - ``enum_registry``：直接读 ``states`` 列表；
+    - ``state_machines``：该对象只在状态机契约登记，``states`` 是文本状态链，
+      按全大写词提取（与 ``check_state_reachability`` 同一套提取规则，
+      避免两处口径不一致）。
+    """
+    if source == "enum_registry":
+        registry = load_yaml_mapping(ENUM_REGISTRY_PATH)
+        entry = next(
+            (
+                o
+                for o in (registry.get("objects") or [])
+                if o.get("object") == object_name
+            ),
+            None,
+        )
+        if entry is None:
+            raise ValueError(f"enum_registry.yaml 中未找到对象 {object_name}")
+        states = entry.get("states")
+        if not isinstance(states, list):
+            raise ValueError(f"enum_registry.yaml 的 {object_name}.states 必须是列表")
+        return {str(s) for s in states}
+
+    if source == "state_machines":
+        machines = load_yaml_mapping(CONTRACTS / "state_machines" / "state_machines.yaml")
+        entry = next(
+            (
+                o
+                for o in (machines.get("objects") or [])
+                if o.get("object") == object_name
+            ),
+            None,
+        )
+        if entry is None:
+            raise ValueError(f"state_machines.yaml 中未找到对象 {object_name}")
+        return _contract_state_names(str(entry.get("states", "")))
+
+    raise ValueError(f"未知的枚举来源: {source!r}（只支持 enum_registry / state_machines）")
+
+
+def check_enum_parity() -> bool:
+    """校验代码枚举与契约枚举逐值相等，且没有未登记的枚举类。
+
+    为什么这条必须是闸门：
+    - 枚举是双写（契约 / 代码），漂移不会让任何现有闸门变红——`AssetStatus`
+      曾只有 5 个值而契约登记 10 个，当时全绿。
+    - 漂移的实际后果不是"少一个常量"：读到契约允许、代码不认识的状态会抛
+      ``ValueError``（对外表现为 500），且"运行时不可达"退化成"枚举里没有"
+      的隐式表达，无人能区分「契约要求但未实现」与「实现漏了」。
+
+    双向完备性：``services/*/domain/enums.py`` 里的每个枚举类必须在 bindings
+    或 exemptions 之一——否则新增枚举等于默认免检（豁免表不能靠自觉维护）。
+    """
+    if not ENUM_BINDINGS_PATH.exists():
+        print(f"[FAIL] 缺少枚举绑定台账: {ENUM_BINDINGS_PATH.name}")
+        return False
+
+    data = load_yaml_mapping(ENUM_BINDINGS_PATH)
+    bindings: dict[str, dict[str, Any]] = data.get("bindings") or {}
+    exemptions_raw = data.get("exemptions") or []
+
+    ok = True
+    declared: set[tuple[str, str]] = set()
+
+    # 1. 逐个绑定做双向比对。
+    for object_name, entry in bindings.items():
+        module_path = str(entry.get("module", ""))
+        enum_name = str(entry.get("enum", ""))
+        source = str(entry.get("source", ""))
+        declared.add((module_path, enum_name))
+
+        try:
+            code_values = _code_enum_values(module_path, enum_name)
+            contract_values = _contract_enum_states(object_name, source)
+        except (ValueError, ImportError) as exc:
+            print(f"[FAIL] 枚举 {enum_name} 无法比对: {exc}")
+            ok = False
+            continue
+
+        missing = sorted(contract_values - code_values)
+        extra = sorted(code_values - contract_values)
+        if missing or extra:
+            if missing:
+                print(
+                    f"[FAIL] {enum_name} 缺契约登记的状态: {missing}"
+                    "（代码读不出来的状态，读到即 500）"
+                )
+            if extra:
+                print(
+                    f"[FAIL] {enum_name} 多出契约未登记的状态: {extra}"
+                    "（写入契约外状态会被审计判为非法数据）"
+                )
+            ok = False
+            continue
+
+    # 2. 豁免项必须写 reason，且实现的枚举类必须真实存在。
+    for item in exemptions_raw:
+        module_path = str(item.get("module", ""))
+        enum_name = str(item.get("enum", ""))
+        reason = str(item.get("reason", "")).strip()
+        declared.add((module_path, enum_name))
+        if not reason:
+            print(f"[FAIL] 枚举豁免 {enum_name} 缺少 reason（豁免必须说明为什么）")
+            ok = False
+            continue
+        try:
+            _code_enum_values(module_path, enum_name)
+        except (ValueError, ImportError):
+            print(
+                f"[FAIL] 枚举豁免是陈旧条目: {module_path}.{enum_name} 已不存在，"
+                "请从 enum_bindings.yaml 删除"
+            )
+            ok = False
+
+    # 3. 反向完备性：代码里出现的枚举类不能落在台账之外。
+    for path in sorted(CONTRACTS.parent.glob(_ENUM_MODULE_GLOB)):
+        module_path = path.relative_to(CONTRACTS.parent).with_suffix("")
+        dotted = ".".join(module_path.parts)
+        for enum_name in _enum_classes_in_file(path):
+            if (dotted, enum_name) not in declared:
+                print(
+                    f"[FAIL] 枚举 {dotted}.{enum_name} 未在 enum_bindings.yaml 登记"
+                    "（绑定或豁免必须显式，否则等于默认免检）"
+                )
+                ok = False
+
+    if ok:
+        print(
+            f"[PASS] 枚举一致性：{len(bindings)} 个绑定逐值相等 / "
+            f"显式豁免 {len(exemptions_raw)} 项"
+        )
+    return ok
+
+
+# --------------------------------------------------------------------------- #
 # 入口
 # --------------------------------------------------------------------------- #
 def main() -> int:
@@ -1408,6 +1589,7 @@ def main() -> int:
         ok &= check_permission_matrix()
         ok &= check_schema_objects()
         ok &= check_event_catalog()
+        ok &= check_enum_parity()
     except ValueError as exc:
         # 契约文件缺失/为空/非映射时，load_yaml_mapping 统一抛 ValueError；
         # 这是脚本级致命错误（契约损坏无法继续校验），在此统一兜底报红。

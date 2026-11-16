@@ -52,6 +52,25 @@ class AssetVersionModel(EntityMixin, Base):
     project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
 
 
+class AssetStatusTransitionModel(Base):
+    """`asset_status_transitions` 表模型（允许的状态转移边，只读参考数据）。
+
+    这张表是**状态机在数据库层的表达**（ADR-R20）：`asset_versions_guard()`
+    触发器按它判定 `status` 的变化是否合法。因此它不属于领域聚合，也不该由
+    业务代码写入——应用角色只有 SELECT，写入只发生在迁移里。
+
+    为什么要声明成 ORM 模型而不是把它从 autogenerate 里过滤掉：
+    `alembic check` 的职责是"库与模型无漂移"。过滤掉等于放弃对这张表结构的
+    校验；声明成模型则它在比对范围内，schema 被手工改坏能被发现。
+    """
+
+    __tablename__ = "asset_status_transitions"
+    __table_args__ = {"schema": SCHEMA_NAME}
+
+    from_status: Mapped[str] = mapped_column(String(32), primary_key=True)
+    to_status: Mapped[str] = mapped_column(String(32), primary_key=True)
+
+
 class QCReportModel(Base):
     """qc_reports 表模型（不可变检测证据）。
 

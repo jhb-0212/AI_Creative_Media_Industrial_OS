@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.persistence import translate_integrity_errors
 from services.project_planning.domain.enums import ProjectStatus, ProjectTier
 from services.project_planning.domain.project import Project
 from services.project_planning.repository._versioning import (
@@ -84,10 +85,12 @@ class SqlAlchemyProjectRepository(ProjectRepository):
 
     async def add(self, project: Project) -> None:
         # INSERT 语义 + SAVEPOINT：并发重复插入相同主键时由数据库唯一约束
-        # 抛出 IntegrityError；用嵌套事务（savepoint）隔离，失败仅回滚本次
-        # INSERT，使 session 不进入 aborted 态，服务层可安全降级为幂等查询。
-        async with self._session.begin_nested():
-            self._session.add(_to_orm(project))
+        # 拒绝；用嵌套事务（savepoint）隔离，失败仅回滚本次 INSERT，使 session
+        # 不进入 aborted 态，服务层可安全降级为幂等查询。
+        # 驱动异常在这里翻译成 DuplicateEntityError（服务层不认 SQLAlchemy）。
+        with translate_integrity_errors(entity=f"project_id={project.entity_id}"):
+            async with self._session.begin_nested():
+                self._session.add(_to_orm(project))
 
     async def save(self, project: Project, expected_version: int) -> None:
         # 乐观锁条件更新（语义同 ScriptRepository.save）；仅登记变更，不 commit。

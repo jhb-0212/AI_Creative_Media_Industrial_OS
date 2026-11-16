@@ -163,6 +163,10 @@ apps ──▶ services ──▶ (领域模型/仓储)
   结构上装不下私钥）。`IDENTITY_PROCESS_ROLE=api` 配置私钥**拒绝启动**（配置层校验 +
   `packages/identity/guards.py` 入口守卫两道）。见
   `docs/adr/ADR-R19-signing-key-boundary.md`。
+- **服务内同样受闸门约束**：`services/<domain>/domain`（领域模型/状态机）与
+  `services/<domain>/service`（应用服务）不得 import `fastapi` / `starlette` /
+  `sqlalchemy` / `asyncpg`；驱动异常在 `repository/` 层翻译成领域异常后再交给服务层。
+  见 `docs/adr/ADR-R21-repository-error-semantics.md`。
 - **workers 消费事件**：通过 Outbox 模式保证事务一致性，消费者 Inbox 去重、幂等。
 - **adapters 不写权威状态**：只处理外部系统差异，回传结果进入平台资产暂存与验证。
 - **contracts 是单一事实源**：代码从契约派生，CI 校验契约与实现一致（不重复维护两份）。

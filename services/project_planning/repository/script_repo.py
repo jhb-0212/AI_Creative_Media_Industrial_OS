@@ -12,7 +12,7 @@ class ScriptRepository(ABC):
 
     @abstractmethod
     async def add(self, script: ScriptRevision) -> None:
-        """新增剧本版本（INSERT 语义，主键冲突抛 IntegrityError）。"""
+        """新增剧本版本（INSERT 语义，主键/唯一约束冲突抛 DuplicateEntityError）。"""
         raise NotImplementedError
 
     @abstractmethod

@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.persistence import translate_integrity_errors
 from services.project_planning.domain.enums import ScriptStatus
 from services.project_planning.domain.script import ScriptRevision
 from services.project_planning.repository._versioning import (
@@ -79,8 +80,12 @@ class SqlAlchemyScriptRepository(ScriptRepository):
     async def add(self, script: ScriptRevision) -> None:
         # INSERT 语义 + SAVEPOINT：并发重复插入由唯一约束捕获（幂等兜底），
         # 失败仅回滚本次 INSERT，session 不进入 aborted 态。
-        async with self._session.begin_nested():
-            self._session.add(_to_orm(script))
+        # 驱动异常在这里翻译成 DuplicateEntityError（服务层不认 SQLAlchemy）。
+        with translate_integrity_errors(
+            entity=f"script_revision_id={script.entity_id}"
+        ):
+            async with self._session.begin_nested():
+                self._session.add(_to_orm(script))
 
     async def save(self, script: ScriptRevision, expected_version: int) -> None:
         # 乐观锁条件更新：WHERE entity_version = expected_version 原子匹配，

@@ -389,7 +389,15 @@ async def test_read_version_missing_is_not_found(
 
 
 class _ConcurrentAssetRepository(FakeAssetRepository):
-    """模拟并发主键冲突的仓储：add 首次抛 IntegrityError，回查返回既有对象。
+    """模拟并发主键冲突的仓储：读时不存在、写时已存在。
+
+    两个刻意的细节：
+
+    - **第一次 get_by_id 返回 None**。若不这样，服务层的"快速路径"（先查后写）
+      会直接命中既有记录返回，`add` 永远不执行——用例名叫"并发"，实际只覆盖了
+      快速路径（改造前正是如此，属于假绿）。
+    - **add 抛 `DuplicateEntityError`** 而不是驱动异常：仓储层翻译后的契约就是
+      领域异常，服务层不该认 SQLAlchemy（审查第 16 条）。
 
     用于验证「并发回查路径」与「快速路径」共用同一幂等判定——复核 R5。
     """
@@ -397,17 +405,18 @@ class _ConcurrentAssetRepository(FakeAssetRepository):
     def __init__(self, pre_existing: AssetVersion) -> None:
         super().__init__()
         self.rows[pre_existing.entity_id] = replace(pre_existing)
-        self._add_failed_once = False
+        self._lookup_done = False
+
+    async def get_by_id(self, entity_id: str) -> AssetVersion | None:
+        if not self._lookup_done:
+            self._lookup_done = True
+            return None
+        return await super().get_by_id(entity_id)
 
     async def add(self, asset: AssetVersion) -> None:
-        if not self._add_failed_once:
-            self._add_failed_once = True
-            from sqlalchemy.exc import IntegrityError
+        from packages.errors.repository_errors import DuplicateEntityError
 
-            raise IntegrityError(
-                "INSERT", {}, Exception("duplicate key value violates unique constraint")
-            )
-        await super().add(asset)
+        raise DuplicateEntityError(f"asset_version_id={asset.entity_id}")
 
 
 def _concurrent_service(pre_existing: AssetVersion) -> tuple[

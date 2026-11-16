@@ -17,9 +17,8 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy.exc import IntegrityError
-
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.errors.repository_errors import DuplicateEntityError
 from packages.identity.principal import Principal
 from packages.shared.outbox_writer import OutboxWriter
 from services.project_planning.domain.episode import Episode
@@ -106,7 +105,7 @@ class EpisodeService:
         # INSERT 语义新增；并发下唯一约束兜底（显式 id 与项目内唯一两条路径）。
         try:
             await self._repository.add(episode)
-        except IntegrityError as exc:
+        except DuplicateEntityError as exc:
             # 显式 entity_id：冲突只可能是同一 id 并发创建，回读即幂等返回；
             # 无显式 id：冲突来自 (project_id, episode_ref) 唯一约束。
             existing = (

@@ -92,8 +92,8 @@ docs/          # 架构/ADR/runbook/SOP
 | `mypy` | 类型契约 | `mypy packages services apps workers` | 不覆盖 `scripts/`、`tests/`（脚本与测试的类型错误不在闸门内） |
 | `pytest tests` | 行为正确性、负向路径、分层规则 | `pytest tests` | `tests/e2e`、`tests/resilience` 尚不存在（见「未覆盖范围」） |
 | `freeze_manifest` | **契约冻结**：基线正文未变 + 十一类产物哈希一致 + 演进有据（名称全集 == 基线 ∪ 已批准修订） | `python scripts/freeze_manifest.py --check` | 不证明契约内容业务正确，只证明「符合 V2.0.5 且变更可追溯」 |
-| `contract_check` | 派生一致性：Action ↔ OpenAPI ↔ Schema ↔ 状态机 ↔ 事件 ↔ 债务台账 | `python scripts/contract_check.py` | 只证明派生文件互相自洽，**不能**证明符合基线（由 `freeze_manifest` 负责） |
-| `architecture_check` | 层间依赖方向、服务间直连、导入期循环、**数据库身份旁路**（业务模块不得自建/自选连接池）、**RLS 上下文唯一注入点**（业务代码不得自行写可见范围） | `python scripts/architecture_check.py` | 只覆盖顶层分层；服务内 `api/domain/repository` 分层未覆盖 |
+| `contract_check` | 派生一致性：Action ↔ OpenAPI ↔ Schema ↔ 状态机 ↔ 事件 ↔ 枚举 ↔ 债务台账 | `python scripts/contract_check.py` | 只证明派生文件互相自洽，**不能**证明符合基线（由 `freeze_manifest` 负责） |
+| `architecture_check` | 层间依赖方向、服务间直连、导入期循环、**数据库身份旁路**（业务模块不得自建/自选连接池）、**RLS 上下文唯一注入点**（业务代码不得自行写可见范围）、**服务内分层**（`domain/` 与 `service/` 不得 import 框架/驱动） | `python scripts/architecture_check.py` | 不覆盖 `apps/`、`workers/` 内部分层；服务内 `api/repository` 两层刻意不在规则内 |
 | `alembic check` | 迁移与模型无漂移 | `alembic check` | 授权正确性由集成测试与 `test_grant_baseline` 证明，不由本命令证明 |
 | `test_identity_private_key_boundary` | **签发私钥不进 API 进程**：配置层（`role=api` + 私钥即失败）、入口层（守卫独立成立且**真的被调用**，源码级断言）、结构层（公钥由私钥派生）、分发层（JWKS 文档可独立验签） | `pytest tests/unit/test_identity_private_key_boundary.py` | 只证明"私钥进不来"，不证明"签发进程存在"——仓库内尚无 issuer 部署与签发端点 |
 
@@ -107,8 +107,8 @@ docs/          # 架构/ADR/runbook/SOP
 | 要求 | 当前状态 |
 |---|---|
 | 跨模块数据所有权 / 禁止跨模块直接写表 | **已闭合（B1）**：数据库角色按域拆分，越权写入在 PostgreSQL 层被拒；R4 闸门禁止业务模块自选连接身份。证据见 `tests/integration/test_database_role_isolation.py` |
-| 单一事实源（契约 ↔ 代码） | **未闭合**：`enum_registry.yaml` 与代码枚举双写、无机械比对，且**已经实际漂移**——`AssetVersion` 契约登记 7 态，代码 `AssetStatus` 只有 5 态（缺 `ARCHIVED` / `QUARANTINED` / `REJECTED`）。`action_key` 层级有 `contract_check` 保证，但 `scope` / `risk_level` 字段仍双写（列入包 C） |
-| 数据库不变量（资产状态、事件内容不可改） | 部分实现：资产内容字段受触发器保护、Outbox 正文列级授权不可改；**资产 `status` 仍可直接 UPDATE**（包 C） |
+| 单一事实源（契约 ↔ 代码） | **枚举已闭合（C4）**：`contract_check` 的 `check_enum_parity` 双向比对代码枚举与契约状态（缺值/多值都报红），且 `services/*/domain/enums.py` 里每个枚举类必须在 `contracts/runtime/enum_bindings.yaml` 登记或豁免（未登记 = 报红）。`action_key` 层级有既有闸门。**仍双写**：`scope` / `risk_level` 字段在 YAML 与代码各一份，无机械比对 |
+| 数据库不变量（资产状态、事件内容不可改） | **已闭合（C1/C2）**：资产 `status` 的每次变化必须在 `asset_service.asset_status_transitions`（迁移播种、应用角色只读）里登记，未登记边由触发器拒绝（含超级用户直连）；`status` 取值由 CHECK 限定为契约枚举；事件表只有投递域拿到 4 个投递状态列的列级 `UPDATE`，事实列不可改且有系统目录断言。见 `docs/adr/ADR-R20-data-invariants-in-database.md` |
 | 权限最小化（Capability Token、资源范围） | 部分闭合：**统一授权决策已落地（B2）**——`Principal + Action + Resource + Context → ALLOW/DENY`，动作的 `scope` / `risk_level` 第一次真正参与运行时判定；拒绝带理由码可审计，81 条动作与 10 条 CRITICAL 有穷举性质测试。加上 B3 的组织/项目范围（数据库限制性策略兜底）。见 `docs/adr/ADR-R18-unified-authorization-decision.md`。**仍缺**：Capability Token（短时、按资源签发的运行时凭证） |
 | 审批与执行分离 | 部分闭合（B2）：资产审批与剧本锁定共用同一份职责分离判定（`SELF_APPROVAL_FORBIDDEN`），重复实现已删除；**CRITICAL 动作尚未接入路由**，`AGENT_CRITICAL_FORBIDDEN` 与联合审批（`JOINT_APPROVAL_UNSUPPORTED`）只有策略层证明 |
 | 密钥不进入交付包 | 未实现自动扫描 |

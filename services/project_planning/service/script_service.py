@@ -24,9 +24,8 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy.exc import IntegrityError
-
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.errors.repository_errors import DuplicateEntityError
 from packages.identity.authorization import ResourceRef
 from packages.identity.enforcement import authorize
 from packages.identity.principal import Principal
@@ -131,7 +130,7 @@ class ScriptService:
         # INSERT 语义新增；并发下唯一约束兜底 check-then-act 竞态。
         try:
             await self._repository.add(script)
-        except IntegrityError as exc:
+        except DuplicateEntityError as exc:
             if entity_id is None:
                 # 无显式 id 的冲突来自 ux_script_active_version（并发导入同集）：
                 # 这不是内部错误，而是可重试的并发冲突，让客户端基于最新版本重试。

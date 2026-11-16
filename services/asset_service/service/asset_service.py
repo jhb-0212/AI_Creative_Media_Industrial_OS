@@ -23,9 +23,8 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy.exc import IntegrityError
-
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.errors.repository_errors import DuplicateEntityError
 from packages.identity.authorization import ResourceRef
 from packages.identity.enforcement import authorize
 from packages.identity.principal import Principal
@@ -154,7 +153,7 @@ class AssetService:
 
         try:
             await self._assets.add(asset)
-        except IntegrityError as exc:
+        except DuplicateEntityError as exc:
             # 并发重复提交：主键冲突后回查。判定与快速路径共用同一纯函数，
             # 内容一致（sha256 且 asset_type）才幂等返回；不一致同样是「同 id
             # 不同内容」的覆盖请求，走 IDEMPOTENCY_CONFLICT 而非并发错误。
@@ -261,7 +260,7 @@ class AssetService:
 
         try:
             await self._qc_reports.add(report)
-        except IntegrityError as exc:
+        except DuplicateEntityError as exc:
             existing = await self._qc_reports.get_by_id(report_id)
             if existing is not None:
                 _assert_report_owner(existing, asset.entity_id)

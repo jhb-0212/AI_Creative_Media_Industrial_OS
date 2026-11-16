@@ -179,6 +179,99 @@ async def test_no_business_role_can_delete_audit_events(
         assert _denied(exc_info)
 
 
+#: 事件正文的"事实列"：这些列一旦可改，"事件流"就不再是审计依据。
+_EVENT_FACT_COLUMNS = (
+    "payload",
+    "event_type",
+    "aggregate_type",
+    "aggregate_id",
+    "tenant_id",
+    "event_id",
+    "occurred_at",
+)
+
+
+async def test_only_relay_role_has_any_update_on_events(
+    pools_query: async_sessionmaker[AsyncSession],
+) -> None:
+    """除投递域外，任何业务角色对事件表都没有 UPDATE 授权（表级与列级都算）。
+
+    为什么查系统目录而不是跑一次 UPDATE：授权是**数据库状态**。逐个角色试写
+    只能证明"我试的那一列写不进去"，证明不了"下次加的列也写不进去"；
+    而列级授权的全集查询能直接回答"谁可以改这张表的哪些列"。
+    """
+    async with pools_query() as session:
+        rows = (
+            await session.execute(
+                text(
+                    """
+                    SELECT cp.grantee, cp.privilege_type, cp.column_name
+                    FROM information_schema.column_privileges cp
+                    WHERE cp.table_schema = 'outbox'
+                      AND cp.table_name = 'outbox_events'
+                      AND cp.privilege_type = 'UPDATE'
+                      AND cp.grantee = ANY(:roles)
+                    """
+                ),
+                {"roles": list(all_business_roles())},
+            )
+        ).all()
+        table_level = (
+            await session.execute(
+                text(
+                    """
+                    SELECT cp.grantee
+                    FROM information_schema.table_privileges cp
+                    WHERE cp.table_schema = 'outbox'
+                      AND cp.table_name = 'outbox_events'
+                      AND cp.privilege_type = 'UPDATE'
+                      AND cp.grantee = ANY(:roles)
+                    """
+                ),
+                {"roles": list(all_business_roles())},
+            )
+        ).scalars().all()
+
+    relay = role_for(DatabaseDomain.OUTBOX_RELAY)
+    assert table_level == [], f"不应有任何角色拿到表级 UPDATE：{table_level}"
+    offenders = {row[0] for row in rows} - {relay}
+    assert not offenders, f"这些角色不该有事件表 UPDATE 权限：{sorted(offenders)}"
+    assert {row[0] for row in rows} == {relay}, "投递域应保有列级 UPDATE（否则无法回写投递状态）"
+
+
+async def test_relay_role_cannot_update_event_fact_columns(
+    pools_query: async_sessionmaker[AsyncSession],
+) -> None:
+    """投递域能改的只有投递状态列，事实列一列都不行。
+
+    审查第 14 条的原话是"只收回了 DELETE，原始事件内容仍可 UPDATE"。B1 的
+    角色拆分之后这句话在事实层面已不成立，但**没有断言**守着它——补上，
+    否则下一轮加列（例如 payload_hash）又会悄悄变成可改。
+    """
+    async with pools_query() as session:
+        granted = set(
+            (
+                await session.execute(
+                    text(
+                        """
+                        SELECT cp.column_name
+                        FROM information_schema.column_privileges cp
+                        WHERE cp.table_schema = 'outbox'
+                          AND cp.table_name = 'outbox_events'
+                          AND cp.privilege_type = 'UPDATE'
+                          AND cp.grantee = :role
+                        """
+                    ),
+                    {"role": role_for(DatabaseDomain.OUTBOX_RELAY)},
+                )
+            ).scalars().all()
+        )
+
+    assert granted, "投递域必须能回写投递状态列"
+    leaked = granted & set(_EVENT_FACT_COLUMNS)
+    assert not leaked, f"事实列不该在投递域的 UPDATE 授权里：{sorted(leaked)}"
+
+
 async def test_legacy_app_role_is_gone(pools_query: async_sessionmaker[AsyncSession]) -> None:
     """旧的跨 schema 角色 app_role 已被删除：不存在"回退到万能角色"的路径。"""
     async with pools_query() as session:

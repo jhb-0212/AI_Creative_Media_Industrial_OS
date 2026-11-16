@@ -14,9 +14,8 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy.exc import IntegrityError
-
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.errors.repository_errors import DuplicateEntityError
 from packages.identity.principal import Principal
 from packages.identity.scope import assert_tenant_wide_scope
 from packages.shared.outbox_writer import OutboxWriter
@@ -89,7 +88,7 @@ class ProjectService:
         # 冲突时降级为幂等返回既有记录，而非报错或重复插入。
         try:
             await self._repository.add(project)
-        except IntegrityError as exc:
+        except DuplicateEntityError as exc:
             if entity_id is None:
                 # 无显式 id 时 UUID 冲突概率可忽略，仍转结构化内部错误。
                 raise DomainError(
