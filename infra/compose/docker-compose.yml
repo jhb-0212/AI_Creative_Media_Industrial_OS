@@ -84,6 +84,12 @@ services:
       # 错误码目录默认关闭。本地联调要开就显式置 true，或配 TOKEN 走请求头。
       ERRORS_CATALOG_PUBLIC: ${ERRORS_CATALOG_PUBLIC:-false}
       ERRORS_CATALOG_TOKEN: ${ERRORS_CATALOG_TOKEN:-}
+      # 身份密钥边界（B4）：api 只验签。这里**只挂公钥**，私钥只挂给 issuer 类进程。
+      # 若有人把 IDENTITY_PRIVATE_KEY_PEM 塞进 api，进程会拒绝启动——
+      # 这条约束不是文档约定，而是启动校验。
+      IDENTITY_PROCESS_ROLE: api
+      IDENTITY_PUBLIC_KEY_PEM: ${IDENTITY_PUBLIC_KEY_PEM:-}
+      IDENTITY_JWKS_FILE: ${IDENTITY_JWKS_FILE:-}
     depends_on:
       migrate:
         condition: service_completed_successfully

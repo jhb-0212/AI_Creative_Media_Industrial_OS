@@ -16,7 +16,7 @@ import uuid
 import jwt
 import pytest
 
-from packages.identity.jwks import KeyStore
+from packages.identity.jwks import PublicKeyStore
 from packages.identity.jwt_core import (
     TokenError,
     decode_token,
@@ -149,7 +149,8 @@ def test_invalid_tenant_rejected(key: SigningKey) -> None:
 def test_jwks_exports_only_public_key() -> None:
     """JWKS 只含公钥，绝不含私钥内容（密钥红线）。"""
     key = generate_signing_key()
-    store = KeyStore([key])
+    # 用 key.kid 作为 kid：这里验证的是"JWKS 只含公钥字段"，不是 kid 命名约定。
+    store = PublicKeyStore({key.kid: key.public_pem})
     jwks = store.jwks()
     assert "keys" in jwks
     keys = jwks["keys"]
@@ -177,16 +178,20 @@ def test_jwks_exports_only_public_key() -> None:
     assert not (private_fields & _collect_keys(jwks))
 
 
-def test_keystore_lookup_and_current(key: SigningKey) -> None:
-    """KeyStore 按 kid 命中、current 取最新密钥。"""
+def test_public_store_supports_multiple_kids_for_rotation(key: SigningKey) -> None:
+    """轮换期多 kid 共存：两个 kid 都能按 kid 命中，未知 kid 返回 None。
+
+    B4 删除了旧的 ``KeyStore``（进程内多签名密钥注册表）。轮换的合法需求只需
+    "验签方同时认得新旧公钥"，由 :class:`PublicKeyStore` 承担——它装不下私钥。
+    """
     k1 = generate_signing_key()
     k2 = generate_signing_key()
-    store = KeyStore([k1, k2])
-    assert store.current.kid == k2.kid
-    assert store.get(k1.kid) is k1
-    assert store.get(k2.kid) is k2
-    assert store.get("nonexistent") is None
+    store = PublicKeyStore({k1.kid: k1.public_pem, k2.kid: k2.public_pem})
+
     assert store.public_pem(k1.kid) == k1.public_pem
+    assert store.public_pem(k2.kid) == k2.public_pem
+    assert store.public_pem("nonexistent") is None
+    assert len(store.jwks()["keys"]) == 2  # type: ignore[arg-type]
 
 
 def test_principal_immutable_and_roles() -> None:

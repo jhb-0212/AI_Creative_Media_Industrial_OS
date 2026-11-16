@@ -27,6 +27,7 @@ from packages.shared.database import DomainPools
 from packages.shared.db_roles import DatabaseDomain
 from packages.shared.rls import set_request_context
 from services.identity_access import issue_token
+from tests import TEST_SIGNING_KEY
 
 # 测试固定租户（历史数据已回填到此默认租户；新测试数据也用此租户，
 # 保证 RLS 上下文一致，避免跨租户隔离误伤）。
@@ -63,6 +64,8 @@ def make_test_token(
         subject_type=subject_type,
         organization_id=organization_id,
         project_ids=project_ids if project_ids is not None else ["*"],
+        # 显式传入测试私钥：签发能力不来自进程配置（B4）。
+        signing_key=TEST_SIGNING_KEY,
     )
 
 

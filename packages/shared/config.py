@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -103,10 +104,16 @@ class Settings(BaseSettings):
     identity_issuer: str = "ai-film-identity"
     identity_audience: str = "ai-film-api"
     identity_access_token_ttl_seconds: int = 900
-    # 私钥 PEM（签发用，仅身份服务持有；API 层不接触）。生产环境必填。
+    # 进程角色（B4）：api 只验签、issuer 只签发。默认 api。
+    # 这个字段存在的意义是让"私钥出现在 API 进程"成为一个**可判定的错误**，
+    # 而不是一个"部署时大家记得别这么干"的约定。
+    identity_process_role: Literal["api", "issuer"] = "api"
+    # 私钥 PEM（签发用）：只允许 issuer 进程配置。API 进程配置即拒绝启动。
     identity_private_key_pem: SecretStr = SecretStr("")
-    # 公钥 PEM（验签用，可安全分发）。生产环境必填。
+    # 公钥 PEM（验签用，可安全分发）：API 进程二选一。
     identity_public_key_pem: SecretStr = SecretStr("")
+    # JWKS 文档路径（验签用）：公钥的另一种分发形态，支持多个 kid（密钥轮换）。
+    identity_jwks_file: str = ""
 
     # 可观测
     otel_exporter_otlp_endpoint: str = ""
@@ -121,12 +128,44 @@ class Settings(BaseSettings):
     # 但全仓不存在任何 S3/MQ/模型网关实现——强制配置等于逼迫运维填假值，
     # 而"填了假值就能过"的检查不构成保护。等对应适配器落地时再把它们
     # 连同实现一起加回（契约先登记、再实现）。
+    # B4 修正：``identity_private_key_pem`` 已从必填项中**移除**。它此前被列为
+    # 生产必填，等于强制每个 API 实例都持有签发私钥——这不是"配置疏漏"，而是
+    # 把最危险的部署形态写成了合规要求。现在私钥只在 issuer 进程出现，
+    # 由 ``identity_process_role`` 与本校验共同约束。
     _PRODUCTION_REQUIRED_SECRETS: tuple[tuple[str, str], ...] = (
         ("postgres_password", "POSTGRES_PASSWORD"),
         ("postgres_app_password", "POSTGRES_APP_PASSWORD"),
-        ("identity_private_key_pem", "IDENTITY_PRIVATE_KEY_PEM"),
-        ("identity_public_key_pem", "IDENTITY_PUBLIC_KEY_PEM"),
     )
+
+    @model_validator(mode="after")
+    def _enforce_identity_process_role(self) -> Settings:
+        """进程角色与密钥必须自洽：API 无签发私钥，issuer 必有私钥。
+
+        这条校验与 ``packages/identity/guards.py`` 的启动守卫是**两道**，
+        不是重复：本校验在任何进程构造 Settings 时生效（包括 worker、脚本），
+        守卫在 API 入口再做一次并给出"该怎么修"的信息。少任何一道，
+        都会留下"某个入口没走校验"的可能。
+        """
+        has_private = bool(self.identity_private_key_pem.get_secret_value().strip())
+
+        if self.identity_process_role == "api":
+            if has_private:
+                raise ValueError(
+                    "API 进程（IDENTITY_PROCESS_ROLE=api）不得配置签发私钥 "
+                    "IDENTITY_PRIVATE_KEY_PEM：请移除私钥挂载，改用 "
+                    "IDENTITY_PUBLIC_KEY_PEM 或 IDENTITY_JWKS_FILE。"
+                )
+        elif not has_private:  # issuer
+            raise ValueError(
+                "签发进程（IDENTITY_PROCESS_ROLE=issuer）必须配置 "
+                "IDENTITY_PRIVATE_KEY_PEM。"
+            )
+
+        # 「公钥必须存在」不在这里校验，而在 ``get_public_key_store()`` 里：
+        # Settings 也被迁移脚本、worker、CI 使用，它们不需要验签能力；
+        # 在这里要求公钥会让 alembic / 后台任务因为一个无关字段起不来，
+        # 逼着大家在每个场景填一个假值——那是"填了就能过"的假检查。
+        return self
 
     @model_validator(mode="after")
     def _reject_empty_secrets_in_production(self) -> Settings:

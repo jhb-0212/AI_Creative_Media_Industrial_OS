@@ -95,6 +95,7 @@ docs/          # 架构/ADR/runbook/SOP
 | `contract_check` | 派生一致性：Action ↔ OpenAPI ↔ Schema ↔ 状态机 ↔ 事件 ↔ 债务台账 | `python scripts/contract_check.py` | 只证明派生文件互相自洽，**不能**证明符合基线（由 `freeze_manifest` 负责） |
 | `architecture_check` | 层间依赖方向、服务间直连、导入期循环、**数据库身份旁路**（业务模块不得自建/自选连接池）、**RLS 上下文唯一注入点**（业务代码不得自行写可见范围） | `python scripts/architecture_check.py` | 只覆盖顶层分层；服务内 `api/domain/repository` 分层未覆盖 |
 | `alembic check` | 迁移与模型无漂移 | `alembic check` | 授权正确性由集成测试与 `test_grant_baseline` 证明，不由本命令证明 |
+| `test_identity_private_key_boundary` | **签发私钥不进 API 进程**：配置层（`role=api` + 私钥即失败）、入口层（守卫独立成立且**真的被调用**，源码级断言）、结构层（公钥由私钥派生）、分发层（JWKS 文档可独立验签） | `pytest tests/unit/test_identity_private_key_boundary.py` | 只证明"私钥进不来"，不证明"签发进程存在"——仓库内尚无 issuer 部署与签发端点 |
 
 `freeze_manifest` 与 `contract_check` 是**两层互补**，不是重复：前者回答「还是不是 V2.0.5」，
 后者回答「派生文件之间有没有打架」。历史教训是只有后者时，81↔81 自洽也能一路 PASS。
@@ -111,6 +112,7 @@ docs/          # 架构/ADR/runbook/SOP
 | 权限最小化（Capability Token、资源范围） | 部分闭合：**统一授权决策已落地（B2）**——`Principal + Action + Resource + Context → ALLOW/DENY`，动作的 `scope` / `risk_level` 第一次真正参与运行时判定；拒绝带理由码可审计，81 条动作与 10 条 CRITICAL 有穷举性质测试。加上 B3 的组织/项目范围（数据库限制性策略兜底）。见 `docs/adr/ADR-R18-unified-authorization-decision.md`。**仍缺**：Capability Token（短时、按资源签发的运行时凭证） |
 | 审批与执行分离 | 部分闭合（B2）：资产审批与剧本锁定共用同一份职责分离判定（`SELF_APPROVAL_FORBIDDEN`），重复实现已删除；**CRITICAL 动作尚未接入路由**，`AGENT_CRITICAL_FORBIDDEN` 与联合审批（`JOINT_APPROVAL_UNSUPPORTED`）只有策略层证明 |
 | 密钥不进入交付包 | 未实现自动扫描 |
+| 签发与验签分离（私钥不进 API 进程） | **已闭合（B4）**：`KeyStore`（进程内多私钥注册表）与 `from_key_store`（验签借用签发仓储）已删除；`TokenIssuer` 必须显式持私钥才能构造；`role=api` 带私钥**拒绝启动**（配置层 + 入口层两道），验签方只认 `IDENTITY_PUBLIC_KEY_PEM` 或 `IDENTITY_JWKS_FILE`。见 `docs/adr/ADR-R19-signing-key-boundary.md`。**仍缺**：独立的签发进程（`/token` 与 JWKS 发布端点均未实现，当前令牌由测试与脚本签发）、密钥指纹可观测性 |
 | 高并发 / 故障恢复 | 有熔断、Outbox 重试；无压测与故障演练证据 |
 | Phase 1 生产闭环 | 未完成（见下） |
 

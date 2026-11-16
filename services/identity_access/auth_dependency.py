@@ -20,7 +20,7 @@ from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
-from packages.identity.jwks import KeyStore, PublicKeyStore
+from packages.identity.jwks import PublicKeyStore
 from packages.identity.jwt_core import TokenError, decode_token
 from packages.identity.principal import Principal
 
@@ -31,7 +31,7 @@ PrincipalDependency = Callable[..., Awaitable[Principal]]
 _bearer = HTTPBearer(auto_error=False)
 
 
-def _extract_bearer_token(
+def extract_bearer_token(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ) -> str:
@@ -46,7 +46,7 @@ def _extract_bearer_token(
 
 def build_principal_dependency(
     *,
-    key_store: KeyStore | PublicKeyStore,
+    key_store: PublicKeyStore,
     issuer: str,
     audience: str,
     revocation_check: Callable[[Request, str], Awaitable[bool]] | None = None,
@@ -54,7 +54,7 @@ def build_principal_dependency(
     """构造一个可注入的 ``get_principal`` FastAPI 依赖工厂。
 
     参数：
-    - key_store：持有一组签名密钥（验签用公钥按 kid 索引）。
+    - key_store：验签公钥仓储（按 kid 取公钥；不含私钥，B4）。
     - issuer / audience：令牌签发方与目标受众（严格校验，拒绝跨服务令牌）。
     - revocation_check：可选 jti 吊销检查（P3-2）。提供时验签成功后仍要
       查吊销表；缺 jti 的令牌直接拒绝（无法吊销 = 无法止损失）。
@@ -64,7 +64,7 @@ def build_principal_dependency(
 
     async def get_principal(
         request: Request,
-        token: str = Depends(_extract_bearer_token),
+        token: str = Depends(extract_bearer_token),
     ) -> Principal:
         """解析 Authorization Bearer 为可信 Principal（验签 + claim 校验）。
 

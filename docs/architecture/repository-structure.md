@@ -158,6 +158,11 @@ apps ──▶ services ──▶ (领域模型/仓储)
   策略在迁移 `e7f8a9b0c1d2`。业务代码自行 `set_config` 或 `SET LOCAL` 会被闸门
   R5 拦下——能写可见范围的人就能给自己扩权。见
   `docs/adr/ADR-R17-project-scope-isolation.md`。
+- **签发能力只有一个持有者**：私钥只在 `packages/identity/issuer.py::TokenIssuer` 里，
+  它必须显式持私钥才能构造；验签方只拿公钥（`packages/identity/jwks.py::PublicKeyStore`，
+  结构上装不下私钥）。`IDENTITY_PROCESS_ROLE=api` 配置私钥**拒绝启动**（配置层校验 +
+  `packages/identity/guards.py` 入口守卫两道）。见
+  `docs/adr/ADR-R19-signing-key-boundary.md`。
 - **workers 消费事件**：通过 Outbox 模式保证事务一致性，消费者 Inbox 去重、幂等。
 - **adapters 不写权威状态**：只处理外部系统差异，回传结果进入平台资产暂存与验证。
 - **contracts 是单一事实源**：代码从契约派生，CI 校验契约与实现一致（不重复维护两份）。

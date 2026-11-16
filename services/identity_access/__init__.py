@@ -1,73 +1,82 @@
 """身份服务装配层（services/identity_access）。
 
-职责：把平台级身份基础设施（packages/identity）组装为可注入的运行时组件：
-- KeyStore 单例（当前 + 历史签名密钥，验签按 kid 取公钥）。
-- FastAPI 认证依赖工厂（Bearer → Principal）。
-- JWKS 端点（对外暴露公钥，供网关/其它服务验签）。
+职责：把平台级身份基础设施（packages/identity）组装为可注入的运行时组件。
+本模块刻意只做"装配"，不做判定——授权判定在 ``packages/identity/enforcement.py``。
 
-安全边界（决策 4）：
-- 私钥仅用于签发令牌（身份服务持有），API 层只拿公钥验签。
-- 本模块不落任何密钥到日志。
+**这里有一条硬边界（包 B4）**：
+
+- ``get_public_key_store()``：**只读公钥**，来源是 ``IDENTITY_PUBLIC_KEY_PEM``
+  或 ``IDENTITY_JWKS_FILE``。它不会、也不能退回"用签发密钥派生公钥"——
+  那条回退正是旧实现里私钥进入 API 进程的入口。
+- ``get_issuer()``：**只有签发进程**（``IDENTITY_PROCESS_ROLE=issuer``）调用，
+  缺私钥即拒绝构造。API 进程启动时配置了私钥会**直接拒绝启动**
+  （见 ``packages/shared/config.py`` 的进程角色校验与
+  ``packages/identity/guards.py``）。
+
+为什么公钥缺失时选择"拒绝启动"而不是"生成一把临时的"：临时密钥意味着重启后
+所有既有令牌失效、多副本之间互不认可，且验签方拿到的公钥与签发方不匹配时
+表现为"令牌被篡改"——一个必然发生、且排查方向完全错误的故障模式。
 """
 
 from __future__ import annotations
 
 from functools import lru_cache
 
-from packages.identity.jwks import KeyStore, PublicKeyStore
-from packages.identity.keys import SigningKey, generate_signing_key, load_signing_key
+from packages.identity.issuer import TokenIssuer
+from packages.identity.jwks import PublicKeyStore
+from packages.identity.keys import SigningKey
 from packages.shared.config import get_settings
 
 
-@lru_cache
-def get_key_store() -> KeyStore:
-    """获取签名密钥注册表单例（验签按 kid 取公钥）。
-
-    密钥来源：
-    - 若配置了 identity_private_key_pem / identity_public_key_pem，从环境
-      变量加载既有密钥（生产路径，密钥由密钥管理服务注入）。
-    - 否则开发环境随机生成一把（仅用于本地/测试，重启后失效，验签方
-      需经 JWKS 端点动态获取公钥，天然支持轮换）。
-
-    kid 默认取固定值「current」，便于开发/测试环境稳定引用；生产轮换时
-    追加新 kid，旧 kid 保留验签仍在有效期内的令牌。
-    """
-    settings = get_settings()
-    private_pem = settings.identity_private_key_pem.get_secret_value()
-    public_pem = settings.identity_public_key_pem.get_secret_value()
-
-    if private_pem and public_pem:
-        key = load_signing_key(
-            private_pem.encode("utf-8"),
-            public_pem.encode("utf-8"),
-            kid="current",
-        )
-        return KeyStore([key])
-
-    # 生产环境绝不随机生成：临时密钥会导致签发方与验签方公钥不匹配、
-    # 进程重启即失效，且破坏 JWKS 的可信链条。配置缺失时直接拒绝启动。
-    if settings.app_env == "production":
-        raise RuntimeError(
-            "生产环境（APP_ENV=production）必须配置 IDENTITY_PRIVATE_KEY_PEM 与 "
-            "IDENTITY_PUBLIC_KEY_PEM；禁止使用进程内随机生成的临时签名密钥。"
-        )
-    # 开发/测试：随机生成一把（不落日志，进程内持有）。
-    key = generate_signing_key(kid="current")
-    return KeyStore([key])
+class IdentityConfigurationError(RuntimeError):
+    """身份配置不满足最低安全要求（拒绝启动，不带病运行）。"""
 
 
 @lru_cache
 def get_public_key_store() -> PublicKeyStore:
     """获取纯公钥验签仓储（API 进程使用，结构上不含私钥）。
 
-    生产：只从 ``IDENTITY_PUBLIC_KEY_PEM`` 构建，签发私钥不出身份服务。
-    开发/测试：本进程同时承担签发，公钥从进程内临时密钥派生（无私钥边界可言）。
+    来源优先级：``IDENTITY_PUBLIC_KEY_PEM`` → ``IDENTITY_JWKS_FILE``。
+    两者都没配置时拒绝启动：此时任何"能起来"的实现都只能靠私钥派生公钥，
+    而那等于把签发能力搬进验签进程。
     """
     settings = get_settings()
-    public_pem = settings.identity_public_key_pem.get_secret_value()
+    public_pem = settings.identity_public_key_pem.get_secret_value().strip()
     if public_pem:
+        # kid 固定为 current：签发端与验签端共用同一 kid 约定，
+        # 轮换时由 JWKS 文档携带多个 kid（签发端追加、验签端整体替换）。
         return PublicKeyStore({"current": public_pem.encode("utf-8")})
-    return PublicKeyStore.from_key_store(get_key_store())
+
+    jwks_file = settings.identity_jwks_file.strip()
+    if jwks_file:
+        return PublicKeyStore.from_jwks_file(jwks_file)
+
+    raise IdentityConfigurationError(
+        "验签公钥缺失：必须配置 IDENTITY_PUBLIC_KEY_PEM 或 IDENTITY_JWKS_FILE。"
+        "API 进程不允许用签发私钥派生公钥（B4：私钥不进 API 进程）。"
+    )
+
+
+@lru_cache
+def get_issuer() -> TokenIssuer:
+    """获取签发端（仅 ``IDENTITY_PROCESS_ROLE=issuer`` 的进程调用）。
+
+    公钥由私钥派生，不再要求单独配置——两者不匹配会让验签全量失败，
+    而错误现象是"令牌被篡改"，排查方向完全错。
+    """
+    settings = get_settings()
+    private_pem = settings.identity_private_key_pem.get_secret_value().strip()
+    if not private_pem:
+        raise IdentityConfigurationError(
+            "签发私钥未配置：本进程没有签发能力（这是 API 进程的正确状态）。"
+        )
+    return TokenIssuer.from_private_pem(
+        private_pem.encode("utf-8"),
+        kid="current",
+        issuer=settings.identity_issuer,
+        audience=settings.identity_audience,
+        ttl_seconds=settings.identity_access_token_ttl_seconds,
+    )
 
 
 def issue_token(
@@ -78,34 +87,34 @@ def issue_token(
     subject_type: str = "human",
     organization_id: str | None = None,
     project_ids: list[str] | None = None,
+    signing_key: SigningKey | None = None,
 ) -> str:
-    """签发一条访问令牌（身份服务内部使用，含私钥）。
+    """签发一条访问令牌。
 
-    生产环境此函数应由独立 Authorization Service 调用，私钥不出该服务；
-    此处仅作为身份服务的签发入口，供联调/测试与后续 Token 端点使用。
+    ``signing_key`` 显式传入时用该密钥签发（测试注入：测试进程自己保管一把临时
+    私钥，API 进程的配置里没有私钥）。不传时走 ``get_issuer()``，即要求本进程
+    真的是签发进程——不存在"配置里有私钥就顺手签一下"的隐式路径。
 
-    ``subject_type`` / ``organization_id`` / ``project_ids`` 的默认值刻意保守：
-    主体默认人类、组织默认与租户相同、项目范围默认为空（一个项目也访问不了）。
-    需要更宽范围必须显式声明，避免"忘了传"变成"默认全权"。
+    默认值刻意保守：主体默认人类、组织默认与租户相同、项目范围默认为空
+    （一个项目也访问不了）。需要更宽范围必须显式声明，避免"忘了传"变成
+    "默认全权"。
     """
-    from packages.identity.jwt_core import encode_token
-    from packages.shared.config import get_settings
-
     settings = get_settings()
-    return encode_token(
-        get_key_store().current,
+    issuer = (
+        TokenIssuer(
+            signing_key=signing_key,
+            issuer=settings.identity_issuer,
+            audience=settings.identity_audience,
+            ttl_seconds=settings.identity_access_token_ttl_seconds,
+        )
+        if signing_key is not None
+        else get_issuer()
+    )
+    return issuer.issue(
         subject_id=subject_id,
         tenant_id=tenant_id,
         roles=roles,
-        issuer=settings.identity_issuer,
-        audience=settings.identity_audience,
-        ttl_seconds=settings.identity_access_token_ttl_seconds,
         subject_type=subject_type,
         organization_id=organization_id,
         project_ids=project_ids,
     )
-
-
-def get_signing_key() -> SigningKey:
-    """获取当前签发密钥（仅身份服务签发令牌时使用）。"""
-    return get_key_store().current

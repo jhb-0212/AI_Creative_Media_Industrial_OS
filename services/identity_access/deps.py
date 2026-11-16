@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from functools import lru_cache
 
 from fastapi import Depends, Request
 
@@ -30,7 +31,10 @@ from packages.shared.config import get_settings
 from packages.shared.db_roles import DatabaseDomain
 from packages.shared.rls import build_tenant_uow_dependency
 from services.identity_access import get_public_key_store
-from services.identity_access.auth_dependency import build_principal_dependency
+from services.identity_access.auth_dependency import (
+    build_principal_dependency,
+    extract_bearer_token,
+)
 
 
 async def check_request_revocation(request: Request, jti: str) -> bool:
@@ -52,13 +56,34 @@ async def check_request_revocation(request: Request, jti: str) -> bool:
     return await is_token_revoked(pools.sessionmaker(DatabaseDomain.IDENTITY), jti)
 
 
-# 认证依赖：Bearer → Principal（验签 + issuer/audience 校验 + jti 吊销检查）。
-get_principal = build_principal_dependency(
-    key_store=get_public_key_store(),
-    issuer=get_settings().identity_issuer,
-    audience=get_settings().identity_audience,
-    revocation_check=check_request_revocation,
-)
+@lru_cache(maxsize=1)
+def _principal_authenticator() -> Callable[..., Awaitable[Principal]]:
+    """构造认证器（惰性、进程内单例）。
+
+    为什么不在模块导入时构造：导入期构造意味着**任何 import 本模块的行为**
+    都要求进程备齐验签公钥——OpenAPI 导出、契约一致性检查、只跑路由表单测
+    都会因为一个与它们无关的密钥配置而失败。密钥缺失的正确失败点是
+    **进程启动**（见 ``apps.api.main`` 的 lifespan），不是 import。
+
+    惰性构造不降低安全性：``get_public_key_store()`` 仍然 fail-closed，
+    启动时会被显式调用一次（缺公钥即拒绝启动），测试不跑 lifespan 也会在
+    首个请求时失败。区别只是失败点更准确，且不误伤不需要认证的用法。
+    """
+    settings = get_settings()
+    return build_principal_dependency(
+        key_store=get_public_key_store(),
+        issuer=settings.identity_issuer,
+        audience=settings.identity_audience,
+        revocation_check=check_request_revocation,
+    )
+
+
+async def get_principal(
+    request: Request,
+    token: str = Depends(extract_bearer_token),
+) -> Principal:
+    """认证依赖：Bearer → Principal（验签 + issuer/audience 校验 + jti 吊销检查）。"""
+    return await _principal_authenticator()(request, token)
 
 # RLS 工作单元：按域绑定连接池，注入租户上下文后提供 UoW。
 get_project_uow = build_tenant_uow_dependency(

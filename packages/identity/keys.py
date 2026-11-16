@@ -87,6 +87,19 @@ def generate_signing_key(kid: str | None = None, key_size: int = DEFAULT_KEY_SIZ
     return SigningKey(kid=kid or uuid.uuid4().hex, private_pem=private_pem, public_pem=public_pem)
 
 
+def public_pem_from_private(private_pem: bytes) -> bytes:
+    """从私钥 PEM 派生公钥 PEM（B4：签发端不再要求单独配置公钥）。
+
+    单独配置私钥与公钥有一个隐蔽缺陷：两者不匹配时验签会全量失败，而错误
+    表现为"令牌被篡改"，排查方向完全错。派生让"不匹配"在结构上不可能发生。
+    """
+    private_key = serialization.load_pem_private_key(private_pem, password=None)
+    return private_key.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+
+
 def load_signing_key(private_pem: bytes, public_pem: bytes, kid: str) -> SigningKey:
     """从既有 PEM 字节构造 SigningKey（生产从密钥管理服务加载）。
 

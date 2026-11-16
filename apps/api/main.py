@@ -14,7 +14,8 @@ import hashlib
 import hmac
 import time
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, Header, Request
@@ -28,8 +29,9 @@ from packages.errors.error_codes import (
     ErrorRegistry,
     to_response_payload,
 )
+from packages.identity.guards import assert_no_signing_key_in_api_process
 from packages.shared.config import get_settings
-from packages.shared.database import lifespan
+from packages.shared.database import lifespan as database_lifespan
 from packages.shared.db_roles import DatabaseDomain
 from packages.shared.logging import get_logger, set_trace_id, setup_logging
 from packages.shared.metrics import (
@@ -40,10 +42,31 @@ from packages.shared.metrics import (
 )
 from packages.shared.rate_limit import RateLimitDecision
 from packages.telemetry.tracing import setup_telemetry
+from services.identity_access import get_public_key_store
 
 settings = get_settings()
 setup_logging(settings.log_level)
 logger = get_logger("apps.api")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """进程启动/关闭（身份 + 数据库两类进程级资源）。
+
+    **启动即校验身份配置**（包 B4）：
+
+    - 配置里有签发私钥 → 拒绝启动（``assert_no_signing_key_in_api_process``）；
+    - 没有验签公钥 → 拒绝启动（``get_public_key_store`` fail-closed）。
+
+    为什么放在 lifespan 而不是模块导入时：导入期校验会误伤"只需要路由表"的
+    用法（OpenAPI 导出、契约检查、路由表单测），让它们因为一个无关的密钥配置
+    而失败。启动点是"这个进程要开始接流量"的唯一时刻，配置缺失必须在这里挡下。
+    """
+    assert_no_signing_key_in_api_process(settings)
+    get_public_key_store()
+    async with database_lifespan(app):
+        yield
+
 
 app = FastAPI(
     title="AI Creative Media Industrial OS",
