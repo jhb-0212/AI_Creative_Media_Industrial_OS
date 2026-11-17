@@ -20,7 +20,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.api.main import app
-from tests.conftest import apply_db_context, make_test_token
+from tests.conftest import apply_db_context, make_test_headers
 
 _PROJECT = "proj_gate_api"
 _OTHER_PROJECT = "proj_gate_other"
@@ -34,7 +34,7 @@ def _client(
     subject_type: str = "human",
     project_ids: list[str] | None = None,
 ) -> AsyncClient:
-    token = make_test_token(
+    headers = make_test_headers(
         subject_id=subject,
         roles=roles,
         tenant_id=_TENANT,
@@ -44,7 +44,7 @@ def _client(
     return AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
-        headers={"Authorization": f"Bearer {token}"},
+        headers=headers,
     )
 
 

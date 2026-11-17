@@ -98,6 +98,7 @@ docs/          # 架构/ADR/runbook/SOP
 | `release_package --check` | **发布包治理**：只取 commit 中受控文件；禁止 `.env`/`.venv`/`.git`/缓存；写入前密钥扫描；逐文件 SHA-256 与确定性构建 | `python scripts/release_package.py --check` | 只证明源码包的结构与静态密钥规则；不证明运行镜像依赖安全，也不替代压测/故障演练证据 |
 | `test_identity_private_key_boundary` | **签发私钥不进 API 进程**：配置层（`role=api` + 私钥即失败）、入口层（守卫独立成立且**真的被调用**，源码级断言）、结构层（公钥由私钥派生）、分发层（JWKS 文档可独立验签） | `pytest tests/unit/test_identity_private_key_boundary.py` | 只证明"私钥进不来"，不证明"签发进程存在"——仓库内尚无 issuer 部署与签发端点 |
 | `test_principal_bindings` | **描述性契约主体不得悄悄改权**：解析后的角色集合、契约原文漂移 fail-fast、闸门独立校验台账 | `pytest tests/permission/test_principal_bindings.py` | 只证明台账与契约一致，不证明台账里选的角色就是业务上正确的 Gate 授权主体（需契约修订） |
+| `test_capability_token` | **Capability Token 真的执行**：audience 分离、过期/撤销、缺头、主体绑定与审计计数 | `pytest tests/unit/test_capability_token.py` | 只证明凭证与 HTTP 闸门；不证明 HTTP 签发/升级端点（契约未登记）与 nonce 一次性去重 |
 
 `freeze_manifest` 与 `contract_check` 是**两层互补**，不是重复：前者回答「还是不是 V2.0.5」，
 后者回答「派生文件之间有没有打架」。历史教训是只有后者时，81↔81 自洽也能一路 PASS。
@@ -111,7 +112,7 @@ docs/          # 架构/ADR/runbook/SOP
 | 跨模块数据所有权 / 禁止跨模块直接写表 | **已闭合（B1）**：数据库角色按域拆分，越权写入在 PostgreSQL 层被拒；R4 闸门禁止业务模块自选连接身份。证据见 `tests/integration/test_database_role_isolation.py` |
 | 单一事实源（契约 ↔ 代码） | **枚举已闭合（C4）**：`contract_check` 的 `check_enum_parity` 双向比对代码枚举与契约状态（缺值/多值都报红），且 `services/*/domain/enums.py` 里每个枚举类必须在 `contracts/runtime/enum_bindings.yaml` 登记或豁免（未登记 = 报红）。`action_key` 层级有既有闸门。**仍双写**：`scope` / `risk_level` 字段在 YAML 与代码各一份，无机械比对 |
 | 数据库不变量（资产状态、事件内容不可改） | **已闭合（C1/C2）**：资产 `status` 的每次变化必须在 `asset_service.asset_status_transitions`（迁移播种、应用角色只读）里登记，未登记边由触发器拒绝（含超级用户直连）；`status` 取值由 CHECK 限定为契约枚举；事件表只有投递域拿到 4 个投递状态列的列级 `UPDATE`，事实列不可改且有系统目录断言。见 `docs/adr/ADR-R20-data-invariants-in-database.md` |
-| 权限最小化（Capability Token、资源范围） | 部分闭合：**统一授权决策已落地（B2）**——`Principal + Action + Resource + Context → ALLOW/DENY`，动作的 `scope` / `risk_level` 第一次真正参与运行时判定；拒绝带理由码可审计，81 条动作与 10 条 CRITICAL 有穷举性质测试。加上 B3 的组织/项目范围（数据库限制性策略兜底）。见 `docs/adr/ADR-R18-unified-authorization-decision.md`。**仍缺**：Capability Token（短时、按资源签发的运行时凭证） |
+| 权限最小化（Capability Token、资源范围） | **已闭合（F3 运行时部分）**：统一授权决策（B2）新增短时 Capability Token 输入——独立 audience `ai-film-capability`、默认 5 分钟、按 `jti` 可撤销；API 同时验签 Bearer 与 `X-Capability-Token`，能力挂载到 Principal 后仍只由 `decide()` 判定主体/租户/组织/动作/项目范围，capability 只能收窄不能扩权。见 `docs/adr/ADR-R26-capability-token-runtime-enforcement.md`。**仍缺**：HTTP 签发/升级端点（契约未登记动作）、nonce 一次性落库去重、预算/配额实际扣减 |
 | 审批与执行分离 | 部分闭合（B2/D2）：资产审批与剧本锁定共用同一份职责分离判定（`SELF_APPROVAL_FORBIDDEN`），重复实现已删除；`PRODUCTION.GATE.APPROVE` 已接入路由，`AGENT_CRITICAL_FORBIDDEN` 在策略层、领域层、数据库 CHECK 三处都被真实测试。**仍缺**：Gate 链的申请人与批准人分离（冻结契约无申请人载体，W2 精确豁免已登记，见 ADR-R23 第 5 节）、联合审批（`JOINT_APPROVAL_UNSUPPORTED` 仍只有策略层证明） |
 | 密钥不进入交付包 | **已闭合（F6）**：Release 源码包只从 commit 归档，默认拒绝脏工作树；`.env`/虚拟环境/缓存/`.git` 按路径闸门拒绝，内容再做密钥扫描；已知测试夹具以路径+规则+指纹+理由显式放行，原文不落日志。逐文件 SHA-256 清单与确定性构建见 `docs/adr/ADR-R25-release-package-governance.md`。**仍需注意**：历史上分发的旧 ZIP 含本地 `.env`，其中非占位凭据应视为已暴露并轮换 |
 | 签发与验签分离（私钥不进 API 进程） | **已闭合（B4）**：`KeyStore`（进程内多私钥注册表）与 `from_key_store`（验签借用签发仓储）已删除；`TokenIssuer` 必须显式持私钥才能构造；`role=api` 带私钥**拒绝启动**（配置层 + 入口层两道），验签方只认 `IDENTITY_PUBLIC_KEY_PEM` 或 `IDENTITY_JWKS_FILE`。见 `docs/adr/ADR-R19-signing-key-boundary.md`。**仍缺**：独立的签发进程（`/token` 与 JWKS 发布端点均未实现，当前令牌由测试与脚本签发）、密钥指纹可观测性 |

@@ -19,15 +19,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.api.main import app
-from tests.conftest import make_test_token, set_raw_rls_context
+from tests.conftest import make_test_headers, set_raw_rls_context
 
 
 @pytest.fixture
 async def client() -> AsyncClient:
     """带认证的 client（身份从 JWT 解析，走真实鉴权路径）。"""
     transport = ASGITransport(app=app)
-    token = make_test_token()
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = make_test_headers()
     async with AsyncClient(
         transport=transport, base_url="http://test", headers=headers
     ) as c:

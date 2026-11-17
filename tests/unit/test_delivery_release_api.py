@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from apps.api.main import app
 from packages.shared.database import build_migration_url
-from tests.conftest import TEST_TENANT_ID, make_test_token
+from tests.conftest import TEST_TENANT_ID, make_test_headers
 
 pytestmark = pytest.mark.asyncio
 
@@ -82,7 +82,7 @@ def _client(
     project_ids: list[str] | None = None,
     subject_type: str = "human",
 ) -> AsyncClient:
-    token = make_test_token(
+    headers = make_test_headers(
         subject_id=subject,
         roles=roles,
         project_ids=project_ids if project_ids is not None else ["*"],
@@ -91,7 +91,7 @@ def _client(
     return AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
-        headers={"Authorization": f"Bearer {token}"},
+        headers=headers,
     )
 
 

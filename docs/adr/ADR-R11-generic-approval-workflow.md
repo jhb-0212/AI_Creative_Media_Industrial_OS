@@ -117,4 +117,6 @@
 - 事件消费侧：业务域消费 `APPROVAL_TICKET_COMPLETED` 后推进状态的处理器
   需逐域接入；本轮先交付引擎与事件，不假装业务状态已自动流转；
 - 审批顺序、委托、超时策略未实现；
-- 与 Capability Token 的结合未实现（当前靠令牌角色 + 项目范围）。
+- 与 Capability Token 的结合已由 F3 收口：所有审批动作在统一 `authorize()`
+  入口消费 Principal 上挂载的短时 capability，角色、Agent 红线、职责分离与
+  项目范围仍在同一决策里执行；一次性 nonce 的落库去重尚未实现（见 ADR-R26）。

@@ -34,6 +34,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from uuid import UUID
 
+from packages.identity.capability import Capability
+
 #: project_ids 中表示"本组织内全部项目"的通配符。
 #: 用 ``*`` 而不是空集/None：把"全部"写成一个具体的值，读代码的人一眼能看到
 #: 权限范围有多宽，而不是靠"没有声明"去推断。
@@ -63,6 +65,9 @@ class Principal:
     roles: frozenset[str] = field(default_factory=frozenset)
     project_ids: frozenset[str] = field(default_factory=frozenset)
     jti: str | None = None
+    #: 独立 Authorization Service 签发的短时能力凭证；None 表示尚未提供，
+    #: 授权决策会按 fail-closed 拒绝。它不是从访问令牌 claims 里拼出来的。
+    capability: Capability | None = None
 
     def __post_init__(self) -> None:
         if not self.subject_id.strip():
@@ -106,4 +111,5 @@ class Principal:
             "roles": sorted(self.roles),
             "project_ids": sorted(self.project_ids),
             "jti": self.jti,
+            "capability_jti": self.capability.jti if self.capability else None,
         }

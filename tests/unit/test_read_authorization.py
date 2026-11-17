@@ -14,14 +14,13 @@ import uuid
 from httpx import ASGITransport, AsyncClient
 
 from apps.api.main import app
-from tests.conftest import make_test_token
+from tests.conftest import make_test_headers
 
 
 def _client(roles: list[str], subject_id: str = "read_user") -> AsyncClient:
     """构造带指定角色 token 的 client（真实 JWT + 真实 ASGI 端点）。"""
     transport = ASGITransport(app=app)
-    token = make_test_token(subject_id=subject_id, roles=roles)
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = make_test_headers(subject_id=subject_id, roles=roles)
     return AsyncClient(transport=transport, base_url="http://test", headers=headers)
 
 

@@ -12,6 +12,8 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -27,12 +29,56 @@ from packages.identity.authorization import (
     decide,
     parse_scope,
 )
+from packages.identity.capability import Capability
 from packages.identity.enforcement import authorize
 from packages.identity.principal import Principal, SubjectType
 
 _TENANT = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
 _ORG_A = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
 _ORG_B = uuid.UUID("00000000-0000-0000-0000-0000000000b1")
+
+_TEST_ACTIONS = frozenset(
+    {spec.action_key for spec in all_action_specs()} | {"TEST.ACTION"}
+)
+
+
+def _capability(
+    *,
+    subject: str = "user-1",
+    tenant: uuid.UUID = _TENANT,
+    org: uuid.UUID = _ORG_A,
+    actions: frozenset[str] = _TEST_ACTIONS,
+    projects: frozenset[str] = frozenset({"*"}),
+) -> Capability:
+    """直接构造 capability 值对象（绕开签名，专测授权决策的消费逻辑）。"""
+    now = datetime.now(UTC)
+    return Capability(
+        jti=f"cap-{subject}-{uuid.uuid4().hex[:8]}",
+        subject_id=subject,
+        tenant_id=str(tenant),
+        organization_id=str(org),
+        issuer="authz-service",
+        project_scope=projects,
+        episode_scope=frozenset(),
+        shot_scope=frozenset(),
+        asset_scope=frozenset(),
+        allowed_actions=actions,
+        denied_actions=frozenset(),
+        budget_scope=frozenset(),
+        max_amount=None,
+        currency=None,
+        resource_quota=(),
+        delegation_chain=(),
+        approval_ref=None,
+        revocation_ref=None,
+        policy_version="V205-R14",
+        nonce=uuid.uuid4().hex,
+        task_id="task-1",
+        workflow_run_id="run-1",
+        issued_at=now,
+        not_before=now,
+        expires_at=now + timedelta(minutes=5),
+    )
 
 
 def _principal(
@@ -41,6 +87,8 @@ def _principal(
     projects: frozenset[str] = frozenset({"*"}),
     subject: str = "user-1",
     subject_type: SubjectType = SubjectType.HUMAN,
+    with_capability: bool = True,
+    capability: Capability | None = None,
 ) -> Principal:
     return Principal(
         subject_id=subject,
@@ -49,6 +97,13 @@ def _principal(
         subject_type=subject_type,
         roles=frozenset(roles),
         project_ids=projects,
+        capability=(
+            capability
+            if capability is not None
+            else _capability(subject=subject, tenant=_TENANT, org=org)
+            if with_capability
+            else None
+        ),
     )
 
 
@@ -232,7 +287,80 @@ def test_audit_dict_never_contains_token_or_secret() -> None:
         "checked",
         "deferred",
         "deferred_checks",
+        "capability_jti",
     }
+
+
+# --------------------------------------------------------------------------- #
+# Capability Token（F3）：同一个 decide() 入口消费短时能力凭证
+# --------------------------------------------------------------------------- #
+def test_capability_missing_is_denied() -> None:
+    """契约要求 token，缺 capability 一律拒绝（不能用访问令牌顶替）。"""
+    decision = decide(_principal("导演", with_capability=False), _spec())
+    assert decision.reason is DecisionReason.CAPABILITY_MISSING
+
+
+def test_capability_subject_mismatch_is_denied() -> None:
+    """capability 绑定的主体必须与已验签访问令牌一致。"""
+    decision = decide(
+        _principal("导演", capability=_capability(subject="someone-else")),
+        _spec(),
+    )
+    assert decision.reason is DecisionReason.CAPABILITY_SUBJECT_MISMATCH
+
+
+def test_capability_tenant_and_organization_mismatch_is_denied() -> None:
+    """跨租户/跨组织复用 capability 必须被拒（ABAC 第一层）。"""
+    cross_tenant = decide(
+        _principal(
+            "导演",
+            capability=_capability(tenant=uuid.UUID("00000000-0000-0000-0000-0000000000ff")),
+        ),
+        _spec(),
+    )
+    cross_org = decide(
+        _principal("导演", capability=_capability(org=_ORG_B)),
+        _spec(),
+    )
+    assert cross_tenant.reason is DecisionReason.CAPABILITY_TENANT_MISMATCH
+    assert cross_org.reason is DecisionReason.CAPABILITY_ORGANIZATION_MISMATCH
+
+
+def test_capability_action_scope_is_denied() -> None:
+    """capability 未授权的动作不能执行；deny 列表优先于 allow 列表。"""
+    missing = decide(
+        _principal("导演", capability=_capability(actions=frozenset({"OTHER.ACTION"}))),
+        _spec(),
+    )
+    assert missing.reason is DecisionReason.CAPABILITY_ACTION_DENIED
+
+    denied_capability = replace(
+        _capability(actions=frozenset({"OTHER.ACTION"})),
+        denied_actions=frozenset({"TEST.ACTION"}),
+    )
+    denied = decide(_principal("导演", capability=denied_capability), _spec())
+    assert denied.reason is DecisionReason.CAPABILITY_ACTION_DENIED
+
+
+def test_capability_project_scope_is_denied() -> None:
+    """同租户跨项目：principal 能进但 capability 没授权的项目仍拒绝。"""
+    narrow = _capability(projects=frozenset({"proj-a"}))
+    decision = decide(
+        _principal("导演", capability=narrow),
+        _spec(),
+        resource=ResourceRef("AssetVersion", _ORG_A, "proj-b"),
+    )
+    assert decision.reason is DecisionReason.CAPABILITY_PROJECT_SCOPE_DENIED
+
+
+def test_capability_wildcard_cannot_expand_principal_scope() -> None:
+    """capability 带 ``*`` 也不能把项目级主体放大成组织级主体。"""
+    decision = decide(
+        _principal("导演", projects=frozenset({"proj-a"})),
+        _spec(),
+        resource=ResourceRef("AssetVersion", _ORG_A, "proj-a"),
+    )
+    assert decision.reason is DecisionReason.CAPABILITY_PROJECT_SCOPE_DENIED
 
 
 # --------------------------------------------------------------------------- #

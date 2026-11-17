@@ -21,7 +21,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.api.main import app
-from tests.conftest import apply_db_context, make_test_token
+from tests.conftest import apply_db_context, make_test_headers
 
 _SHA = "d" * 64
 # 资产必须归属具体项目（ADR-R17）。测试令牌默认持有全项目范围，
@@ -30,11 +30,11 @@ _PROJECT = "proj_asset_api"
 
 
 def _client(subject: str, roles: list[str]) -> AsyncClient:
-    token = make_test_token(subject_id=subject, roles=roles)
+    headers = make_test_headers(subject_id=subject, roles=roles)
     return AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
-        headers={"Authorization": f"Bearer {token}"},
+        headers=headers,
     )
 
 

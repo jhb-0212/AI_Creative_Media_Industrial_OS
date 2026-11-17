@@ -22,7 +22,11 @@
 from __future__ import annotations
 
 import os
+import uuid
+from datetime import UTC, datetime, timedelta
 
+from packages.identity.action_registry import all_action_specs
+from packages.identity.capability import Capability
 from packages.identity.keys import generate_signing_key
 
 #: 测试签发密钥：只在测试进程内存在，不进入 Settings / 环境变量。
@@ -32,3 +36,50 @@ os.environ["IDENTITY_PUBLIC_KEY_PEM"] = TEST_SIGNING_KEY.public_pem.decode("utf-
 os.environ.setdefault("IDENTITY_PROCESS_ROLE", "api")
 # 防御：外部 shell 若残留私钥变量，会让 API 进程的拒绝启动逻辑误伤测试。
 os.environ.pop("IDENTITY_PRIVATE_KEY_PEM", None)
+
+
+def make_test_capability(
+    subject_id: str,
+    tenant_id: uuid.UUID,
+    organization_id: uuid.UUID | None = None,
+    *,
+    actions: list[str] | None = None,
+    projects: list[str] | None = None,
+) -> Capability:
+    """构造测试用 capability 值对象（不签 JWT，供服务层单测直接注入）。
+
+    默认允许全部契约动作，但项目范围必须显式跟随 principal 的范围语义；
+    需要验证越权时用 ``actions`` / ``projects`` 显式收窄。
+    """
+    now = datetime.now(UTC)
+    return Capability(
+        jti=f"cap-{uuid.uuid4().hex}",
+        subject_id=subject_id,
+        tenant_id=str(tenant_id),
+        organization_id=str(organization_id or tenant_id),
+        issuer="test-authz-service",
+        project_scope=frozenset(projects if projects is not None else ["*"]),
+        episode_scope=frozenset(),
+        shot_scope=frozenset(),
+        asset_scope=frozenset(),
+        allowed_actions=frozenset(
+            actions
+            if actions is not None
+            else [spec.action_key for spec in all_action_specs()]
+        ),
+        denied_actions=frozenset(),
+        budget_scope=frozenset(),
+        max_amount=None,
+        currency=None,
+        resource_quota=(),
+        delegation_chain=(),
+        approval_ref=None,
+        revocation_ref=None,
+        policy_version="V205-R14",
+        nonce=uuid.uuid4().hex,
+        task_id="test-task",
+        workflow_run_id="test-run",
+        issued_at=now,
+        not_before=now,
+        expires_at=now + timedelta(minutes=5),
+    )

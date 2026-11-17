@@ -14,12 +14,12 @@ import uuid
 
 from httpx import AsyncClient
 
-from tests.conftest import make_test_token
+from tests.conftest import make_test_headers
 
 
 def _auth_headers(subject_id: str) -> dict[str, str]:
     """构造指定主体的认证头（模拟不同真实主体）。"""
-    return {"Authorization": f"Bearer {make_test_token(subject_id=subject_id)}"}
+    return make_test_headers(subject_id=subject_id)
 
 
 async def _setup_project_and_episode(

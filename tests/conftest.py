@@ -22,11 +22,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.api.main import app
+from packages.identity.action_registry import all_action_specs
 from packages.identity.principal import Principal
 from packages.shared.database import DomainPools
 from packages.shared.db_roles import DatabaseDomain
 from packages.shared.rls import set_request_context
-from services.identity_access import issue_token
+from services.identity_access import issue_capability, issue_token
 from tests import TEST_SIGNING_KEY
 
 # 测试固定租户（历史数据已回填到此默认租户；新测试数据也用此租户，
@@ -44,7 +45,7 @@ def make_test_token(
     roles: list[str] | None = None,
     tenant_id: uuid.UUID = TEST_TENANT_ID,
     project_ids: list[str] | None = None,
-    organization_id: str | None = None,
+    organization_id: uuid.UUID | str | None = None,
     subject_type: str = "human",
 ) -> str:
     """签发一条测试访问令牌（身份服务内部签发，含私钥）。
@@ -62,11 +63,69 @@ def make_test_token(
         tenant_id=str(tenant_id),
         roles=roles or ["导演", "编剧", "制片"],
         subject_type=subject_type,
-        organization_id=organization_id,
+        organization_id=str(organization_id) if organization_id is not None else None,
         project_ids=project_ids if project_ids is not None else ["*"],
         # 显式传入测试私钥：签发能力不来自进程配置（B4）。
         signing_key=TEST_SIGNING_KEY,
     )
+
+
+def make_test_capability_token(
+    subject_id: str = "user_script",
+    tenant_id: uuid.UUID = TEST_TENANT_ID,
+    organization_id: uuid.UUID | str | None = None,
+    allowed_actions: list[str] | None = None,
+    project_scope: list[str] | None = None,
+    **narrowing: object,
+) -> str:
+    """签发测试用短时 capability。
+
+    默认允许全部已注册动作、项目范围 ``*``：这是测试夹具的便利默认值，
+    不是生产默认值——生产签发端要求调用方显式给出收窄范围。
+    需要验证越权时显式传 ``allowed_actions`` / ``project_scope``。
+    """
+    return issue_capability(
+        subject_id=subject_id,
+        tenant_id=str(tenant_id),
+        organization_id=str(organization_id or tenant_id),
+        allowed_actions=(
+            list(allowed_actions)
+            if allowed_actions is not None
+            else [spec.action_key for spec in all_action_specs()]
+        ),
+        project_scope=project_scope if project_scope is not None else ["*"],
+        task_id="test-task",
+        workflow_run_id="test-run",
+        signing_key=TEST_SIGNING_KEY,
+        **narrowing,  # type: ignore[arg-type]
+    )
+
+
+def make_test_headers(
+    subject_id: str = "user_script",
+    roles: list[str] | None = None,
+    tenant_id: uuid.UUID = TEST_TENANT_ID,
+    project_ids: list[str] | None = None,
+    organization_id: uuid.UUID | str | None = None,
+    subject_type: str = "human",
+    allowed_actions: list[str] | None = None,
+    project_scope: list[str] | None = None,
+    **capability_narrowing: object,
+) -> dict[str, str]:
+    """同时构造访问令牌与 capability 头（测试入口统一走真实双凭证链路）。"""
+    return {
+        "Authorization": f"Bearer {make_test_token(subject_id, roles, tenant_id, project_ids, organization_id, subject_type)}",
+        "X-Capability-Token": make_test_capability_token(
+            subject_id,
+            tenant_id,
+            organization_id,
+            allowed_actions,
+            project_scope
+            if project_scope is not None
+            else (project_ids if project_ids is not None else ["*"]),
+            **capability_narrowing,
+        ),
+    }
 
 
 async def apply_db_context(
@@ -195,8 +254,7 @@ async def auth_client() -> AsyncClient:
     身份与 tenant 上下文从 JWT 解析（真实鉴权路径）。
     """
     transport = ASGITransport(app=app)
-    token = make_test_token()
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = make_test_headers()
     async with AsyncClient(
         transport=transport, base_url="http://test", headers=headers
     ) as c:

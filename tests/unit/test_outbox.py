@@ -16,15 +16,14 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.api.main import app
-from tests.conftest import TEST_TENANT_ID, make_test_token
+from tests.conftest import TEST_TENANT_ID, make_test_headers
 
 
 @pytest.fixture
 async def client() -> AsyncClient:
     """带认证的 client（身份从 JWT 解析，走真实鉴权路径）。"""
     transport = ASGITransport(app=app)
-    token = make_test_token()
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = make_test_headers()
     async with AsyncClient(
         transport=transport, base_url="http://test", headers=headers
     ) as c:
@@ -114,11 +113,11 @@ async def test_lock_writes_outbox_event_append_only(
     assert await _count_events(project_sm, script_id) == 1  # SCRIPT_IMPORTED
 
     # 两步审批流：申请（writer）→ 批准（director），各追加一条事件。
-    writer_headers = {"Authorization": f"Bearer {make_test_token(subject_id='writer_001')}"}
+    writer_headers = make_test_headers(subject_id="writer_001")
     resp2 = await client.post(f"/scripts/{script_id}/lock/request", headers=writer_headers)
     assert resp2.status_code == 200  # SCRIPT_LOCK_REQUESTED
 
-    director_headers = {"Authorization": f"Bearer {make_test_token(subject_id='director_001')}"}
+    director_headers = make_test_headers(subject_id="director_001")
     resp3 = await client.post(f"/scripts/{script_id}/lock/approve", headers=director_headers)
     assert resp3.status_code == 200  # SCRIPT_LOCK_APPROVED
 

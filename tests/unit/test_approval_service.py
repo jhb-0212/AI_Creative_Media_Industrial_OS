@@ -30,6 +30,7 @@ from services.workflow.domain.approval import (
 from services.workflow.domain.enums import ApprovalMode, TicketStatus, VoteDecision
 from services.workflow.repository.approval_repo import ApprovalRepository
 from services.workflow.service.approval_service import ApprovalService
+from tests import make_test_capability
 from tests.unit.test_asset_service import FakeOutboxWriter
 
 _TENANT = uuid.UUID("00000000-0000-0000-0000-00000000d5b1")
@@ -50,6 +51,7 @@ def _principal(
         roles=frozenset(roles),
         project_ids=project_ids,
         subject_type=subject_type,
+        capability=make_test_capability(subject, _TENANT),
     )
 
 

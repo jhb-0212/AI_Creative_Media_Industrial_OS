@@ -22,9 +22,10 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from packages.identity.capability import CAPABILITY_AUDIENCE, CapabilityIssuer
 from packages.identity.issuer import TokenIssuer
 from packages.identity.jwks import PublicKeyStore
-from packages.identity.keys import SigningKey
+from packages.identity.keys import SigningKey, load_signing_key, public_pem_from_private
 from packages.shared.config import get_settings
 
 
@@ -117,4 +118,76 @@ def issue_token(
         subject_type=subject_type,
         organization_id=organization_id,
         project_ids=project_ids,
+    )
+
+
+#: 能力凭证默认 5 分钟（契约要求短时；上限由 CapabilityIssuer 强制为 15 分钟）。
+_CAPABILITY_TTL_SECONDS = 300
+CAPABILITY_POLICY_VERSION = "V205-R14"
+
+
+@lru_cache
+def get_capability_issuer() -> CapabilityIssuer:
+    """获取能力凭证签发端（仅 Authorization Service / issuer 进程调用）。
+
+    与 ``get_issuer()`` 共用私钥来源，但 audience 固定为 ``ai-film-capability``。
+    API 进程没有私钥，因此无法构造本对象，也就无法自签 capability。
+    """
+    settings = get_settings()
+    private_pem = settings.identity_private_key_pem.get_secret_value().strip()
+    if not private_pem:
+        raise IdentityConfigurationError(
+            "签发私钥未配置：本进程没有签发 Capability Token 的能力"
+        )
+    return CapabilityIssuer(
+        signing_key=load_signing_key(
+            private_pem.encode("utf-8"),
+            public_pem_from_private(private_pem.encode("utf-8")),
+            "current",
+        ),
+        issuer=settings.identity_issuer,
+        audience=CAPABILITY_AUDIENCE,
+        ttl_seconds=_CAPABILITY_TTL_SECONDS,
+    )
+
+
+def issue_capability(
+    *,
+    subject_id: str,
+    tenant_id: str,
+    organization_id: str,
+    allowed_actions: list[str],
+    project_scope: list[str],
+    task_id: str,
+    workflow_run_id: str,
+    policy_version: str = CAPABILITY_POLICY_VERSION,
+    signing_key: SigningKey | None = None,
+    **narrowing: object,
+) -> str:
+    """签发 capability（测试可注入私钥；生产必须走 issuer 进程）。
+
+    ``narrowing`` 覆写 ``CapabilityIssuer.issue`` 的可选收窄参数
+    （denied_actions / budget_scope / delegation_chain / approval_ref 等），
+    不在本装配层重复声明一遍，避免第二份默认值漂移。
+    """
+    issuer = (
+        CapabilityIssuer(
+            signing_key=signing_key,
+            issuer=get_settings().identity_issuer,
+            audience=CAPABILITY_AUDIENCE,
+            ttl_seconds=_CAPABILITY_TTL_SECONDS,
+        )
+        if signing_key is not None
+        else get_capability_issuer()
+    )
+    return issuer.issue(
+        subject_id=subject_id,
+        tenant_id=tenant_id,
+        organization_id=organization_id,
+        allowed_actions=allowed_actions,
+        project_scope=project_scope,
+        task_id=task_id,
+        workflow_run_id=workflow_run_id,
+        policy_version=policy_version,
+        **narrowing,  # type: ignore[arg-type]
     )

@@ -14,12 +14,20 @@ packages/identity（平台基础设施）与 packages/errors（错误码），
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 
 import jwt
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.errors.error_codes import DomainError, ErrorCode, ErrorRegistry
+from packages.identity.capability import (
+    CAPABILITY_AUDIENCE,
+    Capability,
+    CapabilityError,
+    CapabilityExpiredError,
+    decode_capability,
+)
 from packages.identity.jwks import PublicKeyStore
 from packages.identity.jwt_core import TokenError, decode_token
 from packages.identity.principal import Principal
@@ -29,6 +37,10 @@ PrincipalDependency = Callable[..., Awaitable[Principal]]
 
 # Bearer 认证头解析器（401 由 FastAPI 安全层统一处理）。
 _bearer = HTTPBearer(auto_error=False)
+
+# Capability Token 走独立请求头：与 Bearer 访问令牌分开，
+# 避免把两类受众不同的 JWT 塞进同一个字段造成误用。
+CAPABILITY_HEADER = "X-Capability-Token"
 
 
 def extract_bearer_token(
@@ -44,49 +56,76 @@ def extract_bearer_token(
     return credentials.credentials
 
 
+def _jwt_kid(token: str, *, error_code: ErrorCode) -> str:
+    """读取 JWT header 的 kid；两类令牌共用，但失败错误码由调用方决定。"""
+    try:
+        kid = jwt.get_unverified_header(token).get("kid")
+    except Exception as exc:
+        raise DomainError(error_code, detail="令牌格式非法") from exc
+    if not isinstance(kid, str) or not kid.strip():
+        raise DomainError(error_code, detail="令牌缺少 kid")
+    return kid
+
+
 def build_principal_dependency(
     *,
     key_store: PublicKeyStore,
     issuer: str,
     audience: str,
     revocation_check: Callable[[Request, str], Awaitable[bool]] | None = None,
+    capability_issuer: str | None = None,
+    capability_audience: str = CAPABILITY_AUDIENCE,
+    require_capability: bool = True,
 ) -> PrincipalDependency:
-    """构造一个可注入的 ``get_principal`` FastAPI 依赖工厂。
+    """构造 ``get_principal``：Bearer 身份令牌 + X-Capability-Token 能力令牌。
 
-    参数：
-    - key_store：验签公钥仓储（按 kid 取公钥；不含私钥，B4）。
-    - issuer / audience：令牌签发方与目标受众（严格校验，拒绝跨服务令牌）。
-    - revocation_check：可选 jti 吊销检查（P3-2）。提供时验签成功后仍要
-      查吊销表；缺 jti 的令牌直接拒绝（无法吊销 = 无法止损失）。
+    两类令牌都是 RS256，都按 kid 从**纯公钥**仓储取公钥；受众不同，访问令牌
+    无法被当作 capability 重放。capability 验签成功后挂到 Principal 上，
+    后续所有 ``authorize()`` 调用仍走同一个决策入口，不存在第二套判定。
 
-    返回：一个 ``Depends(get_principal)`` 可用的依赖函数，解析出 Principal。
+    ``revocation_check`` 同时检查访问令牌 jti 与 capability jti；任一被吊销
+    即拒绝。缺 capability 默认是 403（契约里所有动作 token_required=true）。
     """
+
+    async def _verify_capability(request: Request, raw: str | None) -> Capability | None:
+        if raw is None or not raw.strip():
+            if not require_capability:
+                return None
+            raise DomainError(
+                ErrorRegistry.AUTH_SCOPE_DENIED,
+                detail=f"缺少 {CAPABILITY_HEADER} 短时能力凭证",
+            )
+
+        kid = _jwt_kid(raw, error_code=ErrorRegistry.AUTH_SCOPE_DENIED)
+        public_pem = key_store.public_pem(kid)
+        if public_pem is None:
+            raise DomainError(
+                ErrorRegistry.AUTH_SCOPE_DENIED, detail="Capability 签名密钥未知"
+            )
+        try:
+            capability = decode_capability(
+                raw,
+                public_pem=public_pem,
+                issuer=capability_issuer or issuer,
+                audience=capability_audience,
+            )
+        except CapabilityExpiredError as exc:
+            raise DomainError(ErrorRegistry.CAPABILITY_EXPIRED) from exc
+        except CapabilityError as exc:
+            raise DomainError(
+                ErrorRegistry.AUTH_SCOPE_DENIED, detail="Capability Token 无效"
+            ) from exc
+
+        if revocation_check is not None and await revocation_check(request, capability.jti):
+            raise DomainError(ErrorRegistry.CAPABILITY_REVOKED)
+        return capability
 
     async def get_principal(
         request: Request,
         token: str = Depends(extract_bearer_token),
     ) -> Principal:
-        """解析 Authorization Bearer 为可信 Principal（验签 + claim 校验）。
-
-        验签步骤：
-        1. 解码 token header 取 kid（jwt.get_unverified_header）。
-        2. 按 kid 从 KeyStore 取公钥。
-        3. 公钥验签 + issuer/audience/过期校验，构造 Principal。
-        4. 若配置了吊销检查：jti 必须在且未被吊销。
-        任一失败抛 401 AUTH_UNAUTHENTICATED（不泄漏内部细节）。
-        """
-        try:
-            kid = jwt.get_unverified_header(token).get("kid")
-        except Exception as exc:
-            raise DomainError(
-                ErrorRegistry.AUTH_UNAUTHENTICATED, detail="令牌格式非法"
-            ) from exc
-
-        if not kid:
-            raise DomainError(
-                ErrorRegistry.AUTH_UNAUTHENTICATED, detail="令牌缺少 kid"
-            )
-
+        """解析两类令牌为可信 Principal（验签 + claim + 吊销校验）。"""
+        kid = _jwt_kid(token, error_code=ErrorRegistry.AUTH_UNAUTHENTICATED)
         public_pem = key_store.public_pem(kid)
         if public_pem is None:
             raise DomainError(
@@ -115,6 +154,9 @@ def build_principal_dependency(
                     ErrorRegistry.AUTH_UNAUTHENTICATED, detail="令牌已吊销"
                 )
 
-        return principal
+        capability = await _verify_capability(
+            request, request.headers.get(CAPABILITY_HEADER)
+        )
+        return replace(principal, capability=capability)
 
     return get_principal

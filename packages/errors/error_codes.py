@@ -63,7 +63,19 @@ class ErrorRegistry:
         code="AUTH_TOKEN_EXPIRED",
         category=ErrorCategory.AUTH,
         http_status=401,
-        message="CapabilityToken 已过期",
+        message="访问令牌已过期",
+    )
+    CAPABILITY_EXPIRED = ErrorCode(
+        code="CAPABILITY_EXPIRED",
+        category=ErrorCategory.PERMISSION,
+        http_status=403,
+        message="Capability Token 已过期，请重新申请短时能力凭证",
+    )
+    CAPABILITY_REVOKED = ErrorCode(
+        code="CAPABILITY_REVOKED",
+        category=ErrorCategory.PERMISSION,
+        http_status=403,
+        message="Capability Token 已撤销",
     )
 
     # 阶段未启用

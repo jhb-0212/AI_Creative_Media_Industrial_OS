@@ -14,7 +14,7 @@ import uuid
 
 from httpx import AsyncClient
 
-from tests.conftest import make_test_token
+from tests.conftest import make_test_headers
 
 
 async def test_unauthenticated_request_rejected(client: AsyncClient) -> None:
@@ -54,11 +54,11 @@ async def test_wrong_tenant_token_isolated(auth_client: AsyncClient) -> None:
 
     # 另一个租户的 token（tenant_id 不同）。
     other_tenant = uuid.UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
-    other_token = make_test_token(subject_id="other_user", tenant_id=other_tenant)
+    other_headers = make_test_headers(subject_id="other_user", tenant_id=other_tenant)
     # 用另一个租户查询，应 404（RLS 隔离，看不到默认租户的项目）。
     resp = await auth_client.get(
         f"/projects/{eid}",
-        headers={"Authorization": f"Bearer {other_token}"},
+        headers=other_headers,
     )
     assert resp.status_code == 404
 

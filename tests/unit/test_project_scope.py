@@ -27,7 +27,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from apps.api.main import app
-from tests.conftest import TEST_TENANT_ID, make_test_token
+from tests.conftest import TEST_TENANT_ID, make_test_headers
 
 _SHA_A = "e" * 64
 _SHA_B = "f" * 64
@@ -42,7 +42,7 @@ def _client(
     organization_id: str | None = None,
 ) -> AsyncClient:
     """构造带指定范围的客户端（范围来自令牌，不是请求体）。"""
-    token = make_test_token(
+    headers = make_test_headers(
         subject_id=subject,
         roles=roles,
         project_ids=project_ids,
@@ -51,7 +51,7 @@ def _client(
     return AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
-        headers={"Authorization": f"Bearer {token}"},
+        headers=headers,
     )
 
 

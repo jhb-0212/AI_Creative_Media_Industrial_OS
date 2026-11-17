@@ -21,7 +21,7 @@ from services.project_planning.repository._versioning import ConcurrentModificat
 from services.project_planning.repository.script_sqlalchemy_repo import (
     SqlAlchemyScriptRepository,
 )
-from tests.conftest import make_test_token, set_raw_rls_context
+from tests.conftest import make_test_headers, set_raw_rls_context
 
 TEST_TENANT = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
@@ -30,8 +30,7 @@ TEST_TENANT = uuid.UUID("00000000-0000-0000-0000-000000000000")
 async def client() -> AsyncClient:
     """带认证的 client（身份从 JWT 解析，走真实鉴权路径）。"""
     transport = ASGITransport(app=app)
-    token = make_test_token()
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = make_test_headers()
     async with AsyncClient(
         transport=transport, base_url="http://test", headers=headers
     ) as c:

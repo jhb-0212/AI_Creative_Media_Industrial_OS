@@ -20,6 +20,7 @@ from services.asset_service.domain.qc_report import QCReport
 from services.asset_service.repository.asset_repo import AssetRepository
 from services.asset_service.repository.qc_repo import QCReportRepository
 from services.asset_service.service.asset_service import AssetService
+from tests import make_test_capability
 
 _TENANT = uuid.UUID("00000000-0000-0000-0000-000000000000")
 # 资产必须归属具体项目（ADR-R17）；测试主体默认持有全项目范围。
@@ -99,6 +100,7 @@ def _principal(
         organization_id=_TENANT,
         roles=frozenset(roles),
         project_ids=project_ids,
+        capability=make_test_capability(subject, _TENANT),
     )
 
 

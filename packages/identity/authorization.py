@@ -110,6 +110,12 @@ class DecisionReason(StrEnum):
     ROLE_MISMATCH = "ROLE_MISMATCH"
     AGENT_CRITICAL_FORBIDDEN = "AGENT_CRITICAL_FORBIDDEN"
     SELF_APPROVAL_FORBIDDEN = "SELF_APPROVAL_FORBIDDEN"
+    CAPABILITY_MISSING = "CAPABILITY_MISSING"
+    CAPABILITY_SUBJECT_MISMATCH = "CAPABILITY_SUBJECT_MISMATCH"
+    CAPABILITY_TENANT_MISMATCH = "CAPABILITY_TENANT_MISMATCH"
+    CAPABILITY_ORGANIZATION_MISMATCH = "CAPABILITY_ORGANIZATION_MISMATCH"
+    CAPABILITY_ACTION_DENIED = "CAPABILITY_ACTION_DENIED"
+    CAPABILITY_PROJECT_SCOPE_DENIED = "CAPABILITY_PROJECT_SCOPE_DENIED"
     ORGANIZATION_MISMATCH = "ORGANIZATION_MISMATCH"
     PROJECT_SCOPE_DENIED = "PROJECT_SCOPE_DENIED"
     RESOURCE_UNRESOLVED = "RESOURCE_UNRESOLVED"
@@ -217,6 +223,9 @@ class AuthorizationDecision:
     #: 已声明但**此刻无法执行**的检查（如依赖阶段还没有审批对象）。
     #: 与 ``deferred_dimensions`` 分开：维度是"谁执行"（RLS），检查是"何时执行"（资源阶段）。
     deferred_checks: tuple[str, ...] = ()
+    #: 本次判定使用的 capability jti；拒绝时可能因缺 token 为 None。
+    #: 审计需要它把"决策"与"授权服务签发记录"串起来，但不记录 token 原文。
+    capability_jti: str | None = None
 
     @property
     def allowed(self) -> bool:
@@ -235,6 +244,7 @@ class AuthorizationDecision:
             "checked": [dimension.value for dimension in self.checked_dimensions],
             "deferred": [dimension.value for dimension in self.deferred_dimensions],
             "deferred_checks": list(self.deferred_checks),
+            "capability_jti": self.capability_jti,
         }
 
 
@@ -287,6 +297,7 @@ def decide(
             checked_dimensions=tuple(checked),
             deferred_dimensions=tuple(deferred),
             deferred_checks=tuple(deferred_checks),
+            capability_jti=principal.capability.jti if principal.capability else None,
         )
 
     # 1. 契约未配置允许主体：不是"谁都可以"，是"契约缺失"。
@@ -334,6 +345,38 @@ def decide(
                 "申请人与批准人不得为同一主体（职责分离红线）",
             )
 
+    # 5. Capability Token：契约声明 token_required 的动作一律要求独立签发的短时凭证。
+    #
+    #    这是 F3 的运行时执行点。凭证只能收窄 principal，不能代替角色、Agent 红线
+    #    或职责分离；四者都在同一个 decide() 里执行，不存在第二套授权入口。
+    capability = principal.capability
+    if spec.token_required and capability is None:
+        return deny(
+            DecisionReason.CAPABILITY_MISSING,
+            "动作要求 Capability Token，请求未提供（由独立 Authorization Service 签发）",
+        )
+    if capability is not None:
+        if capability.subject_id.strip() != principal.subject_id.strip():
+            return deny(
+                DecisionReason.CAPABILITY_SUBJECT_MISMATCH,
+                "Capability Token 绑定的主体与访问令牌主体不一致",
+            )
+        if capability.tenant_id != str(principal.tenant_id):
+            return deny(
+                DecisionReason.CAPABILITY_TENANT_MISMATCH,
+                "Capability Token 绑定的租户与访问令牌租户不一致",
+            )
+        if capability.organization_id != str(principal.organization_id):
+            return deny(
+                DecisionReason.CAPABILITY_ORGANIZATION_MISMATCH,
+                "Capability Token 绑定的组织与访问令牌组织不一致",
+            )
+        if not capability.allows_action(spec.action_key):
+            return deny(
+                DecisionReason.CAPABILITY_ACTION_DENIED,
+                f"Capability Token 未授权动作 {spec.action_key}（或已显式拒绝）",
+            )
+
     dimensions = spec.scope_dimensions
 
     # 5. 组织维度：契约声明了就必须核对；资源给了但组织未知 → 无法判定即拒绝。
@@ -353,7 +396,7 @@ def decide(
         else:
             checked.append(ScopeDimension.ORGANIZATION)
 
-    # 6. 项目维度：同上，空范围一律拒绝（不做"没有范围就放行"的推断）。
+    # 7. 项目维度：同上，空范围一律拒绝（不做"没有范围就放行"的推断）。
     if ScopeDimension.PROJECT in dimensions:
         if resource is None:
             deferred.append(ScopeDimension.PROJECT)
@@ -367,12 +410,20 @@ def decide(
                 DecisionReason.PROJECT_SCOPE_DENIED,
                 f"项目 {resource.project_id} 不在主体授权范围内",
             )
+        elif capability is not None and not capability.allows_project(
+            resource.project_id,
+            principal_has_all_projects=principal.has_all_projects_scope,
+        ):
+            return deny(
+                DecisionReason.CAPABILITY_PROJECT_SCOPE_DENIED,
+                f"项目 {resource.project_id} 不在 Capability Token 授权范围内",
+            )
         else:
             checked.append(ScopeDimension.PROJECT)
 
     if deferred or deferred_checks:
         reason = DecisionReason.SCOPE_DEFERRED_TO_RLS
-        parts = ["角色匹配"]
+        parts = ["角色与 capability 匹配"]
         if deferred:
             parts.append("范围维度交由 PostgreSQL 行级策略执行")
         if deferred_checks:
@@ -380,7 +431,7 @@ def decide(
         detail = "；".join(parts)
     else:
         reason = DecisionReason.ROLE_AND_SCOPE_VERIFIED
-        detail = "角色、范围与职责分离校验通过"
+        detail = "角色、capability、范围与职责分离校验通过"
     return AuthorizationDecision(
         action_key=spec.action_key,
         effect=DecisionEffect.ALLOW,
@@ -392,6 +443,7 @@ def decide(
         checked_dimensions=tuple(checked),
         deferred_dimensions=tuple(deferred),
         deferred_checks=tuple(deferred_checks),
+        capability_jti=principal.capability.jti if principal.capability else None,
     )
 
 
