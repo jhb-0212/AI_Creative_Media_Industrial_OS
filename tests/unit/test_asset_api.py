@@ -239,3 +239,153 @@ async def test_read_missing_asset_is_404(reader_client: AsyncClient) -> None:
     resp = await reader_client.get(f"/assets/asset_{uuid.uuid4().hex[:12]}")
     assert resp.status_code == 404
     assert resp.json()["error_code"] == "NOT_FOUND"
+
+
+# --------------------------------------------------------------------------- #
+# ASSET.STATUS.CHANGE（F06：APPROVED→GOLD 授权闭环）
+# --------------------------------------------------------------------------- #
+async def test_asset_status_change_to_gold_with_evidence(
+    worker_client: AsyncClient,
+    qc_client: AsyncClient,
+    approver_client: AsyncClient,
+    asset_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    """完整主链：GENERATED→…→APPROVED→GOLD，进入 GOLD 需证据齐备 + 职责分离。"""
+    asset_id = f"asset_{uuid.uuid4().hex[:12]}"
+    created = await worker_client.post(
+        "/assets",
+        json={
+            "asset_type": "IMAGE",
+            "sha256": _SHA,
+            "storage_ref": {"uri": "s3://bucket/frame.png"},
+            "rights_manifest_ref": "rights-manifest-1",
+            "entity_id": asset_id,
+        },
+    )
+    assert created.status_code == 201
+
+    reported = await qc_client.post(
+        f"/assets/{asset_id}/qc-reports",
+        json={
+            "quality_profile_version": "qp-1",
+            "detector_versions": {"blur": "1.0"},
+            "findings": [{"code": "BLUR", "score": 0.12}],
+        },
+    )
+    assert reported.status_code == 201
+
+    approved = await approver_client.post(f"/assets/{asset_id}/approve")
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "APPROVED"
+
+    # 推进到 GOLD：approver（导演）≠ 创建人（worker_asset），职责分离成立；
+    # 权利证据 + QC 证据齐备，转移表 APPROVED→GOLD 有边。
+    to_gold = await approver_client.post(
+        f"/assets/{asset_id}/status",
+        json={"target_status": "GOLD"},
+    )
+    assert to_gold.status_code == 200, to_gold.text
+    assert to_gold.json()["status"] == "GOLD"
+
+    # 持久化核对：GOLD 是终态，转移表无出边，不可原地复活。
+    async with asset_sessionmaker() as session:
+        from sqlalchemy import text
+
+        await session.execute(
+            text("SELECT set_config('app.current_tenant_id', :tid, true)"),
+            {"tid": "00000000-0000-0000-0000-000000000000"},
+        )
+        row = (
+            await session.execute(
+                text(
+                    "SELECT status FROM asset_service.asset_versions WHERE entity_id = :e"
+                ),
+                {"e": asset_id},
+            )
+        ).one()
+    assert row.status == "GOLD"
+
+
+async def test_asset_status_change_illegal_transition_rejected(
+    worker_client: AsyncClient, approver_client: AsyncClient
+) -> None:
+    """GENERATED→GOLD 直接跳：转移表无此边，运行时拒绝（不跳关）。"""
+    asset_id = f"asset_{uuid.uuid4().hex[:12]}"
+    created = await worker_client.post(
+        "/assets",
+        json={
+            "asset_type": "IMAGE",
+            "sha256": _SHA,
+            "storage_ref": {"uri": "s3://bucket/frame.png"},
+            "rights_manifest_ref": "rights-manifest-1",
+            "entity_id": asset_id,
+        },
+    )
+    assert created.status_code == 201
+
+    resp = await approver_client.post(
+        f"/assets/{asset_id}/status",
+        json={"target_status": "GOLD"},
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["error_code"] == "STATE_TRANSITION_DENIED"
+
+
+async def test_asset_status_change_wrong_role_is_403(
+    worker_client: AsyncClient,
+) -> None:
+    """Worker 不在 ASSET.STATUS.CHANGE 允许主体里 → 403（业务前拦截）。"""
+    asset_id = f"asset_{uuid.uuid4().hex[:12]}"
+    created = await worker_client.post(
+        "/assets",
+        json={
+            "asset_type": "IMAGE",
+            "sha256": _SHA,
+            "storage_ref": {"uri": "s3://bucket/frame.png"},
+            "rights_manifest_ref": "rights-manifest-1",
+            "entity_id": asset_id,
+        },
+    )
+    assert created.status_code == 201
+
+    resp = await worker_client.post(
+        f"/assets/{asset_id}/status",
+        json={"target_status": "GOLD"},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error_code"] == "AUTH_SCOPE_DENIED"
+
+
+async def test_asset_status_change_self_promotion_rejected(
+    worker_client: AsyncClient,
+) -> None:
+    """创建人不能自行推进自身资产状态（职责分离，禁止自批）。"""
+    asset_id = f"asset_{uuid.uuid4().hex[:12]}"
+    created = await worker_client.post(
+        "/assets",
+        json={
+            "asset_type": "IMAGE",
+            "sha256": _SHA,
+            "storage_ref": {"uri": "s3://bucket/frame.png"},
+            "rights_manifest_ref": "rights-manifest-1",
+            "entity_id": asset_id,
+        },
+    )
+    assert created.status_code == 201
+
+    # 用「导演」角色但 subject_id 仍是 worker_asset（同一主体）→ 职责分离拒绝。
+    # 这里构造一个 subject 与 created_by 相同但角色为导演的 token。
+    from tests.conftest import make_test_token as _mkt
+
+    token = _mkt(subject_id="worker_asset", roles=["导演"])
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {token}"},
+    ) as self_promoter:
+        resp = await self_promoter.post(
+            f"/assets/{asset_id}/status",
+            json={"target_status": "GOLD"},
+        )
+    assert resp.status_code == 409
+    assert resp.json()["error_code"] == "STATE_TRANSITION_DENIED"

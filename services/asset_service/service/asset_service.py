@@ -29,6 +29,7 @@ from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.identity.principal import Principal
 from packages.identity.separation import require_different_subject
 from packages.shared.outbox_writer import OutboxWriter
+from packages.shared.versioning import ConcurrentModificationError
 from services.asset_service.domain.asset_version import AssetVersion
 from services.asset_service.domain.enums import (
     AssetStatus,
@@ -365,6 +366,97 @@ class AssetService:
                 "approved_by": approved_by,
                 "created_by": asset.created_by,
                 "qc_report_count": report_count,
+                "tenant_id": str(principal.tenant_id),
+            },
+        )
+        return asset
+
+    # ------------------------------------------------------------------ #
+    # ASSET.STATUS.CHANGE
+    # ------------------------------------------------------------------ #
+    async def change_status(
+        self,
+        *,
+        asset_version_id: str,
+        target_status: AssetStatus,
+        changed_by: str,
+        principal: Principal,
+    ) -> AssetVersion:
+        """推进资产状态（ASSET.STATUS.CHANGE）。
+
+        契约要求（F06，AssetVersion 转移表唯一权威）：
+        - 目标状态作参数，转移合法性由 domain/state_machine.py 的
+          ASSET_ALLOWED_TRANSITIONS 运行时校验（未登记转移一律拒绝，31.5）。
+        - 终态 GOLD 不可原地复活（红线）；进入 GOLD 强制证据齐备——
+          APPROVED 前置由转移表保证（仅 APPROVED→GOLD 有边），权利证据
+          （rights_manifest_ref）与 QC 证据（至少一份报告）与
+          ASSET.VERSION.APPROVE 同口径，不新增第二套证据规则。
+        - 职责分离：资产创建人不得自行推进状态（禁止自批）。
+        - 乐观锁：读取时捕获 entity_version，条件更新；并发冲突抛
+          ConcurrentModificationError。
+        - 状态变更与 ASSET_VERSION_STATUS_CHANGED 事件同事务写入（R07）。
+        """
+        changed_by = changed_by.strip()
+        if not changed_by:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR, detail="changed_by 不能为空"
+            )
+
+        asset = await self._assets.get_by_id(asset_version_id)
+        if asset is None:
+            raise DomainError(
+                ErrorRegistry.NOT_FOUND, detail=f"资产版本不存在: {asset_version_id}"
+            )
+
+        # 职责分离：推进人与创建人必须是不同主体（禁止自批，Agent 不能自审）。
+        require_different_subject(
+            actor=changed_by,
+            counterpart=asset.created_by,
+            action_label="ASSET.STATUS.CHANGE",
+            actor_label="推进人",
+            counterpart_label="创建人",
+        )
+
+        # 进入 GOLD 的证据门槛（与 approve 同口径）：权利证据 + QC 证据缺一不可。
+        if target_status is AssetStatus.GOLD:
+            if not asset.rights_manifest_ref:
+                raise DomainError(
+                    ErrorRegistry.STATE_TRANSITION_DENIED,
+                    detail="缺少 rights_manifest_ref：无权利证据不得进入 GOLD",
+                )
+            report_count = await self._qc_reports.count_by_asset(asset.entity_id)
+            if report_count == 0:
+                raise DomainError(
+                    ErrorRegistry.STATE_TRANSITION_DENIED,
+                    detail="缺少 QC 报告：无检测证据不得进入 GOLD",
+                )
+
+        # 固化旧状态再迁移：迁移后 asset.status 已是目标态，若再用它记
+        # from_status 会丢真实来源态。
+        previous_status = asset.status
+        expected_version = asset.entity_version
+        asset.transition_to(
+            target_status, audit_ref=f"status_change:{changed_by}"
+        )
+        try:
+            await self._assets.save(asset, expected_version)
+        except ConcurrentModificationError as exc:
+            raise DomainError(
+                ErrorRegistry.CONCURRENT_MODIFICATION,
+                detail="资产状态并发冲突，请基于最新状态重试",
+            ) from exc
+
+        # 与状态变更同事务写 ASSET_VERSION_STATUS_CHANGED（R07：状态可追溯）。
+        self._outbox_writer.record(
+            aggregate_type="AssetVersion",
+            aggregate_id=asset.entity_id,
+            tenant_id=principal.tenant_id,
+            event_type="ASSET_VERSION_STATUS_CHANGED",
+            payload={
+                "asset_version_id": asset.entity_id,
+                "from_status": previous_status.value,
+                "to_status": target_status.value,
+                "changed_by": changed_by,
                 "tenant_id": str(principal.tenant_id),
             },
         )

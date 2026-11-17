@@ -133,5 +133,37 @@ amendments:
       - '主文档 31.6 主表工作副本在 A1 后未同步 6 个 Phase 1 动作（PROJECT.READ/EPISODE.CREATE/EPISODE.READ/SCRIPT.READ/SCRIPT.LOCK.REQUEST/ASSET.VERSION.READ），本修订一并补齐，使工作副本与派生视图完全一致'
       - '状态变更入口的 DB 迁移（若涉及新列）与真实 PG 环境验证未执行，已在 residual_risk 标注'
 
+  - id: 'V205-R14-A3'
+    title: '资产状态推进入口——AssetVersion 的 APPROVED→GOLD 授权闭环'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: 'docs/audits/2026-11-16-review-round3.md（第三轮深度审查，F06「资产状态不变量未完整落地」）'
+    reason: >-
+      AssetVersion 状态机转移表登记了 APPROVED→GOLD 这条边（契约 8.5 明示
+      GOLD 为黄金标准资产终态，note 要求「QUARANTINED 不得直接转 GOLD，必须
+      补齐证据并经授权复核」），但资产域没有任何 action 能触发这条边——
+      ASSET.VERSION.APPROVE 只覆盖 TECHNICAL_QC→HUMAN_REVIEW→APPROVED 的推进，
+      GENERATED→TECHNICAL_QC 由 QC.REPORT.CREATE 的副作用推进，唯独
+      APPROVED→GOLD 是「有转移边、无入口」的静默缺口（F06）。本修订补登记
+      ASSET.STATUS.CHANGE 动作，目标状态作参数，转移合法性由 AssetVersion
+      转移表运行时校验；进入 GOLD 强制前置证据（APPROVED 前置 + 权利证据 +
+      QC 证据），与 ASSET.VERSION.APPROVE 的证据口径一致，不新增第二套证据规则。
+    adr: 'docs/adr/ADR-R15-contract-freeze-lifecycle.md'
+    approved_by: '项目所有者（本次 F06 应答）'
+    approved_at: '2026-11-18'
+    source_commits: []
+    additions:
+      actions:
+        - action_key: 'ASSET.STATUS.CHANGE'
+          why: '资产状态推进入口；目标状态作参数，运行时按 AssetVersion 转移表校验；进入 GOLD 须 APPROVED 前置 + 权利/QC 证据，终态不可原地复活'
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 79
+      state_machines: 38
+    residual_risks:
+      - 'APPROVED→GOLD 之外，GENERATED→TECHNICAL_QC 仍由 QC.REPORT.CREATE 副作用推进（语义正确：登记首份 QC 报告即进入技术 QC），不属缺口，本修订不强行改为独立动作'
+      - '状态变更入口的 DB 迁移（若涉及新列）与真实 PG 环境验证未执行'
+
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

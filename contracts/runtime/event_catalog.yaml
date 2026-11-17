@@ -72,6 +72,17 @@ events:
       - tenant_id
     contract_ref: contracts/state_machines/state_machines.yaml#AssetVersion
 
+  - event_type: ASSET_VERSION_STATUS_CHANGED
+    aggregate_type: AssetVersion
+    emitted_by: services/asset_service/service/asset_service.py
+    payload_required:
+      - asset_version_id
+      - from_status
+      - to_status
+      - changed_by
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#AssetVersion
+
   - event_type: SCRIPT_IMPORTED
     aggregate_type: ScriptRevision
     emitted_by: services/project_planning/service/script_service.py

@@ -17,10 +17,10 @@
 | 正文类目 | 文件 | 字节 | SHA-256 | 对应章节 |
 |---|---|---|---|---|
 | ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 171999 | `4b063556bad86357232bc9ec62decf6ac10e2cc9f67a7a274868f6573b665945` | 8.x 对象契约 / C.3 数据契约 |
-| ② OpenAPI 草案 | `contracts/openapi/openapi.draft.yaml` | 112166 | `6749f4bd6afc486114baad1d8411c4d9d2be68b0e93d9175b4bda54443cf92eb` | 31.6（由 Action Registry 派生） |
+| ② OpenAPI 草案 | `contracts/openapi/openapi.draft.yaml` | 113513 | `142c37ee1365a234d79af1b0fae1ccff953776fbf45d84c187c5decd2aa67a2e` | 31.6（由 Action Registry 派生） |
 | ③ 状态机 | `contracts/state_machines/state_machines.yaml` | 22253 | `3cece6636d16db18163df58080813129f37ee926efc650f75cc7ca05b5710eef` | 31.5 / 8.6 / 32.6 / 33.3 / 34.7 |
-| ④ Action Registry | `contracts/action_registry/action_registry.yaml` | 42805 | `c2b463ad48fdfa5880028092c541f3a26d7d361bee9adc996b51509977ee7eb9` | 31.6 唯一注册表 |
-| ⑤ 权限矩阵 | `contracts/permission/permission_matrix.yaml` | 4212 | `c3845fbad7d2a326564079bf6e58645d1c5240b953c0784fc90811a28769f0bb` | C.5 / 31.6 |
+| ④ Action Registry | `contracts/action_registry/action_registry.yaml` | 43389 | `12d16db473668e426a2f59df442717aac6dbbdb2f94ea38a3807b564aa124afd` | 31.6 唯一注册表 |
+| ⑤ 权限矩阵 | `contracts/permission/permission_matrix.yaml` | 4212 | `c45a96cbf790568527b6a42a06fc4e20d5228f166b2d8e98d3abce7dd5709f6c` | C.5 / 31.6 |
 | ⑥ 预算与成本口径 | `contracts/budget/budget_caliber.yaml` | 2511 | `29e1d7d470f115ff41b07daaebfb198ccea9246316a2dd4b43a28b52596a0aef` | C.2 / 34.6 |
 | ⑦ 指标字典 | `contracts/metrics/metric_dictionary.yaml` | 7567 | `fb909bccf1da14c74efaad77d77cf73d86c34126b41052def1d0185e4ea4f8cb` | 31.10 / 34.13 |
 | ⑧ 冻结包清单 | `contracts/phase0/phase0_manifest.md` | — | 自指不登记，见 `phase0_manifest.md.sha256` | 31.11 契约证据清单 |
@@ -32,6 +32,7 @@
 
 - `V205-R14-A1`
 - `V205-R14-A2`
+- `V205-R14-A3`
 
 契约名称全集必须精确等于「基线清单 ∪ 已批准修订」，由
 `scripts/freeze_manifest.py --check` 逐名称判定（不是只看数量）。

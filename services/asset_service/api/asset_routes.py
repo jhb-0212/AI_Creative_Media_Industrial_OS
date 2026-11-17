@@ -26,7 +26,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from packages.shared.contract_models import contract_model
 from packages.shared.outbox_writer import SqlAlchemyOutboxWriter
 from packages.shared.unit_of_work import UnitOfWork
-from services.asset_service.domain.enums import DeviationClass, IntentMatchStatus
+from services.asset_service.domain.enums import (
+    AssetStatus,
+    DeviationClass,
+    IntentMatchStatus,
+)
 from services.asset_service.repository.sqlalchemy_asset_repo import (
     SqlAlchemyAssetRepository,
 )
@@ -81,6 +85,15 @@ class CreateQCReportRequest(BaseModel):
     intent_match_status: IntentMatchStatus | None = None
     human_decision: str | None = Field(default=None, max_length=32)
     qc_report_id: str | None = Field(default=None, max_length=64)
+
+
+class ChangeAssetStatusRequest(BaseModel):
+    """资产状态变更请求体（ASSET.STATUS.CHANGE）。
+
+    目标状态作参数；转移合法性由领域状态机运行时校验，非客户端可绕。
+    """
+
+    target_status: AssetStatus = Field(..., description="目标状态")
 
 
 def _build_service(session: AsyncSession) -> AssetService:
@@ -165,6 +178,29 @@ async def approve_asset_version(
     """批准资产版本（职责分离 + 权利/QC 证据齐备；TECHNICAL_QC 先过 HUMAN_REVIEW）。"""
     asset = await service.approve(
         asset_version_id=asset_version_id, principal=principal
+    )
+    await uow.commit()
+    return asset.to_dict()
+
+
+@router.post("/{asset_version_id}/status", response_model=_AssetVersionResponse)
+async def change_asset_status(
+    asset_version_id: str,
+    body: ChangeAssetStatusRequest,
+    principal: Principal = Depends(require_role("ASSET.STATUS.CHANGE")),
+    uow: UnitOfWork = Depends(get_asset_tenant_uow),
+    service: AssetService = Depends(_get_service),
+) -> dict[str, Any]:
+    """推进资产状态（ASSET.STATUS.CHANGE）。
+
+    changed_by = 当前 Principal；目标状态合法性由领域状态机校验；
+    进入 GOLD 强制证据齐备，终态不可原地复活。
+    """
+    asset = await service.change_status(
+        asset_version_id=asset_version_id,
+        target_status=body.target_status,
+        changed_by=principal.subject_id,
+        principal=principal,
     )
     await uow.commit()
     return asset.to_dict()
