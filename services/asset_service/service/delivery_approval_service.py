@@ -77,6 +77,25 @@ class DeliveryApprovalService:
                 ),
             )
 
+        # R4-2：事件必须携带项目归属，且与清单项目一致。缺失 project_id 的旧
+        # 事件或项目不符的事件一律拒绝推进——绝不假设"无项目字段 = 全部项目"。
+        if event.project_id is None:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=(
+                    f"交付清单 {manifest_id} 的审批事件缺少项目归属（project_id），"
+                    "拒绝推进（旧事件或伪造事件均不可用于推进）"
+                ),
+            )
+        if event.project_id != manifest.project_id:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=(
+                    f"交付清单 {manifest_id} 的审批事件项目归属 {event.project_id!r} "
+                    f"与清单项目 {manifest.project_id!r} 不一致，拒绝跨项目推进"
+                ),
+            )
+
         audit_ref = str(event.event_id)
 
         # 幂等：同一事件重放 → 直接返回；不同结论/事件试图再推进终态 → 拒绝。

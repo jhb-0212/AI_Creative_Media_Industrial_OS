@@ -93,6 +93,7 @@ async def _seed_approval_event(
         "action_key": "DELIVERY.MANIFEST.APPROVE",
         "resource_type": "DeliveryManifest",
         "resource_id": manifest_id,
+        "project_id": _PROJECT,
         "decision": "APPROVED",
         "votes": [
             {"group_name": "delivery_owner", "decision": "APPROVE"},

@@ -241,6 +241,35 @@ async def test_start_rejects_when_binding_text_drifts_from_contract(
     assert not outbox.events
 
 
+async def test_start_rejects_phase_gated_action() -> None:
+    """R4-2：目标动作 PHASE_GATED（未开放）→ 拒绝发起票据，不落票据。"""
+    service, store, outbox = _service()
+    with pytest.raises(DomainError) as exc:
+        await _start(
+            service,
+            target_action_key="COMMUNITY.REUSE.APPROVE",
+            resource_type="ReuseRequest",
+            resource_id="reuse-1",
+        )
+    assert exc.value.error_code is ErrorRegistry.PHASE_NOT_ENABLED
+    assert not store.tickets
+    assert not outbox.events
+
+
+async def test_start_rejects_resource_type_mismatch() -> None:
+    """R4-2：请求的 resource_type 与目标动作契约不符 → 拒绝。"""
+    service, store, outbox = _service()
+    with pytest.raises(DomainError) as exc:
+        await _start(
+            service,
+            target_action_key=_TARGET,
+            resource_type="NotTheRightType",
+        )
+    assert exc.value.error_code is ErrorRegistry.VALIDATION_ERROR
+    assert not store.tickets
+    assert not outbox.events
+
+
 class ApprovalBindingStub:
     """契约原文已漂移的绑定桩（contract_text 故意写错）。"""
 

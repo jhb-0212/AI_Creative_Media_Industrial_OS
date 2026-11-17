@@ -70,6 +70,25 @@ class ApprovalService:
                 ),
             )
 
+        # R4-2：为目标动作状态与资源类型把关，拒绝"为尚未开放的动作建票据"
+        # 与"用 A 动作的绑定去审批 B 类型的资源"。
+        if spec.is_phase_gated:
+            raise DomainError(
+                ErrorRegistry.PHASE_NOT_ENABLED,
+                detail=(
+                    f"动作 {target_action_key} 当前状态为 {spec.status!r}，"
+                    "尚未开放，不得发起审批票据"
+                ),
+            )
+        if spec.resource_type != resource_type:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=(
+                    f"目标动作 {target_action_key} 的契约资源类型是 "
+                    f"{spec.resource_type!r}，与请求的 {resource_type!r} 不一致"
+                ),
+            )
+
         authorize(
             principal,
             "WORKFLOW.START_APPROVAL",
@@ -288,6 +307,9 @@ class ApprovalService:
                 "action_key": flow.action_key,
                 "resource_type": flow.resource_type,
                 "resource_id": flow.resource_id,
+                # R4-2：事件必须携带项目归属，消费端才能比对目标资源的项目，
+                # 反驳"在项目 A 发起、指向项目 B 资源"的跨项目审批链。
+                "project_id": flow.project_id,
                 "decision": status.value,
                 "votes": [
                     {

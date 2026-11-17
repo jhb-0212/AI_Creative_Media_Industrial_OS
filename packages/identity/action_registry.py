@@ -126,6 +126,7 @@ def _load_registry() -> dict[str, ActionSpec]:
                 token_required=bool(action.get("token_required", False)),
                 approval_requirement=str(action.get("approval_requirement", "")),
                 allowed_principals_text=resolved_text,
+                status=str(action.get("status", "ACTIVE")),
             )
         return registry
     except DomainError:

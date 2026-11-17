@@ -64,6 +64,7 @@ def _event(
     event_id: uuid.UUID = uuid.UUID("00000000-0000-0000-0000-0000000000e1"),
     decision: str = "APPROVED",
     resource_id: str = "manifest-1",
+    project_id: str | None = _PROJECT,
 ) -> ApprovalCompletedEvent:
     return ApprovalCompletedEvent(
         event_id=event_id,
@@ -77,6 +78,7 @@ def _event(
         ),
         occurred_at=datetime.now(UTC),
         tenant_id=_TENANT,
+        project_id=project_id,
     )
 
 
@@ -187,6 +189,28 @@ async def test_rejected_event_refuses_to_promote() -> None:
     service, repo, outbox = _service(event=_event(decision="REJECTED"))
     with pytest.raises(DomainError):
         await service.consume_approval(manifest_id="manifest-1")
+    assert repo.save_calls == 0
+    assert outbox.events == []
+
+
+async def test_event_project_mismatch_refuses_to_promote() -> None:
+    """R4-2：事件项目归属与清单不一致 → 拒绝跨项目推进。"""
+    event = _event(project_id="other-project")
+    service, repo, outbox = _service(event=event)
+    with pytest.raises(DomainError) as exc:
+        await service.consume_approval(manifest_id="manifest-1")
+    assert exc.value.error_code is ErrorRegistry.VALIDATION_ERROR
+    assert repo.save_calls == 0
+    assert outbox.events == []
+
+
+async def test_event_missing_project_refuses_to_promote() -> None:
+    """R4-2：事件缺少项目归属（旧事件/伪造）→ 拒绝推进，绝不默认放行。"""
+    event = _event(project_id=None)
+    service, repo, outbox = _service(event=event)
+    with pytest.raises(DomainError) as exc:
+        await service.consume_approval(manifest_id="manifest-1")
+    assert exc.value.error_code is ErrorRegistry.VALIDATION_ERROR
     assert repo.save_calls == 0
     assert outbox.events == []
 

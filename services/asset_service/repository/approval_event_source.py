@@ -28,6 +28,10 @@ class ApprovalCompletedEvent:
     votes: tuple[dict[str, str], ...]
     occurred_at: datetime
     tenant_id: UUID
+    #: 审批票据发起的项目归属（R4-2：消费端用它比对目标资源，拒绝跨项目推进）。
+    #: 旧事件（升级前落库）可能没有该字段，因此允许为 None，消费端按 fail-closed
+    #: 处理（缺失即拒绝推进，绝不假设"没有项目字段 = 全部项目"）。
+    project_id: str | None = None
 
 
 class ApprovalEventSource(ABC):

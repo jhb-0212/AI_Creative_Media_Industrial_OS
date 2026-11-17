@@ -59,6 +59,7 @@ class SqlAlchemyApprovalEventSource(ApprovalEventSource):
 def _to_event(model: OutboxEventModel) -> ApprovalCompletedEvent:
     """ORM -> 领域事件视图。"""
     payload = model.payload
+    project_id_raw = payload.get("project_id")
     return ApprovalCompletedEvent(
         event_id=model.event_id,
         action_key=str(payload.get("action_key", "")),
@@ -68,6 +69,7 @@ def _to_event(model: OutboxEventModel) -> ApprovalCompletedEvent:
         votes=tuple(payload.get("votes", ())),
         occurred_at=model.occurred_at,
         tenant_id=model.tenant_id,
+        project_id=str(project_id_raw) if project_id_raw is not None else None,
     )
 
 

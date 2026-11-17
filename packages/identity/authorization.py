@@ -159,6 +159,10 @@ class ActionSpec:
     allowed_principals: frozenset[str]
     token_required: bool
     approval_requirement: str
+    #: 动作生命周期状态（来自 Action Registry 的 ``status``）。默认 ``ACTIVE``
+    #: 仅用于测试构造；运行时加载器必须显式读取契约值（缺失即视为 ACTIVE 的
+    #: 宽松默认会造成"漏配即放行"，故加载器对缺失字段另有 fail-fast 校验）。
+    status: str = "ACTIVE"
     #: 原始 ``allowed_principals`` 文本（保留它才能识别联合审批标记，
     #: 解析后的集合已经把 AND 语义抹平了）。
     allowed_principals_text: str = ""
@@ -170,6 +174,17 @@ class ActionSpec:
     @property
     def is_critical(self) -> bool:
         return self.risk_level is RiskLevel.CRITICAL
+
+    @property
+    def is_phase_gated(self) -> bool:
+        """是否为阶段未启用（``PHASE_GATED``）的动作。
+
+        用前缀匹配而非精确相等：契约里 status 是描述性文本（如
+        ``PHASE_GATED（Phase 2）`` / ``PHASE_GATED（Phase 3）``），括号内是
+        启用阶段说明。凡以 ``PHASE_GATED`` 开头的动作都不得在运行时发起，
+        这正是 R4-2 要堵住的"为尚未开放的动作建票据"绕过路径。
+        """
+        return self.status.startswith("PHASE_GATED")
 
     @property
     def requires_joint_approval(self) -> bool:
