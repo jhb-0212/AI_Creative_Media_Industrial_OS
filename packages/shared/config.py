@@ -114,6 +114,10 @@ class Settings(BaseSettings):
     identity_public_key_pem: SecretStr = SecretStr("")
     # JWKS 文档路径（验签用）：公钥的另一种分发形态，支持多个 kid（密钥轮换）。
     identity_jwks_file: str = ""
+    # JWKS 热轮换轮询间隔（秒）：>0 且验签公钥来自 JWKS 文件（而非 PEM 环境变量）
+    # 时，API 进程周期性重读文件，文档变化即整体替换验签公钥（ADR-R29）。
+    # 默认 0 = 关闭：PEM 来源的轮换本来伴随进程重启，热刷新只对文件来源有意义。
+    identity_jwks_refresh_seconds: int = 0
 
     # 可观测
     otel_exporter_otlp_endpoint: str = ""

@@ -25,6 +25,7 @@ from fastapi import Depends, Request
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.identity.enforcement import authorize
+from packages.identity.jwks import PublicKeyStore
 from packages.identity.principal import Principal
 from packages.identity.token_revocation import is_token_revoked
 from packages.shared.config import get_settings
@@ -84,6 +85,46 @@ async def get_principal(
 ) -> Principal:
     """认证依赖：Bearer → Principal（验签 + issuer/audience 校验 + jti 吊销检查）。"""
     return await _principal_authenticator()(request, token)
+
+
+def reload_verification_keys_if_file_changed() -> bool:
+    """重读 JWKS 文件：文档变化时整体替换验签公钥与认证器（密钥轮换闭环，ADR-R29）。
+
+    轮换闭环的另一半：签发端把新公钥追加进 JWKS 文件（多 kid 共存）后，
+    验签进程在下一个轮询周期内拾取，无需重启——旧 kid 在共存期内仍可验签，
+    旧令牌自然过期后签发端再移除旧 kid，完成一次无停机轮换。
+
+    前提条件（任一不满足即返回 False，不做任何事）：
+
+    - ``IDENTITY_PUBLIC_KEY_PEM`` 为空：PEM 来自环境注入，环境级轮换本来就
+      伴随进程重启；同时配置两种来源时热刷新会制造"文件盖过 PEM"的第二条
+      公钥来源，破坏 ``get_public_key_store`` 的来源优先级语义。
+    - ``IDENTITY_JWKS_FILE`` 已配置：没有文件就没有可重读的轮换载体。
+
+    失败语义（fail-closed 且无损）：重读或解析失败时异常原样抛出——此时
+    **缓存尚未清空**，验签继续用旧公钥，行为等同"本轮轮换未发生"。调用方
+    （刷新循环）负责记录日志，绝不静默吞掉。
+
+    两个缓存必须同时失效：``get_public_key_store``（公钥仓储）与
+    ``_principal_authenticator``（捕获了公钥仓储的认证器）。只清前者会让
+    认证器继续持有旧仓储引用，轮换等于没发生——这是本函数存在的核心原因。
+    """
+    settings = get_settings()
+    if settings.identity_public_key_pem.get_secret_value().strip():
+        return False
+    jwks_file = settings.identity_jwks_file.strip()
+    if not jwks_file:
+        return False
+
+    # 先在缓存外构建候选仓储：文件损坏 / 格式非法在这里抛出，
+    # 不会影响任何已生效的验签状态。
+    candidate = PublicKeyStore.from_jwks_file(jwks_file)
+    if candidate.jwks() == get_public_key_store().jwks():
+        return False
+
+    get_public_key_store.cache_clear()
+    _principal_authenticator.cache_clear()
+    return True
 
 # RLS 工作单元：按域绑定连接池，注入租户上下文后提供 UoW。
 get_project_uow = build_tenant_uow_dependency(
@@ -159,5 +200,6 @@ __all__ = [
     "get_read_shot_uow",
     "get_shot_uow",
     "get_workflow_uow",
+    "reload_verification_keys_if_file_changed",
     "require_action",
 ]

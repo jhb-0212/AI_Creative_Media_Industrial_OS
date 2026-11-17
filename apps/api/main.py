@@ -10,12 +10,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
+import json
 import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 from fastapi import FastAPI, Header, Request
@@ -44,6 +46,7 @@ from packages.shared.metrics import (
 from packages.shared.rate_limit import RateLimitDecision
 from packages.telemetry.tracing import setup_telemetry
 from services.identity_access import get_public_key_store
+from services.identity_access.deps import reload_verification_keys_if_file_changed
 
 settings = get_settings()
 setup_logging(settings.log_level)
@@ -62,16 +65,64 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     为什么放在 lifespan 而不是模块导入时：导入期校验会误伤"只需要路由表"的
     用法（OpenAPI 导出、契约检查、路由表单测），让它们因为一个无关的密钥配置
     而失败。启动点是"这个进程要开始接流量"的唯一时刻，配置缺失必须在这里挡下。
+
+    **JWKS 热轮换**（ADR-R29）：验签公钥来自 JWKS 文件且
+    ``IDENTITY_JWKS_REFRESH_SECONDS`` > 0 时，启动轮询任务周期性重读文件，
+    文档变化即整体替换验签公钥——签发端追加新 kid 后验签端无重启拾取。
     """
     assert_no_signing_key_in_api_process(settings)
     get_public_key_store()
-    async with database_lifespan(app):
-        # 跨域资源归属解析端口（组合根装配）：审批发起时校验目标资源
-        # 存在且属于票据项目（R4-2 收口）。池就绪后才可构造。
-        app.state.resource_ownership_port = CompositeResourceOwnershipPort(
-            app.state.pools
-        )
-        yield
+    jwks_refresh_task = _start_jwks_refresh_if_configured()
+    try:
+        async with database_lifespan(app):
+            # 跨域资源归属解析端口（组合根装配）：审批发起时校验目标资源
+            # 存在且属于票据项目（R4-2 收口）。池就绪后才可构造。
+            app.state.resource_ownership_port = CompositeResourceOwnershipPort(
+                app.state.pools
+            )
+            yield
+    finally:
+        if jwks_refresh_task is not None:
+            jwks_refresh_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await jwks_refresh_task
+
+
+def _start_jwks_refresh_if_configured() -> asyncio.Task[None] | None:
+    """按配置启动 JWKS 热轮换轮询任务（不满足前提返回 None，不启动）。
+
+    前提与 ``reload_verification_keys_if_file_changed`` 一致：验签公钥必须
+    来自 JWKS 文件（PEM 来源轮换伴随进程重启，热刷新无意义）。
+    """
+    if settings.identity_jwks_refresh_seconds <= 0:
+        return None
+    if settings.identity_public_key_pem.get_secret_value().strip():
+        return None
+    if not settings.identity_jwks_file.strip():
+        return None
+    return asyncio.create_task(
+        _jwks_refresh_loop(settings.identity_jwks_refresh_seconds)
+    )
+
+
+async def _jwks_refresh_loop(interval_seconds: int) -> None:
+    """周期性重读 JWKS 文件，轮换发生时留下可追溯日志。
+
+    单次失败只记日志、不影响下一轮：公钥仓储未变更前验签继续用旧密钥，
+    行为等同"该轮轮换未发生"（fail-closed 且无损）。
+    """
+    logger.info(
+        "jwks_refresh_loop_started",
+        interval_seconds=interval_seconds,
+        jwks_file=settings.identity_jwks_file,
+    )
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            if reload_verification_keys_if_file_changed():
+                logger.info("jwks_rotated", jwks_file=settings.identity_jwks_file)
+        except Exception:
+            logger.error("jwks_refresh_failed", exc_info=True)
 
 
 app = FastAPI(
@@ -112,8 +163,12 @@ app.include_router(gate_router)
 app.include_router(workflow_router)
 
 
-# 探针与指标端点不参与限流：编排系统高频抓取，被限流会误判实例不可用。
-_PROBE_PATHS = frozenset({"/health", "/readyz", "/metrics"})
+# 探针、指标与 JWKS 发布端点不参与限流：探针被编排系统高频抓取，
+# JWKS 被外部验签方在令牌风暴期间高频拉取——被限流会把"密钥分发正常"
+# 误判成"实例不可用/密钥源失效"，放大而非缓解故障。
+_RATE_LIMIT_EXEMPT_PATHS = frozenset(
+    {"/health", "/readyz", "/metrics", "/.well-known/jwks.json"}
+)
 
 
 @app.middleware("http")
@@ -131,7 +186,7 @@ async def request_guard_middleware(
     status_code = 500
 
     try:
-        if request.url.path not in _PROBE_PATHS:
+        if request.url.path not in _RATE_LIMIT_EXEMPT_PATHS:
             limiter = getattr(app.state, "rate_limiter", None)
             if limiter is not None:
                 decision: RateLimitDecision = await limiter.acquire(
@@ -348,6 +403,38 @@ async def metrics() -> Response:
     控制（只允许监控网段访问），不放业务鉴权里做单点例外。
     """
     return metrics_response()
+
+
+# JWKS 文档响应的缓存时长：外部验签方在此间隔内可放心使用本地副本，
+# 轮换时最迟一个 max-age 拾取新公钥（与默认刷新间隔同一量级）。
+_JWKS_CACHE_MAX_AGE_SECONDS = 300
+
+
+@app.get("/.well-known/jwks.json", tags=["system"], include_in_schema=False)
+async def jwks_document(
+    if_none_match: str | None = Header(default=None),
+) -> Response:
+    """发布验签公钥集（RFC 7517 JWKS，ADR-R29）。
+
+    只含公钥：文档来自 ``get_public_key_store()``——与验签路径同一个来源、
+    同一份事实，不存在"发布的公钥"与"验签的公钥"两个版本。发布、验签
+    同源意味着热轮换后本端点无需任何额外动作就自动反映新公钥集。
+
+    不鉴权是标准做法（公钥本身可公开分发），配合 ETag/304 与
+    ``Cache-Control`` 让消费方按标准 HTTP 缓存语义刷新。
+    """
+    document = get_public_key_store().jwks()
+    body = json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    etag = f'"sha256:{hashlib.sha256(body).hexdigest()}"'
+    headers = {
+        "ETag": etag,
+        "Cache-Control": f"public, max-age={_JWKS_CACHE_MAX_AGE_SECONDS}",
+    }
+    if if_none_match is not None and if_none_match.strip() == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(content=body, media_type="application/json", headers=headers)
 
 
 @app.get("/errors/{code}", tags=["system"], include_in_schema=False)
