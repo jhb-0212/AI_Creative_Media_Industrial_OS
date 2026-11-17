@@ -179,3 +179,22 @@ ShotVisualPlan 视觉方案、ConstraintPack 硬约束管理、镜头版本及�
 迁移执行，回退为 `alembic downgrade` 删除 `shot_planning` schema 与角色（与
 ADR-R16 第 6 节同口径：集群级角色在多库授权时 DROP ROLE 会拒绝，迁移 docstring
 须写明）。基线正文修订的回退为冻结流程的 `revert` 语义，见 freeze_manifest 契约。
+
+
+## 8. 附录：ShotChanged Event 归属核对（2026-11-17，A5 residual_risk 收口）
+
+**核对结论**：`ShotChanged Event` 是第 14.2 节矩阵「主要对外契约」列的
+**概念事件**——基线全文仅此一处出现，无触发条件、无 payload 定义；运行时
+零代码引用（grep 0 命中），事件目录（event_catalog.yaml）未登记。
+
+这不是口径漂移，而是两类契约的层次差异：
+
+- 事件目录只登记**真实发出**的运行时事件（双向校验：登记的必须真被发出）；
+- 矩阵「对外契约」列描述模块的**契约面**，其中部分事件（ShotChanged、
+  PrevizVersionCreated 等）尚未有实现承载，与 Action Registry 的
+  `not_implemented` 同属"契约已定义、实现未落地"。
+
+**处置**：A5 已把该事件在矩阵中的归属随镜头域移至 Shot Planning 行，与
+代码事实（镜头域拥有镜头内容变更）一致；运行时落地依赖「镜头内容变更
+传播」业务需求出现，届时由 shot_planning 域发布并登记事件目录。在此之前
+**不登记事件目录**——登记了就是台账撒谎。

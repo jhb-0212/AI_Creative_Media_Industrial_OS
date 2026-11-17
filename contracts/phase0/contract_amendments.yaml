@@ -267,8 +267,8 @@ amendments:
       schema_objects: 82
       state_machines: 39
     residual_risks:
-      - 'ShotChanged Event 的归属随镜头域移至 Shot Planning 行；事件目录中该事件若由编排域发布需在 Phase 1 后续核对发布方实现'
-      - '外部主文档副本（工作台根目录）与 docs/baseline 冻结副本需人工保持同步，后续可考虑以冻结副本为唯一权威源'
+      - 'ShotChanged Event 归属已随镜头域移至 Shot Planning 行；2026-11-17 核对（ADR-R27 §8）：该事件是矩阵概念事件（基线仅此一处、无语义定义、运行时零引用），按事件目录双向校验规则不得预先登记，待镜头内容变更传播需求落地时由 shot_planning 发布并登记'
+      - '2026-11-17 收口：docs/baseline 冻结副本确立为唯一权威源，工作台根目录主文档副本是其投影；scripts/sync_baseline_copy.py 提供 --check/--sync 人工收尾校验（外部副本在仓库外，不进 CI）'
 
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []
