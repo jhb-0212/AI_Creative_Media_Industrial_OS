@@ -15,10 +15,8 @@ import asyncio
 import contextlib
 import signal
 
-from sqlalchemy.ext.asyncio import create_async_engine
-
 from packages.shared.config import get_process_settings
-from packages.shared.database import build_relay_database_url, create_sessionmaker
+from packages.shared.database import create_relay_engine, create_sessionmaker
 from packages.shared.logging import get_logger, setup_logging
 from workers.relay.consumer import OutboxRelay
 from workers.relay.handlers import HANDLERS
@@ -41,15 +39,10 @@ async def _run_forever(relay: OutboxRelay, interval: float, stop: asyncio.Event)
 async def _main_async(*, interval: float, batch_size: int, once: bool) -> None:
     settings = get_process_settings("relay")
     # relay 用专用角色 outbox_relay_role 连接（非 app_role），数据库层隔离其
-    # 越界写业务表的可能。连接池参数与 API 一致，为高并发预留。
-    engine = create_async_engine(
-        build_relay_database_url(),
-        echo=False,
-        pool_size=10,
-        max_overflow=20,
-        pool_pre_ping=True,
-        pool_recycle=1800,
-    )
+    # 越界写业务表的可能。引擎、DSN 角色与连接池参数都来自**同一份** relay
+    # 进程配置（create_relay_engine(settings)）——不在入口另复制一遍 pool 参数，
+    # 也不让 DSN 构造回落到 api 角色的全局配置（审查 P1-04 / R7 的根因）。
+    engine = create_relay_engine(settings)
     sessionmaker = create_sessionmaker(engine)
     # 兜底处理器：配了 webhook 才存在。没配时事件保持未投递（积压可见），
     # 而不是被「成功」丢弃。

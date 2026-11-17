@@ -57,6 +57,23 @@ AUTH_TABLE = "revoked_tokens"
 ALEMBIC_VERSION = "public.alembic_version"
 
 
+def _roles() -> tuple[str, str, str]:
+    """返回 (project_planning, asset_service, app) 三个角色名，唯一来源是配置。
+
+    审查 R6：角色名在配置里可改（``POSTGRES_*_USER``），迁移若硬编码角色名，
+    部署时改名就会「迁移建了 A 角色、进程连 B 角色」——权限边界与运行时角色
+    脱节。三个名字与 DSN 构造（packages/shared/database.py）同源。
+    """
+    from packages.shared.config import get_settings
+
+    settings = get_settings()
+    return (
+        settings.postgres_project_planning_user,
+        settings.postgres_asset_service_user,
+        settings.postgres_app_user,
+    )
+
+
 def _domain_password(field: str, env_name: str) -> str:
     """业务域角色口令的唯一来源：settings（环境变量 / 密钥管理）。
 
@@ -156,61 +173,101 @@ def upgrade() -> None:
     asset_password = _domain_password(
         "postgres_asset_service_password", "POSTGRES_ASSET_SERVICE_PASSWORD"
     )
+    project_role, asset_role, app_role = _roles()
 
     # 1. 创建业务域角色（幂等）。
-    _create_role_if_absent(PROJECT_PLANNING_ROLE, project_password)
-    _create_role_if_absent(ASSET_SERVICE_ROLE, asset_password)
+    _create_role_if_absent(project_role, project_password)
+    _create_role_if_absent(asset_role, asset_password)
 
     # 2. 授予各业务域只写自己的 schema。
-    _grant_business_schema(PROJECT_PLANNING_ROLE, "project_planning")
-    _grant_business_schema(ASSET_SERVICE_ROLE, "asset_service")
+    _grant_business_schema(project_role, "project_planning")
+    _grant_business_schema(asset_role, "asset_service")
 
-    # 2b. 收回 asset_service_role 对 append-only 表的越权 DML（继承
+    # 2b. 收回 asset_role 对 append-only 表的越权 DML（继承
     #     b7c8d9e0f1a2 的授权基线：qc_reports 不可 UPDATE/DELETE、
     #     asset_versions 不可 DELETE），不因拆角色放大授权面。
-    _revoke_append_only_overreach(ASSET_SERVICE_ROLE)
+    _revoke_append_only_overreach(asset_role)
 
     # 3. 共享基础设施：outbox 事件总线（同事务投递）与 auth 吊销表（只读）。
-    _grant_outbox_write(PROJECT_PLANNING_ROLE)
-    _grant_outbox_write(ASSET_SERVICE_ROLE)
-    _grant_auth_read(PROJECT_PLANNING_ROLE)
-    _grant_auth_read(ASSET_SERVICE_ROLE)
+    _grant_outbox_write(project_role)
+    _grant_outbox_write(asset_role)
+    _grant_auth_read(project_role)
+    _grant_auth_read(asset_role)
 
     # 4. 就绪探针元数据：两角色均需读 public.alembic_version（/readyz）。
-    _grant_revision_read(PROJECT_PLANNING_ROLE)
-    _grant_revision_read(ASSET_SERVICE_ROLE)
+    _grant_revision_read(project_role)
+    _grant_revision_read(asset_role)
 
     # 5. 收口：回收 app_role 的越界权限。app_role 不再被业务域使用
     #    （新连接池改用 project_planning_role / asset_service_role），
     #    移除其对 asset_service / auth / project_planning 的权限，避免旧角色
     #    残留越界授权面，彻底终结单一角色跨域读写。
-    op.execute("REVOKE ALL ON ALL TABLES IN SCHEMA asset_service FROM app_role")
-    op.execute("REVOKE ALL ON ALL SEQUENCES IN SCHEMA asset_service FROM app_role")
-    op.execute("REVOKE USAGE ON SCHEMA asset_service FROM app_role")
-    op.execute("REVOKE ALL ON ALL TABLES IN SCHEMA project_planning FROM app_role")
-    op.execute("REVOKE ALL ON ALL SEQUENCES IN SCHEMA project_planning FROM app_role")
-    op.execute("REVOKE USAGE ON SCHEMA project_planning FROM app_role")
-    op.execute('REVOKE ALL ON TABLE "auth"."revoked_tokens" FROM app_role')
-    op.execute('REVOKE USAGE ON SCHEMA "auth" FROM app_role')
-    op.execute(f"REVOKE SELECT ON {ALEMBIC_VERSION} FROM app_role")
+    #
+    #    注意：outbox 的写权限在此**不重复回收**（本迁移只收自己授出的边界），
+    #    由迁移 c1f2e3d4a5b6 专门收口 app_role 的 outbox 写权限（审查 P1-02），
+    #    使「谁收回哪块」各自有据、降级时不会互相踩。
+    op.execute(f"REVOKE ALL ON ALL TABLES IN SCHEMA asset_service FROM {app_role}")
+    op.execute(f"REVOKE ALL ON ALL SEQUENCES IN SCHEMA asset_service FROM {app_role}")
+    op.execute(f"REVOKE USAGE ON SCHEMA asset_service FROM {app_role}")
+    op.execute(f"REVOKE ALL ON ALL TABLES IN SCHEMA project_planning FROM {app_role}")
+    op.execute(f"REVOKE ALL ON ALL SEQUENCES IN SCHEMA project_planning FROM {app_role}")
+    op.execute(f"REVOKE USAGE ON SCHEMA project_planning FROM {app_role}")
+    op.execute(f'REVOKE ALL ON TABLE "{AUTH_SCHEMA}"."{AUTH_TABLE}" FROM {app_role}')
+    op.execute(f'REVOKE USAGE ON SCHEMA "{AUTH_SCHEMA}" FROM {app_role}')
+    op.execute(f"REVOKE SELECT ON {ALEMBIC_VERSION} FROM {app_role}")
 
 
 def downgrade() -> None:
-    """回滚：恢复 app_role 越界权限，删除两个业务域角色。"""
+    """回滚：恢复 app_role 越界权限，删除两个业务域角色。
+
+    可逆性口径（审查 P2-02）：
+    - 先**恢复** app_role 的权限（回到拆角色前的授权面）；
+    - 再逐个业务域角色 **REVOKE 全部授权 + 撤销默认权限**，最后才 DROP ROLE。
+      PG 拒绝删除仍持有对象权限/默认权限的角色；不先撤销就 DROP，降级会失败，
+      ``upgrade → downgrade → upgrade`` 无法往返。
+    """
+    project_role, asset_role, app_role = _roles()
+
     # 恢复 app_role 对 project_planning / asset_service / auth / revision 的权限。
     for schema in ("project_planning", "asset_service"):
-        op.execute(f"GRANT USAGE ON SCHEMA {schema} TO {APP_ROLE}")
+        op.execute(f"GRANT USAGE ON SCHEMA {schema} TO {app_role}")
         op.execute(
             f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "
-            f"{schema} TO {APP_ROLE}"
+            f"{schema} TO {app_role}"
         )
-        op.execute(f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO {APP_ROLE}")
-    op.execute(f'GRANT USAGE ON SCHEMA "{AUTH_SCHEMA}" TO {APP_ROLE}')
+        op.execute(f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO {app_role}")
+    op.execute(f'GRANT USAGE ON SCHEMA "{AUTH_SCHEMA}" TO {app_role}')
     op.execute(
-        f'GRANT SELECT ON TABLE "{AUTH_SCHEMA}"."{AUTH_TABLE}" TO {APP_ROLE}'
+        f'GRANT SELECT ON TABLE "{AUTH_SCHEMA}"."{AUTH_TABLE}" TO {app_role}'
     )
-    op.execute(f"GRANT SELECT ON {ALEMBIC_VERSION} TO {APP_ROLE}")
+    op.execute(f"GRANT SELECT ON {ALEMBIC_VERSION} TO {app_role}")
 
-    # 删除两个业务域角色。
-    for role in (PROJECT_PLANNING_ROLE, ASSET_SERVICE_ROLE):
+    # 删除两个业务域角色：先撤销全部授权与默认权限，再 DROP。
+    for role, schema in (
+        (project_role, "project_planning"),
+        (asset_role, "asset_service"),
+    ):
+        op.execute(f"REVOKE ALL ON ALL TABLES IN SCHEMA {schema} FROM {role}")
+        op.execute(f"REVOKE ALL ON ALL SEQUENCES IN SCHEMA {schema} FROM {role}")
+        op.execute(
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
+            f"REVOKE ALL ON TABLES FROM {role}"
+        )
+        op.execute(
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
+            f"REVOKE ALL ON SEQUENCES FROM {role}"
+        )
+        op.execute(f"REVOKE USAGE ON SCHEMA {schema} FROM {role}")
+    # 共享基础设施与就绪探针的授权也要撤（否则 DROP ROLE 仍会因依赖失败）。
+    for role in (project_role, asset_role):
+        op.execute(f"REVOKE ALL ON {OUTBOX_SCHEMA}.outbox_events FROM {role}")
+        op.execute(
+            f"REVOKE ALL ON ALL SEQUENCES IN SCHEMA {OUTBOX_SCHEMA} FROM {role}"
+        )
+        op.execute(f"REVOKE USAGE ON SCHEMA {OUTBOX_SCHEMA} FROM {role}")
+        op.execute(
+            f'REVOKE ALL ON TABLE "{AUTH_SCHEMA}"."{AUTH_TABLE}" FROM {role}'
+        )
+        op.execute(f'REVOKE USAGE ON SCHEMA "{AUTH_SCHEMA}" FROM {role}')
+        op.execute(f"REVOKE SELECT ON {ALEMBIC_VERSION} FROM {role}")
         op.execute(f"DROP ROLE IF EXISTS {role}")

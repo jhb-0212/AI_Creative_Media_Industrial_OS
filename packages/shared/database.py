@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase
 
-from packages.shared.config import get_settings
+from packages.shared.config import Settings, get_settings
 from packages.shared.rate_limit import RateLimiter
 from packages.telemetry.tracing import shutdown_telemetry
 
@@ -36,90 +36,108 @@ class Base(DeclarativeBase):
     pass
 
 
-def build_database_url() -> str:
-    """构造应用连接的异步 DSN（asyncpg 驱动，应用角色 app_role）。
+def _build_url(user: str, password: str, settings: Settings) -> str:
+    """按「角色凭据 + 连接参数」拼装异步 DSN（唯一的拼装实现）。
 
-    RLS 生效前提：应用以非超级用户角色（app_role）连接，否则超级用户
-    BYPASSRLS 导致行级安全失效（决策 5 的终极防呆不设防）。app_role 由
-    迁移 9e3b4c5d6e7f 创建，仅授权 project_planning/outbox 的数据权限，
-    无 DDL 权限（最小权限）。
+    五个角色（app / migration / relay / project_planning / asset_service）的
+    DSN 只差用户名与口令，此前是五份重复的 f-string——任何一处编码规则改动
+    都要同步五次，漏一处就是「某个进程连不上」。收敛为一个实现（审查 P1-04
+    的另一个切面：连接构造不应有多个事实源）。
 
     用户名与密码均做 URL 编码，避免特殊字符破坏连接串解析。
     用 ``quote(safe="")`` 而非 ``quote_plus``：userinfo 里 ``+`` 是字面字符，
     密码含空格时若编码成 ``+`` 会被当作字面加号，导致凭据解错。
     """
-    settings = get_settings()
-    user = quote(settings.postgres_app_user, safe="")
-    password = quote(settings.postgres_app_password.get_secret_value(), safe="")
     return (
-        f"postgresql+asyncpg://{user}:{password}"
+        f"postgresql+asyncpg://{quote(user, safe='')}:{quote(password, safe='')}"
         f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
     )
 
 
-def build_migration_url() -> str:
+def _settings_or_default(settings: Settings | None) -> Settings:
+    """未显式传入进程配置时退回全局配置（**纯读取**，无进程身份校验）。
+
+    进程入口必须显式传入自己的 ``get_process_settings(role)``：DSN 是「该进程
+    连库所用的角色」，与进程身份必须是同一份配置上下文（审查 P1-04 根因）。
+    这里保留默认值只为测试与单域工具（不声明进程身份的调用方）能用。
+    """
+    return settings if settings is not None else get_settings()
+
+
+def build_database_url(settings: Settings | None = None) -> str:
+    """构造应用连接的异步 DSN（asyncpg 驱动，应用角色 app_role）。
+
+    RLS 生效前提：应用以非超级用户角色（app_role）连接，否则超级用户
+    BYPASSRLS 导致行级安全失效（决策 5 的终极防呆不设防）。app_role 由
+    迁移 9e3b4c5d6e7f 创建，仅授权 outbox 只读与 auth 只读，无 DDL 权限。
+
+    生产业务链接已按域拆到 project_planning_role / asset_service_role
+    （见下列构造器）；本函数保留给「以单一应用角色连接」的测试与工具。
+    """
+    cfg = _settings_or_default(settings)
+    return _build_url(
+        cfg.postgres_app_user, cfg.postgres_app_password.get_secret_value(), cfg
+    )
+
+
+def build_migration_url(settings: Settings | None = None) -> str:
     """构造迁移（alembic）连接的异步 DSN（超级用户，需 DDL 权限）。
 
     迁移需要 CREATE/ALTER/DROP schema、表、角色等 DDL 权限，必须用超级
-    用户（postgres）连接；应用运行时才用 app_role（无 DDL 权限）。二者
+    用户（postgres）连接；应用运行时才用域角色（无 DDL 权限）。二者
     职责分离，避免应用角色拥有过高权限。
+
+    调用方（alembic env / 运维 CLI / 运维类测试）应显式传入
+    ``get_process_settings("outbox_maintenance")`` 或迁移语义的配置，使
+    「连库角色」与「进程身份」一致。
     """
-    settings = get_settings()
-    user = quote(settings.postgres_user, safe="")
-    password = quote(settings.postgres_password.get_secret_value(), safe="")
-    return (
-        f"postgresql+asyncpg://{user}:{password}"
-        f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
+    cfg = _settings_or_default(settings)
+    return _build_url(
+        cfg.postgres_user, cfg.postgres_password.get_secret_value(), cfg
     )
 
 
-def build_relay_database_url() -> str:
+def build_relay_database_url(settings: Settings | None = None) -> str:
     """构造 Outbox Relay 连接的异步 DSN（专用角色 outbox_relay_role）。
 
-    Relay 只消费 outbox 事件并回写投递状态，以独立角色连接（F03 数据所有权
-    的进程边界隔离）；该角色仅持有 outbox schema 的 SELECT + UPDATE 权限，
-    不持有任何业务 schema 的写权限，使越界写业务表在数据库层被拒绝。
+    Relay 只消费 outbox 事件并回写投递元数据列，以独立角色连接（F03 数据
+    所有权的进程边界隔离）；该角色仅持有 outbox schema 的 SELECT + 列级
+    UPDATE（published_at/attempts/next_attempt_at/dead_lettered_at），不持有
+    任何业务 schema 的写权限，也不持有事件业务内容的 UPDATE 权限。
     """
-    settings = get_settings()
-    user = quote(settings.postgres_relay_user, safe="")
-    password = quote(settings.postgres_relay_password.get_secret_value(), safe="")
-    return (
-        f"postgresql+asyncpg://{user}:{password}"
-        f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
+    cfg = _settings_or_default(settings)
+    return _build_url(
+        cfg.postgres_relay_user, cfg.postgres_relay_password.get_secret_value(), cfg
     )
 
 
-def build_project_planning_database_url() -> str:
+def build_project_planning_database_url(settings: Settings | None = None) -> str:
     """构造 project_planning 域连接的异步 DSN（角色 project_planning_role）。
 
     DATA-1（模块级角色隔离）：project_planning 域以独立角色连接，只持有
-    project_planning schema 的写权限 + outbox 写 + auth 只读，不得写
+    project_planning schema 的写权限 + outbox 事件写 + auth 只读，不得写
     asset_service schema，使跨域越界写在数据库层被拒绝。
     """
-    settings = get_settings()
-    user = quote(settings.postgres_project_planning_user, safe="")
-    password = quote(
-        settings.postgres_project_planning_password.get_secret_value(), safe=""
-    )
-    return (
-        f"postgresql+asyncpg://{user}:{password}"
-        f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
+    cfg = _settings_or_default(settings)
+    return _build_url(
+        cfg.postgres_project_planning_user,
+        cfg.postgres_project_planning_password.get_secret_value(),
+        cfg,
     )
 
 
-def build_asset_service_database_url() -> str:
+def build_asset_service_database_url(settings: Settings | None = None) -> str:
     """构造 asset_service 域连接的异步 DSN（角色 asset_service_role）。
 
     DATA-1（模块级角色隔离）：asset_service 域以独立角色连接，只持有
-    asset_service schema 的写权限 + outbox 写 + auth 只读，不得写
+    asset_service schema 的写权限 + outbox 事件写 + auth 只读，不得写
     project_planning schema，使跨域越界写在数据库层被拒绝。
     """
-    settings = get_settings()
-    user = quote(settings.postgres_asset_service_user, safe="")
-    password = quote(settings.postgres_asset_service_password.get_secret_value(), safe="")
-    return (
-        f"postgresql+asyncpg://{user}:{password}"
-        f"@{settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}"
+    cfg = _settings_or_default(settings)
+    return _build_url(
+        cfg.postgres_asset_service_user,
+        cfg.postgres_asset_service_password.get_secret_value(),
+        cfg,
     )
 
 
@@ -153,6 +171,17 @@ def create_project_planning_engine() -> AsyncEngine:
 def create_asset_service_engine() -> AsyncEngine:
     """创建 asset_service 域引擎（角色 asset_service_role）。"""
     return _make_engine(build_asset_service_database_url())
+
+
+def create_relay_engine(settings: Settings | None = None) -> AsyncEngine:
+    """创建 Relay 引擎（角色 outbox_relay_role，连接池参数与应用侧一致）。
+
+    进程入口传自己的 ``get_process_settings("relay")``：连接池参数、DSN 角色
+    与进程身份来自同一份配置上下文（审查 P1-04）。此前 relay 入口自己
+    ``create_async_engine(...)`` 并复制一遍 pool 参数，等于把连接池口径复制
+    到第二个地方，改一处漏一处。
+    """
+    return _make_engine(build_relay_database_url(settings))
 
 
 def create_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

@@ -121,7 +121,7 @@ class Settings(BaseSettings):
 
     # 身份治理（决策 4：RS256 JWT）
     # issuer / audience 严格校验，拒绝跨服务令牌；密钥来源默认从环境变量
-    # 加载 PEM（生产应从密钥管理服务注入，见 services/identity_access/keys.py）。
+    # 加载 PEM（生产应从密钥管理服务注入，见 services/identity_issuance）。
     identity_issuer: str = "ai-film-identity"
     identity_audience: str = "ai-film-api"
     identity_access_token_ttl_seconds: int = 900
@@ -129,6 +129,10 @@ class Settings(BaseSettings):
     identity_private_key_pem: SecretStr = SecretStr("")
     # 公钥 PEM（验签用，可安全分发）。生产环境必填。
     identity_public_key_pem: SecretStr = SecretStr("")
+    # 身份服务进程监听地址（workers/identity 的 JWKS 端点）。
+    # 与 API 分开端口：同镜像不同 entrypoint，避免与业务面抢 8000。
+    identity_host: str = "0.0.0.0"
+    identity_port: int = 8100
 
     # 可观测
     otel_exporter_otlp_endpoint: str = ""
@@ -168,15 +172,27 @@ class Settings(BaseSettings):
         ),
     }
 
-    @model_validator(mode="after")
-    def _reject_empty_secrets_in_production(self) -> Settings:
-        """生产环境（app_env=production）下，本进程必需密钥为空时拒绝启动。
+    def validate_process_requirements(self) -> None:
+        """校验「本进程在生产环境必需的密钥」，缺失即拒绝启动（fail-closed）。
 
-        按 process_role 取对应清单，仅拦截「完全未配置」的空密钥
-        （SecretStr 值为空字符串），避免把本地开发默认值带入生产造成事故。
+        为什么是**显式方法**而不是 ``model_validator``（F05/KEYS-1 根因修正）：
+        构造 Settings 只是「读配置」这一件事，它并不代表「本进程宣告了身份」。
+        把生产密钥校验塞进 model_validator，会让**任何**读取配置的地方（DSN
+        构造、分区护栏、alembic env）都隐式承担 api 进程的密钥要求——relay
+        进程构造自己的 DSN 时，只因内部调了一次配置读取，就被要求持有 API 的
+        身份公钥，于是启动失败。这是「配置读取」与「进程身份校验」耦合造成的
+        跨进程越界（审查 P1-04 / R7 的根因）。
+
+        现在职责分开：
+        - ``Settings()`` / ``get_settings()`` = 纯配置读取，无进程语义；
+        - 进程入口经 ``get_process_settings(role)`` 声明身份，本方法在那一刻
+          按该角色的清单校验，缺密钥仍拒绝启动（fail-closed 不变）。
+
+        由 ``tests/unit/test_process_entrypoints.py`` 保证每个进程入口都走
+        ``get_process_settings``，不会因为「忘了校验」而静默放行。
         """
         if self.app_env != "production":
-            return self
+            return
         required = self._PRODUCTION_REQUIRED_SECRETS_BY_PROCESS[self.process_role]
         missing: list[str] = []
         for field_name, env_name in required:
@@ -226,8 +242,6 @@ class Settings(BaseSettings):
                 " 域数据库密码 asset_service_dev_password"
                 "（POSTGRES_ASSET_SERVICE_PASSWORD），请由部署系统注入独立密码。"
             )
-        return self
-
 
     @model_validator(mode="after")
     def _require_webhook_secret_with_url(self) -> Settings:
@@ -236,6 +250,9 @@ class Settings(BaseSettings):
         理由：无签名的外发端点无法被消费方区分「平台发的」与「别人伪造的」，
         这类配置错误一旦上线就是安全隐患，因此在启动期直接失败，而不是留在
         运行期靠人发现。
+
+        注意：这条校验**与进程身份无关**（任何进程只要配了 URL 就必须配密钥），
+        因此保留在构造期，不随 ``validate_process_requirements`` 一起外移。
         """
         if self.outbox_webhook_url and not self.outbox_webhook_secret.get_secret_value():
             raise ValueError(
@@ -247,13 +264,23 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """获取全局配置单例（默认进程角色 api，见 Settings.process_role 文档）。"""
+    """获取配置单例（**纯配置读取**，不承担任何进程身份语义）。
+
+    与 ``get_process_settings`` 的分工（审查 P1-04 根因）：
+    - 本函数只负责把环境变量读成 Settings，供 DSN 构造、分区护栏、alembic
+      env 等**基础设施代码**使用。它不做生产密钥校验——否则每个读配置的地方
+      都会被迫持有 api 进程的密钥，正是 relay/运维进程「启动即失败」的结构性
+      来源。
+    - 需要「本进程缺密钥就拒绝启动」的**进程入口**必须用
+      ``get_process_settings(role)``，那条路径才会执行
+      ``validate_process_requirements()``。
+    """
     return Settings()
 
 
 @lru_cache
 def get_process_settings(process_role: ProcessRole) -> Settings:
-    """按进程角色获取配置单例（进程入口显式声明自身角色）。
+    """按进程角色获取配置单例，并**在该进程边界**执行生产密钥校验。
 
     为什么不用全局 ``get_settings()`` 加环境变量兜底：进程角色是**进程身份的
     一部分**，不该依赖部署方「记得设 PROCESS_ROLE」才能正确——那正是 F05 债务
@@ -261,7 +288,10 @@ def get_process_settings(process_role: ProcessRole) -> Settings:
     从环境变量猜测提升为代码契约：relay 入口必然以 relay 角色构造配置，
     outbox_maintenance 必然以 outbox_maintenance 角色构造，杜绝默认值误套。
 
-    process_role 仍可通过构造 Settings 时传 ``process_role=...`` 显式覆盖，
-    但生产校验清单据此收紧到该进程真正需要的密钥。
+    fail-closed 的位置也一并说清：构造完成后立刻按该角色的必需密钥清单校验，
+    缺失即 ``ValueError``（拒绝启动）。校验发生在**声明身份的那一刻**，而不是
+    每次读配置的时刻——后者会让基础设施代码替业务进程背密钥要求。
     """
-    return Settings(process_role=process_role)
+    settings = Settings(process_role=process_role)
+    settings.validate_process_requirements()
+    return settings

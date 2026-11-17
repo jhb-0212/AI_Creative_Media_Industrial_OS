@@ -38,7 +38,7 @@ from datetime import UTC, datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncTransaction, create_async_engine
 
-from packages.shared.config import get_process_settings
+from packages.shared.config import Settings, get_process_settings
 from packages.shared.database import build_migration_url
 from packages.shared.logging import get_logger, setup_logging
 from packages.shared.partition_guard import (
@@ -292,11 +292,15 @@ async def record_run(
         )
 
 
-async def run_once(args: argparse.Namespace) -> RunResult:
-    """执行一轮：列分区 → 建缺失 → 摘除过期（拒绝的单独计数）。"""
+async def run_once(args: argparse.Namespace, settings: Settings) -> RunResult:
+    """执行一轮：列分区 → 建缺失 → 摘除过期（拒绝的单独计数）。
+
+    ``settings`` 是本进程（outbox_maintenance 角色）的配置：迁移 DSN 必须由
+    它构造，而不是回落到 api 角色的全局配置（审查 P1-04 / R7）。
+    """
     result = RunResult()
     today = datetime.now(UTC)
-    engine = create_async_engine(build_migration_url())
+    engine = create_async_engine(build_migration_url(settings))
     try:
         async with engine.connect() as conn:
             existing = await list_partitions(conn)
@@ -347,12 +351,17 @@ async def run_once(args: argparse.Namespace) -> RunResult:
         await engine.dispose()
 
 
-async def _record(args: argparse.Namespace, result: RunResult, started_at: datetime) -> None:
+async def _record(
+    args: argparse.Namespace,
+    result: RunResult,
+    started_at: datetime,
+    settings: Settings,
+) -> None:
     """独立连接写审计行：即使本轮中途报错，也不该因为同一连接状态而丢记录。"""
     applied = bool(args.apply)
 
     async def _write() -> None:
-        engine = create_async_engine(build_migration_url())
+        engine = create_async_engine(build_migration_url(settings))
         try:
             async with engine.connect() as conn:
                 await record_run(
@@ -374,11 +383,11 @@ async def _run(args: argparse.Namespace) -> int:
     while True:
         started_at = datetime.now(UTC)
         try:
-            result = await run_once(args)
+            result = await run_once(args, settings)
         except Exception as exc:  # 常驻模式下不能因为一轮失败就退出
             logger.error("outbox_maintenance_failed", exc_info=True)
             result = RunResult(status="error", error=str(exc)[:2000])
-        await _record(args, result, started_at)
+        await _record(args, result, started_at, settings)
         exit_code = 1 if result.status in {"refused", "error"} else 0
         if args.every_hours <= 0:
             return exit_code

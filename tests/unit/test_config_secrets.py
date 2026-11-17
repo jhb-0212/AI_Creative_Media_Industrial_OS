@@ -1,7 +1,7 @@
 """packages/shared/config 密钥运行时校验的单元测试（红线 6：密钥不落日志）。
 
 覆盖：
-- 生产环境（APP_ENV=production）缺关键密钥 → 拒绝启动（抛 ValidationError）。
+- 生产环境（APP_ENV=production）缺关键密钥 → 拒绝启动（进程入口校验抛 ValueError）。
 - 非生产环境（development）允许空密钥，便于本地联调。
 - 密钥字段为 SecretStr，repr/str 不含明文。
 - F05 进程密钥最小权限：按 process_role 只校验该进程真正需要的密钥——
@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
 
 from packages.shared.config import Settings
 
@@ -58,14 +57,21 @@ def _prod_env() -> dict[str, str]:
 
 
 def _make_settings(**overrides: str) -> Settings:
-    """构造 Settings 实例，显式禁用 .env 文件加载。
+    """构造 Settings 并执行**进程边界**的生产密钥校验（返回已校验实例）。
 
     测试环境可能残留本地 .env（含占位值），若不屏蔽会污染用例：
     monkeypatch.delenv 之后 .env 仍会补回 postgres 等默认值，
     导致「缺失密钥应拒绝」的断言失效。这里强制 _env_file=None，
     使配置只来源于进程环境变量，保证用例确定性。
+
+    P1-04 之后生产校验从 model_validator 移到显式方法
+    ``validate_process_requirements``（构造 ≠ 声明进程身份）。凡本文件里
+    「生产缺密钥必须拒绝」的用例，都必须走**进程入口同一条路径**：
+    ``get_process_settings`` 也是「构造 + 校验」，此处对齐它。
     """
-    return Settings(_env_file=None, **overrides)
+    settings = Settings(_env_file=None, **overrides)
+    settings.validate_process_requirements()
+    return settings
 
 
 def _set_env(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> None:
@@ -98,7 +104,7 @@ def test_production_missing_secret_rejected_per_process(
     env.pop(missing_var)
     _set_env(monkeypatch, env)
 
-    with pytest.raises(ValidationError) as exc_info:
+    with pytest.raises(ValueError) as exc_info:
         _make_settings(process_role=process_role)
     assert missing_var in str(exc_info.value)
 
@@ -167,7 +173,7 @@ def test_production_rejects_dev_default_app_password(monkeypatch: pytest.MonkeyP
     """
     _set_env(monkeypatch, _prod_env())
     monkeypatch.setenv("POSTGRES_APP_PASSWORD", "app_dev_password")
-    with pytest.raises(ValidationError) as exc_info:
+    with pytest.raises(ValueError) as exc_info:
         _make_settings(process_role="identity")
     assert "app_dev_password" in str(exc_info.value)
 
@@ -185,7 +191,7 @@ def test_production_rejects_dev_default_domain_passwords(
     monkeypatch.setenv(
         "POSTGRES_PROJECT_PLANNING_PASSWORD", "project_planning_dev_password"
     )
-    with pytest.raises(ValidationError) as exc_info:
+    with pytest.raises(ValueError) as exc_info:
         _make_settings(process_role="api")
     assert "project_planning_dev_password" in str(exc_info.value)
 
@@ -193,7 +199,7 @@ def test_production_rejects_dev_default_domain_passwords(
     monkeypatch.setenv(
         "POSTGRES_ASSET_SERVICE_PASSWORD", "asset_service_dev_password"
     )
-    with pytest.raises(ValidationError) as exc_info:
+    with pytest.raises(ValueError) as exc_info:
         _make_settings(process_role="api")
     assert "asset_service_dev_password" in str(exc_info.value)
 
@@ -202,7 +208,7 @@ def test_production_rejects_dev_default_relay_password(monkeypatch: pytest.Monke
     """生产环境 relay 进程显式使用 relay_dev_password → 拒绝启动。"""
     _set_env(monkeypatch, _prod_env())
     monkeypatch.setenv("POSTGRES_RELAY_PASSWORD", "relay_dev_password")
-    with pytest.raises(ValidationError) as exc_info:
+    with pytest.raises(ValueError) as exc_info:
         _make_settings(process_role="relay")
     assert "relay_dev_password" in str(exc_info.value)
 
@@ -241,3 +247,34 @@ def test_production_does_not_require_unimplemented_adapters(
 
     settings = _make_settings()
     assert settings.app_env == "production"
+
+
+def test_bare_construction_has_no_process_semantics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """纯配置读取（Settings()）在生产缺密钥时**不**报错（P1-04 根因修正）。
+
+    构造 Settings 只代表「读配置」，不代表「本进程宣告了身份」。把它和生产
+    密钥校验绑定，会让任何读配置的基础设施代码（DSN 构造、分区护栏、alembic
+    env）都替 api 进程背密钥要求——relay/运维进程因此「启动即失败」。
+
+    fail-closed 并未削弱：进程入口经 get_process_settings 声明身份并校验
+    （见 test_production_missing_secret_rejected_per_process）。
+    """
+    _set_env(monkeypatch, {"APP_ENV": "production", "POSTGRES_PASSWORD": "x"})
+    settings = Settings(_env_file=None)  # 不调用 validate_process_requirements
+    assert settings.app_env == "production"
+    assert settings.identity_public_key_pem.get_secret_value() == ""
+
+
+def test_process_settings_declares_and_validates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_process_settings = 声明身份 + 该校验立刻执行（fail-closed 落点）。"""
+    from packages.shared.config import get_process_settings
+
+    _set_env(monkeypatch, {"APP_ENV": "production", "POSTGRES_PASSWORD": "x"})
+    # relay 缺 POSTGRES_RELAY_PASSWORD → 拒绝启动。
+    with pytest.raises(ValueError) as exc_info:
+        get_process_settings("relay")
+    assert "POSTGRES_RELAY_PASSWORD" in str(exc_info.value)
