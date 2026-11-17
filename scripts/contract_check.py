@@ -937,6 +937,144 @@ def check_schema_objects() -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# 字段级契约演进诊断（F07）
+# --------------------------------------------------------------------------- #
+SCHEMA_FIELD_SIGNATURES_PATH = CONTRACTS / "runtime" / "schema_field_signatures.yaml"
+
+
+def _field_signature(spec: dict[str, Any]) -> dict[str, str]:
+    """计算一个对象的字段签名：``field → 类型`` 映射（稳定可序列化）。
+
+    类型归一规则：``type`` 取字符串（list 类型连接为 ``a|b``），``$ref`` 取
+    ``#/...`` 末段，``enum`` 记 ``enum``，其余记 ``object``。目的是让「字段
+    新增/删除/改类型」在签名层可精确 diff，而非只看文件哈希。
+    """
+    signature: dict[str, str] = {}
+    properties = spec.get("properties") or {}
+    for field, prop_spec in properties.items():
+        if not isinstance(prop_spec, dict):
+            signature[field] = "<invalid>"
+            continue
+        if "$ref" in prop_spec:
+            signature[field] = f"ref:{prop_spec['$ref'].rsplit('/', 1)[-1]}"
+        elif "type" in prop_spec:
+            t = prop_spec["type"]
+            signature[field] = (
+                "|".join(t) if isinstance(t, list) else str(t)
+            )
+        elif "enum" in prop_spec:
+            signature[field] = "enum"
+        elif "const" in prop_spec:
+            signature[field] = "const"
+        else:
+            signature[field] = "object"
+    return dict(sorted(signature.items()))
+
+
+def _current_field_signatures() -> dict[str, dict[str, str]]:
+    """从 object_schemas.schema.json（唯一权威源）计算全部对象的字段签名。"""
+    data = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    definitions = data.get("definitions", data.get("$defs", {}))
+    return {
+        name: _field_signature(spec)
+        for name, spec in definitions.items()
+        if isinstance(spec, dict) and spec.get("type") == "object"
+    }
+
+
+def check_schema_field_evolution() -> bool:
+    """字段级契约演进诊断（F07）：把「文件哈希变了」细化为「具体字段变了」。
+
+    背景：freeze_manifest 对 object_schemas.schema.json 只做「文件哈希」校验，
+    字段新增/删除/改类型只能体现为「哈希变了」，无法指出「哪个对象的哪个字段
+    怎么变」。本函数补上字段级可见性——它从同一份 schema.json 计算字段签名，
+    与派生台账比对，输出 add/remove/type-change 的精确 diff。
+
+    台账（schema_field_signatures.yaml）是**派生诊断快照**，不是权威事实源：
+    权威源仍是 object_schemas.schema.json；台账只记录「上次显式重签时的字段
+    签名」，供 diff 定位用。字段变化本身不是错误（Phase 1 仍在演进），但必须
+    **显式重签台账**（`--write-schema-signatures`）——未经重签的字段漂移会在
+    这里被点名，引导人去 amendments 登记理由，而不是静默放过。
+    """
+    current = _current_field_signatures()
+    if not current:
+        print("[FAIL] object_schemas.schema.json 无任何 object 定义")
+        return False
+
+    if not SCHEMA_FIELD_SIGNATURES_PATH.exists():
+        print(
+            "[FAIL] 缺少字段签名台账 "
+            f"{SCHEMA_FIELD_SIGNATURES_PATH.relative_to(ROOT)}："
+            "字段级契约演进无法定位，请先执行 --write-schema-signatures 生成"
+        )
+        return False
+
+    baseline = load_yaml_mapping(SCHEMA_FIELD_SIGNATURES_PATH).get("signatures")
+    if not isinstance(baseline, dict):
+        print("[FAIL] schema_field_signatures.yaml 的 signatures 必须是映射")
+        return False
+
+    ok = True
+    # 1. 台账登记但 schema 已无的对象（陈旧签名）。
+    for name in sorted(set(baseline) - set(current)):
+        print(f"[FAIL] 字段签名台账含已删除对象 {name}（陈旧签名，须重签）")
+        ok = False
+    # 2. schema 有但台账未登记的对象（新对象，字段级未纳入诊断）。
+    for name in sorted(set(current) - set(baseline)):
+        print(f"[FAIL] 对象 {name} 未登记字段签名（须重签台账纳入诊断）")
+        ok = False
+    # 3. 字段级 diff：add / remove / type-change。
+    for name in sorted(set(current) & set(baseline)):
+        cur = current[name]
+        base = baseline[name]
+        if not isinstance(base, dict):
+            print(f"[FAIL] 台账里 {name} 的字段签名不是映射")
+            ok = False
+            continue
+        cur_fields = set(cur)
+        base_fields = set(base)
+        for added in sorted(cur_fields - base_fields):
+            print(f"[FAIL] {name} 新增字段 {added}（{cur[added]}）")
+            ok = False
+        for removed in sorted(base_fields - cur_fields):
+            print(f"[FAIL] {name} 删除字段 {removed}")
+            ok = False
+        for changed in sorted(cur_fields & base_fields):
+            if cur[changed] != base[changed]:
+                print(
+                    f"[FAIL] {name}.{changed} 类型变化："
+                    f"{base[changed]} → {cur[changed]}"
+                )
+                ok = False
+
+    if ok:
+        print(
+            f"[PASS] 字段级契约演进：{len(current)} 个对象字段签名与台账一致"
+        )
+    return ok
+
+
+def write_schema_field_signatures() -> None:
+    """按当前 object_schemas.schema.json 重写字段签名台账（派生视图）。"""
+    current = _current_field_signatures()
+    body = {
+        "generated_from": "object_schemas.schema.json",
+        "note": (
+            "派生诊断快照，非权威事实源。字段签名变化须显式重签本台账，"
+            "并在 contract_amendments.yaml 登记字段演进理由（F07）。"
+        ),
+        "signatures": current,
+    }
+    SCHEMA_FIELD_SIGNATURES_PATH.write_text(
+        yaml.safe_dump(body, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    print(
+        f"[PASS] 已重写字段签名台账：{len(current)} 个对象"
+    )
+
+
+# --------------------------------------------------------------------------- #
 # 已实现 action 的授权落点（防「有端点、没授权」）
 # --------------------------------------------------------------------------- #
 def check_implemented_permission_wiring() -> bool:
@@ -1568,6 +1706,7 @@ def main() -> int:
         ok &= check_transition_entry_gaps()
         ok &= check_permission_matrix()
         ok &= check_schema_objects()
+        ok &= check_schema_field_evolution()
         ok &= check_event_catalog()
         ok &= check_security_boundary()
     except ValueError as exc:
@@ -1584,4 +1723,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if "--write-schema-signatures" in sys.argv:
+        write_schema_field_signatures()
+        sys.exit(0)
     sys.exit(main())
