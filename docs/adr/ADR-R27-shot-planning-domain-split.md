@@ -6,7 +6,7 @@
   `ADR-032`（AI 拆镜输出默认草案）、`ADR-R07`（ShotDraft 缺对象契约，本 ADR 兑现其债务）、
   `ADR-R16`（数据库运行身份按业务域拆分）、`ADR-R17`（归属链与项目/组织级行隔离）、
   `ADR-009`（模块化单体优先，数据所有权先行）
-- 契约修订：`contracts/phase0/contract_amendments.yaml` → `V205-R14-A4`（待登记）
+- 契约修订：`contracts/phase0/contract_amendments.yaml` → `V205-R14-A4`（对象契约，已登记）与 `V205-R14-A5`（基线正文 14.1/14.2 所有权矩阵修订，已登记）
 
 ## 1. 背景
 
@@ -159,7 +159,7 @@ ShotVisualPlan 视觉方案、ConstraintPack 硬约束管理、镜头版本及�
 4. `SHOT.DRAFT.CREATE`（AI 拆镜草案）+ `SHOT.REVISION.CONFIRM`（人工确认）用例；
 5. `action_implementations.yaml` 登记 implemented；
 6. 测试 + 全闸门 + 固化提交；
-7. 基线正文 14.1/14.2 修订（A4 冻结流程，独立提交）。
+7. 基线正文 14.1/14.2 修订（A5 冻结流程，独立提交）。
 
 ## 7. 后果
 

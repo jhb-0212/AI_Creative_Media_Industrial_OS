@@ -1940,6 +1940,7 @@ my-ai-studio/
 ├── services/
 │   ├── orchestrator/
 │   ├── project-planning/
+│   ├── shot-planning/
 │   ├── asset-service/
 │   ├── rights-governance/
 │   ├── model-gateway/
@@ -2011,7 +2012,8 @@ my-ai-studio/
 
 | **模块** | **核心数据所有权** | **允许写入者** | **主要对外契约** |
 | --- | --- | --- | --- |
-| Project & Planning | Project、Episode、Scene、Shot、ShotRevision、ConstraintPack、Intent、ShotSpec | Project/Planning Domain Service | Project API、Intent API、ShotChanged Event |
+| Project & Planning | Project、Episode、Scene、Intent（项目级意图，作用域拆分见 ADR-R27 §3.5） | Project/Planning Domain Service | Project API、Intent API（项目级） |
+| Shot Planning | Shot、ShotDraft、ShotRevision、ShotSpec、ShotVisualPlan、ConstraintPack、Intent（镜头级意图，作用域拆分见 ADR-R27 §3.5） | Shot/Planning Domain Service | Shot API、ShotChanged Event |
 | Blocking & Previz | PrevizVersion、CameraRig、ControlSignalAsset 元数据、Geometry/Purity Validation | Blocking Domain Service | Previz API、ControlSignal Events、PrevizVersionCreated Event |
 | Creative Intelligence | CreativeProposal、ExplorationRun、CreativeDecision、Pattern | Creative Service | Proposal API、Exploration Events |
 | Orchestration | WorkflowRun、Task、Dependency、GateInstance、Outbox/Inbox | Orchestrator Domain Service | Command API、Task/Gate Events |

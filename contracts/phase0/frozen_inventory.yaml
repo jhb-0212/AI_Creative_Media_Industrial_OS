@@ -7,13 +7,15 @@
 # 只由人类修订流程改动（见 contracts/phase0/contract_amendments.yaml 的写入口径），
 # 生成器与运行时都不得改写本文件。
 #
+# 基线正文哈希于 V205-R14-A5（2026-11-17）按 ADR-R27 修订 14.1/14.2 后重建，
+# 冻结名称全集（actions/schema_objects/state_machines/counts）不受该纯文档修订影响。
 # 来源：基线文档 31.6 Action Registry / 8.x 对象契约 / 31.5 状态机，
 # 冻结时刻的仓库快照为 dfc5bd8（message: 初始化仓库骨架与 Phase 0 冻结契约）。
 
 baseline:
   document: docs/baseline/AI影视工业化生产平台V2.0.5.md
-  document_bytes: 489607
-  document_sha256: '9a9940c5523c2c9626a410fa82b0ccbc195d6fe1bf3e985395e35706101ee7f7'
+  document_bytes: 489863
+  document_sha256: 'f397c51eef66ba0879dcd5e24274970ee692620904ad38a50c0de9ac7215280e'
   revision: 'V205-R14'
   frozen_at_source_commit: 'dfc5bd8'
   counts:

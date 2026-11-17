@@ -8,9 +8,8 @@
 
 from __future__ import annotations
 
-import uuid
-
 import json
+import uuid
 
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker

@@ -235,5 +235,40 @@ amendments:
       - '本修订仅补对象契约；shot_planning 域的四层实现、数据库角色与迁移、用例与测试均在后续段落地（ADR-R27 第 6 节第 2~7 步）'
       - 'ShotDraft/ShotRevision 的状态机条目尚未在 state_machines.yaml 登记（DRAFT→CONFIRMED/SUPERSEDED 与正式镜头生命周期），待 shot_planning 域实现时一并补登'
 
+  - id: 'V205-R14-A5'
+    title: '基线正文 14.1/14.2 修订：镜头域数据所有权拆分为独立 Shot Planning 模块'
+    retroactive: false
+    recorded_at: '2026-11-17'
+    discovered_by: 'docs/adr/ADR-R27-shot-planning-domain-split.md 第 5 节修订清单第 1、2 项（第 6 节实施顺序第 7 步）'
+    reason: >-
+      ADR-R27 决策：镜头域（Shot、ShotDraft、ShotRevision、ShotSpec、ShotVisualPlan、
+      ConstraintPack）自 project_planning 正式拆分为独立 shot_planning 领域（实现已
+      落地：services/shot_planning 四层 + shot_planning schema + svc_shot_planning
+      角色，提交 04c50a9 与 2fb9e8e）。基线正文 14.1 工程目录在 services/ 下补登
+      shot-planning/；14.2 数据所有权矩阵从 Project & Planning 行拆出镜头域对象到
+      新 Shot Planning 行，Intent 按 ADR-R27 §3.5 作用域拆分标注（项目级意图归
+      project_planning、镜头级意图归 shot_planning，两域经显式引用关联、不共享写权）。
+      本修订为纯文档修订：不新增/撤销任何 Action、Schema 对象或状态机条目，
+      名称全集不变；正文哈希变化按 3637 行口径重建清单。
+    adr: 'docs/adr/ADR-R27-shot-planning-domain-split.md'
+    approved_by: '项目所有者（镜头域拆分架构指令，与 A4 同源）'
+    approved_at: '2026-11-17'
+    source_commits:
+      - 'acbe155'  # docs(adr): ADR-R27 镜头域从 project_planning 拆分为独立 shot_planning
+      - '04c50a9'  # feat(shot-planning): 阶段 1B 建 shot_planning 独立域四层
+      - '2fb9e8e'  # feat(shot-planning): 阶段 1C 实现 ShotSpec/ShotVisualPlan/ConstraintPack
+    additions:
+      actions: []
+      schema_objects: []
+      state_machines: []
+    counts_after:
+      actions: 83
+      openapi_operations: 83
+      schema_objects: 82
+      state_machines: 39
+    residual_risks:
+      - 'ShotChanged Event 的归属随镜头域移至 Shot Planning 行；事件目录中该事件若由编排域发布需在 Phase 1 后续核对发布方实现'
+      - '外部主文档副本（工作台根目录）与 docs/baseline 冻结副本需人工保持同步，后续可考虑以冻结副本为唯一权威源'
+
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []
