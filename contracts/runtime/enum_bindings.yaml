@@ -113,3 +113,30 @@ exemptions:
       APPROVE/REJECT 是投票事实的二值结论，写入即不可改；契约 enum_registry
       未登记该概念，取值由迁移 CHECK ck_workflow_approval_steps_decision_registered
       与领域单测守住。
+  # --- 镜头规划域（ADR-R27 独立域）---
+  #
+  # 三个枚举都还没有可机读的契约比对源：ShotDraft/ShotRevision 的对象契约
+  # 是本轮（A4）新补的，但 enum_registry.yaml / state_machines.yaml 尚未登记
+  # 这两个对象的状态机条目（ADR-R07 债务的一部分，需走契约修订流程补登记）。
+  # 取值一致性由迁移 CHECK 字面量与单测守住。
+  - module: services.shot_planning.domain.enums
+    enum: ShotDraftStatus
+    reason: >-
+      DRAFT/CONFIRMED/SUPERSEDED 与 object_schemas.schema.json 的 ShotDraft
+      x-afs-lifecycle 同值；但 enum_registry.yaml / state_machines.yaml 未登记
+      ShotDraft 对象（ADR-R07 债务，补登记需走契约修订流程），无可机读比对源。
+      取值一致性由迁移 CHECK ck_shot_planning_shot_drafts_status_registered 与
+      领域单测守住。
+  - module: services.shot_planning.domain.enums
+    enum: ShotRevisionStatus
+    reason: >-
+      ShotRevision 是 append-only 事实（8.2：保存每次内容修订，版本递增不覆盖），
+      无状态机转移，状态恒为 ACTIVE；enum_registry.yaml 未登记该对象，
+      无可机读比对源。取值一致性由领域单测守住。
+  - module: services.shot_planning.domain.enums
+    enum: ShotDraftSource
+    reason: >-
+      agent/human 是草案来源主体类型（区分「AI 只产草案、人类可确认」的
+      职责分离边界），不是对象生命周期状态，契约 enum_registry 未登记该概念。
+      取值一致性由迁移 CHECK ck_shot_planning_shot_drafts_source_registered 与
+      领域单测守住。

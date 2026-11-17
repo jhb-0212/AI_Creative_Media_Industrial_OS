@@ -39,6 +39,9 @@ class DatabaseDomain(StrEnum):
 
     # 项目/集数/剧本（services.project_planning）
     PROJECT_PLANNING = "project_planning"
+    # 镜头规划（services.shot_planning）：Shot/ShotDraft/ShotRevision 的独立
+    # 数据所有权（ADR-R27），与 project_planning 彻底隔离——项目域不再写 Shot。
+    SHOT_PLANNING = "shot_planning"
     # 资产版本与 QC 报告（services.asset_service）
     ASSET = "asset"
     # Gate 决策与质量治理裁决（services.qc_governance）
@@ -63,6 +66,7 @@ class DatabaseDomain(StrEnum):
 _DOMAIN_ROLES: Final[Mapping[DatabaseDomain, str]] = MappingProxyType(
     {
         DatabaseDomain.PROJECT_PLANNING: "svc_project_planning",
+        DatabaseDomain.SHOT_PLANNING: "svc_shot_planning",
         DatabaseDomain.ASSET: "svc_asset",
         DatabaseDomain.QC_GOVERNANCE: "svc_qc_governance",
         DatabaseDomain.WORKFLOW: "svc_workflow",

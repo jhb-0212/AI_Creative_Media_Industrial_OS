@@ -98,6 +98,16 @@ get_asset_uow = build_tenant_uow_dependency(
 get_read_asset_uow = build_tenant_uow_dependency(
     get_principal, domain=DatabaseDomain.ASSET, read_only=True
 )
+# 镜头规划域（Shot/ShotDraft/ShotRevision）：独立角色 svc_shot_planning。
+#
+# 为什么不复用项目规划域工作单元：ADR-R27 把镜头域拆为独立数据所有权，
+# 项目域角色写不了镜头表、镜头域角色写不了项目表（越权写入数据库层被拒）。
+get_shot_uow = build_tenant_uow_dependency(
+    get_principal, domain=DatabaseDomain.SHOT_PLANNING
+)
+get_read_shot_uow = build_tenant_uow_dependency(
+    get_principal, domain=DatabaseDomain.SHOT_PLANNING, read_only=True
+)
 # 质量治理域（Gate 裁决）：独立角色 svc_qc_governance。
 #
 # 为什么 Gate 不复用资产域工作单元：资产域角色代表"生成/检测流水线"，
@@ -146,6 +156,8 @@ __all__ = [
     "get_read_asset_uow",
     "get_read_project_uow",
     "get_read_qc_uow",
+    "get_read_shot_uow",
+    "get_shot_uow",
     "get_workflow_uow",
     "require_action",
 ]

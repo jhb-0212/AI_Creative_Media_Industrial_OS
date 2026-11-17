@@ -215,6 +215,12 @@ def asset_sm(db_pools: DomainPools) -> async_sessionmaker[AsyncSession]:
 
 
 @pytest.fixture
+def shot_sm(db_pools: DomainPools) -> async_sessionmaker[AsyncSession]:
+    """镜头规划域会话工厂（能读写 shot_planning，写不了 project_planning）。"""
+    return db_pools.sessionmaker(DatabaseDomain.SHOT_PLANNING)
+
+
+@pytest.fixture
 def qc_sm(db_pools: DomainPools) -> async_sessionmaker[AsyncSession]:
     """质量治理域会话工厂（能写 gate_decisions，资产域角色写不了）。"""
     return db_pools.sessionmaker(DatabaseDomain.QC_GOVERNANCE)

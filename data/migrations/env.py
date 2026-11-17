@@ -34,6 +34,10 @@ from services.project_planning.repository.orm import (  # noqa: F401
     ScriptModel,
 )
 from services.qc_governance.repository.orm import GateDecisionModel  # noqa: F401
+from services.shot_planning.repository.orm import (  # noqa: F401
+    ShotDraftModel,
+    ShotRevisionModel,
+)
 from services.workflow.repository.orm import (  # noqa: F401
     ApprovalFlowModel,
     ApprovalStepModel,

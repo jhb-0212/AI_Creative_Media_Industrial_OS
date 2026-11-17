@@ -265,3 +265,34 @@ events:
     emitted_by: services/workflow/service/approval_service.py
     payload_required: [ticket_id, flow_id, action_key, resource_type, resource_id, decision, votes, tenant_id]
     contract_ref: contracts/schemas/object_schemas.schema.json#ApprovalTicket
+
+  # --- 镜头规划域（ADR-R27 独立域）---
+  - event_type: SHOT_DRAFT_CREATED
+    aggregate_type: ShotDraft
+    emitted_by: services/shot_planning/service/shot_service.py
+    payload_required:
+      - draft_id
+      - project_id
+      - episode_ref
+      - scene_ref
+      - shot_code
+      - source
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#ShotDraft
+  - event_type: SHOT_REVISION_CONFIRMED
+    aggregate_type: ShotRevision
+    emitted_by: services/shot_planning/service/shot_service.py
+    payload_required:
+      - shot_revision_id
+      - shot_id
+      - draft_id
+      - project_id
+      - episode_ref
+      - scene_ref
+      - revision
+      - confirmed_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#ShotRevision
