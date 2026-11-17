@@ -55,12 +55,4 @@ gaps:
 # - 「已补上入口」只认运行时台账 action_implementations.yaml 的 implemented：
 #   契约里先登记 PROJECT.STATUS.CHANGE（not_implemented）不算入口已补上；
 # - 入口真的实现后必须删条目，否则闸门以「陈旧债务」报红。
-transition_entry_gaps:
-  Project:
-    reason: "action_registry 仅有 PROJECT.CREATE/PROJECT.READ；域转移表 7 条边（DRAFT→ACTIVE→ON_HOLD→ACTIVE、ACTIVE→COMPLETED、DRAFT/ON_HOLD/COMPLETED→ARCHIVED）均无对应状态变更 action 入口，项目无法推进到生产态"
-    contract_ref: "contracts/action_registry/action_registry.yaml（Project 仅 CREATE/READ）"
-    unblocks_when: "正文 31.6 补登记 PROJECT.STATUS.CHANGE（或等价动作）并实现 service/route/权限/事件/负测；ADR-R12 已明示「需等正文口径，不猜契约」"
-  Episode:
-    reason: "action_registry 仅有 EPISODE.CREATE/EPISODE.READ；域转移表 3 条边（DRAFT→ACTIVE、DRAFT/ACTIVE→ARCHIVED）均无对应状态变更 action 入口"
-    contract_ref: "contracts/action_registry/action_registry.yaml（Episode 仅 CREATE/READ）"
-    unblocks_when: "正文 31.6 补登记 EPISODE.STATUS.CHANGE（或等价动作）并实现完整链路；ADR-R12 已明示「需等正文口径，不猜契约」"
+transition_entry_gaps: {}

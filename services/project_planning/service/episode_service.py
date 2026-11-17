@@ -22,7 +22,9 @@ from sqlalchemy.exc import IntegrityError
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.outbox_writer import OutboxWriter
+from services.project_planning.domain.enums import EpisodeStatus
 from services.project_planning.domain.episode import Episode
+from services.project_planning.repository._versioning import ConcurrentModificationError
 from services.project_planning.repository.episode_repo import EpisodeRepository
 from services.project_planning.repository.project_repo import ProjectRepository
 
@@ -146,6 +148,65 @@ class EpisodeService:
         episode = await self._repository.get_by_id(entity_id)
         if episode is None:
             raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"集数不存在: {entity_id}")
+        return episode
+
+    async def change_status(
+        self,
+        *,
+        entity_id: str,
+        target_status: EpisodeStatus,
+        changed_by: str,
+        tenant_id: UUID,
+    ) -> Episode:
+        """推进集数状态（EPISODE.STATUS.CHANGE）。
+
+        契约要求：
+        - 目标状态作参数，转移合法性由 domain/state_machine.py 的单一权威
+          转移表校验（未登记转移一律拒绝，31.5）。
+        - 终态 ARCHIVED 不可原地复活（红线）。
+        - 乐观锁：读取时捕获 entity_version，条件更新；并发冲突抛
+          ConcurrentModificationError。
+        - 状态变更与 EPISODE_STATUS_CHANGED 事件同事务写入（R07/P2-1）。
+        """
+        changed_by = changed_by.strip()
+        if not changed_by:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR, detail="changed_by 不能为空"
+            )
+
+        episode = await self._repository.get_by_id(entity_id)
+        if episode is None:
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"集数不存在: {entity_id}")
+
+        # 固化旧状态再迁移，避免 from_status 记成目标态。
+        previous_status = episode.status
+        expected_version = episode.entity_version
+        episode.transition_to(
+            target_status, audit_ref=f"status_change:{changed_by}"
+        )
+        try:
+            await self._repository.save(episode, expected_version)
+        except ConcurrentModificationError as exc:
+            raise DomainError(
+                ErrorRegistry.CONCURRENT_MODIFICATION,
+                detail="集数状态并发冲突，请基于最新状态重试",
+            ) from exc
+
+        # 与状态变更同事务写 EPISODE_STATUS_CHANGED（R07：状态可追溯）。
+        self._outbox_writer.record(
+            aggregate_type="Episode",
+            aggregate_id=episode.entity_id,
+            event_type="EPISODE_STATUS_CHANGED",
+            tenant_id=tenant_id,
+            payload={
+                "episode_id": episode.entity_id,
+                "project_id": episode.project_id,
+                "from_status": previous_status.value,
+                "to_status": target_status.value,
+                "changed_by": changed_by,
+                "tenant_id": str(tenant_id),
+            },
+        )
         return episode
 
 

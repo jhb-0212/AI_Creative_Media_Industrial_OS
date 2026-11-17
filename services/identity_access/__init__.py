@@ -16,7 +16,7 @@ from functools import lru_cache
 
 from packages.identity.jwks import KeyStore, PublicKeyStore
 from packages.identity.keys import SigningKey, generate_signing_key, load_signing_key
-from packages.shared.config import get_settings
+from packages.shared.config import get_process_settings, get_settings
 
 
 @lru_cache
@@ -31,8 +31,12 @@ def get_key_store() -> KeyStore:
 
     kid 默认取固定值「current」，便于开发/测试环境稳定引用；生产轮换时
     追加新 kid，旧 kid 保留验签仍在有效期内的令牌。
+
+    注意：本函数持私钥（签发方语义），生产环境以 identity 进程角色校验
+    （F05 进程密钥最小权限）——只有身份签发服务被要求持有私钥，API/Relay
+    的进程清单不含该密钥，结构上杜绝私钥外泄到验签进程。
     """
-    settings = get_settings()
+    settings = get_process_settings("identity")
     private_pem = settings.identity_private_key_pem.get_secret_value()
     public_pem = settings.identity_public_key_pem.get_secret_value()
 
@@ -75,21 +79,27 @@ def issue_token(
     subject_id: str,
     tenant_id: str,
     roles: list[str],
+    capabilities: list[str] | None = None,
 ) -> str:
     """签发一条访问令牌（身份服务内部使用，含私钥）。
 
     生产环境此函数应由独立 Authorization Service 调用，私钥不出该服务；
     此处仅作为身份服务的签发入口，供联调/测试与后续 Token 端点使用。
+
+    capabilities：能力范围集合（caps claim）。契约中所有动作 ``token_required``
+    均为 true，因此签发方必须显式授予能力范围；不传则签发空能力集，任何
+    需 Capability 校验的动作都会被拒绝（fail-closed）。
     """
     from packages.identity.jwt_core import encode_token
-    from packages.shared.config import get_settings
 
-    settings = get_settings()
+    # 签发方语义：以 identity 进程角色读取配置（与 get_key_store 一致）。
+    settings = get_process_settings("identity")
     return encode_token(
         get_key_store().current,
         subject_id=subject_id,
         tenant_id=tenant_id,
         roles=roles,
+        capabilities=capabilities or [],
         issuer=settings.identity_issuer,
         audience=settings.identity_audience,
         ttl_seconds=settings.identity_access_token_ttl_seconds,

@@ -28,7 +28,7 @@ from packages.errors.error_codes import (
     ErrorRegistry,
     to_response_payload,
 )
-from packages.shared.config import get_settings
+from packages.shared.config import get_process_settings
 from packages.shared.database import lifespan
 from packages.shared.logging import get_logger, set_trace_id, setup_logging
 from packages.shared.metrics import (
@@ -40,7 +40,7 @@ from packages.shared.metrics import (
 from packages.shared.rate_limit import RateLimitDecision
 from packages.telemetry.tracing import setup_telemetry
 
-settings = get_settings()
+settings = get_process_settings("api")
 setup_logging(settings.log_level)
 logger = get_logger("apps.api")
 

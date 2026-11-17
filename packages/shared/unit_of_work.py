@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
 from fastapi import Request
@@ -74,3 +74,37 @@ async def get_read_uow(request: Request) -> AsyncIterator[UnitOfWork]:
     """只读工作单元依赖（GET/HEAD 用例使用，数据库层拒绝写入）。"""
     async with unit_of_work(request.app.state.sessionmaker, read_only=True) as uow:
         yield uow
+
+
+def make_uow_dependency(
+    sessionmaker_attr: str,
+) -> Callable[[Request], AsyncIterator[UnitOfWork]]:
+    """构造绑定特定会话工厂的工作单元依赖（按业务域拆连接池）。
+
+    DATA-1（模块级角色隔离）：project_planning 与 asset_service 各自独立
+    会话工厂（挂在不同 ``app.state.<attr>``），本工厂让每个域的路由注入
+    自己域的会话工厂，使跨域越界写在数据库层被拒绝。
+
+    参数 ``sessionmaker_attr`` 为 ``app.state`` 上会话工厂的属性名，例如
+    ``"project_planning_sessionmaker"`` / ``"asset_service_sessionmaker"``。
+    """
+
+    async def _get_domain_uow(request: Request) -> AsyncIterator[UnitOfWork]:
+        sessionmaker: SessionMaker = getattr(request.app.state, sessionmaker_attr)
+        async with unit_of_work(sessionmaker) as uow:
+            yield uow
+
+    return _get_domain_uow
+
+
+def make_read_uow_dependency(
+    sessionmaker_attr: str,
+) -> Callable[[Request], AsyncIterator[UnitOfWork]]:
+    """构造绑定特定会话工厂的只读工作单元依赖（按业务域拆连接池）。"""
+
+    async def _get_domain_read_uow(request: Request) -> AsyncIterator[UnitOfWork]:
+        sessionmaker: SessionMaker = getattr(request.app.state, sessionmaker_attr)
+        async with unit_of_work(sessionmaker, read_only=True) as uow:
+            yield uow
+
+    return _get_domain_read_uow

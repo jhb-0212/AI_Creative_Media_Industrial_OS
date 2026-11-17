@@ -24,11 +24,17 @@ implemented:
   PROJECT.READ:
     route: "GET /projects/{entity_id}"
     module: services/project_planning/api/project_routes.py
+  PROJECT.STATUS.CHANGE:
+    route: "POST /projects/{entity_id}/status"
+    module: services/project_planning/api/project_routes.py
   EPISODE.CREATE:
     route: "POST /episodes"
     module: services/project_planning/api/episode_routes.py
   EPISODE.READ:
     route: "GET /episodes/{entity_id}"
+    module: services/project_planning/api/episode_routes.py
+  EPISODE.STATUS.CHANGE:
+    route: "POST /episodes/{entity_id}/status"
     module: services/project_planning/api/episode_routes.py
   SCRIPT.IMPORT:
     route: "POST /scripts/import"

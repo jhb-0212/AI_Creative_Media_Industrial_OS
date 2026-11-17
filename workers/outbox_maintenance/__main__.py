@@ -38,10 +38,13 @@ from datetime import UTC, datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncTransaction, create_async_engine
 
-from packages.shared.config import get_settings
+from packages.shared.config import get_process_settings
 from packages.shared.database import build_migration_url
 from packages.shared.logging import get_logger, setup_logging
-from packages.shared.partition_guard import protect_partition_statements
+from packages.shared.partition_guard import (
+    grant_outbox_partition_statements,
+    protect_partition_statements,
+)
 from workers.outbox_maintenance.archive import export_partition
 
 logger = get_logger(__name__)
@@ -204,6 +207,13 @@ async def ensure_partition(conn: AsyncConnection, part: Partition) -> int:
         # 回收直连权限，就重现"直查分区绕过租户隔离"的旧缺陷。
         for statement in protect_partition_statements(part.name):
             await conn.execute(text(statement))
+        # 分区授权与保护并列：业务域角色（project_planning_role /
+        # asset_service_role 写事件）与 relay（领取 + 回写 published_at）
+        # 通过父表访问时仍会校验目标分区权限，必须显式按访问类型授权。
+        # 迁移 ae8724980e0b 用 ALTER DEFAULT PRIVILEGES 兜底未来分区，这里
+        # 再显式授权一次是双保险（幂等），也避免依赖「默认权限一定生效」。
+        for statement in grant_outbox_partition_statements(part.name):
+            await conn.execute(text(statement))
         if moved:
             await conn.execute(
                 text(f"INSERT INTO {SCHEMA}.{PARENT} SELECT * FROM _outbox_moved")
@@ -358,7 +368,7 @@ async def _record(args: argparse.Namespace, result: RunResult, started_at: datet
 
 
 async def _run(args: argparse.Namespace) -> int:
-    settings = get_settings()
+    settings = get_process_settings("outbox_maintenance")
     setup_logging(settings.log_level)
     exit_code = 0
     while True:

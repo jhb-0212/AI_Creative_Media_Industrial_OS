@@ -27,6 +27,7 @@ from sqlalchemy.exc import IntegrityError
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.identity.principal import Principal
+from packages.identity.separation import require_different_subject
 from packages.shared.outbox_writer import OutboxWriter
 from services.asset_service.domain.asset_version import AssetVersion
 from services.asset_service.domain.enums import (
@@ -295,11 +296,14 @@ class AssetService:
             )
 
         # 职责分离：创建人与批准人必须是不同主体（禁止自批，Agent 不能自审自批）。
-        if asset.created_by == approved_by:
-            raise DomainError(
-                ErrorRegistry.STATE_TRANSITION_DENIED,
-                detail="资产创建人与批准人不得为同一主体（职责分离红线）",
-            )
+        # 统一判定见 packages/identity/separation.py（消除重复比对逻辑）。
+        require_different_subject(
+            actor=approved_by,
+            counterpart=asset.created_by,
+            action_label="ASSET.VERSION.APPROVE",
+            actor_label="批准人",
+            counterpart_label="创建人",
+        )
 
         # 权利证据：没有 rights_manifest_ref 的资产不得进入 APPROVED。
         if not asset.rights_manifest_ref:

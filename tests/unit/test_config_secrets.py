@@ -4,6 +4,8 @@
 - 生产环境（APP_ENV=production）缺关键密钥 → 拒绝启动（抛 ValidationError）。
 - 非生产环境（development）允许空密钥，便于本地联调。
 - 密钥字段为 SecretStr，repr/str 不含明文。
+- F05 进程密钥最小权限：按 process_role 只校验该进程真正需要的密钥——
+  API 不要求签发私钥，Relay 不碰身份密钥，运维 CLI 只用 postgres 密码。
 """
 
 from __future__ import annotations
@@ -13,28 +15,46 @@ from pydantic import ValidationError
 
 from packages.shared.config import Settings
 
-# 生产环境校验所覆盖的「必需密钥」清单（与 Settings._PRODUCTION_REQUIRED_SECRETS 对齐）。
-REQUIRED_ENV_VARS = [
-    "POSTGRES_PASSWORD",
-    "POSTGRES_APP_PASSWORD",
-    "IDENTITY_PRIVATE_KEY_PEM",
-    "IDENTITY_PUBLIC_KEY_PEM",
-]
+# 各进程角色在生产环境下各自「必需」的密钥清单（与
+# Settings._PRODUCTION_REQUIRED_SECRETS_BY_PROCESS 对齐）。这是 F05 根治的
+# 断言目标：密钥需求随进程角色收紧，而非全局一刀切。
+# DATA-1（按域拆角色）后，api 进程需两个业务域角色的密码，不再需要单一
+# app_role 的 app_password。
+_REQUIRED_BY_PROCESS = {
+    "api": [
+        "POSTGRES_PROJECT_PLANNING_PASSWORD",
+        "POSTGRES_ASSET_SERVICE_PASSWORD",
+        "IDENTITY_PUBLIC_KEY_PEM",
+    ],
+    "relay": ["POSTGRES_RELAY_PASSWORD"],
+    "outbox_maintenance": ["POSTGRES_PASSWORD"],
+    "identity": [
+        "POSTGRES_APP_PASSWORD",
+        "IDENTITY_PRIVATE_KEY_PEM",
+        "IDENTITY_PUBLIC_KEY_PEM",
+    ],
+}
+
+# 一份「所有进程都配齐」的环境变量（密钥均为非空），供各用例取子集。
+_ALL_ENV_VARS = {
+    "APP_ENV": "production",
+    "POSTGRES_PASSWORD": "s3cret-db",
+    "POSTGRES_APP_PASSWORD": "prod-app-pass",
+    "POSTGRES_RELAY_PASSWORD": "prod-relay-pass",
+    "POSTGRES_PROJECT_PLANNING_PASSWORD": "prod-project-planning-pass",
+    "POSTGRES_ASSET_SERVICE_PASSWORD": "prod-asset-service-pass",
+    "IDENTITY_PRIVATE_KEY_PEM": "-----BEGIN PRIVATE KEY-----prod-----END PRIVATE KEY-----",
+    "IDENTITY_PUBLIC_KEY_PEM": "-----BEGIN PUBLIC KEY-----prod-----END PUBLIC KEY-----",
+    "S3_ACCESS_KEY_ID": "AKIAEXAMPLE",
+    "S3_SECRET_ACCESS_KEY": "s3cret-s3",
+    "MQ_URL": "amqp://user:pass@mq:5672/",
+    "MODEL_GATEWAY_API_KEY": "sk-model",
+}
 
 
 def _prod_env() -> dict[str, str]:
     """构造一份生产环境所需的完整环境变量（密钥均为非空）。"""
-    return {
-        "APP_ENV": "production",
-        "POSTGRES_PASSWORD": "s3cret-db",
-        "POSTGRES_APP_PASSWORD": "prod-app-pass",
-        "IDENTITY_PRIVATE_KEY_PEM": "-----BEGIN PRIVATE KEY-----prod-----END PRIVATE KEY-----",
-        "IDENTITY_PUBLIC_KEY_PEM": "-----BEGIN PUBLIC KEY-----prod-----END PUBLIC KEY-----",
-        "S3_ACCESS_KEY_ID": "AKIAEXAMPLE",
-        "S3_SECRET_ACCESS_KEY": "s3cret-s3",
-        "MQ_URL": "amqp://user:pass@mq:5672/",
-        "MODEL_GATEWAY_API_KEY": "sk-model",
-    }
+    return dict(_ALL_ENV_VARS)
 
 
 def _make_settings(**overrides: str) -> Settings:
@@ -48,38 +68,83 @@ def _make_settings(**overrides: str) -> Settings:
     return Settings(_env_file=None, **overrides)
 
 
+def _set_env(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> None:
+    """清空既有密钥环境变量后，按给定字典注入，避免残留真实值干扰。"""
+    for var in _ALL_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+
 def test_production_with_all_secrets_starts(monkeypatch: pytest.MonkeyPatch) -> None:
     """生产环境密钥齐全 → 正常实例化。"""
-    for key, value in _prod_env().items():
-        monkeypatch.setenv(key, value)
+    _set_env(monkeypatch, _prod_env())
     settings = _make_settings()
     assert settings.app_env == "production"
     assert settings.postgres_password.get_secret_value() == "s3cret-db"
 
 
-@pytest.mark.parametrize("missing_var", REQUIRED_ENV_VARS)
-def test_production_missing_secret_rejected(
-    monkeypatch: pytest.MonkeyPatch, missing_var: str
+@pytest.mark.parametrize("process_role", ["api", "relay", "outbox_maintenance", "identity"])
+def test_production_missing_secret_rejected_per_process(
+    monkeypatch: pytest.MonkeyPatch, process_role: str
 ) -> None:
-    """生产环境缺少任一必需密钥 → 拒绝启动，并指明缺失的环境变量名。"""
+    """生产环境缺少**本进程必需**密钥 → 拒绝启动，并指明缺失变量名。
+
+    每个进程取自身清单的首个必需密钥删掉，断言拒绝且报错含该变量名；
+    只缺「该进程不需要的密钥」不得拒绝（见 test_production_ignores_non_required_secret）。
+    """
+    missing_var = _REQUIRED_BY_PROCESS[process_role][0]
     env = _prod_env()
     env.pop(missing_var)
-    for key, value in env.items():
-        monkeypatch.setenv(key, value)
-    # 确保被删的变量在环境中不存在（避免残留真实值）。
-    monkeypatch.delenv(missing_var, raising=False)
+    _set_env(monkeypatch, env)
 
     with pytest.raises(ValidationError) as exc_info:
-        _make_settings()
-    # 错误信息中应包含缺失变量名，便于运维定位。
+        _make_settings(process_role=process_role)
     assert missing_var in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "process_role,not_required",
+    [
+        # API 不要求签发私钥（F05 核心：私钥仅身份服务持有）。
+        ("api", "IDENTITY_PRIVATE_KEY_PEM"),
+        ("api", "POSTGRES_RELAY_PASSWORD"),
+        ("api", "POSTGRES_PASSWORD"),
+        # DATA-1（按域拆角色）：api 不再用单一 app_role，不要求 app_password。
+        ("api", "POSTGRES_APP_PASSWORD"),
+        # Relay 完全不碰身份密钥与业务应用角色。
+        ("relay", "IDENTITY_PRIVATE_KEY_PEM"),
+        ("relay", "IDENTITY_PUBLIC_KEY_PEM"),
+        ("relay", "POSTGRES_APP_PASSWORD"),
+        # 运维 CLI 只用 postgres 超级用户，不要求应用/relay/身份密钥。
+        ("outbox_maintenance", "POSTGRES_APP_PASSWORD"),
+        ("outbox_maintenance", "POSTGRES_RELAY_PASSWORD"),
+        ("outbox_maintenance", "IDENTITY_PRIVATE_KEY_PEM"),
+        ("outbox_maintenance", "IDENTITY_PUBLIC_KEY_PEM"),
+    ],
+)
+def test_production_ignores_non_required_secret(
+    monkeypatch: pytest.MonkeyPatch, process_role: str, not_required: str
+) -> None:
+    """生产环境下，进程缺少「自身不需要的密钥」不得拒绝启动。
+
+    这是 KEYS-1/KEYS-2 根治的负向断言：若还按全局清单校验，API 缺私钥就会被
+    误拒。此处逐一验证每个进程只认自己清单里的密钥，其它密钥缺失无感。
+    """
+    env = _prod_env()
+    env.pop(not_required)
+    _set_env(monkeypatch, env)
+
+    settings = _make_settings(process_role=process_role)  # 不应抛错
+    assert settings.app_env == "production"
 
 
 def test_development_allows_empty_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     """非生产环境允许空密钥，不阻断本地联调。"""
     monkeypatch.setenv("APP_ENV", "development")
-    for var in REQUIRED_ENV_VARS:
-        monkeypatch.delenv(var, raising=False)
+    for var in _ALL_ENV_VARS:
+        if var != "APP_ENV":
+            monkeypatch.delenv(var, raising=False)
     settings = _make_settings()
     assert settings.app_env == "development"
     assert settings.postgres_password.get_secret_value() == ""
@@ -87,8 +152,7 @@ def test_development_allows_empty_secrets(monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_secret_fields_do_not_leak_in_repr(monkeypatch: pytest.MonkeyPatch) -> None:
     """SecretStr 字段在 repr/str 中不泄露明文（红线 6）。"""
-    for key, value in _prod_env().items():
-        monkeypatch.setenv(key, value)
+    _set_env(monkeypatch, _prod_env())
     settings = _make_settings()
     rendered = repr(settings)
     assert "s3cret-db" not in rendered
@@ -96,13 +160,65 @@ def test_secret_fields_do_not_leak_in_repr(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_production_rejects_dev_default_app_password(monkeypatch: pytest.MonkeyPatch) -> None:
-    """生产环境显式使用开发默认应用密码 app_dev_password → 拒绝启动。"""
-    for key, value in _prod_env().items():
-        monkeypatch.setenv(key, value)
+    """identity 进程显式使用开发默认应用密码 app_dev_password → 拒绝启动。
+
+    DATA-1（按域拆角色）后，app_role 只被 identity 进程使用（签发方），
+    故 dev 默认口令检查也只对 identity 生效；api 进程改用两个业务域角色。
+    """
+    _set_env(monkeypatch, _prod_env())
     monkeypatch.setenv("POSTGRES_APP_PASSWORD", "app_dev_password")
     with pytest.raises(ValidationError) as exc_info:
-        _make_settings()
+        _make_settings(process_role="identity")
     assert "app_dev_password" in str(exc_info.value)
+
+
+def test_production_rejects_dev_default_domain_passwords(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """api 进程显式使用开发默认业务域密码 → 拒绝启动。
+
+    DATA-1（按域拆角色）后，project_planning_role / asset_service_role 的
+    开发默认口令（project_planning_dev_password / asset_service_dev_password）
+    不得带入生产（否则业务域角色的口令可预测）。
+    """
+    _set_env(monkeypatch, _prod_env())
+    monkeypatch.setenv(
+        "POSTGRES_PROJECT_PLANNING_PASSWORD", "project_planning_dev_password"
+    )
+    with pytest.raises(ValidationError) as exc_info:
+        _make_settings(process_role="api")
+    assert "project_planning_dev_password" in str(exc_info.value)
+
+    _set_env(monkeypatch, _prod_env())
+    monkeypatch.setenv(
+        "POSTGRES_ASSET_SERVICE_PASSWORD", "asset_service_dev_password"
+    )
+    with pytest.raises(ValidationError) as exc_info:
+        _make_settings(process_role="api")
+    assert "asset_service_dev_password" in str(exc_info.value)
+
+
+def test_production_rejects_dev_default_relay_password(monkeypatch: pytest.MonkeyPatch) -> None:
+    """生产环境 relay 进程显式使用 relay_dev_password → 拒绝启动。"""
+    _set_env(monkeypatch, _prod_env())
+    monkeypatch.setenv("POSTGRES_RELAY_PASSWORD", "relay_dev_password")
+    with pytest.raises(ValidationError) as exc_info:
+        _make_settings(process_role="relay")
+    assert "relay_dev_password" in str(exc_info.value)
+
+
+def test_relay_dev_password_not_checked_for_non_relay_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """relay 默认口令只对 relay 进程校验：API 进程用了 relay_dev_password 也无感。
+
+    F05 根治的补充断言：dev 默认口令检查与必需清单一致，按进程收紧，避免
+    outbox_maintenance（根本不连 relay 角色）被无关的 relay 密码牵制。
+    """
+    _set_env(monkeypatch, _prod_env())
+    monkeypatch.setenv("POSTGRES_RELAY_PASSWORD", "relay_dev_password")
+    settings = _make_settings(process_role="api")  # 不应因 relay 口令拒绝
+    assert settings.process_role == "api"
 
 
 def test_production_does_not_require_unimplemented_adapters(
@@ -121,9 +237,7 @@ def test_production_does_not_require_unimplemented_adapters(
         "MODEL_GATEWAY_API_KEY",
     ):
         env.pop(var, None)
-        monkeypatch.delenv(var, raising=False)
-    for key, value in env.items():
-        monkeypatch.setenv(key, value)
+    _set_env(monkeypatch, env)
 
     settings = _make_settings()
     assert settings.app_env == "production"
