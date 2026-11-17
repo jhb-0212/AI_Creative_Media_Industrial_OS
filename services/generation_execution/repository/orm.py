@@ -62,9 +62,11 @@ class ProductionRouteStatusTransitionModel(Base):
 class GenerationTaskModel(EntityMixin, Base):
     """generation_tasks 表模型（生成任务，A6 冻结字段集）。
 
-    retry_of / result_ref 是实现扩展列（契约 additionalProperties 允许）：
+    retry_of / result_ref / rights_manifest_ref 是实现扩展列（契约
+    additionalProperties 允许）：
     - retry_of：重试链锚点（重试以新任务承载，9.4）；
-    - result_ref：worker 执行产出引用（不出契约 required）。
+    - result_ref：产出对象引用（登记成功时指向 AssetVersion，ADR-R33）；
+    - rights_manifest_ref：产出权利凭据引用（资产批准链的前置，ADR-R33）。
     """
 
     __tablename__ = "generation_tasks"
@@ -82,6 +84,10 @@ class GenerationTaskModel(EntityMixin, Base):
     dependency_refs: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
     attempt: Mapped[int] = mapped_column(nullable=False)
     retry_of: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 产出权利凭据引用（受理时定型；不可变内容列——准入事实不可事后改写）。
+    rights_manifest_ref: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
     result_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
     # worker 转移伴随元数据（守卫可变白名单列；不出契约响应）。
     started_at: Mapped[datetime | None] = mapped_column(

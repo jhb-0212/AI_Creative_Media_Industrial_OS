@@ -525,7 +525,7 @@ python scripts/contract_check.py            # 派生之间的交叉一致性
     # 载体，必须逐字节确定。
     MANIFEST_PATH.write_bytes(body.encode("utf-8"))
     MANIFEST_SHA_PATH.write_bytes(
-        f"{_sha256(MANIFEST_PATH)}  phase0_manifest.md\n".encode("utf-8")
+        f"{_sha256(MANIFEST_PATH)}  phase0_manifest.md\n".encode()
     )
 
 

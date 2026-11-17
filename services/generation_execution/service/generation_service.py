@@ -14,6 +14,9 @@
   4. retry_of（可选）必须指向同项目同镜头的 FAILED 终态任务，新任务
      attempt = 被重试任务 attempt + 1——重试以新任务承载，不在原任务复活；
   5. 受理发出契约登记的审计事件 GENERATION_REQUESTED。
+- ``rights_manifest_ref``（可选，ADR-R33）：本次产出的权利凭据引用。它不影响
+  受理是否成立（生成可以先做），但决定产出能否进入批准链：资产批准要求
+  权利证据非空，缺失时资产照样登记却不可批准——fail-closed，不伪造权利事实。
 - ``claim`` / ``succeed`` / ``fail``：worker 生命周期转移（乐观并发控制）。
 
 **诚实边界（预算/配额数值校验）**：budget_reservation_ref /
@@ -91,6 +94,7 @@ class GenerationService:
         dependency_refs: list[str],
         principal: Principal,
         retry_of: str | None = None,
+        rights_manifest_ref: str | None = None,
     ) -> GenerationTask:
         """受理生成任务（GENERATION.REQUEST，准入校验全过才落 PENDING）。"""
         project_id = project_id.strip()
@@ -206,6 +210,7 @@ class GenerationService:
             dependency_refs=list(dependency_refs),
             attempt=attempt,
             retry_of=retry_of.strip() if retry_of else None,
+            rights_manifest_ref=rights_manifest_ref,
             status=GenerationTaskStatus.PENDING,
         )
         await self._task_repository.add(task)
@@ -269,6 +274,14 @@ class GenerationService:
                     f"{ref_field} 指向的 {resource_type} 不属于项目 {project_id}"
                     "（跨项目引用拒绝，ACT-GEN-NEG-001）"
                 ),
+            )
+        if ownership.eligible is False:
+            # 所有者域明确判定不可用（7.9：只有 ACTIVE 的约束包可作为生成输入）。
+            # 消费域不解释对方状态词表，只认所有者给出的结论。
+            reason = ownership.ineligible_reason or "所有者域判定该对象不可作为生成输入"
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=f"{ref_field} 指向的 {resource_type} 不可用：{reason}",
             )
 
     # ------------------------------------------------------------------

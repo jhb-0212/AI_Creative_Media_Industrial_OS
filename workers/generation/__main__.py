@@ -8,6 +8,10 @@
 适配器选择（``GENERATION_ADAPTER``，默认 deterministic）：
 - ``deterministic``：确定性适配器（Phase 1，不调用外部供应商，ADR-R32）；
 - 真实供应商适配随 model_gateway 域落地后在此注册新选择。
+
+两个域连接池（ADR-R33）：执行环本体走 generation_execution 角色；产出登记
+必须走 asset_service 角色（跨域写不许借别人的连接）。两者在进程退出时都要
+释放——只关一个是资源泄漏，而且泄漏的正是被高频使用的那个池。
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ from packages.shared.database import create_engine, create_sessionmaker
 from packages.shared.db_roles import DatabaseDomain
 from packages.shared.logging import get_logger, setup_logging
 from workers.generation.adapter import DeterministicGenerationAdapter
+from workers.generation.asset_registrar import AssetVersionRegistrar
 from workers.generation.executor import (
     GenerationExecutorContext,
     GenerationRoundStats,
@@ -78,12 +83,17 @@ async def _main_async(*, once: bool) -> None:
         return
     engine = create_engine(DatabaseDomain.GENERATION_EXECUTION)
     sessionmaker = create_sessionmaker(engine)
+    asset_engine = create_engine(DatabaseDomain.ASSET)
+    asset_sessionmaker = create_sessionmaker(asset_engine)
     adapter = DeterministicGenerationAdapter()
+    registrar = AssetVersionRegistrar(asset_sessionmaker=asset_sessionmaker)
     try:
         while True:
             total = GenerationRoundStats()
             for context in contexts:
-                stats = await execute_round(sessionmaker, context, adapter, total)
+                stats = await execute_round(
+                    sessionmaker, context, adapter, total, registrar=registrar
+                )
                 logger.info(
                     "generation_executor_round",
                     tenant_id=str(context.tenant_id),
@@ -96,6 +106,7 @@ async def _main_async(*, once: bool) -> None:
                 break
             await asyncio.sleep(get_settings().outbox_relay_interval_seconds)
     finally:
+        await asset_engine.dispose()
         await engine.dispose()
 
 

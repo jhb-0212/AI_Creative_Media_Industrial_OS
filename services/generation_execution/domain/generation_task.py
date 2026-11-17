@@ -12,6 +12,12 @@
 实现扩展列（additionalProperties 允许，不出现在契约 required）：
 - retry_of：被重试的失败任务 id（可空）。attempt 链的可追溯锚点——
   重试不是原任务复活，是引用终态失败任务的新任务。
+- rights_manifest_ref：本次生成产出的权利凭据引用（可空，ADR-R33）。
+  为什么必须随受理声明：资产域的批准硬约束要求 ``rights_manifest_ref``
+  非空（无权利证据不得批准），而生成产出是机器产出的资产——权利凭据若
+  不在受理时定型，产出的资产将永远进不了批准链（死路）。缺失时本列留空，
+  产出照常登记但**不可批准**：这是 fail-closed，不是降级。rights_governance
+  域落地后，本列由 RightsManifest 引用替换，引用面不变。
 
 边界硬约束：
 - 准入校验（引用存在、归属项目、路线 VERIFIED）由 GenerationService 在
@@ -52,6 +58,7 @@ class GenerationTask(Entity):
     dependency_refs: list[str] = field(default_factory=list)
     attempt: int = 1
     retry_of: str | None = None
+    rights_manifest_ref: str | None = None
     status: GenerationTaskStatus = GenerationTaskStatus.PENDING
     # 执行产出引用（worker 写入；实现扩展列，不出契约 required）。
     result_ref: str | None = None
@@ -87,6 +94,10 @@ class GenerationTask(Entity):
                 ErrorRegistry.VALIDATION_ERROR,
                 detail="首建任务（attempt=1）不得携带 retry_of",
             )
+        # 权利引用的空值归一：'' 与 NULL 是两种「空」，只保留一种。
+        if self.rights_manifest_ref is not None:
+            cleaned = self.rights_manifest_ref.strip()
+            self.rights_manifest_ref = cleaned or None
 
     def to_dict(self) -> dict[str, Any]:
         """序列化为契约信封结构（generation_task_id 是主标识字段）。"""
@@ -105,6 +116,8 @@ class GenerationTask(Entity):
                 "dependency_refs": self.dependency_refs,
                 "attempt": self.attempt,
                 "retry_of": self.retry_of,
+                # 实现扩展列（additionalProperties 允许）：权利凭据引用。
+                "rights_manifest_ref": self.rights_manifest_ref,
             }
         )
         return data

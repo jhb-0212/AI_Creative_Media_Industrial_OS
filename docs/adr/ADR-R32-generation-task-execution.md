@@ -69,6 +69,10 @@ outbox 写入端——把受理依赖强塞给 worker 会逼出 fail-closed 空�
 3. **ASSET.VERSION.CREATE 联动未打通**：worker 产出目前只登记
    result_ref 引用，不创建资产版本（跨域写入属资产域，属主链段 4
    E2E 的衔接点）。
+   **状态更新（2026-11-17，ADR-R33）**：已闭合。执行环改为四段事务，产出经
+   ``GenerationOutputRegistrar`` 端口在资产域事务内登记为 AssetVersion，
+   ``result_ref`` 收敛为资产版本号（确定性幂等键 ``av_<task_id>``）。本段
+   「债务 3」保留为历史记录，不再作为未闭合项计数。
 
 ## 4. 后果
 

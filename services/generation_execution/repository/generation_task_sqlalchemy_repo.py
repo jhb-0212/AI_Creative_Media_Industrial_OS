@@ -38,6 +38,7 @@ def _to_domain(model: GenerationTaskModel) -> GenerationTask:
         dependency_refs=list(model.dependency_refs),
         attempt=model.attempt,
         retry_of=model.retry_of,
+        rights_manifest_ref=model.rights_manifest_ref,
         status=status,
         result_ref=model.result_ref,
         created_by=model.created_by,
@@ -78,6 +79,7 @@ def _to_orm(task: GenerationTask) -> GenerationTaskModel:
         dependency_refs=task.dependency_refs,
         attempt=task.attempt,
         retry_of=task.retry_of,
+        rights_manifest_ref=task.rights_manifest_ref,
         result_ref=task.result_ref,
     )
 

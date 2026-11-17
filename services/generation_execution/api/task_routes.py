@@ -48,6 +48,8 @@ class GenerationRequest(BaseModel):
     quota_reservation_ref: str = Field(..., min_length=1, max_length=64)
     dependency_refs: list[str] = Field(default_factory=list)
     retry_of: str | None = Field(default=None, max_length=64)
+    #: 本次产出的权利凭据引用（可空；缺失时产出可登记但不可批准，ADR-R33）。
+    rights_manifest_ref: str | None = Field(default=None, max_length=64)
 
 
 class GenerationRequestAccepted(BaseModel):
@@ -115,6 +117,7 @@ async def request_generation(
         dependency_refs=body.dependency_refs,
         principal=principal,
         retry_of=body.retry_of,
+        rights_manifest_ref=body.rights_manifest_ref,
     )
     await uow.commit()
     return GenerationRequestAccepted(

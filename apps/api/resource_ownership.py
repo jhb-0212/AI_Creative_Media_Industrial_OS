@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
@@ -25,6 +26,7 @@ from services.asset_service.repository.sqlalchemy_manifest_repo import (
     SqlAlchemyDeliveryManifestRepository,
 )
 from services.generation_execution.domain.ports import RefOwnership
+from services.shot_planning.domain.enums import ConstraintPackStatus
 from services.shot_planning.repository.constraint_pack_sqlalchemy_repo import (
     SqlAlchemyConstraintPackRepository,
 )
@@ -71,6 +73,17 @@ _RESOLVERS: dict[str, tuple[DatabaseDomain, Any]] = {
     ),
 }
 
+#: 生成准入判定（按资源类型登记）。**只登记契约明写的规则**：
+#: 7.9「只有 ACTIVE 可作为生成输入」——未登记的类型不给判定，
+#: 不把"看起来应该"的规则猜成契约（猜出来的规则比没有规则更危险：
+#: 它会让一个错误的前提在测试里全绿）。
+_ADMISSION_EVALUATORS: dict[str, Callable[[Any], tuple[bool, str]]] = {
+    "ConstraintPack": lambda pack: (
+        pack.status is ConstraintPackStatus.ACTIVE,
+        f"约束包状态为 {pack.status.value}，只有 ACTIVE 可作为生成输入（7.9）",
+    ),
+}
+
 
 class CompositeResourceOwnershipPort:
     """按资源类型路由到所有者域只读仓储的归属解析适配器。"""
@@ -81,14 +94,15 @@ class CompositeResourceOwnershipPort:
     def can_resolve(self, resource_type: str) -> bool:
         return resource_type in _RESOLVERS
 
-    async def resolve(
+    async def _load(
         self,
         *,
         tenant_id: object,
         organization_id: object,
         resource_type: str,
         resource_id: str,
-    ) -> ResourceOwnership | None:
+    ) -> Any | None:
+        """以所有者域身份加载对象（读永远经过所有者，见模块 docstring）。"""
         route = _RESOLVERS.get(resource_type)
         if route is None:
             return None
@@ -107,10 +121,58 @@ class CompositeResourceOwnershipPort:
                     project_ids=frozenset({"*"}),
                 ),
             )
-            entity = await repo_cls(session).get_by_id(resource_id)
-            if entity is None:
-                return None
-            return ResourceOwnership(project_id=entity.project_id)
+            return await repo_cls(session).get_by_id(resource_id)
+
+    async def resolve(
+        self,
+        *,
+        tenant_id: object,
+        organization_id: object,
+        resource_type: str,
+        resource_id: str,
+    ) -> ResourceOwnership | None:
+        entity = await self._load(
+            tenant_id=tenant_id,
+            organization_id=organization_id,
+            resource_type=resource_type,
+            resource_id=resource_id,
+        )
+        if entity is None:
+            return None
+        return ResourceOwnership(project_id=entity.project_id)
+
+    async def resolve_generation_input(
+        self,
+        *,
+        tenant_id: object,
+        organization_id: object,
+        resource_type: str,
+        resource_id: str,
+    ) -> RefOwnership | None:
+        """解析归属 + 所有者域对"能否作为生成输入"的判定（generation 端口形态）。
+
+        与 ``resolve`` 分两个方法而不是给一个方法加开关：两个消费域的端口
+        字段不同（workflow 只要归属，generation 还要准入结论），合并会让
+        workflow 的端口凭空多出一个它不理解的字段。
+        """
+        entity = await self._load(
+            tenant_id=tenant_id,
+            organization_id=organization_id,
+            resource_type=resource_type,
+            resource_id=resource_id,
+        )
+        if entity is None:
+            return None
+        evaluator = _ADMISSION_EVALUATORS.get(resource_type)
+        if evaluator is None:
+            # 契约没有为该类型写明生成准入状态 → 不做判定（不猜规则）。
+            return RefOwnership(project_id=entity.project_id)
+        eligible, reason = evaluator(entity)
+        return RefOwnership(
+            project_id=entity.project_id,
+            eligible=eligible,
+            ineligible_reason="" if eligible else reason,
+        )
 
 
 class GenerationRefOwnershipAdapter:
@@ -118,9 +180,10 @@ class GenerationRefOwnershipAdapter:
 
     为什么需要这一层而不是直接把 ``CompositeResourceOwnershipPort`` 塞给
     generation 服务：两个域的归属数据类（workflow 的 ``ResourceOwnership`` /
-    generation 的 ``RefOwnership``）是各自领域的名义类型，字段恰好相同是
-    巧合不是契约——靠 mypy 结构匹配把两个域悄悄焊死，等于在领域之间开了
-    一条隐性类型通道。转换在这里（组合根）显式发生，依赖方向保持单向。
+    generation 的 ``RefOwnership``）是各自领域的名义类型，字段**不同**
+    （generation 多一个所有者域准入结论 ``eligible``）——靠 mypy 结构匹配
+    会把两个域焊死，等于在领域之间开一条隐性类型通道。转换在这里
+    （组合根）显式发生，依赖方向保持单向。
     """
 
     def __init__(self, composite: CompositeResourceOwnershipPort) -> None:
@@ -137,12 +200,9 @@ class GenerationRefOwnershipAdapter:
         resource_type: str,
         resource_id: str,
     ) -> RefOwnership | None:
-        ownership = await self._composite.resolve(
+        return await self._composite.resolve_generation_input(
             tenant_id=tenant_id,
             organization_id=organization_id,
             resource_type=resource_type,
             resource_id=resource_id,
         )
-        if ownership is None:
-            return None
-        return RefOwnership(project_id=ownership.project_id)
