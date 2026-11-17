@@ -114,3 +114,55 @@ async def test_grant_baseline(admin_engine: AsyncEngine) -> None:
             ).one()
             assert rows.rt_select is True, f"{role} 应能读 revoked_tokens（吊销检查）"
             assert rows.rt_insert is False, f"{role} 不得 INSERT revoked_tokens"
+
+
+async def test_legacy_app_role_outbox_grants_reclaimed(
+    admin_engine: AsyncEngine,
+) -> None:
+    """旧 app_role 的 outbox 写权限必须已回收（审查 P1-02 / R9）。
+
+    拆域角色后事件写入已收归业务域角色，app_role 不再有任何生产写路径；
+    若它仍持有 outbox 的 INSERT/UPDATE，就是一条绕过域角色边界伪造/篡改
+    审计事件的入口。这里断言「授权口径」，行为负向证明见
+    tests/integration/test_ownership_db_roles.py。
+    """
+    async with admin_engine.connect() as conn:
+        rows = (
+            await conn.execute(
+                text(
+                    """
+                    SELECT
+                      has_table_privilege('app_role', 'outbox.outbox_events', 'SELECT') AS can_select,
+                      has_table_privilege('app_role', 'outbox.outbox_events', 'INSERT') AS can_insert,
+                      has_table_privilege('app_role', 'outbox.outbox_events', 'DELETE') AS can_delete
+                    """
+                )
+            )
+        ).one()
+        assert rows.can_select is True, "app_role 仍需只读（RLS 隔离验证角色）"
+        assert rows.can_insert is False, "app_role 不得再写事件"
+        assert rows.can_delete is False, "app_role 不得删除审计事件"
+
+        # UPDATE 是列级授权语义：app_role 不得对任何列有 UPDATE（整表或列级）。
+        columns = (
+            await conn.execute(
+                text(
+                    """
+                    SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema = 'outbox' AND table_name = 'outbox_events'
+                    """
+                )
+            )
+        ).scalars().all()
+        for column in columns:
+            granted = (
+                await conn.execute(
+                    text(
+                        "SELECT has_column_privilege("
+                        "'app_role', 'outbox.outbox_events', :col, 'UPDATE')"
+                    ),
+                    {"col": column},
+                )
+            ).scalar_one()
+            assert granted is False, f"app_role 仍可 UPDATE outbox.{column}"

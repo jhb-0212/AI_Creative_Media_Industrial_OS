@@ -33,6 +33,15 @@ APP_ROLE = "app_role"
 # 与父表策略同名：策略名按表作用域独立，同名便于排障时一眼认出。
 PARTITION_POLICY = "tenant_isolation_outbox_events"
 
+# relay 唯一允许回写的「投递元数据」列（F03 数据所有权 + 审查 P1-01）。
+# 事件业务内容（payload / event_type / tenant_id / aggregate_type /
+# aggregate_id / occurred_at）是 append-only 审计事实，relay 不得修改——
+# 否则被攻破的 relay 进程可篡改已投递审计事件。列级授权把「只能改投递状态」
+# 下沉到数据库层（GRANT UPDATE(col1, col2)），而非依赖 Python 代码自觉。
+# 与 workers/relay/consumer.py 的三条 UPDATE（_ACK 写 published_at、
+# _FAIL 写 attempts/next_attempt_at/dead_lettered_at）一一对应。
+RELAY_UPDATE_COLUMNS = ("published_at", "attempts", "next_attempt_at", "dead_lettered_at")
+
 _IDENT_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 
@@ -86,6 +95,54 @@ def unprotect_partition_statements(
     )
 
 
+def relay_column_update_statements(
+    table: str,
+    *,
+    schema: str = OUTBOX_SCHEMA,
+) -> tuple[str, ...]:
+    """把 relay 对某张 outbox 事件表（父表或分区）的 UPDATE 收窄为列级（审查 P1-01）。
+
+    根因：7a8b9c0d1e2f 对父表授了 ``GRANT SELECT, UPDATE``（整表），
+    ae8724980e0b 对分区授了 ``GRANT SELECT, UPDATE``（整表）。整表 UPDATE
+    意味着 relay 能改写 payload / event_type / tenant_id 等事件业务内容——
+    被攻破的 relay 进程即可篡改已投递审计事件，违背「事件不可篡改」红线。
+
+    根治：撤销整表 UPDATE，改授列级 ``UPDATE (RELAY_UPDATE_COLUMNS)``，
+    使「改业务内容」在数据库层被拒绝（permission denied for column），
+    而非依赖 relay 代码自觉只写 published_at/attempts 等投递元数据列。
+
+    语句幂等：REVOKE UPDATE 与 GRANT UPDATE(cols) 重复执行无害；但必须先
+    REVOKE 再 GRANT（列级授权是追加，整表授权若残留仍会覆盖列级限制）。
+    """
+    from packages.shared.config import get_settings
+
+    relay_role = get_settings().postgres_relay_user
+    qualified = f"{quote_ident(schema)}.{quote_ident(table)}"
+    columns = ", ".join(quote_ident(c) for c in RELAY_UPDATE_COLUMNS)
+    return (
+        f"REVOKE UPDATE ON {qualified} FROM {quote_ident(relay_role)}",
+        f"GRANT UPDATE ({columns}) ON {qualified} TO {quote_ident(relay_role)}",
+    )
+
+
+def _grant_relay_select_update(qualified: str, relay_role: str) -> tuple[str, str]:
+    """给 relay 角色授予「SELECT + 列级 UPDATE」的最小授权（审查 P1-01）。
+
+    整表 ``GRANT SELECT, UPDATE`` 会让 relay 能改写 payload/event_type/
+    tenant_id 等事件业务内容，破坏「事件不可篡改」审计红线。列级授权把
+    UPDATE 收窄到 RELAY_UPDATE_COLUMNS（投递元数据列），使「改业务内容」
+    在数据库层被拒绝（permission denied for column）。
+
+    返回两条语句（SELECT 与列级 UPDATE 分开）：调用方逐条 op.execute /
+    conn.execute(text())，asyncpg 的单语句 text() 不支持一次执行多句。
+    """
+    columns = ", ".join(quote_ident(c) for c in RELAY_UPDATE_COLUMNS)
+    return (
+        f"GRANT SELECT ON {qualified} TO {quote_ident(relay_role)}",
+        f"GRANT UPDATE ({columns}) ON {qualified} TO {quote_ident(relay_role)}",
+    )
+
+
 def grant_outbox_partition_statements(
     partition: str,
     *,
@@ -104,7 +161,9 @@ def grant_outbox_partition_statements(
     按访问类型授权（最小权限，不因分区而放大）：
     - project_planning_role / asset_service_role：INSERT + SELECT（写事件、
       读本域事件）。
-    - outbox_relay_role：SELECT + UPDATE（领取待投递事件、回写 published_at）。
+    - outbox_relay_role：SELECT + 列级 UPDATE（领取待投递事件、回写投递
+      元数据列），见 RELAY_UPDATE_COLUMNS——relay 不得修改事件业务内容
+      （payload / event_type / tenant_id 等审计事实）。
     - app_role 不在此列：其分区直连权限已由 protect_partition_statements 收口。
 
     角色名从 config 读取（单一事实源），避免在运行时工具里硬编码角色字符串。
@@ -119,7 +178,7 @@ def grant_outbox_partition_statements(
     return (
         f"GRANT SELECT, INSERT ON {qualified} TO {quote_ident(project_role)}",
         f"GRANT SELECT, INSERT ON {qualified} TO {quote_ident(asset_role)}",
-        f"GRANT SELECT, UPDATE ON {qualified} TO {quote_ident(relay_role)}",
+        *_grant_relay_select_update(qualified, relay_role),
     )
 
 
@@ -148,9 +207,11 @@ __all__ = [
     "OUTBOX_PARENT",
     "OUTBOX_SCHEMA",
     "PARTITION_POLICY",
+    "RELAY_UPDATE_COLUMNS",
     "grant_outbox_partition_statements",
     "protect_partition_statements",
     "quote_ident",
+    "relay_column_update_statements",
     "revoke_outbox_partition_statements",
     "unprotect_partition_statements",
 ]
