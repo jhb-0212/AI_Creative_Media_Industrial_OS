@@ -197,5 +197,43 @@ amendments:
       - '本修订只交付引擎与事件；业务域消费 APPROVAL_TICKET_COMPLETED 后推进自身状态的处理器仍需逐域接入'
       - '审批组角色映射（approval_bindings.yaml）为 Phase 1 临时解释，契约细化后需复核'
 
+  - id: 'V205-R14-A4'
+    title: '镜头域契约增补：ShotDraft 与 ShotRevision 对象（拆分 shot_planning 的前置）'
+    retroactive: false
+    recorded_at: '2026-11-17'
+    discovered_by: 'docs/adr/ADR-R07（ShotDraft 缺对象契约）与 ADR-R27（镜头域拆分为独立 shot_planning）'
+    reason: >-
+      ADR-R07 已登记：SHOT.DRAFT.CREATE 的 resource_type=ShotDraft 与
+      SHOT.REVISION.CONFIRM 的 resource_type=ShotRevision 在对象契约中均无定义，
+      直接写代码只会发明字段或把草案与正式镜头混为一谈。ADR-R27 决定把镜头域从
+      project_planning 正式拆分为独立 shot_planning 领域，其第 6 节实施顺序的
+      第 1 步即补这两个对象契约。本次修订新增 ShotDraft（AI 拆镜草案，字段按
+      19.3 拆镜流程 + ADR-R07 最小集）与 ShotRevision（正式镜头内容修订，字段按
+      8.1 核心实体 + 8.3 Shot 契约），兑现 ADR-R07 债务，作为后续 shot_planning
+      域实现的契约前提。字段口径不虚构：ShotDraft 收敛到 ADR-R07 列出的归属键/
+      镜头序号/草案内容引用/来源/状态集合；ShotRevision 对齐 8.1「ShotRevision
+      保存每次内容修订」与 8.3 示例的核心标识。
+    adr: 'docs/adr/ADR-R27-shot-planning-domain-split.md'
+    approved_by: '项目所有者（镜头域拆分架构指令）'
+    approved_at: '2026-11-17'
+    source_commits:
+      - 'acbe155'  # docs(adr): ADR-R27 镜头域从 project_planning 拆分为独立 shot_planning
+    additions:
+      actions: []
+      schema_objects:
+        - object: 'ShotDraft'
+          why: 'AI 拆镜草案对象；SHOT.DRAFT.CREATE 的 resource_type，兑现 ADR-R07 债务'
+        - object: 'ShotRevision'
+          why: '正式镜头内容修订对象；SHOT.REVISION.CONFIRM 的 resource_type，8.1 核心实体'
+      state_machines: []
+    counts_after:
+      actions: 83
+      openapi_operations: 83
+      schema_objects: 82
+      state_machines: 39
+    residual_risks:
+      - '本修订仅补对象契约；shot_planning 域的四层实现、数据库角色与迁移、用例与测试均在后续段落地（ADR-R27 第 6 节第 2~7 步）'
+      - 'ShotDraft/ShotRevision 的状态机条目尚未在 state_machines.yaml 登记（DRAFT→CONFIRMED/SUPERSEDED 与正式镜头生命周期），待 shot_planning 域实现时一并补登'
+
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

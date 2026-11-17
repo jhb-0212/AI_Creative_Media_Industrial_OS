@@ -3,9 +3,10 @@
 # 为什么需要这个文件：
 # - scripts/contract_check.py 原先只校验**已实现**动作的资源类型有 schema；
 #   ACTIVE 但未实现的动作既不在 schema 检查里、又有 reason 台账兜底，于是形成
-#   双向盲区：9 个业务对象（ShotDraft / ShotRevision / ShotBudgetRequest /
+#   双向盲区：业务对象（ShotDraft / ShotRevision / ShotBudgetRequest /
 #   BudgetLedger / GenerationTask / ProductionRoute / CanonRevision / RightsCase /
-#   RightsManifest）缺 schema 却能全绿通过 CI。
+#   RightsManifest）缺 schema 却能全绿通过 CI。其中 ShotDraft / ShotRevision 已由
+#   ADR-R27 + 契约修订 A4 补齐 schema 并移除本债务（2026-11-17）。
 # - 补 schema 必须依据基线正文（AFS-ARCH-MASTER-V2.0.5），而该正文当前不在本机；
 #   按「不猜契约」原则，不能拿提案草案冒充正文定义。
 # - 因此把缺口登记成显式债务：CI 变绿的前提是每一个缺口都写清「谁在引用它、
@@ -19,16 +20,6 @@
 # - 本文件不是豁免清单：豁免只留给核心信封对象（见 resource_schema_exemptions.yaml）。
 
 gaps:
-  ShotDraft:
-    referenced_by: ["SHOT.DRAFT.CREATE"]
-    reason: "镜头域主链入口对象缺失：草案是拆镜产物的唯一入口，无 schema 则无法校验草案内容与确认绑定"
-    contract_ref: "docs/adr/ADR-R07-shot-draft-contract-gap.md; docs/proposals/shot-domain-contract-closure.md#四"
-    unblocks_when: "基线正文 8.x 拆镜条款给出草案字段与状态集后，按正文补 ShotDraft schema 与 SHOT.DRAFT.CONFIRM/REJECT 动作"
-  ShotRevision:
-    referenced_by: ["SHOT.REVISION.CONFIRM"]
-    reason: "确认动作的输出对象无 schema：草案确认后必须产出可追溯的镜头版本，否则『确认即绑定』不变式无处落地"
-    contract_ref: "docs/proposals/shot-domain-contract-closure.md#四"
-    unblocks_when: "正文明确 ShotDraft→ShotRevision→ShotSpec 从属关系后补 schema"
   ShotBudgetRequest:
     referenced_by: ["BUDGET.SHOT.REQUEST", "BUDGET.SHOT.APPROVE"]
     reason: "单镜头预算申请对象无 schema：预算申请与审批的金额、口径、幂等键无法被机器校验"

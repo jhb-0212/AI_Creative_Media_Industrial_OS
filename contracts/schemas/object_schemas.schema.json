@@ -18,7 +18,7 @@
   ],
   "x-afs-p0-coverage": {
     "note": "已建模对象与显式登记为待补的对象之并集，构成 P0 契约对象全集。待补项按缺口性质分类，不把“正文有字段表但派生未覆盖”与“正文缺字段标识”混为一类。",
-    "total": 79,
+    "total": 81,
     "modeled": [
       "Appeal",
       "AssetReference",
@@ -84,8 +84,10 @@
       "ScriptRevision",
       "ShareLink",
       "ShotBudgetLedger",
+      "ShotDraft",
       "ShotProductionProfile",
       "ShotResourceAllocation",
+      "ShotRevision",
       "ShotSpec",
       "ShotTierChangeRequest",
       "ShotVisualPlan",
@@ -2459,6 +2461,172 @@
       ],
       "additionalProperties": true,
       "x-afs-lifecycle": "DRAFT→REVIEW→APPROVED/REJECTED；变更生成新 revision，锁定字段逐字段授权"
+    },
+    "ShotDraft": {
+      "type": "object",
+      "description": "权威所有者：Shot Planning Domain。AI 剧本拆镜输出的草案（ADR-R07 债务兑现，ADR-032 草案优先、人工确认）。不写正式 ShotRevision，确认前不得进入 DAG。",
+      "required": [
+        "project_id",
+        "episode_ref",
+        "scene_ref",
+        "shot_code",
+        "intent_summary",
+        "shot_description",
+        "source",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "project_id": {
+          "type": "string"
+        },
+        "episode_ref": {
+          "type": "string"
+        },
+        "scene_ref": {
+          "type": "string"
+        },
+        "shot_code": {
+          "type": "string"
+        },
+        "intent_summary": {
+          "type": "string"
+        },
+        "shot_description": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": ["string", "null"]
+        }
+      },
+      "x-afs-sources": [
+        "19.3 AI 剧本拆镜 Skill：草案优先、人工确认",
+        "ADR-R07（ShotDraft 缺对象契约，本对象兑现其债务）",
+        "ADR-032（AI 拆镜输出默认草案）"
+      ],
+      "additionalProperties": true,
+      "x-afs-lifecycle": "DRAFT→CONFIRMED/SUPERSEDED；CONFIRMED 仅表示草案被采纳为正式 ShotRevision 的输入，不是正式镜头；终态不可原地复活",
+      "x-afs-enum-note": "source 取值：agent / human（正文未给枚举表，Schema 记 string，实际取值见枚举注册表）"
+    },
+    "ShotRevision": {
+      "type": "object",
+      "description": "权威所有者：Shot Planning Domain。正式镜头的内容修订（8.1 核心实体：Shot 是稳定逻辑镜头，ShotRevision 保存每次内容修订）。由授权人类确认产生，绑定镜头描述、约束、创意意图与版本。",
+      "required": [
+        "shot_id",
+        "project_id",
+        "episode_ref",
+        "scene_ref",
+        "intent_summary",
+        "shot_description",
+        "revision",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "shot_id": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "episode_ref": {
+          "type": "string"
+        },
+        "scene_ref": {
+          "type": "string"
+        },
+        "intent_summary": {
+          "type": "string"
+        },
+        "shot_description": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "integer"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": ["string", "null"]
+        }
+      },
+      "x-afs-sources": [
+        "8.1 核心实体（ShotRevision 绑定镜头描述、约束、创意意图和版本）",
+        "19.3 AI 剧本拆镜 Skill（人工确认后创建正式 ShotRevision → 进入 DAG）"
+      ],
+      "additionalProperties": true,
+      "x-afs-lifecycle": "绑定 Shot；正式确认产生；版本递增不覆盖旧修订（8.2：ShotRevision 保存每次内容修订）"
     },
     "SkillManifest": {
       "type": "object",
