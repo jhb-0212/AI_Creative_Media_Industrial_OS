@@ -132,6 +132,11 @@ jobs:
       - name: Layering check (铁律 1：依赖方向 + 服务间直连 + 导入期循环)
         run: uv run python scripts/architecture_check.py
 
+      - name: Release package check (受控来源 + 禁止路径 + 密钥扫描 + 哈希校验)
+        # F6：发布包只能来自 commit；本地 .env/.venv/缓存/密钥文件不得进入交付物。
+        # --check 构建到临时目录并验证，不把带源码的包留在 runner 上。
+        run: uv run python scripts/release_package.py --check
+
   permission-negative-tests:
     runs-on: ubuntu-24.04
     steps:

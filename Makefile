@@ -1,4 +1,4 @@
-.PHONY: help install test lint typecheck freeze-check contract-check arch-check up down build
+.PHONY: help install test lint typecheck freeze-check contract-check arch-check release-check release up down build
 
 help: ## 显示可用命令
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -26,6 +26,12 @@ contract-check: ## 契约派生一致性（Action/OpenAPI/Schema/状态机/事�
 
 arch-check: ## 分层依赖校验（铁律 1：依赖方向/服务间直连/导入期循环）
 	python scripts/architecture_check.py
+
+release-check: ## 发布包闸门（受控来源/禁止路径/密钥扫描/哈希验证，临时包不落盘）
+	python scripts/release_package.py --check
+
+release: ## 构建可复现 Release 源码包（输出 dist/）
+	python scripts/release_package.py --output dist/ai-creative-media-industrial-os.zip
 
 up: ## 本地启动（docker-compose）
 	docker compose -f infra/compose/docker-compose.yml up -d
