@@ -1,7 +1,7 @@
 {
   "schema": "phase1-resilience-evidence/1",
-  "generated_at": "2026-11-17T07:58:01.427666+00:00",
-  "git_commit": "8defda99763adbdc122f3a71a04f1bc5669d4c89",
+  "generated_at": "2026-11-17T08:01:43.082677+00:00",
+  "git_commit": "3e15f6fde8e2bdbd672112498c5f8494b79a8fd0",
   "environment": {
     "python": "3.13.14",
     "platform": "Windows-11-10.0.26200-SP0",
@@ -10,8 +10,8 @@
   },
   "pytest_exit_code": 0,
   "pytest_summary": [
-    "1.29s call     tests/resilience/test_worker_crash_recovery.py::test_crashed_worker_tasks_recovered_within_slo",
-    "0.96s call     tests/resilience/test_generation_throughput.py::test_generation_request_accept_latency_under_concurrency",
+    "1.28s call     tests/resilience/test_worker_crash_recovery.py::test_crashed_worker_tasks_recovered_within_slo",
+    "0.77s call     tests/resilience/test_generation_throughput.py::test_generation_request_accept_latency_under_concurrency",
     "0.63s call     tests/resilience/test_generation_throughput.py::test_concurrent_workers_execute_each_task_exactly_once",
     "0.06s setup    tests/resilience/test_generation_throughput.py::test_generation_request_accept_latency_under_concurrency",
     "0.06s call     tests/resilience/test_outbox_crash_replay.py::test_crash_after_handler_before_ack_redelivers_without_loss"
@@ -19,11 +19,11 @@
   "scenarios": [
     {
       "scenario": "generation_concurrent_exactly_once",
-      "recorded_at": "2026-11-17T07:57:58.520413+00:00",
+      "recorded_at": "2026-11-17T08:01:40.362314+00:00",
       "task_count": 24,
       "worker_count": 6,
-      "elapsed_seconds": 0.448,
-      "tasks_per_second": 53.599,
+      "elapsed_seconds": 0.443,
+      "tasks_per_second": 54.22,
       "claimed": 24,
       "succeeded": 24,
       "skipped": 0,
@@ -32,28 +32,28 @@
     },
     {
       "scenario": "generation_request_accept_latency",
-      "recorded_at": "2026-11-17T07:57:59.539546+00:00",
+      "recorded_at": "2026-11-17T08:01:41.191083+00:00",
       "concurrency": 20,
-      "sequential_p50_ms": 26.12,
-      "elapsed_seconds": 0.625,
-      "requests_per_second": 32.011,
-      "p50_ms": 576.45,
-      "p95_ms": 601.32,
-      "max_ms": 619.38,
+      "sequential_p50_ms": 26.85,
+      "elapsed_seconds": 0.417,
+      "requests_per_second": 47.924,
+      "p50_ms": 379.96,
+      "p95_ms": 401.0,
+      "max_ms": 402.89,
       "accepted": 20,
       "pending_tasks": 20,
       "outbox_events": 20
     },
     {
       "scenario": "generation_registration_replay_idempotent",
-      "recorded_at": "2026-11-17T07:57:59.565377+00:00",
+      "recorded_at": "2026-11-17T08:01:41.217827+00:00",
       "replays": 2,
       "asset_versions": 1,
-      "asset_version_id": "av_gen_replay_21b38da6"
+      "asset_version_id": "av_gen_replay_adc575ea"
     },
     {
       "scenario": "outbox_crash_between_handler_and_ack",
-      "recorded_at": "2026-11-17T07:57:59.621676+00:00",
+      "recorded_at": "2026-11-17T08:01:41.278665+00:00",
       "handler_deliveries": 2,
       "distinct_events": 1,
       "published_exactly_once": true,
@@ -62,11 +62,11 @@
     },
     {
       "scenario": "worker_crash_recovery",
-      "recorded_at": "2026-11-17T07:58:00.912610+00:00",
+      "recorded_at": "2026-11-17T08:01:42.557445+00:00",
       "crashed_tasks": 6,
       "drill_lease_seconds": 1.0,
       "reclaimed": 6,
-      "recovered_seconds": 1.212,
+      "recovered_seconds": 1.202,
       "slo_seconds": 300.0,
       "within_slo": true,
       "asset_versions": 6,
