@@ -105,3 +105,20 @@ CRITICAL 红线在授权层拒绝。响应在 commit 前用内存对象构造—
    `WORKFLOW.START_APPROVAL` + 消费用例完成。台账原因已如实写明。
 4. **重建执行器仍未实现**：`rebuild_projection()` 只给出输入与哈希，真正跑一次
    渲染重建需要 workers/delivery 与模型网关对接，仍为空缺（ADR-R22 同款债务）。
+
+### 债务状态核对（2026-11-17，ADR-R30 同期收口）
+
+1. **跨域证据对象存在性校验——机制就绪，对象未齐，债务保持**：
+   - 机制侧已就绪：ADR-R28 落地登记式跨域只读端口
+     （`CompositeResourceOwnershipPort`，resource_type → 所有者域只读仓储），
+     本校验接入时**复用该端口**新增证据对象登记，不新造第二套跨域读取机制；
+   - qc_governance 域已落地（Gate 裁决对象与状态守卫），QCReport 已有
+     `QC.REPORT.CREATE` 实现（asset_service）；
+   - 剩余前置：`services/rights_governance` 仍为 `.gitkeep` 空壳（权利案例
+     对象未建模，RIGHTS.STATUS.CHANGE 台账原因如实）；PictureLock 的证据
+     语义（AssetVersion 状态快照 vs 独立证据对象）待 Phase 1 主链生成侧
+     闭环时定型。解除条件：上述对象落地 → 端口登记 → 消费用例接入校验。
+4. **重建执行器——消费链已现，执行前置未齐，债务保持**：`workers/delivery`
+   已落地但仅承载审批事件消费（D4）；剩余前置为 `services/model_gateway`
+   （空壳）与生成侧闭环（GENERATION.REQUEST 未实现）。与 ADR-R22 §债务
+   状态核对同口径。
