@@ -173,5 +173,9 @@ PROJECT.CREATE → EPISODE.CREATE → SCRIPT.IMPORT → SHOT.DRAFT.CREATE(Agent)
     （清单引用 APPROVED 资产 + Gate4 裁决，含"未批准资产被拒"负向断言）；
   - C4 由 ADR-R35 补齐（2026-11-17）：并发两条路线恰好一条成功一条 409、
     唯一约束的直连 SQL 证据、主链内联的选路面与受理面负向断言；
-  - **仍无证据**：C5（QCIssue 缺陷闭环与 RESOLVED→CLOSED 跳关拒绝——本段只走
-    PASS 路径）、A3（trace 全链路截图，属可观测性验收，不在本段范围）。
+  - C5 由 ADR-R36 补齐（2026-11-17）：含缺陷的 QC 全流程（OPEN→…→CLOSED
+    逐跳断言）、缺陷九项必填（缺一即 422 并定位到第几条）、
+    `RESOLVED→CLOSED` 跳关的三层证据（领域 409 / 数据库触发器拒绝 /
+    超级用户直连 SQL 仍被拒），以及并发裁决的 CAS 证据。证据见
+    `docs/evidence/phase1-c5-qc-review.md`（57 个用例）；
+  - **仍无证据**：A3（trace 全链路截图，属可观测性验收，不在本段范围）。

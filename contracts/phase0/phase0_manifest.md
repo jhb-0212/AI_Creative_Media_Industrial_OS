@@ -16,11 +16,11 @@
 
 | 正文类目 | 文件 | 字节 | SHA-256 | 对应章节 |
 |---|---|---|---|---|
-| ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 186007 | `79e8ed322c4b02c57af81ae737e0edc847c9ad6cc5637ce937ea65fcf395c01f` | 8.x 对象契约 / C.3 数据契约 |
-| ② OpenAPI 草案 | `contracts/openapi/openapi.draft.yaml` | 110778 | `8b9e16e98f5e7ca400bd1ee571521171ae7f7d7988c30b060fe5603c978254ae` | 31.6（由 Action Registry 派生） |
+| ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 186620 | `d6058a87d0b570af51d789115290a59c372f407e95b9f4c4efbd2795e7eed243` | 8.x 对象契约 / C.3 数据契约 |
+| ② OpenAPI 草案 | `contracts/openapi/openapi.draft.yaml` | 113712 | `9fb8f041139137ed59717561c11ecc9d7ffdfb933c04e74cca58df72630bbcd7` | 31.6（由 Action Registry 派生） |
 | ③ 状态机 | `contracts/state_machines/state_machines.yaml` | 25265 | `bd828ccc9f86f38a00d58dc0a6539aadceb1538b6496503a656667ba898f34e9` | 31.5 / 8.6 / 32.6 / 33.3 / 34.7 |
-| ④ Action Registry | `contracts/action_registry/action_registry.yaml` | 43063 | `00ec8dc7abe6e5410049a89a53cd8f011457568caa0e75d0195fccff63c992e5` | 31.6 唯一注册表 |
-| ⑤ 权限矩阵 | `contracts/permission/permission_matrix.yaml` | 4212 | `c3845fbad7d2a326564079bf6e58645d1c5240b953c0784fc90811a28769f0bb` | C.5 / 31.6 |
+| ④ Action Registry | `contracts/action_registry/action_registry.yaml` | 44177 | `f0a300bab7238f8e969765952ad3d2e9fd9e9cd2d993737050ba2603d6f36e93` | 31.6 唯一注册表 |
+| ⑤ 权限矩阵 | `contracts/permission/permission_matrix.yaml` | 4212 | `719922f971c1a452275109f3a94dbe29c6c69798eaee879456e7d5a578d793e5` | C.5 / 31.6 |
 | ⑥ 预算与成本口径 | `contracts/budget/budget_caliber.yaml` | 2511 | `29e1d7d470f115ff41b07daaebfb198ccea9246316a2dd4b43a28b52596a0aef` | C.2 / 34.6 |
 | ⑦ 指标字典 | `contracts/metrics/metric_dictionary.yaml` | 7567 | `fb909bccf1da14c74efaad77d77cf73d86c34126b41052def1d0185e4ea4f8cb` | 31.10 / 34.13 |
 | ⑧ 冻结包清单 | `contracts/phase0/phase0_manifest.md` | — | 自指不登记，见 `phase0_manifest.md.sha256` | 31.11 契约证据清单 |
@@ -39,6 +39,7 @@
 - `V205-R14-A7`
 - `V205-R14-A8`
 - `V205-R14-A9`
+- `V205-R14-A10`
 
 契约名称全集必须精确等于「基线清单 ∪ 已批准修订」，由
 `scripts/freeze_manifest.py --check` 逐名称判定（不是只看数量）。
