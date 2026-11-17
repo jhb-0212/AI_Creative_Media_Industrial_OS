@@ -46,7 +46,16 @@ class OrganizationModel(Base):
     """
 
     __tablename__ = "organizations"
-    __table_args__ = {"schema": SCHEMA_NAME}
+    __table_args__ = (
+        # 复合外键的被引用键：projects 以 (organization_id, tenant_id) 引用本表，
+        # 使「项目引用的组织必须与项目同租户」在数据库层成立（审查 P1-03）。
+        UniqueConstraint(
+            "organization_id",
+            "tenant_id",
+            name="uq_organizations_owner_tenant",
+        ),
+        {"schema": SCHEMA_NAME},
+    )
 
     organization_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     tenant_id: Mapped[UUID] = mapped_column(Uuid, nullable=False, index=True)
@@ -63,18 +72,26 @@ class OrganizationModel(Base):
 class ProjectModel(EntityMixin, Base):
     """projects 表模型。
 
-    归属完整性（决策 2 / 外部审查 F04）：
-    - organization_id 外键指向 organizations(organization_id)，可空
-      （个人租户无组织）；非空时在数据库层锁死「项目必须归属真实组织」。
+    归属完整性（决策 2 / 外部审查 F04 / 审查 P1-03）：
+    - organization_id 外键指向 organizations，可空（个人租户无组织）；非空时
+      在数据库层锁死「项目必须归属真实组织」。
+    - 外键是**租户复合外键** (organization_id, tenant_id) →
+      organizations(organization_id, tenant_id)：单列外键只能证明组织存在，
+      无法阻止「项目属租户 A、组织属租户 B」的跨租户错配（P1-03）。复合外键
+      把「同一租户」这条归属不变量放到数据库层；organization_id 为 NULL 时
+      MATCH SIMPLE 语义下不校验，与「个人租户不强制归属」一致。
     - organization_id 是内部归属键，不进 API 响应（与 tenant_id 一致）。
     """
 
     __tablename__ = "projects"
     __table_args__ = (
         ForeignKeyConstraint(
-            ["organization_id"],
-            [f"{SCHEMA_NAME}.organizations.organization_id"],
-            name="fk_projects_organization",
+            ["organization_id", "tenant_id"],
+            [
+                f"{SCHEMA_NAME}.organizations.organization_id",
+                f"{SCHEMA_NAME}.organizations.tenant_id",
+            ],
+            name="fk_projects_organization_tenant",
         ),
         {"schema": SCHEMA_NAME},
     )
