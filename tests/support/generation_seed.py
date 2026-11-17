@@ -76,8 +76,13 @@ async def seed_shot_refs(
     shot_sm: SessionMaker,
     *,
     project_id: str,
+    shot_id: str = "SHOT_001",
 ) -> tuple[str, str]:
-    """在 shot_planning 域种子 ShotSpec + ShotVisualPlan（真实跨域解析目标）。"""
+    """在 shot_planning 域种子 ShotSpec + ShotVisualPlan（真实跨域解析目标）。
+
+    ``shot_id`` 可指定：跨镜头引用用例需要"绑定在别的镜头上"的规格，
+    而请求镜头保持不变（P1-1）。
+    """
     from services.shot_planning.domain.shot_spec import ShotSpec
     from services.shot_planning.domain.shot_visual_plan import ShotVisualPlan
     from services.shot_planning.repository.shot_spec_sqlalchemy_repo import (
@@ -90,7 +95,7 @@ async def seed_shot_refs(
     spec = ShotSpec(
         entity_id=f"spec_{uuid.uuid4().hex[:8]}",
         shot_revision_id=uuid.uuid4().hex,
-        shot_id="SHOT_001",
+        shot_id=shot_id,
         project_id=project_id,
         duration_ms=4200,
         aspect_ratio="16:9",
@@ -102,7 +107,7 @@ async def seed_shot_refs(
     )
     vplan = ShotVisualPlan(
         entity_id=f"vplan_{uuid.uuid4().hex[:8]}",
-        shot_id="SHOT_001",
+        shot_id=shot_id,
         project_id=project_id,
         intent_summary="夜戏追车，高对比",
         camera_language="手持跟拍",
@@ -191,11 +196,12 @@ def request_body(
     vplan_ref: str = "vplan_x",
     constraint_ref: str = "NOT_APPLICABLE",
     retry_of: str | None = None,
+    shot_id: str = "SHOT_001",
 ) -> dict[str, Any]:
     """GENERATION.REQUEST 请求体（受理入口的唯一测试构造口径）。"""
     body: dict[str, Any] = {
         "project_id": project_id,
-        "shot_id": "SHOT_001",
+        "shot_id": shot_id,
         "route_id": route_id,
         "shot_spec_ref": spec_ref,
         "visual_plan_ref": vplan_ref,

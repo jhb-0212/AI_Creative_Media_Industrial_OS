@@ -158,6 +158,7 @@ class QCReviewService:
         self,
         *,
         session_id: str,
+        project_id: str,
         target_status: QCReviewSessionStatus,
         decisions: Sequence[Mapping[str, Any]],
         principal: Principal,
@@ -167,11 +168,26 @@ class QCReviewService:
         ``target_status`` 等于当前状态表示"只追加结论、暂不推进"——多位复核人
         分批给结论是常态，逼他们一次提交全部结论只会催生"先凑齐再提交"的
         假流程。真正的前置条件（结论齐备、问题闭合、边已登记）由领域层判定。
+
+        ``project_id`` 用于**把授权对象与真实资源绑定**：授权层按请求体里的
+        project_id 判定，若不与 ``session.project_id`` 比对，具备多项目权限的
+        主体可以在 A 项目的授权下裁决 B 项目的会话（RLS 只能挡住"完全无权"，
+        挡不住"有权但对象错了"）。
         """
         session = await self._sessions.get_by_id(session_id)
         if session is None:
             raise DomainError(
                 ErrorRegistry.NOT_FOUND, detail=f"复查会话不存在: {session_id}"
+            )
+        if session.project_id != project_id:
+            # 与"不存在"同码不同因：报告是对象级错误，不是权限拒绝。
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=(
+                    f"会话 {session_id} 归属项目 {session.project_id}，"
+                    f"与请求项目 {project_id} 不一致（授权对象必须等于实际操作资源）"
+                ),
+                context={"session_id": session_id},
             )
 
         from_status = session.status

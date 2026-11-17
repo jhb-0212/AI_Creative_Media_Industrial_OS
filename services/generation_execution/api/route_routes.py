@@ -16,13 +16,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
+from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.identity.authorization import ResourceRef
 from packages.identity.enforcement import authorize
 from packages.shared.outbox_writer import SqlAlchemyOutboxWriter
 from packages.shared.unit_of_work import UnitOfWork
+from services.generation_execution.domain.ports import ShotOwnershipPort
 from services.generation_execution.repository.production_route_sqlalchemy_repo import (
     SqlAlchemyProductionRouteRepository,
 )
@@ -63,18 +65,34 @@ class RouteSelectionAccepted(BaseModel):
     idempotent_replay: bool = False
 
 
-def _build_service(session: Any) -> RouteService:
-    """服务装配：RLS 会话 + 路线/生效路线仓储端口 + Outbox 写入端口。"""
+def _get_shot_ownership_port(request: Request) -> ShotOwnershipPort:
+    """从组合根取镜头归属端口（lifespan 装配，缺失即装配缺陷）。"""
+    port = getattr(request.app.state, "shot_ownership_port", None)
+    if port is None:
+        raise DomainError(
+            ErrorRegistry.INTERNAL_ERROR,
+            detail="镜头归属端口未装配（app.state.shot_ownership_port 缺失），拒绝选路",
+        )
+    typed_port: ShotOwnershipPort = port
+    return typed_port
+
+
+def _build_service(session: Any, shot_port: ShotOwnershipPort) -> RouteService:
+    """服务装配：RLS 会话 + 路线/生效路线仓储 + Outbox + 镜头归属端口。"""
     return RouteService(
         SqlAlchemyProductionRouteRepository(session),
         SqlAlchemyShotRouteSelectionRepository(session),
         SqlAlchemyOutboxWriter(session),
+        shot_port,
     )
 
 
-def _get_service(uow: UnitOfWork = Depends(get_generation_uow)) -> RouteService:
+def _get_service(
+    uow: UnitOfWork = Depends(get_generation_uow),
+    shot_port: ShotOwnershipPort = Depends(_get_shot_ownership_port),
+) -> RouteService:
     """写用例服务装配（提交点由路由显式控制）。"""
-    return _build_service(uow.session)
+    return _build_service(uow.session, shot_port)
 
 
 @router.post("/production.route.select", response_model=RouteSelectionAccepted)

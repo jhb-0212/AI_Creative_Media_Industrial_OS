@@ -403,8 +403,11 @@ async def test_full_chain_reaches_closed_and_jump_is_denied(
     decided = await decide(
         "DECISION_PENDING",
         [
-            {"issue_id": "i1", "human_decision": "CONFIRM_DEFECT",
-             "disposition": "FIX_IN_NEXT_ITERATION"},
+            # 闭环结论用「艺术性选择」与「误报」：已确认缺陷必须返工，
+            # 不能进 RESOLVED（21.2）。缺陷闭环规则由
+            # test_confirmed_defect_blocks_resolution 单独取证。
+            {"issue_id": "i1", "human_decision": "ARTISTIC_INTENTIONAL",
+             "disposition": "KEEP_AS_IS"},
             {"issue_id": "i2", "human_decision": "FALSE_POSITIVE",
              "disposition": "NO_ACTION"},
         ],
@@ -888,3 +891,171 @@ async def test_db_rejects_empty_findings_on_insert(
                 },
             )
     assert "findings_not_empty" in str(exc_info.value)
+
+
+async def test_confirmed_defect_blocks_resolution(
+    auth_client: AsyncClient, admin_engine: AsyncEngine
+) -> None:
+    """已确认缺陷不得放行会话（21.2 / 4.3）。
+
+    这是审查发现的真实缺口：此前 ``unresolved_issue_ids`` 只认
+    ``NEEDS_MORE_EVIDENCE``，一条 CRITICAL 缺陷被判 CONFIRM_DEFECT 后会话仍能
+    RESOLVED → GATE_ELIGIBLE → CLOSED，等于「确认即放行」。
+
+    阻断后的唯一出口是**改判**（追加一条新结论，历史保留）：修复实际发生并
+    复核为误报时才能解除——这样"放行"始终有一条带署名的记录。
+    """
+    session_id, project, _ = await _open_session(auth_client, admin_engine)
+    url = f"/qc-review-sessions/{session_id}/decisions"
+
+    async def decide(target: str, decisions: list[dict[str, Any]]) -> Any:
+        return await auth_client.post(
+            url,
+            headers=_headers(),
+            json={
+                "project_id": project,
+                "target_status": target,
+                "decisions": decisions,
+            },
+        )
+
+    assert (await decide("IN_REVIEW", [])).status_code == 200
+    blocked = await decide(
+        "DECISION_PENDING",
+        [
+            {"issue_id": "i1", "human_decision": "CONFIRM_DEFECT",
+             "disposition": "FIX_IN_NEXT_ITERATION"},
+            {"issue_id": "i2", "human_decision": "FALSE_POSITIVE",
+             "disposition": "NO_ACTION"},
+        ],
+    )
+    assert blocked.status_code == 200, blocked.text
+
+    resolved = await decide("RESOLVED", [])
+    assert resolved.status_code == 422, resolved.text
+    details = resolved.json()["details"]
+    assert details["pending_rework_issue_ids"] == ["i1"]
+    assert details["unresolved_issue_ids"] == ["i1"]
+    assert details["undecided_issue_ids"] == []
+
+    # 改判（追加，不覆盖）之后才允许 RESOLVED。
+    redecided = await decide(
+        "DECISION_PENDING",
+        [
+            {"issue_id": "i1", "human_decision": "FALSE_POSITIVE",
+             "disposition": "NO_ACTION"},
+        ],
+    )
+    assert redecided.status_code == 200, redecided.text
+    assert [d["human_decision"] for d in redecided.json()["decisions"]] == [
+        "CONFIRM_DEFECT",
+        "FALSE_POSITIVE",
+        "FALSE_POSITIVE",
+    ]
+    assert (await decide("RESOLVED", [])).status_code == 200
+
+
+async def test_decide_rejects_project_mismatch(
+    auth_client: AsyncClient, admin_engine: AsyncEngine
+) -> None:
+    """授权对象必须等于实际操作资源（P3-4）。
+
+    授权层按请求体里的 project_id 判定；主体若具备多项目权限，仅靠这一层
+    无法阻止"用 A 项目的授权裁决 B 项目的会话"。服务层必须比对
+    ``session.project_id``。
+    """
+    session_id, _, _ = await _open_session(auth_client, admin_engine)
+    resp = await auth_client.post(
+        f"/qc-review-sessions/{session_id}/decisions",
+        headers=_headers(),
+        json={
+            "project_id": "proj_someone_else",
+            "target_status": "IN_REVIEW",
+            "decisions": [],
+        },
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error_code"] == "VALIDATION_ERROR"
+    assert "与请求项目" in resp.json()["message"]
+
+
+async def test_db_guard_blocks_decision_rewrite_truncate_and_reviewer_removal(
+    auth_client: AsyncClient,
+    admin_engine: AsyncEngine,
+) -> None:
+    """decisions 只追加、reviewers 只增——超级用户直连 SQL 也改不动（P2-7）。
+
+    应用层 ``record_decisions`` 只追加，但这一列在守卫里原本是"可变列"：
+    直连 SQL 可以整体改写或截断。Gate 判定依赖这份历史，改写等于把"谁在何时
+    判了什么"从证据变成陈述。
+    """
+    session_id, project, _ = await _open_session(auth_client, admin_engine)
+    url = f"/qc-review-sessions/{session_id}/decisions"
+    await auth_client.post(
+        url,
+        headers=_headers(),
+        json={"project_id": project, "target_status": "IN_REVIEW", "decisions": []},
+    )
+    decided = await auth_client.post(
+        url,
+        headers=_headers(),
+        json={
+            "project_id": project,
+            "target_status": "IN_REVIEW",
+            "decisions": [
+                {"issue_id": "i1", "human_decision": "CONFIRM_DEFECT",
+                 "disposition": "FIX_IN_NEXT_ITERATION"}
+            ],
+        },
+    )
+    assert decided.status_code == 200, decided.text
+
+    async def direct(sql: str) -> None:
+        async with admin_engine.begin() as conn:
+            await conn.execute(sa.text(sql), {"sid": session_id})
+
+    # 1) 截断（删除已有结论）
+    with pytest.raises(DBAPIError) as truncate_err:
+        await direct(
+            "UPDATE qc_governance.qc_review_sessions "
+            "SET decisions = decisions - 0 WHERE entity_id = :sid"
+        )
+    assert "只允许追加" in str(truncate_err.value)
+
+    # 2) 原地改写（长度不变，只改内容——只比长度会漏掉这种情况）
+    with pytest.raises(DBAPIError) as rewrite_err:
+        await direct(
+            "UPDATE qc_governance.qc_review_sessions "
+            "SET decisions = jsonb_set(decisions, '{0,human_decision}', "
+            "'\"FALSE_POSITIVE\"') WHERE entity_id = :sid"
+        )
+    assert "不允许改写" in str(rewrite_err.value)
+
+    # 3) 移除复核参与人
+    with pytest.raises(DBAPIError) as reviewers_err:
+        await direct(
+            "UPDATE qc_governance.qc_review_sessions "
+            "SET reviewers = '[]'::jsonb WHERE entity_id = :sid"
+        )
+    assert "reviewers" in str(reviewers_err.value)
+
+    # 4) 追加是允许的（约束只挡"改"，不挡"加"——否则改判也无法记录）
+    async with admin_engine.begin() as conn:
+        await conn.execute(
+            sa.text(
+                "UPDATE qc_governance.qc_review_sessions "
+                "SET decisions = decisions || jsonb_build_array(decisions -> 0) "
+                "WHERE entity_id = :sid"
+            ),
+            {"sid": session_id},
+        )
+        count = (
+            await conn.execute(
+                sa.text(
+                    "SELECT jsonb_array_length(decisions) FROM "
+                    "qc_governance.qc_review_sessions WHERE entity_id = :sid"
+                ),
+                {"sid": session_id},
+            )
+        ).scalar_one()
+    assert count == 2

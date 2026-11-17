@@ -28,7 +28,7 @@ from services.asset_service.repository.sqlalchemy_manifest_repo import (
 from services.asset_service.repository.sqlalchemy_qc_repo import (
     SqlAlchemyQCReportRepository,
 )
-from services.generation_execution.domain.ports import RefOwnership
+from services.generation_execution.domain.ports import RefOwnership, ShotFacts
 from services.qc_governance.domain.ports import QCReportFacts
 from services.shot_planning.domain.enums import ConstraintPackStatus
 from services.shot_planning.repository.constraint_pack_sqlalchemy_repo import (
@@ -87,6 +87,27 @@ _ADMISSION_EVALUATORS: dict[str, Callable[[Any], tuple[bool, str]]] = {
         f"约束包状态为 {pack.status.value}，只有 ACTIVE 可作为生成输入（7.9）",
     ),
 }
+
+
+#: 镜头绑定抽取器（按资源类型登记）。返回 ``None`` = 该类型不做镜头级绑定。
+#: 为什么单独一张表而不是在解析器里顺手塞字段：绑定来源是**所有者域的字段**，
+#: 新增一种引用类型时"它绑不绑镜头、绑哪个字段"必须在这里被显式回答一次，
+#: 漏登记就是 None（不做镜头校验）而不是静默通过某个猜测。
+_SHOT_BINDINGS: dict[str, Callable[[Any], frozenset[str] | None]] = {
+    "ShotSpec": lambda spec: frozenset({spec.shot_id}) if spec.shot_id else frozenset(),
+    "ShotVisualPlan": (
+        lambda plan: frozenset({plan.shot_id}) if plan.shot_id else frozenset()
+    ),
+    "ConstraintPack": lambda pack: frozenset(pack.shot_ids) if pack.shot_ids else frozenset(),
+}
+
+
+def _shot_ids_for(resource_type: str, entity: Any) -> frozenset[str] | None:
+    """取出该引用的镜头绑定集合（未登记类型返回 None）。"""
+    extractor = _SHOT_BINDINGS.get(resource_type)
+    if extractor is None:
+        return None
+    return extractor(entity)
 
 
 class CompositeResourceOwnershipPort:
@@ -168,14 +189,17 @@ class CompositeResourceOwnershipPort:
         if entity is None:
             return None
         evaluator = _ADMISSION_EVALUATORS.get(resource_type)
+        shot_ids = _shot_ids_for(resource_type, entity)
         if evaluator is None:
-            # 契约没有为该类型写明生成准入状态 → 不做判定（不猜规则）。
-            return RefOwnership(project_id=entity.project_id)
+            # 契约没有为该类型写明生成准入状态 → 不做判定（不猜规则）；
+            # 镜头绑定仍然要带上：准入与归属是两条独立事实。
+            return RefOwnership(project_id=entity.project_id, shot_ids=shot_ids)
         eligible, reason = evaluator(entity)
         return RefOwnership(
             project_id=entity.project_id,
             eligible=eligible,
             ineligible_reason="" if eligible else reason,
+            shot_ids=shot_ids,
         )
 
 
@@ -256,3 +280,46 @@ class AssetQCReportRefAdapter:
             project_id=report.project_id,
             asset_version_id=report.asset_version_id,
         )
+
+
+class ShotPlanningShotOwnershipAdapter:
+    """镜头归属解析适配器（generation 域 ``ShotOwnershipPort`` 的生产实现）。
+
+    镜头的事实来源是 ``shot_revisions``（正式镜头内容，append-only）：有修订
+    行即"该镜头存在"，行的 ``project_id`` 即归属。刻意不用 shot_drafts——
+    草案是 AI 拆镜的中间产物，可以存在但没有进入正式镜头表，拿草案证明
+    "镜头存在"会让选路落在一个从未被确认的镜头上。
+
+    读经过所有者：用 ``svc_shot_planning`` 身份查询，generation 域不获得该表
+    的任何权限（ADR-R28）。
+    """
+
+    def __init__(self, pools: DomainPools) -> None:
+        self._pools = pools
+
+    async def resolve(
+        self,
+        *,
+        tenant_id: object,
+        organization_id: object,
+        shot_id: str,
+    ) -> ShotFacts | None:
+        sessionmaker = self._pools.sessionmaker(DatabaseDomain.SHOT_PLANNING)
+        async with sessionmaker() as session:
+            # 只读探针身份：项目范围取 * 以便区分"不存在"与"在别的项目"。
+            await set_request_context(
+                session,
+                Principal(
+                    subject_id="shot-ownership-resolver",
+                    tenant_id=UUID(str(tenant_id)),
+                    organization_id=UUID(str(organization_id)),
+                    subject_type=SubjectType.AGENT,
+                    project_ids=frozenset({"*"}),
+                ),
+            )
+            revision = await SqlAlchemyShotRevisionRepository(
+                session
+            ).get_active_by_shot(shot_id)
+        if revision is None:
+            return None
+        return ShotFacts(shot_id=revision.shot_id, project_id=revision.project_id)

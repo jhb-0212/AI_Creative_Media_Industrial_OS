@@ -13,7 +13,10 @@ from services.generation_execution.domain.enums import (
     GenerationTaskStatus,
     ProductionRouteStatus,
 )
-from services.generation_execution.domain.generation_task import GenerationTask
+from services.generation_execution.domain.generation_task import (
+    MAX_GENERATION_ATTEMPT,
+    GenerationTask,
+)
 from services.generation_execution.domain.ports import RefOwnership
 from services.generation_execution.domain.production_route import ProductionRoute
 from services.generation_execution.domain.shot_route_selection import (
@@ -36,9 +39,16 @@ from services.generation_execution.service.generation_service import GenerationS
 _TENANT = UUID("00000000-0000-0000-0000-000000000000")
 
 #: fake 归属表的默认登记：引用对象都在 proj_001。
-_DEFAULT_OWNERSHIP: dict[str, str] = {
-    "ShotSpec:spec_001": "proj_001",
-    "ShotVisualPlan:vplan_001": "proj_001",
+#: 引用 → 归属事实（项目 + 镜头绑定）。绑定到 SHOT_001 是刻意的：用例的
+#: 请求镜头也是 SHOT_001，跨镜头用例通过覆写这张表来构造"镜头 A 的规格
+#: 用在镜头 B"的场景。
+_DEFAULT_OWNERSHIP: dict[str, RefOwnership] = {
+    "ShotSpec:spec_001": RefOwnership(
+        project_id="proj_001", shot_ids=frozenset({"SHOT_001"})
+    ),
+    "ShotVisualPlan:vplan_001": RefOwnership(
+        project_id="proj_001", shot_ids=frozenset({"SHOT_001"})
+    ),
 }
 
 
@@ -144,9 +154,9 @@ class _FakeSelectionRepository(ShotRouteSelectionRepository):
 
 
 class _FakeRefOwnershipPort:
-    """登记式 fake：resource_id → project_id 映射；未登记类型 fail-closed。"""
+    """登记式 fake：``类型:资源`` → 归属事实；未登记类型 fail-closed。"""
 
-    def __init__(self, ownership: dict[str, str]) -> None:
+    def __init__(self, ownership: dict[str, RefOwnership]) -> None:
         self._ownership = ownership
 
     def can_resolve(self, resource_type: str) -> bool:
@@ -160,14 +170,13 @@ class _FakeRefOwnershipPort:
         resource_type: str,
         resource_id: str,
     ) -> RefOwnership | None:
-        project = self._ownership.get(f"{resource_type}:{resource_id}")
-        return RefOwnership(project_id=project) if project else None
+        return self._ownership.get(f"{resource_type}:{resource_id}")
 
 
 class _Harness:
     """测试装配：service + 全部 fake，可按用例覆写归属表。"""
 
-    def __init__(self, ownership: dict[str, str] | None = None) -> None:
+    def __init__(self, ownership: dict[str, RefOwnership] | None = None) -> None:
         self.tasks = _FakeTaskRepository()
         self.routes = _FakeRouteRepository()
         self.selections = _FakeSelectionRepository()
@@ -253,6 +262,7 @@ def _seed_failed_task(
     project_id: str = "proj_001",
     attempt: int = 1,
     status: GenerationTaskStatus = GenerationTaskStatus.FAILED,
+    retry_of: str | None = None,
 ) -> GenerationTask:
     task = GenerationTask(
         entity_id=entity_id,
@@ -265,6 +275,9 @@ def _seed_failed_task(
         budget_reservation_ref="b",
         quota_reservation_ref="q",
         attempt=attempt,
+        # attempt>1 必须带 retry_of（领域不变量）；种子要能造出"第 N 次重试"，
+        # 默认给一个链上前驱 id（重试链的形状不影响本文件要测的准入判定）。
+        retry_of=(retry_of or f"gen_prev_{attempt - 1}") if attempt > 1 else None,
         created_by="producer_001",
         tenant_id=_TENANT,
         status=status,
@@ -325,12 +338,64 @@ class TestRequestGenerationAdmission:
     @pytest.mark.asyncio
     async def test_cross_project_ref_rejected(self) -> None:
         """ACT-GEN-NEG-001：跨项目引用 = 权限越界拒绝（422）。"""
-        h = _Harness(ownership={"ShotSpec:spec_001": "proj_other"})
+        h = _Harness(
+            ownership={"ShotSpec:spec_001": RefOwnership(project_id="proj_other")}
+        )
         h.seed_verified_route()
         with pytest.raises(DomainError) as exc_info:
             await h.service.request_generation(**_request_args())
         assert exc_info.value.error_code.code == "VALIDATION_ERROR"
         assert "ACT-GEN-NEG-001" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_cross_shot_ref_rejected(self) -> None:
+        """同项目跨镜头引用拒绝（P1-1）。
+
+        项目归属相同但镜头不同：只校验 project_id 时这条请求完全合法，产出会
+        与请求镜头的意图错配。错误必须与"跨项目"分开表述——处置方式不同
+        （换引用 vs 改 shot_id）。
+        """
+        h = _Harness(
+            ownership={
+                "ShotSpec:spec_001": RefOwnership(
+                    project_id="proj_001", shot_ids=frozenset({"SHOT_002"})
+                ),
+                "ShotVisualPlan:vplan_001": RefOwnership(
+                    project_id="proj_001", shot_ids=frozenset({"SHOT_001"})
+                ),
+            }
+        )
+        h.seed_verified_route()
+        with pytest.raises(DomainError) as exc_info:
+            await h.service.request_generation(**_request_args())
+        err = exc_info.value
+        assert err.error_code.code == "VALIDATION_ERROR"
+        assert "跨镜头引用" in err.detail
+        assert err.context["bound_shot_ids"] == ["SHOT_002"]
+
+    @pytest.mark.asyncio
+    async def test_multi_shot_constraint_pack_accepts_any_bound_shot(self) -> None:
+        """约束包可绑定多镜头：请求镜头在集合内即通过。"""
+        h = _Harness(
+            ownership={
+                "ShotSpec:spec_001": RefOwnership(
+                    project_id="proj_001", shot_ids=frozenset({"SHOT_001"})
+                ),
+                "ShotVisualPlan:vplan_001": RefOwnership(
+                    project_id="proj_001", shot_ids=frozenset({"SHOT_001"})
+                ),
+                "ConstraintPack:pack_001": RefOwnership(
+                    project_id="proj_001",
+                    shot_ids=frozenset({"SHOT_001", "SHOT_009"}),
+                ),
+            }
+        )
+        h.seed_verified_route()
+        h.seed_selection()
+        task = await h.service.request_generation(
+            **_request_args(constraint_snapshot_ref="pack_001")
+        )
+        assert task.shot_id == "SHOT_001"
 
     @pytest.mark.asyncio
     async def test_budget_ref_empty_rejected(self) -> None:
@@ -452,3 +517,40 @@ class TestTransitionTableConsistency:
         assert set(GENERATION_TASK_ALLOWED_TRANSITIONS.keys()) == set(
             GenerationTaskStatus
         )
+
+
+class TestRetryCap:
+    """重试链有上限（9.4 / P2-6）。
+
+    此前 `attempt = retried.attempt + 1` 没有任何上限：失败任务可以被无限
+    链式重放，每次重放都是一次真实生成成本。上限是**受理入口**的拒绝，
+    不是 worker 里的"碰运气"限制——拒绝必须发生在花钱之前。
+    """
+
+    @pytest.mark.asyncio
+    async def test_retry_beyond_cap_rejected(self) -> None:
+        h = _Harness()
+        h.seed_verified_route()
+        h.seed_selection()
+        failed = _seed_failed_task(h.tasks, attempt=MAX_GENERATION_ATTEMPT)
+
+        with pytest.raises(DomainError) as exc_info:
+            await h.service.request_generation(
+                **_request_args(retry_of=failed.entity_id)
+            )
+        err = exc_info.value
+        assert err.error_code.code == "VALIDATION_ERROR"
+        assert err.context["max_attempt"] == MAX_GENERATION_ATTEMPT
+        assert err.context["attempt"] == MAX_GENERATION_ATTEMPT
+
+    @pytest.mark.asyncio
+    async def test_retry_within_cap_allowed(self) -> None:
+        h = _Harness()
+        h.seed_verified_route()
+        h.seed_selection()
+        failed = _seed_failed_task(h.tasks, attempt=MAX_GENERATION_ATTEMPT - 1)
+
+        task = await h.service.request_generation(
+            **_request_args(retry_of=failed.entity_id)
+        )
+        assert task.attempt == MAX_GENERATION_ATTEMPT

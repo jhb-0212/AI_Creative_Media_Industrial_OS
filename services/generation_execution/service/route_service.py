@@ -42,6 +42,7 @@ from packages.errors.repository_errors import DuplicateEntityError
 from packages.identity.principal import Principal
 from packages.shared.outbox_writer import OutboxWriter
 from services.generation_execution.domain.enums import ProductionRouteStatus
+from services.generation_execution.domain.ports import ShotOwnershipPort
 from services.generation_execution.domain.production_route import ProductionRoute
 from services.generation_execution.domain.shot_route_selection import (
     ShotRouteSelection,
@@ -76,10 +77,12 @@ class RouteService:
         route_repository: ProductionRouteRepository,
         selection_repository: ShotRouteSelectionRepository,
         outbox_writer: OutboxWriter,
+        shot_ownership_port: ShotOwnershipPort,
     ) -> None:
         self._route_repository = route_repository
         self._selection_repository = selection_repository
         self._outbox_writer = outbox_writer
+        self._shot_ownership_port = shot_ownership_port
 
     async def select_route(
         self,
@@ -93,6 +96,10 @@ class RouteService:
 
         校验顺序刻意为先存在、后状态：幽灵路线 404、未验证路线 422，
         错误语义与错误码注册表一致（NOT_FOUND→404 / VALIDATION_ERROR→422）。
+
+        镜头也必须是**真实存在且归属该项目**的：否则可以为幽灵镜头登记生效
+        路线，唯一键被一个从未存在的对象占用，后续"该镜头已选路"的判断全部
+        建立在虚空上。
         """
         route_id = route_id.strip()
         project_id = project_id.strip()
@@ -108,6 +115,26 @@ class RouteService:
         if not shot_id:
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR, detail="shot_id 不能为空"
+            )
+
+        shot = await self._shot_ownership_port.resolve(
+            tenant_id=principal.tenant_id,
+            organization_id=principal.organization_id,
+            shot_id=shot_id,
+        )
+        if shot is None:
+            raise DomainError(
+                ErrorRegistry.NOT_FOUND,
+                detail=f"镜头不存在: {shot_id}（选路不得落在未确认的镜头上）",
+            )
+        if shot.project_id != project_id:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=(
+                    f"镜头 {shot_id} 归属项目 {shot.project_id}，"
+                    f"与请求项目 {project_id} 不一致"
+                ),
+                context={"shot_id": shot_id},
             )
 
         route = await self._route_repository.get_by_id(route_id)

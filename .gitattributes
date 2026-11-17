@@ -14,3 +14,8 @@ docs/baseline/*.md -text
 
 # 十一类冻结产物：哈希写入 phase0_manifest.md
 contracts/** -text
+
+# ADR 主索引（adr_index.yaml）属冻结产物⑩：不做行尾归一化，
+# 否则 Windows 全新克隆（core.autocrlf=true）会把它检成 CRLF，
+# freeze_manifest 的⑩哈希随平台随机报红（P3-3）。
+docs/adr/** -text

@@ -40,6 +40,17 @@ from packages.errors.error_codes import DomainError, ErrorRegistry
 from services.generation_execution.domain.entity import OWNER_MODULE, Entity
 from services.generation_execution.domain.enums import GenerationTaskStatus
 
+#: 重试链上限（9.4「有上限」）。
+#:
+#: 基线只要求"有上限"，没给数字——这是一个策略常量，不是契约字段（schema 的
+#: attempt 只是计数器）。取 3 的理由：一次失败重试通常对应"换参数/换模型"，
+#: 第三次仍失败基本说明不是偶发问题，继续重放只是烧钱；而 attempt 越大，
+#: 失败任务越可能被当成"总会成功"的无限重放通道（P2-6 的原始缺陷）。
+#:
+#: 债务（ADR-R39 §3）：按项目/按路线差异化上限未建模——那需要把该值升为
+#: 项目级策略配置，属于预算与策略域，Phase 1 不做。
+MAX_GENERATION_ATTEMPT: int = 3
+
 #: 无锁定约束镜头的约束快照哨兵（基线 31.3）。
 CONSTRAINT_NOT_APPLICABLE = "NOT_APPLICABLE"
 

@@ -23,6 +23,7 @@ from packages.errors.repository_errors import DuplicateEntityError
 from packages.identity.principal import Principal, SubjectType
 from packages.shared.outbox_writer import OutboxWriter
 from services.generation_execution.domain.enums import ProductionRouteStatus
+from services.generation_execution.domain.ports import ShotFacts
 from services.generation_execution.domain.production_route import ProductionRoute
 from services.generation_execution.domain.shot_route_selection import (
     ShotRouteSelection,
@@ -110,13 +111,52 @@ class _FakeSelectionRepository(ShotRouteSelectionRepository):
         self._store[(selection.project_id, selection.shot_id)] = selection
 
 
+class _FakeShotOwnership:
+    """镜头归属 fake：默认"本租户内任意 shot 都存在于 proj_001"。
+
+    默认放行是为了让既有用例只关心选路语义；镜头级拒绝由
+    ``TestShotExistence`` 显式构造（``ghost`` / 指定项目）。
+    """
+
+    def __init__(self, project_id: str = "proj_001") -> None:
+        self._project_id = project_id
+        self._overrides: dict[str, ShotFacts] = {}
+        self.missing: set[str] = set()
+
+    def bind(self, shot_id: str, *, project_id: str) -> None:
+        self._overrides[shot_id] = ShotFacts(shot_id=shot_id, project_id=project_id)
+
+    def mark_missing(self, shot_id: str) -> None:
+        self.missing.add(shot_id)
+
+    async def resolve(
+        self,
+        *,
+        tenant_id: object,
+        organization_id: object,
+        shot_id: str,
+    ) -> ShotFacts | None:
+        if shot_id in self.missing:
+            return None
+        if shot_id in self._overrides:
+            return self._overrides[shot_id]
+        return ShotFacts(shot_id=shot_id, project_id=self._project_id)
+
+
 def _service(
     store: _FakeRouteRepository | None = None,
+    shots: _FakeShotOwnership | None = None,
 ) -> tuple[RouteService, _FakeRouteRepository, _FakeSelectionRepository, _RecordingOutboxWriter]:
     repo = store or _FakeRouteRepository()
     selections = _FakeSelectionRepository()
     outbox = _RecordingOutboxWriter()
-    return RouteService(repo, selections, outbox), repo, selections, outbox
+    port = shots or _FakeShotOwnership()
+    return (
+        RouteService(repo, selections, outbox, port),
+        repo,
+        selections,
+        outbox,
+    )
 
 
 def _seed_route(
@@ -341,3 +381,50 @@ class TestSelectRoute:
         with pytest.raises(DomainError) as exc_info:
             await service.select_route(principal=_principal(), **kwargs)
         assert exc_info.value.error_code.code == "VALIDATION_ERROR"
+
+
+class TestShotExistence:
+    """选路不得落在不存在的镜头上（P1-1）。
+
+    没有这条校验时，任意字符串都能登记生效路线：唯一键被一个从未存在的镜头
+    占用，后续"该镜头已选路"的判断全部建立在虚空上。
+    """
+
+    @pytest.mark.asyncio
+    async def test_ghost_shot_not_found(self) -> None:
+        shots = _FakeShotOwnership()
+        shots.mark_missing("SHOT_GHOST")
+        service, repo, _selections, outbox = _service(shots=shots)
+        _seed_route(repo)
+
+        with pytest.raises(DomainError) as exc_info:
+            await service.select_route(
+                route_id="route_001",
+                project_id="proj_001",
+                shot_id="SHOT_GHOST",
+                principal=_principal(),
+            )
+        err = exc_info.value
+        assert err.error_code.code == "NOT_FOUND"
+        assert "镜头不存在" in err.detail
+        assert outbox.events == [], "拒绝路径不得发出审计事件"
+
+    @pytest.mark.asyncio
+    async def test_shot_from_other_project_rejected(self) -> None:
+        """镜头存在但归属别的项目 → 422（不是 404：不是"没有"，是"不是你的"）。"""
+        shots = _FakeShotOwnership()
+        shots.bind("SHOT_999", project_id="proj_other")
+        service, repo, _selections, outbox = _service(shots=shots)
+        _seed_route(repo)
+
+        with pytest.raises(DomainError) as exc_info:
+            await service.select_route(
+                route_id="route_001",
+                project_id="proj_001",
+                shot_id="SHOT_999",
+                principal=_principal(),
+            )
+        err = exc_info.value
+        assert err.error_code.code == "VALIDATION_ERROR"
+        assert "归属项目 proj_other" in err.detail
+        assert outbox.events == []

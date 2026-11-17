@@ -40,6 +40,10 @@ from services.generation_execution.domain.production_route import ProductionRout
 from services.generation_execution.repository.production_route_sqlalchemy_repo import (
     SqlAlchemyProductionRouteRepository,
 )
+from services.shot_planning.domain.shot_revision import ShotRevision
+from services.shot_planning.repository.shot_revision_sqlalchemy_repo import (
+    SqlAlchemyShotRevisionRepository,
+)
 from tests.conftest import make_test_headers, set_raw_rls_context
 
 pytestmark = pytest.mark.asyncio
@@ -61,9 +65,45 @@ def _auth_headers(subject_id: str = "producer_001") -> dict[str, str]:
     return make_test_headers(subject_id=subject_id, roles=["制片"])
 
 
-def _new_scope() -> tuple[str, str]:
-    """唯一 (project_id, shot_id)：避免与库中历史生效路线冲突。"""
-    return f"proj_genroute_{uuid.uuid4().hex[:8]}", f"SHOT_{uuid.uuid4().hex[:6]}"
+async def _seed_shot(
+    shot_sm: async_sessionmaker[AsyncSession], *, project_id: str, shot_id: str
+) -> None:
+    """把镜头真实播种到 shot_planning（选路要求镜头存在，P1-1）。
+
+    用正式修订（shot_revisions）而不是草案：有修订行才代表"这个镜头被确认
+    过"。用例必须走真实存在路径，否则新校验会把它们全部变成 404——那时我们
+    测的就不是选路，而是"故意不播种"。
+    """
+    revision = ShotRevision(
+        entity_id=f"shr_{uuid.uuid4().hex[:8]}",
+        shot_id=shot_id,
+        project_id=project_id,
+        episode_ref="EP_001",
+        scene_ref="SC_001",
+        intent_summary="选路用例镜头",
+        shot_description="用于选路集成测试的正式镜头",
+        revision=1,
+        created_by="shot_seed",
+        tenant_id=uuid.UUID(_TENANT),
+    )
+    async with shot_sm() as session:
+        await set_raw_rls_context(session, tenant_id=_TENANT)
+        await SqlAlchemyShotRevisionRepository(session).add(revision)
+        await session.commit()
+
+
+async def _new_scope(
+    shot_sm: async_sessionmaker[AsyncSession],
+) -> tuple[str, str]:
+    """唯一 (project_id, shot_id)，并把镜头真实播种。
+
+    唯一性是必须的：生效路线表只增不改，复用固定 id 会让第二次运行从
+    "选路成功"变成 409——测试结果就会依赖数据库历史而不是代码行为。
+    """
+    project_id = f"proj_genroute_{uuid.uuid4().hex[:8]}"
+    shot_id = f"SHOT_{uuid.uuid4().hex[:6]}"
+    await _seed_shot(shot_sm, project_id=project_id, shot_id=shot_id)
+    return project_id, shot_id
 
 
 async def _seed_route(
@@ -143,10 +183,11 @@ async def _count_selections(
 async def test_select_verified_route_writes_effective_route(
     auth_client: AsyncClient,
     gen_sm: async_sessionmaker[AsyncSession],
+    shot_sm: async_sessionmaker[AsyncSession],
 ) -> None:
     route_id = f"route_{uuid.uuid4().hex[:8]}"
     await _seed_route(gen_sm, route_id=route_id)
-    project_id, shot_id = _new_scope()
+    project_id, shot_id = await _new_scope(shot_sm)
 
     resp = await _select(
         auth_client, route_id=route_id, project_id=project_id, shot_id=shot_id
@@ -182,11 +223,12 @@ async def test_select_verified_route_writes_effective_route(
 async def test_reselect_same_route_is_idempotent(
     auth_client: AsyncClient,
     gen_sm: async_sessionmaker[AsyncSession],
+    shot_sm: async_sessionmaker[AsyncSession],
 ) -> None:
     """D3 幂等：同一路线重复选择不产生第二条记录、第二条事件。"""
     route_id = f"route_{uuid.uuid4().hex[:8]}"
     await _seed_route(gen_sm, route_id=route_id)
-    project_id, shot_id = _new_scope()
+    project_id, shot_id = await _new_scope(shot_sm)
 
     first = await _select(
         auth_client, route_id=route_id, project_id=project_id, shot_id=shot_id
@@ -206,13 +248,14 @@ async def test_reselect_same_route_is_idempotent(
 async def test_second_route_rejected_with_structured_error(
     auth_client: AsyncClient,
     gen_sm: async_sessionmaker[AsyncSession],
+    shot_sm: async_sessionmaker[AsyncSession],
 ) -> None:
     """C4：已选路线后再选另一条 → 409 ROUTE_ALREADY_SELECTED（不静默排队）。"""
     first_route = f"route_{uuid.uuid4().hex[:8]}"
     second_route = f"route_{uuid.uuid4().hex[:8]}"
     await _seed_route(gen_sm, route_id=first_route)
     await _seed_route(gen_sm, route_id=second_route)
-    project_id, shot_id = _new_scope()
+    project_id, shot_id = await _new_scope(shot_sm)
 
     first = await _select(
         auth_client, route_id=first_route, project_id=project_id, shot_id=shot_id
@@ -241,6 +284,7 @@ async def test_second_route_rejected_with_structured_error(
 async def test_concurrent_two_routes_exactly_one_wins(
     auth_client: AsyncClient,
     gen_sm: async_sessionmaker[AsyncSession],
+    shot_sm: async_sessionmaker[AsyncSession],
 ) -> None:
     """C4 核心证据：并发发起两条路线，恰好一条成功、另一条 409。
 
@@ -252,7 +296,7 @@ async def test_concurrent_two_routes_exactly_one_wins(
     route_b = f"route_{uuid.uuid4().hex[:8]}"
     await _seed_route(gen_sm, route_id=route_a)
     await _seed_route(gen_sm, route_id=route_b)
-    project_id, shot_id = _new_scope()
+    project_id, shot_id = await _new_scope(shot_sm)
 
     responses = await asyncio.gather(
         _select(auth_client, route_id=route_a, project_id=project_id, shot_id=shot_id),
@@ -273,6 +317,7 @@ async def test_concurrent_two_routes_exactly_one_wins(
 
 async def test_unique_constraint_rejects_second_row_without_service(
     gen_sm: async_sessionmaker[AsyncSession],
+    shot_sm: async_sessionmaker[AsyncSession],
 ) -> None:
     """C4 的结构证据：唯一约束独立于服务层存在（直连 SQL 也插不进第二条）。
 
@@ -280,7 +325,13 @@ async def test_unique_constraint_rejects_second_row_without_service(
     如果哪天有人把唯一约束从迁移里删掉、只留服务层查重，并发用例可能因为
     时序巧合仍然偶尔通过，而这条会稳定变红。
     """
-    project_id, shot_id = _new_scope()
+    project_id, shot_id = await _new_scope(shot_sm)
+    # 路线必须真实存在：route_id 已挂外键（迁移 a9f1c2e3d4b5），
+    # 否则这条用例会先撞 FK 而不是唯一约束，测的就不是它要测的东西。
+    route_first = f"route_{uuid.uuid4().hex[:8]}"
+    route_second = f"route_{uuid.uuid4().hex[:8]}"
+    await _seed_route(gen_sm, route_id=route_first)
+    await _seed_route(gen_sm, route_id=route_second)
     base = {
         "entity_id": f"srs_{uuid.uuid4().hex[:8]}",
         "tenant_id": uuid.UUID(_TENANT),
@@ -299,7 +350,7 @@ async def test_unique_constraint_rejects_second_row_without_service(
     async with gen_sm() as session:
         await set_raw_rls_context(session, tenant_id=_TENANT)
         await session.execute(
-            text(insert), {**base, "route_id": "route_first"}
+            text(insert), {**base, "route_id": route_first}
         )
         await session.commit()
 
@@ -311,7 +362,7 @@ async def test_unique_constraint_rejects_second_row_without_service(
                 {
                     **base,
                     "entity_id": f"srs_{uuid.uuid4().hex[:8]}",
-                    "route_id": "route_second",
+                    "route_id": route_second,
                 },
             )
     message = str(exc_info.value)
@@ -323,6 +374,7 @@ async def test_effective_route_cannot_be_rewritten_or_deleted(
     auth_client: AsyncClient,
     gen_sm: async_sessionmaker[AsyncSession],
     admin_engine: AsyncEngine,
+    shot_sm: async_sessionmaker[AsyncSession],
 ) -> None:
     """生效路线是受理事实：改写与删除都必须被拒。
 
@@ -334,7 +386,7 @@ async def test_effective_route_cannot_be_rewritten_or_deleted(
     """
     route_id = f"route_{uuid.uuid4().hex[:8]}"
     await _seed_route(gen_sm, route_id=route_id)
-    project_id, shot_id = _new_scope()
+    project_id, shot_id = await _new_scope(shot_sm)
     resp = await _select(
         auth_client, route_id=route_id, project_id=project_id, shot_id=shot_id
     )
@@ -386,11 +438,12 @@ async def test_effective_route_cannot_be_rewritten_or_deleted(
 async def test_unverified_route_rejected(
     auth_client: AsyncClient,
     gen_sm: async_sessionmaker[AsyncSession],
+    shot_sm: async_sessionmaker[AsyncSession],
 ) -> None:
     """ACT-ROUTE-NEG-001：UNVERIFIED 路线拒绝。"""
     route_id = f"route_{uuid.uuid4().hex[:8]}"
     await _seed_route(gen_sm, route_id=route_id, status=ProductionRouteStatus.UNVERIFIED)
-    project_id, shot_id = _new_scope()
+    project_id, shot_id = await _new_scope(shot_sm)
 
     resp = await _select(
         auth_client, route_id=route_id, project_id=project_id, shot_id=shot_id
@@ -400,8 +453,11 @@ async def test_unverified_route_rejected(
     assert await _count_selections(gen_sm, project_id=project_id, shot_id=shot_id) == 0
 
 
-async def test_ghost_route_not_found(auth_client: AsyncClient) -> None:
-    project_id, shot_id = _new_scope()
+async def test_ghost_route_not_found(
+    auth_client: AsyncClient, shot_sm: async_sessionmaker[AsyncSession]
+) -> None:
+    """镜头存在但路线不存在 → 404（镜头校验先过，才轮到路线存在性）。"""
+    project_id, shot_id = await _new_scope(shot_sm)
     resp = await _select(
         auth_client, route_id="route_missing", project_id=project_id, shot_id=shot_id
     )
@@ -457,3 +513,113 @@ async def test_generation_role_cannot_write_shot_tables(
             )
     message = str(exc_info.value).lower()
     assert "permission denied" in message or "insufficient privilege" in message
+
+
+async def test_ghost_shot_rejected_before_route_lookup(
+    auth_client: AsyncClient,
+    gen_sm: async_sessionmaker[AsyncSession],
+) -> None:
+    """不存在的镜头不得登记生效路线（P1-1）。
+
+    镜头校验排在路线查找**之前**：一个既没有镜头也没有路线的请求，报"镜头
+    不存在"才是准确原因——若先报路线，调用方会去建路线，然后再撞一次墙。
+    """
+    route_id = f"route_{uuid.uuid4().hex[:8]}"
+    await _seed_route(gen_sm, route_id=route_id)
+    ghost_shot = f"SHOT_GHOST_{uuid.uuid4().hex[:6]}"
+
+    resp = await _select(
+        auth_client,
+        route_id=route_id,
+        project_id=f"proj_genroute_{uuid.uuid4().hex[:8]}",
+        shot_id=ghost_shot,
+    )
+    assert resp.status_code == 404, resp.text
+    assert resp.json()["error_code"] == "NOT_FOUND"
+    assert "镜头不存在" in resp.text
+
+
+async def test_unknown_route_id_rejected_by_foreign_key(
+    gen_sm: async_sessionmaker[AsyncSession],
+    shot_sm: async_sessionmaker[AsyncSession],
+) -> None:
+    """生效路线指向不存在的路线 → 数据库外键拒绝（P2-3）。
+
+    服务层校验只能覆盖"经过服务"的写入；这张表不可 UPDATE/DELETE，写进一条
+    幽灵引用就永久无法修正。所以引用完整性必须由数据库保证，而不是靠
+    "写之前记得查一下"。
+    """
+    project_id, shot_id = await _new_scope(shot_sm)
+    with pytest.raises(DBAPIError) as exc_info:
+        async with gen_sm() as session:
+            await set_raw_rls_context(session, tenant_id=_TENANT)
+            await session.execute(
+                text(
+                    "INSERT INTO generation_execution.shot_route_selections "
+                    "(entity_id, entity_type, schema_version, entity_version, "
+                    " status, owner_module, tenant_id, organization_id, "
+                    " created_at, created_by, updated_at, audit_ref, "
+                    " project_id, shot_id, route_id) "
+                    "VALUES (:eid, 'ShotRouteSelection', 205, 1, 'ACTIVE', "
+                    " 'generation-execution', :tid, :tid, now(), 'probe', "
+                    " now(), NULL, :pid, :sid, :rid)"
+                ),
+                {
+                    "eid": f"srs_{uuid.uuid4().hex[:8]}",
+                    "tid": uuid.UUID(_TENANT),
+                    "pid": project_id,
+                    "sid": shot_id,
+                    "rid": "route_does_not_exist",
+                },
+            )
+    assert "fk_generation_execution_shot_route_selections_route_id" in str(
+        exc_info.value
+    )
+    assert await _count_selections(gen_sm, project_id=project_id, shot_id=shot_id) == 0
+
+
+async def test_verified_route_requires_evidence_in_database(
+    gen_sm: async_sessionmaker[AsyncSession],
+) -> None:
+    """VERIFIED 且能力证据为空 → 数据库 CHECK 拒绝（P2-5）。
+
+    领域层早已校验这一条，但运维播种走直连 SQL 时它完全不参与。选路只认
+    VERIFIED，所以在数据库层缺这条约束等于"无证据也能成为可用能力"。
+    """
+    route_id = f"route_{uuid.uuid4().hex[:8]}"
+    with pytest.raises(DBAPIError) as exc_info:
+        async with gen_sm() as session:
+            await set_raw_rls_context(session, tenant_id=_TENANT)
+            await session.execute(
+                text(
+                    "INSERT INTO generation_execution.production_routes "
+                    "(entity_id, entity_type, schema_version, entity_version, "
+                    " status, owner_module, tenant_id, organization_id, "
+                    " created_at, created_by, updated_at, audit_ref, route_type, "
+                    " supported_control_signals, required_appearance_refs, "
+                    " qc_dimensions, capability_refs, verified_by, verified_at) "
+                    "VALUES (:rid, 'ProductionRoute', 205, 1, 'VERIFIED', "
+                    " 'generation-execution', :tid, :tid, now(), 'probe', "
+                    " now(), NULL, 'blender_scripted', '[]'::jsonb, '[]'::jsonb, "
+                    " '[\"geometry_validity\"]'::jsonb, '[]'::jsonb, NULL, NULL)"
+                ),
+                {"rid": route_id, "tid": uuid.UUID(_TENANT)},
+            )
+    assert "ck_generation_route_verified_requires_evidence" in str(exc_info.value)
+
+
+async def test_truncate_is_blocked_by_statement_trigger(
+    admin_engine: AsyncEngine,
+) -> None:
+    """TRUNCATE 被语句级触发器拒绝（P3-1）。
+
+    必须用**超级用户**连接来测：应用角色连 TRUNCATE 权限都没有，撞到的是
+    权限层（"你无权"），而不是结构层（"这件事本身不允许"）。两种结论完全不
+    同——前者换个角色就失效，后者对所有人生效（ADR-R20 的取证纪律）。
+    """
+    with pytest.raises(DBAPIError) as exc_info:
+        async with admin_engine.begin() as conn:
+            await conn.execute(
+                text("TRUNCATE generation_execution.shot_route_selections")
+            )
+    assert "禁止 TRUNCATE" in str(exc_info.value)

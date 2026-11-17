@@ -76,8 +76,8 @@ Gate 要回答"这个 CRITICAL 谁批的豁免"，答案必须能追溯到人，
 
 - 进入 `DECISION_PENDING` 要求**每个缺陷都有结论**（否则会话会带着未裁决的
   问题进入终局）；
-- 进入 `RESOLVED` 还要求**没有 `NEEDS_MORE_EVIDENCE`**（"证据不足待补"不是
-  已闭合）；
+- 进入 `RESOLVED` 还要求**没有未闭合缺陷**：`NEEDS_MORE_EVIDENCE`（证据不足）
+  与 `CONFIRM_DEFECT`（已确认待返工）都算未闭合（见 §2.10）；
 - `CLOSED` 只能从 `GATE_ELIGIBLE` 来（31.5 裁决 ④）。
 
 错误码刻意分工：**前置条件不满足 = 422 `VALIDATION_ERROR`**（输入不完整，补
@@ -145,6 +145,29 @@ Gate 要回答"这个 CRITICAL 谁批的豁免"，答案必须能追溯到人，
 `created_by` / `decided_by` 一律取自可信 Principal。客户端能填就是身份伪造——
 与 GateDecision 同口径（`test_decided_by_cannot_be_forged_in_body`）。
 
+授权对象还必须等于实际操作资源：授权层按请求体的 `project_id` 判定，服务层
+再比对 `session.project_id`（不一致 422）。少了这一条，具备多项目权限的主体
+可以在 A 项目的授权下裁决 B 项目的会话——RLS 只能挡住"完全无权"，挡不住
+"有权但对象错了"。
+
+### 2.10 已确认缺陷 ≠ 已解决缺陷
+
+`unresolved_issue_ids` 的初版只认 `NEEDS_MORE_EVIDENCE`。后果是一条 CRITICAL
+缺陷被判 `CONFIRM_DEFECT` 后，会话仍可 `RESOLVED → GATE_ELIGIBLE → CLOSED`——
+**确认即放行**。这与 4.3「CRITICAL 必须阻断」和 21.2「对已确认缺陷创建修复任务
+并进入 DAG」都冲突。
+
+修正后的口径：只有 `FALSE_POSITIVE` / `ARTISTIC_INTENTIONAL` /
+`WAIVE_WITH_AUTHORITY` 把缺陷移出"未闭合"；`NEEDS_MORE_EVIDENCE` 与
+`CONFIRM_DEFECT` 都阻断 `RESOLVED`，拒绝时分别列出 `evidence_pending_issue_ids`
+与 `pending_rework_issue_ids`（"等证据"和"等返工"是两种不同处置）。
+
+**业务后果要说清楚**：返工域未建模时，含已确认缺陷的会话**永远不能**走到
+`GATE_ELIGIBLE`。这不是缺陷——它就是"这个 QC 报告发现了真问题"的正确表达。
+恢复路径是修复后重出 QC 报告、开新会话复核；本会话留在 `DECISION_PENDING`。
+唯一在本会话内解除阻断的方式是**改判**（追加一条新结论，历史保留），因此
+"放行"永远带着一条署名记录。
+
 ## 3. 诚实登记的债务（不允许伪装通过）
 
 1. **`QCIssue` 未建独立表**（§2.2）：缺陷随会话 JSONB 存储，无法按 `issue_id`
@@ -168,6 +191,13 @@ Gate 要回答"这个 CRITICAL 谁批的豁免"，答案必须能追溯到人，
 7. **`GATE_ELIGIBLE` 不等于 Gate 通过**：它只表示"证据齐备、可以进 Gate"。
    Gate 结论只能由 `PRODUCTION.GATE.APPROVE` 产生（ADR-R23 单一裁决点）。
 8. **不派生 ReworkTask**：21.2 的"对已确认缺陷创建修复任务"仍缺载体（同债务 1）。
+9. **缺陷会话没有终态出口**（§2.10 的直接后果）：含已确认缺陷的会话只能停在
+   `DECISION_PENDING`，C.7 没有 `ABANDONED` / `SUPERSEDED` 这类"本条复核作废"
+   的状态。长期看这些会话会堆积；解除条件是在契约里补一个"被取代"终态
+   （指向新会话），而不是允许它们 `RESOLVED`。
+10. **`decisions` 的追加约束已下沉数据库**（迁移 c4e5f6a7b8d9 加前缀超集校验），
+    但"谁是合法复核人"仍只由角色决定，没有按缺陷维度分派——`reviewers` 是
+    参与人清单，不是分工表。
 
 ## 4. 后果
 

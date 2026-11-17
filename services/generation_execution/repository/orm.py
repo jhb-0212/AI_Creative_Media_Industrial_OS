@@ -12,7 +12,15 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Index, String, UniqueConstraint, text
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -27,7 +35,15 @@ class ProductionRouteModel(EntityMixin, Base):
     """production_routes 表模型（生产路线适配器目录条目，A6）。"""
 
     __tablename__ = "production_routes"
-    __table_args__ = {"schema": SCHEMA_NAME}
+    __table_args__ = (
+        # 16.2：VERIFIED 必须有证据背书。领域层已校验，这里下沉到数据库——
+        # 运维播种走直连 SQL 时，应用层校验完全不参与（迁移 c4e5f6a7b8d9）。
+        CheckConstraint(
+            "status <> 'VERIFIED' OR jsonb_array_length(capability_refs) > 0",
+            name="ck_generation_route_verified_requires_evidence",
+        ),
+        {"schema": SCHEMA_NAME},
+    )
 
     # 业务字段（契约字段集：A6 冻结定义，无 project_id——路线是平台能力
     # 目录条目，不是项目资源；RLS 走租户隔离）。
@@ -153,4 +169,15 @@ class ShotRouteSelectionModel(EntityMixin, Base):
 
     project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     shot_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    route_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    # route_id 指向同 schema 的 production_routes：生效路线**必须**指向真实路线。
+    # 服务层校验只管经过服务的路径，而这个表不可 UPDATE/DELETE（写错就永久错），
+    # 所以引用完整性必须由数据库保证（迁移 a9f1c2e3d4b5）。
+    route_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey(
+            f"{SCHEMA_NAME}.production_routes.entity_id",
+            name="fk_generation_execution_shot_route_selections_route_id",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )

@@ -455,3 +455,42 @@ async def test_worker_failure_path_is_terminal_and_retryable_via_new_task(
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["attempt"] == 2
+
+
+async def test_cross_shot_spec_ref_rejected(
+    auth_client: AsyncClient,
+    gen_sm: async_sessionmaker[AsyncSession],
+    shot_sm: async_sessionmaker[AsyncSession],
+    route_id: str,
+) -> None:
+    """同项目跨镜头引用 → 422（P1-1）。
+
+    只校验项目归属时，这条请求**完全合法**：规格属于本项目，只是属于另一个
+    镜头。产出会按镜头 A 的规格渲染镜头 B——数据正确性问题，不是权限问题。
+    """
+    project = f"proj_{uuid.uuid4().hex[:8]}"
+    await seed_route(gen_sm, route_id=route_id)
+    # 引用绑定在 SHOT_002，请求镜头是 SHOT_001。
+    spec_id, vplan_id = await seed_shot_refs(
+        shot_sm, project_id=project, shot_id="SHOT_002"
+    )
+    await seed_selection(
+        gen_sm, route_id=route_id, project_id=project, shot_id="SHOT_001"
+    )
+
+    resp = await auth_client.post(
+        "/actions/generation.request",
+        headers=_auth_headers(),
+        json=request_body(
+            route_id=route_id,
+            project_id=project,
+            spec_ref=spec_id,
+            vplan_ref=vplan_id,
+        ),
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["error_code"] == "VALIDATION_ERROR"
+    details = resp.json()["details"]
+    assert details["ref_field"] == "shot_spec_ref"
+    assert details["shot_id"] == "SHOT_001"
+    assert details["bound_shot_ids"] == ["SHOT_002"]

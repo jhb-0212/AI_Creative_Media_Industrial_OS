@@ -48,6 +48,7 @@ from services.generation_execution.domain.enums import (
 )
 from services.generation_execution.domain.generation_task import (
     CONSTRAINT_NOT_APPLICABLE,
+    MAX_GENERATION_ATTEMPT,
     GenerationTask,
 )
 from services.generation_execution.domain.lease import lease_deadline
@@ -179,10 +180,29 @@ class GenerationService:
                     detail="被重试任务与请求的项目/镜头不一致",
                 )
             attempt = retried.attempt + 1
+            if attempt > MAX_GENERATION_ATTEMPT:
+                # 9.4：重试"有上限"。没有这条，失败任务可被无限链式重放，
+                # 成本与配额随之失控（每次重试都是一次真实生成）。
+                raise DomainError(
+                    ErrorRegistry.VALIDATION_ERROR,
+                    detail=(
+                        f"重试已达到上限（{MAX_GENERATION_ATTEMPT} 次）："
+                        f"任务 {retry_of} 的 attempt 为 {retried.attempt}，"
+                        "继续重试请走人工诊断（换参数/换路线须新建任务并说明原因）"
+                    ),
+                    context={
+                        "retry_of": retry_of,
+                        "attempt": retried.attempt,
+                        "max_attempt": MAX_GENERATION_ATTEMPT,
+                    },
+                )
 
-        # 3) 引用对象准入：存在且属于请求项目（跨域只读解析，ADR-R28 机制）。
+        # 3) 引用对象准入：存在、属于请求项目、**且绑定在请求镜头上**
+        #    （跨域只读解析，ADR-R28 机制）。镜头维度不可省：只比项目归属时，
+        #    同一项目内"镜头 A 的规格用于镜头 B"完全合法，产出与镜头意图错配。
         await self._assert_ref_owned(
             project_id=project_id,
+            shot_id=shot_id,
             ref_field="shot_spec_ref",
             resource_type="ShotSpec",
             resource_id=shot_spec_ref.strip(),
@@ -191,6 +211,7 @@ class GenerationService:
         )
         await self._assert_ref_owned(
             project_id=project_id,
+            shot_id=shot_id,
             ref_field="visual_plan_ref",
             resource_type="ShotVisualPlan",
             resource_id=visual_plan_ref.strip(),
@@ -200,6 +221,7 @@ class GenerationService:
         if constraint_snapshot_ref != CONSTRAINT_NOT_APPLICABLE:
             await self._assert_ref_owned(
                 project_id=project_id,
+                shot_id=shot_id,
                 ref_field="constraint_snapshot_ref",
                 resource_type="ConstraintPack",
                 resource_id=constraint_snapshot_ref,
@@ -307,13 +329,14 @@ class GenerationService:
         self,
         *,
         project_id: str,
+        shot_id: str,
         ref_field: str,
         resource_type: str,
         resource_id: str,
         tenant_id: UUID,
         organization_id: UUID | None,
     ) -> None:
-        """单条引用的 存在性(404) + 归属(422) 校验。"""
+        """单条引用的 存在性(404) + 项目归属(422) + 镜头绑定(422) 校验。"""
         if not resource_id:
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR, detail=f"{ref_field} 不能为空"
@@ -343,6 +366,23 @@ class GenerationService:
                     f"{ref_field} 指向的 {resource_type} 不属于项目 {project_id}"
                     "（跨项目引用拒绝，ACT-GEN-NEG-001）"
                 ),
+            )
+        if ownership.shot_ids is not None and shot_id not in ownership.shot_ids:
+            # 同项目跨镜头引用：不是权限问题，是"用错了对象"。
+            # 单列一个错误文案（而不是并进上面的跨项目分支）：调用方需要知道
+            # 该换引用还是该改 shot_id，两者处置完全不同。
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=(
+                    f"{ref_field} 指向的 {resource_type} 绑定在镜头 "
+                    f"{sorted(ownership.shot_ids)} 上，与请求镜头 {shot_id} 不一致"
+                    "（同项目跨镜头引用拒绝：产出会与镜头意图错配）"
+                ),
+                context={
+                    "ref_field": ref_field,
+                    "shot_id": shot_id,
+                    "bound_shot_ids": sorted(ownership.shot_ids),
+                },
             )
         if ownership.eligible is False:
             # 所有者域明确判定不可用（7.9：只有 ACTIVE 的约束包可作为生成输入）。

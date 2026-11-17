@@ -275,15 +275,49 @@ class QCReviewSession:
         decided = self.latest_decisions()
         return [issue.issue_id for issue in self.findings if issue.issue_id not in decided]
 
+    def evidence_pending_issue_ids(self) -> list[str]:
+        """结论为 NEEDS_MORE_EVIDENCE 的缺陷（证据不足，问题未闭合）。"""
+        return self._issue_ids_with_decision(QCIssueHumanDecision.NEEDS_MORE_EVIDENCE)
+
+    def pending_rework_issue_ids(self) -> list[str]:
+        """结论为 CONFIRM_DEFECT 的缺陷（已确认，待返工）。"""
+        return self._issue_ids_with_decision(QCIssueHumanDecision.CONFIRM_DEFECT)
+
     def unresolved_issue_ids(self) -> list[str]:
-        """结论为 NEEDS_MORE_EVIDENCE 的缺陷（问题仍未闭合）。"""
+        """仍未闭合的缺陷 = 证据不足 **或** 已确认待返工。
+
+        「已确认缺陷」不是「已解决缺陷」：21.2 要求对已确认缺陷创建修复任务并
+        进入 DAG，返工完成前问题仍然存在。把它排除在未闭合集合之外，等于
+        "确认即放行"——CRITICAL 缺陷也会因此一路走到 CLOSED，与 4.3
+        「CRITICAL 必须阻断」直接冲突。
+
+        返工域尚未建模（ADR-R36 §3），所以本会话的出口只有两条：缺陷被判为
+        误报/艺术性选择（本会话可 RESOLVED），或者修复后重出 QC 报告、开新
+        会话复核（本会话停在 DECISION_PENDING，债务「缺陷会话无终态出口」）。
+        """
+        latest = self.latest_decisions()
+        closed_by_human = {
+            QCIssueHumanDecision.FALSE_POSITIVE,
+            QCIssueHumanDecision.ARTISTIC_INTENTIONAL,
+            QCIssueHumanDecision.WAIVE_WITH_AUTHORITY,
+        }
+        return [
+            issue.issue_id
+            for issue in self.findings
+            if issue.issue_id in latest
+            and latest[issue.issue_id].human_decision not in closed_by_human
+        ]
+
+    def _issue_ids_with_decision(
+        self, decision: QCIssueHumanDecision
+    ) -> list[str]:
+        """结论等于 ``decision`` 的缺陷 id（按会话内顺序，报错稳定）。"""
         latest = self.latest_decisions()
         return [
             issue.issue_id
             for issue in self.findings
             if issue.issue_id in latest
-            and latest[issue.issue_id].human_decision
-            is QCIssueHumanDecision.NEEDS_MORE_EVIDENCE
+            and latest[issue.issue_id].human_decision is decision
         ]
 
     # ------------------------------------------------------------------ 变更
@@ -385,15 +419,20 @@ class QCReviewSession:
             undecided = self.undecided_issue_ids()
             unresolved = self.unresolved_issue_ids()
             if undecided or unresolved:
+                rework = self.pending_rework_issue_ids()
+                evidence = self.evidence_pending_issue_ids()
                 raise DomainError(
                     ErrorRegistry.VALIDATION_ERROR,
                     detail=(
                         "会话不能进入 RESOLVED："
-                        f"未裁决 {undecided} / 证据不足待补 {unresolved}"
+                        f"未裁决 {undecided} / 已确认待返工 {rework} / "
+                        f"证据不足待补 {evidence}"
                     ),
                     context={
                         "undecided_issue_ids": undecided,
                         "unresolved_issue_ids": unresolved,
+                        "pending_rework_issue_ids": rework,
+                        "evidence_pending_issue_ids": evidence,
                     },
                 )
         # 跳关拦截的真实来源是转移表（RESOLVED→CLOSED 未登记），这里再明确一次：

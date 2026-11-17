@@ -29,6 +29,7 @@ from apps.api.resource_ownership import (
     AssetQCReportRefAdapter,
     CompositeResourceOwnershipPort,
     GenerationRefOwnershipAdapter,
+    ShotPlanningShotOwnershipAdapter,
 )
 from packages.errors.error_codes import (
     DomainError,
@@ -97,6 +98,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
             # QC 复查的跨域只读端口：以资产域身份解析 QC 报告归属（ADR-R28）。
             app.state.qc_report_ref_port = AssetQCReportRefAdapter(app.state.pools)
+            # 选路的镜头归属端口：以 shot_planning 身份解析镜头存在性与项目归属。
+            app.state.shot_ownership_port = ShotPlanningShotOwnershipAdapter(
+                app.state.pools
+            )
             yield
     finally:
         if jwks_refresh_task is not None:

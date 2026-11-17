@@ -169,6 +169,7 @@ async def decide_review(
     )
     session = await service.decide(
         session_id=session_id,
+        project_id=body.project_id,
         target_status=body.target_status,
         decisions=[item.model_dump() for item in body.decisions],
         principal=principal,

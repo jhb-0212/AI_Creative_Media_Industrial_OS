@@ -262,8 +262,10 @@ class TestSessionLifecycle:
         session = _session(issue)
         reviewer = _principal("qc_reviewer")
         session.start_review(principal=reviewer)
+        # 闭环结论用「误报」：已确认缺陷按 21.2 必须返工，不能进 RESOLVED
+        # （见 TestDefectClosure）。这里要覆盖的是状态链，不是缺陷处置。
         session.record_decisions(
-            [_decision(issue, QCIssueHumanDecision.CONFIRM_DEFECT)]
+            [_decision(issue, QCIssueHumanDecision.FALSE_POSITIVE)]
         )
         for target in (
             QCReviewSessionStatus.DECISION_PENDING,
@@ -282,7 +284,7 @@ class TestSessionLifecycle:
         reviewer = _principal("qc_reviewer")
         session.start_review(principal=reviewer)
         session.record_decisions(
-            [_decision(issue, QCIssueHumanDecision.CONFIRM_DEFECT)]
+            [_decision(issue, QCIssueHumanDecision.FALSE_POSITIVE)]
         )
         session.advance(QCReviewSessionStatus.DECISION_PENDING, principal=reviewer)
         session.advance(QCReviewSessionStatus.RESOLVED, principal=reviewer)
@@ -313,7 +315,7 @@ class TestSessionLifecycle:
         session = _session(issue)
         reviewer = _principal("qc_reviewer")
         session.start_review(principal=reviewer)
-        session.record_decisions([_decision(issue, QCIssueHumanDecision.CONFIRM_DEFECT)])
+        session.record_decisions([_decision(issue, QCIssueHumanDecision.FALSE_POSITIVE)])
         session.advance(QCReviewSessionStatus.DECISION_PENDING, principal=reviewer)
         session.advance(QCReviewSessionStatus.RESOLVED, principal=reviewer)
 
@@ -336,3 +338,91 @@ class TestSessionLifecycle:
         session = _session(_issue("i1"), reviewers=["director_001"])
         session.start_review(principal=_principal("qc_reviewer"))
         assert "qc_reviewer" in session.reviewers
+
+
+class TestDefectClosure:
+    """已确认缺陷不等于已解决缺陷（21.2 / 4.3）。
+
+    这组用例存在的原因是一个真实缺陷：``unresolved_issue_ids`` 曾只认
+    ``NEEDS_MORE_EVIDENCE``，于是一条 CRITICAL 缺陷被判 CONFIRM_DEFECT 后，
+    会话仍可 RESOLVED → GATE_ELIGIBLE → CLOSED——「确认即放行」。
+    """
+
+    def test_confirmed_defect_blocks_resolved(self) -> None:
+        issue = _issue("i1", severity=QCIssueSeverity.MAJOR)
+        session = _session(issue)
+        reviewer = _principal("qc_reviewer")
+        session.start_review(principal=reviewer)
+        session.record_decisions(
+            [_decision(issue, QCIssueHumanDecision.CONFIRM_DEFECT)]
+        )
+        session.advance(QCReviewSessionStatus.DECISION_PENDING, principal=reviewer)
+
+        with pytest.raises(DomainError) as exc_info:
+            session.advance(QCReviewSessionStatus.RESOLVED, principal=reviewer)
+        err = exc_info.value
+        assert err.error_code is ErrorRegistry.VALIDATION_ERROR
+        assert err.context["pending_rework_issue_ids"] == ["i1"]
+        assert err.context["unresolved_issue_ids"] == ["i1"]
+        # 状态没有偷偷前进（失败不能留下半推进的会话）。
+        assert session.status is QCReviewSessionStatus.DECISION_PENDING
+
+    def test_red_line_confirmed_defect_blocks_resolved(self) -> None:
+        issue = _issue("i1", severity=QCIssueSeverity.CRITICAL)
+        session = _session(issue)
+        reviewer = _principal("qc_reviewer")
+        session.start_review(principal=reviewer)
+        session.record_decisions(
+            [_decision(issue, QCIssueHumanDecision.CONFIRM_DEFECT)]
+        )
+        session.advance(QCReviewSessionStatus.DECISION_PENDING, principal=reviewer)
+
+        with pytest.raises(DomainError) as exc_info:
+            session.advance(QCReviewSessionStatus.RESOLVED, principal=reviewer)
+        assert exc_info.value.context["pending_rework_issue_ids"] == ["i1"]
+
+    def test_redecision_to_false_positive_lifts_the_block(self) -> None:
+        """改判是唯一出口：结论只追加、最新一条生效。
+
+        返工完成后若复核认为原判是误报，可追加一条 FALSE_POSITIVE 解除阻断；
+        这不是"绕过"，因为新结论带自己的 decided_by / decided_at 与理由。
+        """
+        issue = _issue("i1")
+        session = _session(issue)
+        reviewer = _principal("qc_reviewer")
+        session.start_review(principal=reviewer)
+        session.record_decisions(
+            [_decision(issue, QCIssueHumanDecision.CONFIRM_DEFECT)]
+        )
+        session.advance(QCReviewSessionStatus.DECISION_PENDING, principal=reviewer)
+        session.record_decisions(
+            [_decision(issue, QCIssueHumanDecision.FALSE_POSITIVE)]
+        )
+        session.advance(QCReviewSessionStatus.RESOLVED, principal=reviewer)
+        assert session.status is QCReviewSessionStatus.RESOLVED
+        # 历史仍在：两条结论都在，最新一条是误报。
+        assert len(session.decisions) == 2
+        assert session.pending_rework_issue_ids() == []
+
+    def test_only_closed_decisions_clear_an_issue(self) -> None:
+        """只有误报/艺术性选择/授权豁免把缺陷移出未闭合集合。"""
+        issues = [
+            _issue("i1", human_decision=QCIssueHumanDecision.FALSE_POSITIVE),
+            _issue("i2", human_decision=QCIssueHumanDecision.ARTISTIC_INTENTIONAL),
+            _issue("i3", human_decision=QCIssueHumanDecision.NEEDS_MORE_EVIDENCE),
+            _issue("i4", human_decision=QCIssueHumanDecision.CONFIRM_DEFECT),
+        ]
+        session = _session(*issues)
+        reviewer = _principal("qc_reviewer")
+        session.start_review(principal=reviewer)
+        session.record_decisions(
+            [
+                _decision(issues[0], QCIssueHumanDecision.FALSE_POSITIVE),
+                _decision(issues[1], QCIssueHumanDecision.ARTISTIC_INTENTIONAL),
+                _decision(issues[2], QCIssueHumanDecision.NEEDS_MORE_EVIDENCE),
+                _decision(issues[3], QCIssueHumanDecision.CONFIRM_DEFECT),
+            ]
+        )
+        assert session.unresolved_issue_ids() == ["i3", "i4"]
+        assert session.evidence_pending_issue_ids() == ["i3"]
+        assert session.pending_rework_issue_ids() == ["i4"]

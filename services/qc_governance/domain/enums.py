@@ -101,8 +101,12 @@ class QCIssueHumanDecision(StrEnum):
 
     ``PENDING`` 是**未作结论**的显式取值，不是第五种结论：允许它出现在
     缺陷里，但不允许它作为一条裁决的结论（那样等于用"待定"推进会话）。
-    ``NEEDS_MORE_EVIDENCE`` 是"证据不足"的结论，会话可带着它进入
-    DECISION_PENDING，但不能进入 RESOLVED——未闭合的问题不是已解决的问题。
+
+    会话可带着 ``NEEDS_MORE_EVIDENCE`` / ``CONFIRM_DEFECT`` 进入
+    DECISION_PENDING，但两者都不能进入 RESOLVED——未闭合的问题不是已解决的
+    问题：前者缺证据，后者缺返工（21.2 对已确认缺陷创建修复任务并进入 DAG）。
+    只有 ``FALSE_POSITIVE`` / ``ARTISTIC_INTENTIONAL`` / ``WAIVE_WITH_AUTHORITY``
+    把缺陷从"待处理"里移出去。
     """
 
     PENDING = "PENDING"

@@ -12,7 +12,7 @@
 | Python 要求 | `>=3.12` | `pyproject.toml` |
 | 依赖锁文件 | `uv.lock`，sha256 `c603ac8ae828b5e809968d2baedd2f21ce6cfca49fa8ebff5e461a5cb48beede`（484341 字节） | 仓库 |
 | 项目定义 | `pyproject.toml`，sha256 `e8a54473971c8b99597f17f17a8b7ce58b43d29f8bd3b726c3423e365b85ddae` | 仓库 |
-| 迁移脚本 | 38 个 | `data/migrations/versions/` |
+| 迁移脚本 | 40 个 | `data/migrations/versions/` |
 | 镜像版本标签 | `2.0.5` | `Dockerfile.api` 的 `ARG APP_VERSION`（写入 OCI `image.version` 标签） |
 
 ## 2. 基础镜像
