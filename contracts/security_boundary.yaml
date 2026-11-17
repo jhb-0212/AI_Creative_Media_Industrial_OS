@@ -87,15 +87,16 @@ authorization:
 resource_scope:
   invariants:
     - id: SCOPE-1
-      name: Project 归属 Organization
+      name: Project 归属 Organization（租户内复合归属）
       statement: >-
-        Project 必须承载 organization_id（组织归属），建立
-        Tenant → Organization → Project 的外键链，同一租户下不同组织/项目
-        之间不得默认互访。
-      fact_source: services/project_planning/repository/orm.py（ProjectModel.organization_id）
-      verification: tests/integration/test_ownership_fk_constraints.py（跨组织访问负向测试）
+        Project 必须承载 organization_id（组织归属），并以
+        （organization_id, tenant_id）**复合外键**引用 organizations 的
+        同名列，使「引用的组织必须与项目同租户」在数据库层成立；organizations
+        本身纳入租户 RLS。同一租户下不同组织/项目之间不得默认互访。
+      fact_source: services/project_planning/repository/orm.py（ProjectModel.organization_id）；迁移 d2e3f4a5b6c7
+      verification: 迁移 d2e3f4a5b6c7（复合唯一约束 + 复合外键 + organizations RLS）；tests/integration/test_ownership_fk_constraints.py（跨租户组织引用负向测试）
       status: satisfied
-      residual_risk: "迁移 9f1a2b3c4d5e6 已在 ORM + Alembic 层落地，并已在真实 PostgreSQL 16 上执行验证：tests/integration/test_ownership_fk_constraints.py 3 项（悬空组织/悬空项目外键拒绝 + 合法归属放行）全部通过。"
+      residual_risk: "迁移 9f1a2b3c4d5e6 先落单列外键，审查 P1-03 指出「只能证明组织存在，不能证明组织归属正确」，已由 d2e3f4a5b6c7 升级为租户复合外键并给 organizations 补 RLS；跨租户组织引用在数据库层被拒。"
 
     - id: SCOPE-2
       name: 子资源外键归属（不变量放最可靠层）
@@ -131,7 +132,8 @@ data_ownership:
         拆角色时 _grant_business_schema 授全量 DML，抹掉了 b7c8d9e0f1a2 的
         append-only 收紧（qc_reports 应不可 UPDATE/DELETE、asset_versions 应
         不可 DELETE），已在迁移 8f3b2c1d4e5a 内追加 _revoke_append_only_overreach
-        收口。身份签发服务仍以进程内组件而非独立部署单元（见 KEYS-1 同源）。
+        收口。身份签发服务已拆为独立进程 workers/identity（KEYS-3），
+        私钥只在该进程内可用。
 
     - id: DATA-2
       name: 跨域访问正式接口
@@ -158,19 +160,21 @@ data_ownership:
       name: Outbox Relay 专用角色（进程边界隔离）
       statement: >-
         Relay 进程使用独立 outbox_relay_role，仅持有 outbox schema 的
-        SELECT 与 UPDATE(published_at) 权限，不得持有任何业务 schema 的
-        读写权限。
-      fact_source: workers/relay/__main__.py（build_relay_database_url）
-      verification: 迁移 7a8b9c0d1e2f（outbox_relay_role 授权）；tests/integration/test_ownership_db_roles.py
+        SELECT 与**列级** UPDATE（published_at / attempts /
+        next_attempt_at / dead_lettered_at，即投递元数据），不得持有任何
+        业务 schema 的读写权限，也不得 UPDATE 事件业务内容
+        （payload / event_type / tenant_id 等）。
+      fact_source: packages/shared/partition_guard.py（RELAY_UPDATE_COLUMNS 列清单）
+      verification: 迁移 7a8b9c0d1e2f + b9e1c2d3f4a5（父表/分区/默认权限三层列级收口）；tests/integration/test_ownership_db_roles.py
       status: satisfied
       residual_risk: >-
         已在真实 PostgreSQL 16 上完成迁移 7a8b9c0d1e2f 执行与负向验证：
         outbox_relay_role 能 SELECT/UPDATE outbox、不能 INSERT/DELETE、无业务
-        schema 权限（tests/integration/test_ownership_db_roles.py 6 项）全部通过。
-        分区授权缺口（outbox_events 分区未授 relay 角色）已由迁移 ae8724980e0b
-        一并根治。relay 消费端（workers/relay/consumer.py）的连接角色由调用方
-        注入（生产 __main__.py 已用 build_relay_database_url），测试装配已改为
-        按「业务域写事件 / relay 角色驱动」分离，与生产契约一致。
+        schema 权限。审查 P1-01 指出「整表 UPDATE 可改 payload/event_type/
+        tenant_id」，已由 b9e1c2d3f4a5 收窄为列级授权（父表 + 已存在分区 +
+        撤销未来分区的整表 UPDATE 默认权限），relay 改业务内容在数据库层报
+        permission denied for column。relay 消费端连接角色由调用方注入
+        （生产入口用 create_relay_engine(settings)），与进程配置同源。
 
 # --------------------------------------------------------------------------- #
 # 4. 进程密钥边界（process_keys）
@@ -187,14 +191,28 @@ process_keys:
       fact_source: packages/shared/config.py（_PRODUCTION_REQUIRED_SECRETS_BY_PROCESS）
       verification: tests/unit/test_config_secrets.py（按进程断言必需密钥集合）
       status: satisfied
-      residual_risk: "身份签发能力已迁至 services/identity_issuance（KEYS-1 S1），验签方 services/identity_access 与之结构上零依赖（架构检查 R4 强制 apps 不得 import 签发模块）；但签发方仍以进程内库形式存在、尚未以独立部署单元（workers/identity 进程 + JWKS 端点）运行，物理进程拆分与 JWKS 分发留待 KEYS-1 S3。"
+      residual_risk: "身份签发能力已迁至 services/identity_issuance（KEYS-1 S1），验签方 services/identity_access 与之结构上零依赖（架构检查 R4 强制 apps 不得 import 签发模块），且「从签发仓储派生公钥」的桥已移除（PublicKeyStore 无 from_key_store）。签发方已由独立进程 workers/identity 承载（持私钥 + JWKS 端点），私钥注入只发生在该进程。"
 
     - id: KEYS-2
       name: 生产启动密钥检查按进程分列
       statement: >-
-        生产启动检查（_reject_empty_secrets_in_production）只校验当前进程
-        真正需要的密钥，按 process_role 分列，不做全局一刀切。
-      fact_source: packages/shared/config.py（process_role 字段 + model_validator）
-      verification: tests/unit/test_config_secrets.py
+        生产启动检查（Settings.validate_process_requirements）只校验当前进程
+        真正需要的密钥，按 process_role 分列，不做全局一刀切；且该校验只在
+        进程入口声明身份时执行（get_process_settings），纯配置读取
+        （get_settings）不承担任何进程密钥要求。
+      fact_source: packages/shared/config.py（process_role + get_process_settings）
+      verification: tests/unit/test_config_secrets.py；tests/unit/test_process_entrypoints.py
       status: satisfied
-      residual_risk: "process_role 由进程入口显式声明（get_process_settings），身份签发方经 get_key_store 以 identity 角色构造；若未来新增进程而未显式声明角色，会回落到默认 api 语义，需在新增进程清单时一并登记。"
+      residual_risk: "process_role 由进程入口显式声明（get_process_settings），身份签发方经 get_key_store 以 identity 角色构造；若未来新增进程而未显式声明角色，会回落到默认 api 语义，需在新增进程清单时一并登记（test_process_entrypoints 对既有入口做静态断言）。"
+
+    - id: KEYS-3
+      name: 签发方与验签方进程物理分离
+      statement: >-
+        签发私钥只在身份进程（workers/identity）内可用：该进程是唯一 import
+        services/identity_issuance 并监听 JWKS 端点的部署单元；API 进程只持
+        公钥验签（apps 层被架构闸门 R4 禁止 import 签发模块），Relay 与运维
+        进程不碰身份密钥。
+      fact_source: workers/identity/app.py（JWKS + get_key_store）；scripts/architecture_check.py（R4）
+      verification: tests/unit/test_identity_process.py（JWKS 只含公钥、进程可独立启动）；tests/architecture/test_architecture.py（R4 负测）
+      status: satisfied
+      residual_risk: "生产环境的密钥轮换编排（多 kid 并行、旧 kid 退役时机）仍属运维面，KeyStore 已支持多 kid 但未做自动轮换调度；JWKS 端点未内置限流（公钥可公开，暴露面由网络层控制）。"

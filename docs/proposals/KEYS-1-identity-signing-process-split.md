@@ -1,8 +1,13 @@
 # KEYS-1：身份签发服务独立部署单元拆分方案
 
-> 状态：**方案待评审（先出方案再动手）**
-> 关联不变量：`contracts/security_boundary.yaml` KEYS-1 / KEYS-2 / DATA-1（同源 residual_risk）
-> 前置：F01-F05 + DATA-1/DATA-2 六阶段重构已收敛（边界契约 10 条不变量 debt 0）
+> 状态：**S1/S2/S3/S4 已落地**（2026-11-18）。S1 签发方迁至 `services/identity_issuance`；
+> S2 移除 `PublicKeyStore.from_key_store` 派生桥；S3 新增独立进程 `workers/identity`
+> （持私钥 + `/.well-known/jwks.json`，不提供 token 端点）；S4 契约登记 KEYS-3 +
+> 负向测试（`tests/unit/test_identity_process.py`、`test_identity_public_store.py`）。
+> 未做（明确不在本轮）：密钥自动轮换调度、token 签发 HTTP 端点、OIDC 完整协议。
+>
+> 关联不变量：`contracts/security_boundary.yaml` KEYS-1 / KEYS-2 / KEYS-3 / DATA-1
+> 前置：F01-F05 + DATA-1/DATA-2 六阶段重构已收敛
 > 定位：本轮是「最后一个结构性 residual_risk」的根治，不是 Phase 1 核心生产闭环的推进。
 
 ---

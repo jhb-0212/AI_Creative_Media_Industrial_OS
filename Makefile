@@ -1,4 +1,4 @@
-.PHONY: help install test lint typecheck freeze-check contract-check arch-check up down build
+.PHONY: help install test lint typecheck freeze-check contract-check arch-check up down build dev-keys
 
 help: ## 显示可用命令
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -35,3 +35,8 @@ down: ## 停止本地服务
 
 build: ## 构建镜像
 	docker build -f infra/docker/Dockerfile.api -t ai-film-industrial-api:latest .
+
+dev-keys: ## 生成开发用身份密钥对（落盘到 infra/compose/.dev-keys/，已 gitignore）
+	@python -c "from pathlib import Path; from packages.identity.keys import generate_signing_key as g; d=Path('infra/compose/.dev-keys'); d.mkdir(parents=True, exist_ok=True); k=g(); (d/'private.pem').write_bytes(k.private_pem); (d/'public.pem').write_bytes(k.public_pem); print('已生成：', d/'private.pem', '与', d/'public.pem')"
+	@echo '用法：export IDENTITY_PRIVATE_KEY_PEM="$$(cat infra/compose/.dev-keys/private.pem)" && export IDENTITY_PUBLIC_KEY_PEM="$$(cat infra/compose/.dev-keys/public.pem)" && make up'
+	@echo '注意：私钥只注入 identity 进程；API 只拿公钥（走 .dev-keys/public.pem）。切勿提交 .dev-keys/。'
