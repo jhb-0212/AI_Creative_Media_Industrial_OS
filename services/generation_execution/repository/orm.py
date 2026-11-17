@@ -57,3 +57,50 @@ class ProductionRouteStatusTransitionModel(Base):
 
     from_status: Mapped[str] = mapped_column(String(32), primary_key=True)
     to_status: Mapped[str] = mapped_column(String(32), primary_key=True)
+
+
+class GenerationTaskModel(EntityMixin, Base):
+    """generation_tasks 表模型（生成任务，A6 冻结字段集）。
+
+    retry_of / result_ref 是实现扩展列（契约 additionalProperties 允许）：
+    - retry_of：重试链锚点（重试以新任务承载，9.4）；
+    - result_ref：worker 执行产出引用（不出契约 required）。
+    """
+
+    __tablename__ = "generation_tasks"
+    __table_args__ = {"schema": SCHEMA_NAME}
+
+    # 业务字段（契约字段集：A6 冻结定义；生成任务是项目级资源，带 project_id）。
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    shot_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    route_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    shot_spec_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    visual_plan_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    constraint_snapshot_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    budget_reservation_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    quota_reservation_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    dependency_refs: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    attempt: Mapped[int] = mapped_column(nullable=False)
+    retry_of: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    result_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # worker 转移伴随元数据（守卫可变白名单列；不出契约响应）。
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class GenerationTaskStatusTransitionModel(Base):
+    """`generation_task_status_transitions` 表模型（只读参考数据，ADR-R20）。
+
+    与 ``production_route_status_transitions`` 同范式：触发器守卫的判定
+    依据，应用角色只有 SELECT，写入只发生在迁移里。
+    """
+
+    __tablename__ = "generation_task_status_transitions"
+    __table_args__ = {"schema": SCHEMA_NAME}
+
+    from_status: Mapped[str] = mapped_column(String(32), primary_key=True)
+    to_status: Mapped[str] = mapped_column(String(32), primary_key=True)

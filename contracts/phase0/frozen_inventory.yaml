@@ -14,8 +14,8 @@
 
 baseline:
   document: docs/baseline/AI影视工业化生产平台V2.0.5.md
-  document_bytes: 489863
-  document_sha256: 'f397c51eef66ba0879dcd5e24274970ee692620904ad38a50c0de9ac7215280e'
+  document_bytes: 490050
+  document_sha256: 'b6c1f0cce766c49e8a940987c3d0f5b63e072a273631674a7d01d2c48ea753cd'
   revision: 'V205-R14'
   frozen_at_source_commit: 'dfc5bd8'
   counts:

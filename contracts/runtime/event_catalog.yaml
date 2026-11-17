@@ -337,6 +337,20 @@ events:
       - tenant_id
       - status
     contract_ref: contracts/schemas/object_schemas.schema.json#ProductionRoute
+  - event_type: GENERATION_REQUESTED
+    aggregate_type: GenerationTask
+    emitted_by: services/generation_execution/service/generation_service.py
+    payload_required:
+      - generation_task_id
+      - project_id
+      - shot_id
+      - route_id
+      - attempt
+      - retry_of
+      - requested_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#GenerationTask
   - event_type: CONSTRAINT_PACK_LOCKED
     aggregate_type: ConstraintPack
     emitted_by: services/shot_planning/service/constraint_pack_service.py

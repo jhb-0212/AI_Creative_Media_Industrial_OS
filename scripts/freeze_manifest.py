@@ -520,9 +520,12 @@ python scripts/contract_check.py            # 派生之间的交叉一致性
 3. 顺序反了（先改派生文件）→ `--check` 报「未登记新增」，不得用 `--write` 掩盖；
 4. 旧机制清理：不得保留任何手写的数量副本（`total_actions` 等必须与条目数一致）。
 """
-    MANIFEST_PATH.write_text(body, encoding="utf-8")
-    MANIFEST_SHA_PATH.write_text(
-        f"{_sha256(MANIFEST_PATH)}  phase0_manifest.md\n", encoding="utf-8"
+    # write_bytes 而不是 write_text：Windows 上 write_text 会把 LF 翻译成
+    # CRLF，跨机同步时产物字节哈希全部失配（A5 修订的教训）。清单是哈希
+    # 载体，必须逐字节确定。
+    MANIFEST_PATH.write_bytes(body.encode("utf-8"))
+    MANIFEST_SHA_PATH.write_bytes(
+        f"{_sha256(MANIFEST_PATH)}  phase0_manifest.md\n".encode("utf-8")
     )
 
 

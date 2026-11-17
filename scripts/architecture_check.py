@@ -505,6 +505,10 @@ DATABASE_ACCESS_ALLOWLIST: dict[str, str] = {
         "交付消费进程入口（D4）：只起资产域连接池消费审批事件；"
         "与 relay 不同角色，进程级隔离由入口各自建池保证"
     ),
+    "workers.generation.__main__": (
+        "生成执行进程入口：只起生成域连接池执行任务生命周期；"
+        "与 relay/delivery 不同角色，进程级隔离由入口各自建池保证"
+    ),
 }
 
 #: 允许出现 ``app.state.pools`` 的模块（与上表分列：import 工厂 ≠ 访问运行时池）。

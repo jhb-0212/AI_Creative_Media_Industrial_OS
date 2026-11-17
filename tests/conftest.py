@@ -198,9 +198,18 @@ async def db_pools() -> AsyncIterator[DomainPools]:
     app.state.pools = pools
     # 镜像生产 lifespan 的组合根装配：池就绪即挂跨域归属解析端口，
     # 审批发起的目标资源归属校验（R4-2 收口）在测试里走同一实现。
-    from apps.api.resource_ownership import CompositeResourceOwnershipPort
+    from apps.api.resource_ownership import (
+        CompositeResourceOwnershipPort,
+        GenerationRefOwnershipAdapter,
+    )
 
-    app.state.resource_ownership_port = CompositeResourceOwnershipPort(pools)
+    ownership_port = CompositeResourceOwnershipPort(pools)
+    app.state.resource_ownership_port = ownership_port
+    # generation 域引用归属端口：同一解析器、显式类型转换（与生产 lifespan
+    # 同构；ASGITransport 不触发 lifespan，测试装配在这里镜像）。
+    app.state.generation_ref_ownership_port = GenerationRefOwnershipAdapter(
+        ownership_port
+    )
     try:
         yield pools
     finally:

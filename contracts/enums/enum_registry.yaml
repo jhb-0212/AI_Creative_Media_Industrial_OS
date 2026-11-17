@@ -249,6 +249,19 @@ objects:
   - 16.1 长期目标架构契约冻结清单（UNVERIFIED 语义）
   - 16.2 能力验证规范（VERIFIED 证据背书）
   - 动作矩阵 PRODUCTION.ROUTE.SELECT 行（须处于 VERIFIED）
+- object: GenerationTask
+  authoritative_source: 动作矩阵 GENERATION.REQUEST 行 + 9.4 重试与故障分类
+  states:
+  - PENDING
+  - RUNNING
+  - SUCCEEDED
+  - FAILED
+  note: 失败为终结态——重试以新任务承载（attempt+1），不在原任务上复活（终态不可原地复活红线）；受理准入由预算/配额/依赖/约束快照校验（ACT-GEN-NEG-001）。V205-R14-A6 冻结对象，状态集随 generation_execution 域实现段定型（ADR-R32）。
+  source_kind: text_only_definition
+  all_sources:
+  - 动作矩阵 GENERATION.REQUEST 行
+  - 9.4 重试与故障分类（失败为终结态、重试上限）
+  - 31.3 核心生产流程（生成任务环）
 - object: QCReviewSession
   authoritative_source: C.7 关键状态机与版本不可变规则
   states:

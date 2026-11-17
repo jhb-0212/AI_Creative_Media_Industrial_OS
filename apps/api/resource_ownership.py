@@ -24,6 +24,7 @@ from packages.shared.rls import set_request_context
 from services.asset_service.repository.sqlalchemy_manifest_repo import (
     SqlAlchemyDeliveryManifestRepository,
 )
+from services.generation_execution.domain.ports import RefOwnership
 from services.shot_planning.repository.constraint_pack_sqlalchemy_repo import (
     SqlAlchemyConstraintPackRepository,
 )
@@ -110,3 +111,38 @@ class CompositeResourceOwnershipPort:
             if entity is None:
                 return None
             return ResourceOwnership(project_id=entity.project_id)
+
+
+class GenerationRefOwnershipAdapter:
+    """组合根解析器 → generation 域 RefOwnershipPort 的显式转换适配器。
+
+    为什么需要这一层而不是直接把 ``CompositeResourceOwnershipPort`` 塞给
+    generation 服务：两个域的归属数据类（workflow 的 ``ResourceOwnership`` /
+    generation 的 ``RefOwnership``）是各自领域的名义类型，字段恰好相同是
+    巧合不是契约——靠 mypy 结构匹配把两个域悄悄焊死，等于在领域之间开了
+    一条隐性类型通道。转换在这里（组合根）显式发生，依赖方向保持单向。
+    """
+
+    def __init__(self, composite: CompositeResourceOwnershipPort) -> None:
+        self._composite = composite
+
+    def can_resolve(self, resource_type: str) -> bool:
+        return self._composite.can_resolve(resource_type)
+
+    async def resolve(
+        self,
+        *,
+        tenant_id: object,
+        organization_id: object,
+        resource_type: str,
+        resource_id: str,
+    ) -> RefOwnership | None:
+        ownership = await self._composite.resolve(
+            tenant_id=tenant_id,
+            organization_id=organization_id,
+            resource_type=resource_type,
+            resource_id=resource_id,
+        )
+        if ownership is None:
+            return None
+        return RefOwnership(project_id=ownership.project_id)

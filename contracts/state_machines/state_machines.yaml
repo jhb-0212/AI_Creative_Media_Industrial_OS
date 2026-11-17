@@ -209,6 +209,15 @@ objects:
   - 16.1 长期目标架构契约冻结清单（UNVERIFIED 语义）
   - 16.2 能力验证规范（VERIFIED 证据背书）
   - 动作矩阵 PRODUCTION.ROUTE.SELECT 行（须处于 VERIFIED）
+- object: GenerationTask
+  authoritative_source: 动作矩阵 GENERATION.REQUEST 行 + 9.4 重试与故障分类
+  states: PENDING→RUNNING→SUCCEEDED/FAILED
+  note: SUCCEEDED 与 FAILED 均为终态——失败为终结态，重试以新任务承载（attempt+1），不在原任务上复活（终态不可原地复活红线，数据库守卫触发器同表拦截）；领取（PENDING→RUNNING）以乐观版本控制裁决并发。未登记转移一律拒绝。
+  source_kind: text_only_definition
+  all_sources:
+  - 动作矩阵 GENERATION.REQUEST 行
+  - 9.4 重试与故障分类（Worker 崩溃重新领取、失败为终结态）
+  - 31.3 核心生产流程（生成任务环）
 - object: QCReviewSession
   authoritative_source: C.7 关键状态机与版本不可变规则
   states: OPEN→IN_REVIEW→DECISION_PENDING→RESOLVED→GATE_ELIGIBLE→CLOSED

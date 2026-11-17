@@ -140,6 +140,10 @@ _STATE_MACHINE_SOURCES: dict[str, tuple[str, str]] = {
         "services.generation_execution.domain.state_machine",
         "PRODUCTION_ROUTE_ALLOWED_TRANSITIONS",
     ),
+    "GenerationTask": (
+        "services.generation_execution.domain.state_machine",
+        "GENERATION_TASK_ALLOWED_TRANSITIONS",
+    ),
     "Project": ("services.project_planning.domain.state_machine", "ALLOWED_TRANSITIONS"),
     "ScriptRevision": (
         "services.project_planning.domain.state_machine",

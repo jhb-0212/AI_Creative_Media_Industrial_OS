@@ -299,7 +299,8 @@ amendments:
       - 'GENERATION_REQUESTED / PRODUCTION_ROUTE_SELECTED 事件按双向校验规则不预先登记，随段 3 实现落地当日登记'
       # 2026-11-17 段 2（ADR-R31）收口进度：
       - 'A7 收口（部分）：ProductionRoute 状态机条目已登记，状态集定型 UNVERIFIED→VERIFIED（VERIFIED 终态；A6 预估的 RETIRED 无基线语义，不造撤销边）；14.1 目录树与 14.2 矩阵 Generation Execution 行已入正文；PRODUCTION_ROUTE_SELECTED 已随 PRODUCTION.ROUTE.SELECT 实现（段 2）当日登记'
-      - '仍未收口：GenerationTask 状态机与 GENERATION_REQUESTED 事件随段 3（GENERATION.REQUEST 实现）落地'
+      - 'A6 收口进度（2026-11-17 段 3，ADR-R32）：GenerationTask 状态机条目已随 A8 登记（PENDING→RUNNING→SUCCEEDED/FAILED，终态定型）；GENERATION_REQUESTED 已随 GENERATION.REQUEST 实现（段 3）当日登记；两对象数据所有权行已在 14.2（A7）'
+      - '仍未收口：预算/配额数值校验与真实供应商适配随 budget_quota / model_gateway 域落地（ADR-R32 §3 债务）'
   - id: V205-R14-A7
     title: generation_execution 域落地登记：14.1 目录树 / 14.2 所有权矩阵行 / ProductionRoute 状态机条目
     retroactive: false
@@ -325,6 +326,29 @@ amendments:
     residual_risks:
       - 'contract_check 的转移入口债务启发式把 PRODUCTION.ROUTE.SELECT（非 CREATE/READ）当作 ProductionRoute 的状态变更入口——该动作实际不改路线状态，此启发式偏差在 ADR-R31 §3 显式说明，不作为验证入口已补上的证据'
       - 'GenerationTask 状态机与 GENERATION_REQUESTED 事件随段 3 落地，届时走 A8 登记'
+  - id: V205-R14-A8
+    title: GenerationTask 状态机条目与 GENERATION_REQUESTED 事件登记（A6 预留债务兑现）
+    retroactive: false
+    recorded_at: "2026-11-17"
+    discovered_by: "ADR-R32（Phase 1 主链段 3：GENERATION.REQUEST 实现）"
+    reason: "GENERATION.REQUEST 实现当日按「实现段登记」纪律补登两处：state_machines.yaml 登记 GenerationTask 状态机（PENDING→RUNNING→SUCCEEDED/FAILED，SUCCEEDED/FAILED 终态——失败为终结态、重试以新任务承载 attempt+1，依据动作矩阵 GENERATION.REQUEST 行 + 9.4 重试与故障分类）；event_catalog.yaml 登记 GENERATION_REQUESTED 审计事件（动作矩阵 audit_event 字段，随受理实现当日落地，兑现 A7 residual_risks 预留）。"
+    adr: "docs/adr/ADR-R32-generation-task-execution.md"
+    approved_by: "项目所有者（Phase 1 主链段 3 推进指令）"
+    approved_at: "2026-11-17"
+    source_commits: []
+    additions:
+      actions: []
+      schema_objects: []
+      state_machines:
+        - object: GenerationTask
+          why: "PENDING→RUNNING→SUCCEEDED/FAILED 唯一登记边集，SUCCEEDED/FAILED 终态无出边（终态不可原地复活红线：重试以新任务承载，数据库守卫触发器同表拦截 FAILED→RUNNING）。依据动作矩阵 GENERATION.REQUEST 行准入语义、9.4 Worker 崩溃重新领取与失败终结态、A6 冻结 description。"
+    counts_after:
+      actions: 83
+      openapi_operations: 83
+      schema_objects: 84
+      state_machines: 41
+    residual_risks:
+      - 'budget_quota 数值校验（不可超卖/租约/余额）与真实供应商适配（model_gateway）未实现，budget_reservation_ref/quota_reservation_ref 仅结构性准入——债务在 ADR-R32 §3 显式登记，budget_quota 域实现后把数值校验插入受理入口'
 
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

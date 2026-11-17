@@ -56,6 +56,10 @@ bindings:
     module: services.generation_execution.domain.enums
     enum: ProductionRouteStatus
     source: enum_registry
+  GenerationTask:
+    module: services.generation_execution.domain.enums
+    enum: GenerationTaskStatus
+    source: enum_registry
   ShotVisualPlan:
     module: services.shot_planning.domain.enums
     enum: ShotVisualPlanStatus

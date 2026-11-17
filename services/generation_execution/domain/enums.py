@@ -27,3 +27,20 @@ class ProductionRouteStatus(str, Enum):
 
     UNVERIFIED = "UNVERIFIED"  # 未验证：不得被 PRODUCTION.ROUTE.SELECT 选中
     VERIFIED = "VERIFIED"      # 已验证：证据齐备，可进入生产选路（终态）
+
+
+class GenerationTaskStatus(str, Enum):
+    """生成任务状态。
+
+    对齐契约依据（V205-R14-A6 / 基线正文既有规则，非新造）：
+    - 动作矩阵 GENERATION.REQUEST 行：准入由预算/配额/依赖/约束快照校验；
+    - 基线 9.4：Worker 崩溃 → 租约到期后重新领取（幂等重试）；参数校验
+      失败/输入损坏等不重试；自动重试有上限；
+    - A6 冻结 description：**失败为终结态**——重试以新任务承载（attempt+1），
+      不在原任务上复活（终态不可原地复活红线）。
+    """
+
+    PENDING = "PENDING"      # 已受理，待 worker 领取
+    RUNNING = "RUNNING"      # worker 已领取，执行中
+    SUCCEEDED = "SUCCEEDED"  # 产出就绪（终态）
+    FAILED = "FAILED"        # 执行失败（终态；重试以新任务承载）

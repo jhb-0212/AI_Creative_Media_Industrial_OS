@@ -25,7 +25,10 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text
 
-from apps.api.resource_ownership import CompositeResourceOwnershipPort
+from apps.api.resource_ownership import (
+    CompositeResourceOwnershipPort,
+    GenerationRefOwnershipAdapter,
+)
 from packages.errors.error_codes import (
     DomainError,
     ErrorCode,
@@ -77,8 +80,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async with database_lifespan(app):
             # 跨域资源归属解析端口（组合根装配）：审批发起时校验目标资源
             # 存在且属于票据项目（R4-2 收口）。池就绪后才可构造。
-            app.state.resource_ownership_port = CompositeResourceOwnershipPort(
-                app.state.pools
+            ownership_port = CompositeResourceOwnershipPort(app.state.pools)
+            app.state.resource_ownership_port = ownership_port
+            # generation 域引用归属端口：同一解析器、显式类型转换（组合根
+            # 持有两个域的名义类型，不让领域间靠结构巧合隐性耦合）。
+            app.state.generation_ref_ownership_port = GenerationRefOwnershipAdapter(
+                ownership_port
             )
             yield
     finally:
@@ -143,6 +150,9 @@ from services.asset_service.api.delivery_routes import (  # noqa: E402
 from services.generation_execution.api.route_routes import (  # noqa: E402
     router as generation_route_router,
 )
+from services.generation_execution.api.task_routes import (  # noqa: E402
+    router as generation_task_router,
+)
 from services.project_planning.api.episode_routes import router as episode_router  # noqa: E402
 from services.project_planning.api.project_routes import router as project_router  # noqa: E402
 from services.project_planning.api.script_routes import router as script_router  # noqa: E402
@@ -162,6 +172,7 @@ app.include_router(spec_router)
 app.include_router(constraint_pack_router)
 app.include_router(asset_router)
 app.include_router(generation_route_router)
+app.include_router(generation_task_router)
 app.include_router(delivery_router)
 app.include_router(gate_router)
 app.include_router(workflow_router)

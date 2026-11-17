@@ -29,6 +29,8 @@ from services.asset_service.repository.orm import (  # noqa: F401
     QCReportModel,
 )
 from services.generation_execution.repository.orm import (  # noqa: F401
+    GenerationTaskModel,
+    GenerationTaskStatusTransitionModel,
     ProductionRouteModel,
     ProductionRouteStatusTransitionModel,
 )
