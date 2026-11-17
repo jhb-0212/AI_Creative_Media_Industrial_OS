@@ -21,7 +21,12 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.api.main import app
-from packages.shared.database import create_engine, create_sessionmaker
+from packages.shared.database import (
+    build_relay_database_url,
+    create_asset_service_engine,
+    create_project_planning_engine,
+    create_sessionmaker,
+)
 from services.identity_access import issue_token
 
 # 测试固定租户（历史数据已回填到此默认租户；新测试数据也用此租户，
@@ -38,35 +43,101 @@ def make_test_token(
     subject_id: str = "user_script",
     roles: list[str] | None = None,
     tenant_id: uuid.UUID = TEST_TENANT_ID,
+    capabilities: list[str] | None = None,
 ) -> str:
     """签发一条测试访问令牌（身份服务内部签发，含私钥）。
 
     默认主体 user_script（编剧），角色可覆盖；tenant_id 默认测试租户。
+    capabilities 默认签发全通配 ``*``（测试 token 视为「受信任的完整授权
+    主体」），使既有正向用例专注验证「角色授权」而不被能力校验干扰；
+    负向用例可显式传入空列表或受限能力集来验证「缺能力拒绝」。
+
     测试据此构造认证头，走真实验签路径（R6/R9）。
     """
     return issue_token(
         subject_id=subject_id,
         tenant_id=str(tenant_id),
         roles=roles or ["导演", "编剧", "制片"],
+        capabilities=capabilities if capabilities is not None else ["*"],
     )
 
 
-@pytest.fixture(scope="session", autouse=True)
-async def db_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    """为整个测试会话装配独立引擎 + 会话工厂，并挂到 app.state（P0-4 根治）。
+@pytest.fixture(scope="session")
+async def relay_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """outbox_relay_role 连接（Relay 运行时的真实连接角色，F03 进程边界隔离）。
 
-    ASGITransport 不触发 lifespan，因此生产代码的 lifespan 不会在测试里执行；
-    这里由 conftest 注入独立引擎，保证 app.state.sessionmaker 在测试期间可用，
-    同时与生产引擎彻底隔离（ADR 3.4：测试用独立引擎，生产代码零测试感知）。
+    Relay 只消费 outbox 事件并回写投递状态，以专用角色连接；该角色仅持有
+    outbox schema 的 SELECT + UPDATE，不持有业务 schema 写权限，也不持有
+    outbox 的 INSERT（事件只能由业务域同事务写入）。测试据此验证「relay 越界
+    写业务表 / 伪造事件」在数据库层被拒绝，而非依赖代码自觉。
     """
-    engine = create_engine()
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    engine = create_async_engine(build_relay_database_url())
     sessionmaker = create_sessionmaker(engine)
-    app.state.engine = engine
-    app.state.sessionmaker = sessionmaker
     try:
         yield sessionmaker
     finally:
         await engine.dispose()
+
+
+@pytest.fixture(scope="session")
+async def asset_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """asset_service_role 连接（asset_service 域运行时的真实连接角色）。
+
+    DATA-1 拆角色后，asset_service 域的表（asset_versions / qc_reports）只能
+    由 asset_service_role 读写；project_planning_role（db_sessionmaker）对
+    asset_service schema 无 USAGE 权限。供资产域集成测试做「持久化核对」——
+    直接读 asset_service 表必须用 asset_service 域角色，而非退回 app_role。
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from packages.shared.database import build_asset_service_database_url
+
+    engine = create_async_engine(build_asset_service_database_url())
+    sessionmaker = create_sessionmaker(engine)
+    try:
+        yield sessionmaker
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture(scope="session", autouse=True)
+async def db_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """为整个测试会话装配按域引擎 + 会话工厂，并挂到 app.state（P0-4 + DATA-1）。
+
+    ASGITransport 不触发 lifespan，因此生产代码的 lifespan 不会在测试里执行；
+    这里由 conftest 注入按域独立引擎，保证 app.state 各域会话工厂在测试期间
+    可用，同时与生产引擎彻底隔离（ADR 3.4：测试用独立引擎，生产代码零测试感知）。
+
+    DATA-1（按域拆连接池）：生产按 project_planning / asset_service 两个域挂
+    独立会话工厂（database.lifespan），各自以 project_planning_role /
+    asset_service_role 连接（app_role 对业务 schema 的权限已被迁移
+    8f3b2c1d4e5a 回收）。测试装配必须与生产契约一致，使用**真实域角色连接**，
+    而非退回 app_role——否则认证路径读 auth.revoked_tokens（吊销检查）与业务
+    读写都会因 app_role 权限被回收而失败，且这种失败恰是 DATA-1 隔离生效的
+    证据，不能用「测试退回 app_role」掩盖。
+
+    无真实 PG 时连接为惰性（单元测试不触发连接）；真实角色隔离与权限口径
+    由 tests/integration（需真实 PG）验证，此处只负责按域挂对会话工厂。
+    """
+    project_engine = create_project_planning_engine()
+    asset_engine = create_asset_service_engine()
+    project_sessionmaker = create_sessionmaker(project_engine)
+    asset_sessionmaker = create_sessionmaker(asset_engine)
+    app.state.project_planning_engine = project_engine
+    app.state.asset_service_engine = asset_engine
+    app.state.project_planning_sessionmaker = project_sessionmaker
+    app.state.asset_service_sessionmaker = asset_sessionmaker
+    # 向后兼容别名：/readyz 与既有代码读 app.state.sessionmaker 时，落到
+    # project_planning 域会话工厂（与生产 lifespan 的别名语义一致）。
+    app.state.engine = project_engine
+    app.state.sessionmaker = project_sessionmaker
+    try:
+        yield project_sessionmaker
+    finally:
+        await project_engine.dispose()
+        await asset_engine.dispose()
 
 
 @pytest.fixture

@@ -28,7 +28,11 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from packages.shared.database import build_migration_url
+from packages.shared.database import (
+    build_asset_service_database_url,
+    build_database_url,
+    build_migration_url,
+)
 from packages.shared.partition_guard import (
     APP_ROLE,
     OUTBOX_PARENT,
@@ -63,6 +67,31 @@ _PARTITION_STATE = sa.text(
 async def admin_engine() -> AsyncIterator[AsyncEngine]:
     """迁移角色连接：只用于读系统目录（业务代码不接触）。"""
     engine = create_async_engine(build_migration_url())
+    try:
+        yield engine
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture(scope="module")
+async def asset_engine() -> AsyncIterator[AsyncEngine]:
+    """asset_service_role 连接（asset_service 域运行时的真实连接角色）。"""
+    engine = create_async_engine(build_asset_service_database_url())
+    try:
+        yield engine
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture(scope="module")
+async def app_engine() -> AsyncIterator[AsyncEngine]:
+    """app_role 连接（拆角色前的旧应用角色，分区直连权限已收口）。
+
+    用于验证「app_role 直连分区被拒」——app_role 的业务 schema 权限已被
+    DATA-1 迁移 8f3b2c1d4e5a 回收，但分区的「直连拒绝」是独立的收口口径
+    （protect_partition_statements 的 REVOKE ALL），仍需独立验证。
+    """
+    engine = create_async_engine(build_database_url())
     try:
         yield engine
     finally:
@@ -135,16 +164,16 @@ async def test_every_outbox_partition_is_protected(
 
 async def test_direct_partition_access_is_denied_for_app_role(
     admin_engine: AsyncEngine,
-    db_sessionmaker: async_sessionmaker[AsyncSession],
+    app_engine: AsyncEngine,
 ) -> None:
     """app_role 直接点名分区必须被拒绝（不能靠"没人会这么写"来防守）。"""
     partitions = await _partitions(admin_engine)
     assert partitions
 
     target = f"{quote_ident(OUTBOX_SCHEMA)}.{quote_ident(partitions[-1])}"
-    async with db_sessionmaker() as session:
+    async with app_engine.connect() as conn:
         with pytest.raises(DBAPIError) as exc_info:
-            await session.execute(sa.text(f"SELECT count(*) FROM {target}"))
+            await conn.execute(sa.text(f"SELECT count(*) FROM {target}"))
     assert "permission denied" in str(exc_info.value).lower()
 
 
@@ -158,10 +187,23 @@ async def test_outbox_parent_still_fails_closed_without_tenant(
 
 
 async def test_append_only_tables_reject_row_mutation(
-    db_sessionmaker: async_sessionmaker[AsyncSession],
     admin_engine: AsyncEngine,
+    asset_engine: AsyncEngine,
 ) -> None:
-    """qc_reports 不可 UPDATE、asset_versions 不可 DELETE（append-only 落到授权）。"""
+    """qc_reports 不可 UPDATE/DELETE、asset_versions 不可 DELETE（append-only 落到授权）。
+
+    授权口径断言目标是 **asset_service_role**（asset_service 域的运行时角色），
+    而非 app_role——DATA-1 拆角色后，app_role 对业务 schema 的权限已被迁移
+    8f3b2c1d4e5a 回收，业务写改由 asset_service_role 承担。append-only 不变量
+    必须延续到新角色：若拆角色时误授全量 DML，这里会红（授权越界回归）。
+    """
+    from packages.shared.config import get_settings
+
+    asset_role = get_settings().postgres_asset_service_user
+
+    # 1. 授权口径：asset_service_role 在 append-only 表上的 DML 集合必须
+    #    与 b7c8d9e0f1a2 基线一致（qc_reports 无 UPDATE/DELETE、
+    #    asset_versions 无 DELETE）。
     async with admin_engine.connect() as conn:
         for table, expected in (
             ("qc_reports", {"INSERT", "SELECT"}),
@@ -176,16 +218,18 @@ async def test_append_only_tables_reject_row_mutation(
                       AND table_name = :table
                     """
                 ),
-                {"role": APP_ROLE, "table": table},
+                {"role": asset_role, "table": table},
             )
             granted = {str(privilege) for privilege in rows.scalars()}
             assert granted == expected, (
                 f"{table} 授权口径不符：实际 {sorted(granted)}，期望 {sorted(expected)}"
             )
 
-    async with db_sessionmaker() as session:
+    # 2. 行为负向证明：asset_service_role 实际 UPDATE qc_reports 必须被拒绝
+    #    （口径断言 + 真实执行双重验证，防止「授权记录正确但执行被绕过」）。
+    async with asset_engine.connect() as conn:
         with pytest.raises(DBAPIError) as exc_info:
-            await session.execute(
+            await conn.execute(
                 sa.text("UPDATE asset_service.qc_reports SET findings = findings")
             )
     assert "permission denied" in str(exc_info.value).lower()

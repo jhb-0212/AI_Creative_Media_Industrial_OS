@@ -70,8 +70,15 @@ async def test_revoked_jti_is_rejected(
 
 
 async def test_grant_baseline(admin_engine: AsyncEngine) -> None:
-    """app_role 不得写运维元数据；吊销表只读。"""
+    """运维元数据只读隔离 + 吊销表只读（角色口径随 DATA-1 拆角色对齐）。"""
+    from packages.shared.config import get_settings
+
+    settings = get_settings()
+    project_role = settings.postgres_project_planning_user
+    asset_role = settings.postgres_asset_service_user
+
     async with admin_engine.connect() as conn:
+        # 1. app_role 不得写运维元数据（outbox.maintenance_runs 仅运维角色持有）。
         rows = (
             await conn.execute(
                 text(
@@ -79,15 +86,31 @@ async def test_grant_baseline(admin_engine: AsyncEngine) -> None:
                     SELECT
                       has_table_privilege('app_role', 'outbox.maintenance_runs', 'INSERT') AS mr_insert,
                       has_table_privilege('app_role', 'outbox.maintenance_runs', 'SELECT') AS mr_select,
-                      has_table_privilege('app_role', 'outbox.maintenance_runs', 'UPDATE') AS mr_update,
-                      has_table_privilege('app_role', 'auth.revoked_tokens', 'SELECT') AS rt_select,
-                      has_table_privilege('app_role', 'auth.revoked_tokens', 'INSERT') AS rt_insert
+                      has_table_privilege('app_role', 'outbox.maintenance_runs', 'UPDATE') AS mr_update
                     """
                 )
             )
         ).one()
-    assert rows.mr_insert is False
-    assert rows.mr_select is False
-    assert rows.mr_update is False
-    assert rows.rt_select is True
-    assert rows.rt_insert is False
+        assert rows.mr_insert is False
+        assert rows.mr_select is False
+        assert rows.mr_update is False
+
+        # 2. 吊销表（auth.revoked_tokens）只读：认证路径由业务域角色读取，
+        #    故断言目标是 project_planning_role / asset_service_role（DATA-1
+        #    拆角色后，app_role 对 auth schema 的权限已被迁移 8f3b2c1d4e5a
+        #    回收）。两个域角色都持有 SELECT（吊销检查），但都不可 INSERT。
+        for role in (project_role, asset_role):
+            rows = (
+                await conn.execute(
+                    text(
+                        """
+                        SELECT
+                          has_table_privilege(:role, 'auth.revoked_tokens', 'SELECT') AS rt_select,
+                          has_table_privilege(:role, 'auth.revoked_tokens', 'INSERT') AS rt_insert
+                        """
+                    ),
+                    {"role": role},
+                )
+            ).one()
+            assert rows.rt_select is True, f"{role} 应能读 revoked_tokens（吊销检查）"
+            assert rows.rt_insert is False, f"{role} 不得 INSERT revoked_tokens"

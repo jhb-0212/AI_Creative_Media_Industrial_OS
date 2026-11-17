@@ -86,12 +86,71 @@ def unprotect_partition_statements(
     )
 
 
+def grant_outbox_partition_statements(
+    partition: str,
+    *,
+    schema: str = OUTBOX_SCHEMA,
+) -> tuple[str, ...]:
+    """返回"给一个 outbox 分区按访问类型授予业务角色"所需的全部 SQL（幂等）。
+
+    根因（DATA-1/F03 拆角色后的分区授权缺口）：分区由维护工具/迁移动态创建，
+    父表的 ``GRANT SELECT/INSERT/UPDATE ON 父表`` **不会自动传播到分区**——PG
+    在通过父表访问时仍会校验目标分区的权限。历史上授权模型只围绕单一
+    app_role（依赖 ``ALTER DEFAULT PRIVILEGES`` 自动授给 app_role 再被
+    ``protect_partition_statements`` 收口）；拆出 project_planning_role /
+    asset_service_role / outbox_relay_role 后，这三个角色只在父表授了权，
+    分区从未授权，导致通过父表写/读事件时报 ``permission denied``。
+
+    按访问类型授权（最小权限，不因分区而放大）：
+    - project_planning_role / asset_service_role：INSERT + SELECT（写事件、
+      读本域事件）。
+    - outbox_relay_role：SELECT + UPDATE（领取待投递事件、回写 published_at）。
+    - app_role 不在此列：其分区直连权限已由 protect_partition_statements 收口。
+
+    角色名从 config 读取（单一事实源），避免在运行时工具里硬编码角色字符串。
+    """
+    from packages.shared.config import get_settings
+
+    settings = get_settings()
+    project_role = settings.postgres_project_planning_user
+    asset_role = settings.postgres_asset_service_user
+    relay_role = settings.postgres_relay_user
+    qualified = f"{quote_ident(schema)}.{quote_ident(partition)}"
+    return (
+        f"GRANT SELECT, INSERT ON {qualified} TO {quote_ident(project_role)}",
+        f"GRANT SELECT, INSERT ON {qualified} TO {quote_ident(asset_role)}",
+        f"GRANT SELECT, UPDATE ON {qualified} TO {quote_ident(relay_role)}",
+    )
+
+
+def revoke_outbox_partition_statements(
+    partition: str,
+    *,
+    schema: str = OUTBOX_SCHEMA,
+) -> tuple[str, ...]:
+    """回滚 grant_outbox_partition_statements 的授权（迁移 downgrade 用）。"""
+    from packages.shared.config import get_settings
+
+    settings = get_settings()
+    project_role = settings.postgres_project_planning_user
+    asset_role = settings.postgres_asset_service_user
+    relay_role = settings.postgres_relay_user
+    qualified = f"{quote_ident(schema)}.{quote_ident(partition)}"
+    return (
+        f"REVOKE ALL ON {qualified} FROM {quote_ident(project_role)}",
+        f"REVOKE ALL ON {qualified} FROM {quote_ident(asset_role)}",
+        f"REVOKE ALL ON {qualified} FROM {quote_ident(relay_role)}",
+    )
+
+
 __all__ = [
     "APP_ROLE",
     "OUTBOX_PARENT",
     "OUTBOX_SCHEMA",
     "PARTITION_POLICY",
+    "grant_outbox_partition_statements",
     "protect_partition_statements",
     "quote_ident",
+    "revoke_outbox_partition_statements",
     "unprotect_partition_statements",
 ]
