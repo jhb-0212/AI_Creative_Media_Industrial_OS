@@ -41,6 +41,15 @@ RATE_LIMIT_BACKEND_ERRORS = Counter(
     "限流后端（Redis）故障次数；故障时按 fail-open 放行",
 )
 
+# 阶段门禁拒绝（F1）。标签只放 action_key：取值来自 Action Registry 的有限集
+# （当前 44 条 PHASE_GATED），基数有界。存在的意义是让"有人在敲未开放能力"
+# 在指标里可见——只靠 404 计数无法把这种尝试与拼错路径区分开。
+PHASE_GATE_REJECTIONS_TOTAL = Counter(
+    "phase_gate_rejections_total",
+    "阶段门禁拒绝次数（action_key=被拒绝的契约动作）",
+    ["action_key"],
+)
+
 # Outbox relay（R06 消费端）。标签只放 event_type 与 result：event_type 由契约
 # 枚举约束（有限集），result 是 delivered/unrouted/failed 三值，基数可控。
 OUTBOX_RELAY_EVENTS_TOTAL = Counter(

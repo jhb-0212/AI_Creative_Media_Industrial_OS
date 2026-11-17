@@ -112,7 +112,7 @@
 
 | 编号 | 判定 | 证据指针 | 缺口 |
 |---|---|---|---|
-| F1 CREATOR_MODE Phase 1 = NOT_ENABLED | `PARTIAL` | **一处**真实落点：`services/workflow/service/approval_service.py:84-86` 对 `spec.is_phase_gated` 的动作为其建审批票据时抛 `PHASE_NOT_ENABLED`（`tests/unit/test_approval_service.py:277 test_start_rejects_phase_gated_action`）。这堵住了"为未开放动作建票据"这条绕过路径，且不依赖配置开关 | 清单要求"**调用** Creator 动作 → `PHASE_NOT_ENABLED`"。8 个 `CREATOR.*` 动作（`action_registry.yaml:679-744,866-882`）全为 PHASE_GATED 且**无路由**，实际调用得到的是 404——404 与"路径拼错"不可区分，客户端与审计无法判断"阶段未启用"。动作面缺统一拒绝面 |
+| F1 CREATOR_MODE Phase 1 = NOT_ENABLED | `PASS`（2026-11-17 由 ADR-R37 补齐） | **两条腿**：① 审批面：`services/workflow/service/approval_service.py:84-86` 对 `spec.is_phase_gated` 的动作建票据时抛 `PHASE_NOT_ENABLED`（`tests/unit/test_approval_service.py:277`），堵住"先把未开放动作做成票据再消费"的绕过路径；② 动作面：`packages/identity/phase_gate.py` + `apps/api/main.py` 的 `/actions/{action_key}` 拒绝面，8 个 `CREATOR.*` 动作全部返回 `409 PHASE_NOT_ENABLED`（`details` 带 `action_key` / `current_phase` / `required_phase`），非 Creator 门禁动作同样适用（`COMMUNITY.POST.SUBMIT` 验证通用性）。阶段是**代码常量** `PLATFORM_PHASE`，不是配置项（F1"不得以配置开关绕过"）。证据：`tests/unit/test_phase_gate.py`（27 例）；决策记录 ADR-R37 | 无（ADR-R37 §3 登记了 5 项边界：拒绝面无鉴权前置、括号内条件不解析、只区分 phase 不区分 entitlement、阶段常量与 phase_map 无机器交叉校验、已启用无端点仍为 404） |
 | F2 CreatorGate 不授予发布权 | `MISSING` | `CREATOR.GATE.EVALUATE` 契约在（PHASE_GATED）；无实现 | CreatorGate 未建模，"PASS 后发布仍被拒"无从验证 |
 | F3 PUBLIC 发布禁用 | `MISSING` | 契约有 `audience_scope=PUBLIC` 定义 | 无 `audience_scope` 字段落点（`grep -rn audience_scope --include=*.py services/ packages/ apps/` 零命中；代码里的 `PUBLIC` 仅出现在 `IDENTITY_PUBLIC_KEY` 等无关上下文） |
 
@@ -139,9 +139,10 @@
 | C | 全绿（C1–C6） | C1–C5 PASS、**C6 PARTIAL** | ✗ |
 | D | D1、D2 必绿 | **D1 PARTIAL**（10/42 状态机）、D2 PASS | ✗ |
 | E | E1、E2 必绿 | **E1 MISSING、E2 MISSING** | ✗ |
-| F | F1 必绿 | **F1 PARTIAL** | ✗ |
+| F | F1 必绿 | F1 PASS（ADR-R37）；F2/F3 MISSING，按规则需逐项登记 owner / 阻塞范围 / 复审时点 | ✓ 条件成立 |
 
-**Phase 1 出口不成立。** 六组各有阻塞项，B/E/F 三组是零到一的缺口（不是打磨问题）。
+**Phase 1 出口不成立。** 五组各有阻塞项（F 组已不再阻塞），B/E 两组是零到一的
+缺口（不是打磨问题）。
 
 必须诚实的一句话：当前形态是**"主链单点闭环 + 横切能力齐备，域覆盖不足"**——
 C1–C5 这条竖切是真的端到端通（含负向断言与数据库层证据），但横向的
@@ -165,7 +166,12 @@ C1–C5 这条竖切是真的端到端通（含负向断言与数据库层证据
 
 ### 类 2 · 契约有、实现无（小而明确）
 - A3 业务 span（tracing 基建已在，缺 span 埋点）。
-- F1 动作面的 `PHASE_NOT_ENABLED` 统一拒绝面（审批面已有，动作面缺）。
+- ~~F1 动作面的 `PHASE_NOT_ENABLED` 统一拒绝面~~：**已闭合（2026-11-17，
+  ADR-R37）**。补充一条对本审计原先判断的修正——我此前以为它需要走 31.11 契约
+  修订，实际不需要：这 44 个动作的规范地址本来就登记在 OpenAPI 里
+  （`/actions/<小写点分 key>`），复用该地址做拒绝面**不新增任何契约操作**，
+  且拒绝面 `include_in_schema=False` 不入 schema，故契约产物零变更、
+  冻结清单无需重签。
 - D3 幂等键推广到其余写端点。
 
 **这一类是投入产出比最高的**：不需要建域，不动契约模型，改完立刻多三项绿。
@@ -190,8 +196,8 @@ C1–C5 这条竖切是真的端到端通（含负向断言与数据库层证据
    后面所有取证可能白做。产出：清单 A2/B1/D1 三行改写 + 裁定记录。
 2. **清类 3**（证据补齐）。一次作业，把 7 项 PARTIAL 变成 PASS 或明确的
    "已做但差 XX"。其中 A2/A4 的演练需要一个干净库，可与类 2 的改造成本合并。
-3. **清类 2**（A3 span / F1 动作面 / D3 幂等）。三项都不动契约模型；
-   F1 若新增统一拒绝面，需按 31.11 走契约修订。
+3. **清类 2**（A3 span / D3 幂等；F1 已完成，见 ADR-R37）。A3 与 D3 都不动
+   契约模型，属于可以连续推进的工程项。
 4. **决策类 1**：建域 or 裁范围。这是产品/架构决策，不是工程任务。
    E1/E2 与 15 个动作同属此类，必须一起决策——单独补预算域而留下
    展示/权利/反推空白，出口规则依然不成立。
@@ -234,4 +240,9 @@ for d in budget_quota observability blocking_service rights_governance \
 
 # 迁移回滚能力
 grep -rlc "def downgrade" data/migrations/versions/ | wc -l
+
+# F1：阶段门禁的动作面（27 例；含 8 个 Creator 动作逐个断言）
+python -m pytest tests/unit/test_phase_gate.py -q
+# 手工复核一条（未认证也应得到 409，见 ADR-R37 §3 债务 1）
+curl -s -X POST localhost:8000/actions/creator.mode.upgrade | jq .error_code
 ```

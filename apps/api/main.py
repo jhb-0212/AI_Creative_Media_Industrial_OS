@@ -36,7 +36,13 @@ from packages.errors.error_codes import (
     ErrorRegistry,
     to_response_payload,
 )
+from packages.identity.action_registry import action_spec
 from packages.identity.guards import assert_no_signing_key_in_api_process
+from packages.identity.phase_gate import (
+    PLATFORM_PHASE,
+    is_blocked,
+    parse_required_phase,
+)
 from packages.shared.config import get_settings
 from packages.shared.database import lifespan as database_lifespan
 from packages.shared.db_roles import DatabaseDomain
@@ -44,6 +50,7 @@ from packages.shared.logging import get_logger, set_trace_id, setup_logging
 from packages.shared.metrics import (
     HTTP_REQUEST_DURATION_SECONDS,
     HTTP_REQUESTS_TOTAL,
+    PHASE_GATE_REJECTIONS_TOTAL,
     RATE_LIMIT_DECISIONS_TOTAL,
     metrics_response,
 )
@@ -492,3 +499,63 @@ async def error_catalog(
         "message": target.message,
         "retryable": target.retryable,
     }
+
+
+@app.api_route(
+    "/actions/{action_key}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    include_in_schema=False,
+)
+async def phase_gated_action_surface(action_key: str) -> Response:
+    """阶段未启用动作的统一拒绝面（Phase 1 验收清单 F1）。
+
+    **为什么需要这个端点**：契约把 44 个动作登记为 ``PHASE_GATED（Phase N）``，
+    它们在 Action Registry 与 OpenAPI 里都有明确地址（``/actions/<小写点分 key>``），
+    但当前阶段不提供服务。没有这个面时，调用它们得到 404——与"路径拼错"完全
+    不可区分：客户端无法判断该重试、该升级客户端，还是该改用别的能力；指标里
+    也看不出"有人在敲未开放能力"。这里把它收敛成 ``PHASE_NOT_ENABLED``（409，
+    category=PHASE），并在 details 里带 action_key / current_phase / required_phase。
+
+    **为什么 ``include_in_schema=False``**：这些操作在契约里已登记（是将来的真实
+    端点形态），运行时并没有实现它们；把拒绝面写进 OpenAPI 等于让文档声称"可用"。
+    契约与运行时的一致性由 ``scripts/contract_check.py`` 按动作台账判定，本端点
+    不承载业务能力，因此不入 schema。
+
+    **职责约束（不得放宽）**：只做拒绝。不要在这里挂需要先鉴权的业务逻辑，也不要
+    让它演化成"动作发现面"——未登记 key、非阶段门禁动作、已到阶段的动作一律按
+    404 回答，只有"契约登记了但阶段没到"才得到 409。三种情况的区分就是本端点的
+    全部价值。
+    """
+    key = action_key.upper()
+    spec = action_spec(key)
+    if spec is None:
+        raise DomainError(
+            ErrorRegistry.NOT_FOUND,
+            detail=f"未登记的动作路径: /actions/{action_key}",
+        )
+
+    required = parse_required_phase(spec.status)
+    if required is None or not is_blocked(required, current=PLATFORM_PHASE):
+        # 两种子情况：非阶段门禁动作（该走自己的业务端点），或阶段已到但尚无
+        # 实现端点。都不属于"阶段未启用"，用 404 保持语义干净。
+        raise DomainError(
+            ErrorRegistry.NOT_FOUND,
+            detail=(
+                f"{spec.action_key} 不是当前阶段禁止的动作（status={spec.status}），"
+                "请调用其业务端点"
+            ),
+            context={"action_key": spec.action_key, "status": spec.status},
+        )
+
+    PHASE_GATE_REJECTIONS_TOTAL.labels(action_key=spec.action_key).inc()
+    raise DomainError(
+        ErrorRegistry.PHASE_NOT_ENABLED,
+        detail=(
+            f"{spec.action_key} 需 {required.label}，当前阶段为 {PLATFORM_PHASE.label}"
+        ),
+        context={
+            "action_key": spec.action_key,
+            "current_phase": PLATFORM_PHASE.label,
+            "required_phase": required.label,
+        },
+    )
