@@ -227,3 +227,54 @@ def test_roles_claim_must_be_string_array(key: SigningKey) -> None:
         decode_token(
             token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE
         )
+
+
+def test_capabilities_round_trip(key: SigningKey) -> None:
+    """caps claim 签发后验签还原为 Principal.capabilities。"""
+    token = encode_token(
+        key,
+        subject_id="user-001",
+        tenant_id=TENANT_ID,
+        roles=["导演"],
+        capabilities=["Project:*", "PROJECT.CREATE"],
+        issuer=ISSUER,
+        audience=AUDIENCE,
+    )
+    principal = decode_token(
+        token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE
+    )
+    assert principal.capabilities == frozenset({"Project:*", "PROJECT.CREATE"})
+    assert principal.has_capability("Project:*")
+
+
+def test_capabilities_default_to_empty(key: SigningKey) -> None:
+    """未签发 caps 时验签后 capabilities 为空集（未授予任何能力范围）。"""
+    token = encode_token(
+        key, subject_id="user-001", tenant_id=TENANT_ID, roles=["导演"],
+        issuer=ISSUER, audience=AUDIENCE,
+    )
+    principal = decode_token(
+        token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE
+    )
+    assert principal.capabilities == frozenset()
+
+
+def test_caps_claim_must_be_string_array(key: SigningKey) -> None:
+    """caps 若为字符串会被迭代成单字，必须 fail-closed 拒绝。"""
+    token = jwt.encode(
+        {
+            "sub": "user-001",
+            "tenant_id": TENANT_ID,
+            "roles": ["导演"],
+            "caps": "Project:*",
+            "iss": ISSUER,
+            "aud": AUDIENCE,
+        },
+        key.private_pem,
+        algorithm="RS256",
+        headers={"kid": key.kid},
+    )
+    with pytest.raises(TokenError, match="caps"):
+        decode_token(
+            token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE
+        )

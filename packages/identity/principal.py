@@ -11,6 +11,9 @@
 - subject_id：主体唯一标识（sub claim，如用户 ID / Agent ID / 服务账号 ID）。
 - tenant_id：租户标识（tenant_id claim，UUID 字符串），是 RLS 行级隔离键。
 - roles：角色集合（roles claim，如 导演/编剧/制片），驱动 RBAC 授权判定。
+- capabilities：能力范围集合（caps claim），驱动 Capability 授权判定。
+  与 roles 解决的问题不同（见 F02）：roles 回答「这个主体属于什么角色」，
+  capabilities 回答「这个主体被授予了哪些具体资源/动作的范围」。
 - jti：令牌唯一标识（jti claim），用于防重放与审计关联。
 """
 
@@ -31,6 +34,7 @@ class Principal:
     subject_id: str
     tenant_id: UUID
     roles: frozenset[str] = field(default_factory=frozenset)
+    capabilities: frozenset[str] = field(default_factory=frozenset)
     jti: str | None = None
 
     def __post_init__(self) -> None:
@@ -45,11 +49,16 @@ class Principal:
         """是否持有任一角色。"""
         return any(self.has_role(role) for role in roles)
 
+    def has_capability(self, capability: str) -> bool:
+        """是否持有指定能力范围（Capability 判定入口，精确匹配）。"""
+        return capability in self.capabilities
+
     def to_dict(self) -> dict[str, object]:
         """序列化为审计友好的结构（不泄漏敏感信息）。"""
         return {
             "subject_id": self.subject_id,
             "tenant_id": str(self.tenant_id),
             "roles": sorted(self.roles),
+            "capabilities": sorted(self.capabilities),
             "jti": self.jti,
         }

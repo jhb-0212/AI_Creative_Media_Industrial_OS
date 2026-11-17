@@ -30,6 +30,7 @@ ALGORITHM = "RS256"
 CLAIM_SUB = "sub"
 CLAIM_TENANT = "tenant_id"
 CLAIM_ROLES = "roles"
+CLAIM_CAPS = "caps"
 CLAIM_JTI = "jti"
 CLAIM_ISSUER = "iss"
 CLAIM_AUDIENCE = "aud"
@@ -50,12 +51,15 @@ def encode_token(
     issuer: str,
     audience: str,
     ttl_seconds: int = 900,
+    capabilities: list[str] | None = None,
 ) -> str:
     """用私钥签发一条 RS256 访问令牌。
 
     参数：
     - signing_key：含私钥的密钥对（私钥仅在此处用于签发）。
     - subject_id / tenant_id / roles：主体身份与租户上下文。
+    - capabilities：能力范围集合（可选，caps claim）。为空等价于「未授予
+      任何能力范围」，需 Capability 校验的动作将拒绝（fail-closed）。
     - issuer / audience：令牌签发方与目标受众（验签时严格比对）。
     - ttl_seconds：有效期（默认 15 分钟）。
 
@@ -66,6 +70,7 @@ def encode_token(
         CLAIM_SUB: subject_id,
         CLAIM_TENANT: tenant_id,
         CLAIM_ROLES: list(roles),
+        CLAIM_CAPS: list(capabilities or []),
         CLAIM_JTI: uuid.uuid4().hex,
         CLAIM_ISSUER: issuer,
         CLAIM_AUDIENCE: audience,
@@ -131,9 +136,18 @@ def decode_token(
         raise TokenError("roles claim 必须是字符串数组")
     roles = frozenset(roles_raw)
 
+    # caps 同理：必须是字符串数组（可选，缺省为空集 = 未授予能力范围）。
+    caps_raw = payload.get(CLAIM_CAPS, [])
+    if not isinstance(caps_raw, list) or any(
+        not isinstance(c, str) for c in caps_raw
+    ):
+        raise TokenError("caps claim 必须是字符串数组")
+    capabilities = frozenset(caps_raw)
+
     return Principal(
         subject_id=subject_id,
         tenant_id=tenant_id,
         roles=roles,
+        capabilities=capabilities,
         jti=payload.get(CLAIM_JTI) if isinstance(payload.get(CLAIM_JTI), str) else None,
     )
