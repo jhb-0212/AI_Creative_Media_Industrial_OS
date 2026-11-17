@@ -269,6 +269,34 @@ amendments:
     residual_risks:
       - 'ShotChanged Event 归属已随镜头域移至 Shot Planning 行；2026-11-17 核对（ADR-R27 §8）：该事件是矩阵概念事件（基线仅此一处、无语义定义、运行时零引用），按事件目录双向校验规则不得预先登记，待镜头内容变更传播需求落地时由 shot_planning 发布并登记'
       - '2026-11-17 收口：docs/baseline 冻结副本确立为唯一权威源，工作台根目录主文档副本是其投影；scripts/sync_baseline_copy.py 提供 --check/--sync 人工收尾校验（外部副本在仓库外，不进 CI）'
+  - id: V205-R14-A6
+    title: 生成执行域对象契约补齐：GenerationTask 与 ProductionRoute（Phase 1 主链"单一路线生成"前置）
+    retroactive: true
+    recorded_at: '2026-11-17'
+    discovered_by: contracts/runtime/resource_schema_gaps.yaml（GenerationTask / ProductionRoute 两条显式债务）
+    reason: "PRODUCTION.ROUTE.SELECT 与 GENERATION.REQUEST 两个 ACTIVE 动作的对象一直没有 schema——路线选择的可选集合与生成任务的预算/配额/依赖/约束快照准入均无机器可校验载体。基线正文已有定义依据（9.2.2 路线适配器抽象类定义、动作矩阵两行、9.4 重试口径、31.3 核心生产流程），属「基线有文、冻结遗漏」，以修订追认。这是 Phase 1 主链最后缺口「单一路线生成」的契约前置。"
+    adr: docs/adr/ADR-R29-jwks-publication-rotation.md 之后的 Phase 1 主链计划（任务 ②，ADR-R22/R24 债务状态核对同期）
+    approved_by: 项目所有者（未闭合项收口指令 ①–⑤，任务 ② 段 1）
+    approved_at: '2026-11-17'
+    source_commits:
+      - '414b69b'  # docs(adr): ADR-R22/R24 债务状态核对（生成侧缺口的债务登记来源）
+    additions:
+      actions: []
+      schema_objects:
+        - object: ProductionRoute
+          why: "路线选择对象：route_type（9.2.2 首批路线抽象枚举来源）、supported_control_signals、required_appearance_refs、qc_dimensions、capability_refs；status 承载 UNVERIFIED→VERIFIED 生命周期（动作矩阵 ACT-ROUTE-NEG-001）"
+        - object: GenerationTask
+          why: "生成任务对象：预算/配额/依赖/约束快照准入字段（动作矩阵 GENERATION.REQUEST 行）+ attempt（9.4 幂等重试）；失败为终结态（失败率口径），重试以新任务承载"
+      state_machines: []
+    counts_after:
+      actions: 83
+      openapi_operations: 83
+      schema_objects: 84
+      state_machines: 39
+    residual_risks:
+      - '两对象状态机条目未在 state_machines.yaml 登记（ProductionRoute UNVERIFIED→VERIFIED/RETIRED、GenerationTask PENDING→RUNNING→SUCCEEDED/FAILED），待 generation_execution 域实现时一并补登——不猜契约：状态集以域实现段按基线口径显式定型'
+      - '两对象的数据所有权（14.2 矩阵 Generation Execution 行）随域实现段走基线正文修订登记，与 A4→A5 序列同范式；owner_module 取值 generation-execution'
+      - 'GENERATION_REQUESTED / PRODUCTION_ROUTE_SELECTED 事件按双向校验规则不预先登记，随段 3 实现落地当日登记'
 
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

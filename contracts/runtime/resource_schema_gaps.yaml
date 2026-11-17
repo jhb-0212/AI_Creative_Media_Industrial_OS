@@ -6,7 +6,9 @@
 #   双向盲区：业务对象（ShotDraft / ShotRevision / ShotBudgetRequest /
 #   BudgetLedger / GenerationTask / ProductionRoute / CanonRevision / RightsCase /
 #   RightsManifest）缺 schema 却能全绿通过 CI。其中 ShotDraft / ShotRevision 已由
-#   ADR-R27 + 契约修订 A4 补齐 schema 并移除本债务（2026-11-17）。
+#   ADR-R27 + 契约修订 A4 补齐 schema 并移除本债务（2026-11-17）；
+#   GenerationTask / ProductionRoute 已由契约修订 A6 补齐 schema 并移除本债务
+#   （2026-11-17，owner：Generation Execution Domain，域实现随 Phase 1 主链段 2/3 落地）。
 # - 补 schema 必须依据基线正文（AFS-ARCH-MASTER-V2.0.5），而该正文当前不在本机；
 #   按「不猜契约」原则，不能拿提案草案冒充正文定义。
 # - 因此把缺口登记成显式债务：CI 变绿的前提是每一个缺口都写清「谁在引用它、
@@ -30,16 +32,6 @@ gaps:
     reason: "账本对象无 schema：批准落账的流水结构无法校验，Gate D 账本对账缺少对象依据"
     contract_ref: "contracts/state_machines/state_machines.yaml:51-56（BudgetLedgerTransaction 仅有文字定义）"
     unblocks_when: "正文 C.7 / 预算章节给出流水字段（交易 ID、幂等键、余额计算）后补 schema"
-  GenerationTask:
-    referenced_by: ["GENERATION.REQUEST"]
-    reason: "生成任务对象无 schema：预算/配额/依赖与约束快照的准入校验没有可校验载体"
-    contract_ref: "contracts/action_registry/action_registry.yaml（GENERATION.REQUEST 条目）"
-    unblocks_when: "正文生成域章节给出任务字段与状态集后补 schema"
-  ProductionRoute:
-    referenced_by: ["PRODUCTION.ROUTE.SELECT"]
-    reason: "生产路线对象无 schema：路线选择的可选集合与选择依据无法被校验"
-    contract_ref: "contracts/action_registry/action_registry.yaml（PRODUCTION.ROUTE.SELECT 条目）"
-    unblocks_when: "正文生产路线章节给出路线枚举与选择约束后补 schema"
   CanonRevision:
     referenced_by: ["CANON.CHANGE.APPROVE"]
     reason: "设定变更对象无 schema：Canon 事实变更的授权链与冲突标记无法机器校验"

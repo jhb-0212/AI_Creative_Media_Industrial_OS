@@ -18,7 +18,7 @@
   ],
   "x-afs-p0-coverage": {
     "note": "已建模对象与显式登记为待补的对象之并集，构成 P0 契约对象全集。待补项按缺口性质分类，不把“正文有字段表但派生未覆盖”与“正文缺字段标识”混为一类。",
-    "total": 81,
+    "total": 83,
     "modeled": [
       "Appeal",
       "AssetReference",
@@ -59,6 +59,7 @@
       "ExternalToolArtifact",
       "ExternalToolConnection",
       "GateDecision",
+      "GenerationTask",
       "IntentContract",
       "MemoryRecord",
       "ModelInvocation",
@@ -66,6 +67,7 @@
       "PatternRecord",
       "PolicyResolution",
       "PrevizVersion",
+      "ProductionRoute",
       "Project",
       "ProjectProductionProfile",
       "QCIssue",
@@ -2461,6 +2463,187 @@
       ],
       "additionalProperties": true,
       "x-afs-lifecycle": "DRAFT→REVIEW→APPROVED/REJECTED；变更生成新 revision，锁定字段逐字段授权"
+    },
+    "GenerationTask": {
+      "type": "object",
+      "description": "权威所有者：Generation Execution Domain（修订 V205-R14-A6）。生成任务对象：预算、配额、依赖与约束快照的准入校验载体（动作矩阵 GENERATION.REQUEST 行；ACT-GEN-NEG-001 预算/权限越界拒绝）。失败为终结态（9.4 重试与故障分类、失败率口径：失败生成任务数 / 已完成或终结的生成任务数）——重试以新任务承载，不在原任务上复活。",
+      "required": [
+        "generation_task_id",
+        "project_id",
+        "shot_id",
+        "route_id",
+        "shot_spec_ref",
+        "visual_plan_ref",
+        "constraint_snapshot_ref",
+        "budget_reservation_ref",
+        "quota_reservation_ref",
+        "dependency_refs",
+        "attempt",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "generation_task_id": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "shot_id": {
+          "type": "string"
+        },
+        "route_id": {
+          "type": "string"
+        },
+        "shot_spec_ref": {
+          "type": "string"
+        },
+        "visual_plan_ref": {
+          "type": "string"
+        },
+        "constraint_snapshot_ref": {
+          "type": "string"
+        },
+        "budget_reservation_ref": {
+          "type": "string"
+        },
+        "quota_reservation_ref": {
+          "type": "string"
+        },
+        "dependency_refs": {
+          "type": "array"
+        },
+        "attempt": {
+          "type": "integer"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "schema_version": {
+          "type": "integer"
+        }
+      },
+      "x-afs-sources": [
+        "动作矩阵 GENERATION.REQUEST 行",
+        "9.4 重试与故障分类",
+        "核心生产流程（31.3 生成任务环）"
+      ],
+      "additionalProperties": true
+    },
+    "ProductionRoute": {
+      "type": "object",
+      "description": "权威所有者：Generation Execution Domain（修订 V205-R14-A6；基线 9.2.2 路线适配器抽象）。生产路线适配器的可校验元数据：路线类型、受支持控制信号、外观引用要求、QC 维度与能力契约引用。路线须处于 VERIFIED 才能被 PRODUCTION.ROUTE.SELECT 选中（动作矩阵 ACT-ROUTE-NEG-001：UNVERIFIED 路线拒绝）。",
+      "required": [
+        "route_id",
+        "route_type",
+        "supported_control_signals",
+        "required_appearance_refs",
+        "qc_dimensions",
+        "capability_refs",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "route_id": {
+          "type": "string"
+        },
+        "route_type": {
+          "type": "string"
+        },
+        "supported_control_signals": {
+          "type": "array"
+        },
+        "required_appearance_refs": {
+          "type": "array"
+        },
+        "qc_dimensions": {
+          "type": "array"
+        },
+        "capability_refs": {
+          "type": "array"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "schema_version": {
+          "type": "integer"
+        }
+      },
+      "x-afs-sources": [
+        "9.2.2 路线适配器抽象（ProductionRoute）",
+        "动作矩阵 PRODUCTION.ROUTE.SELECT 行"
+      ],
+      "additionalProperties": true
     },
     "ShotDraft": {
       "type": "object",
