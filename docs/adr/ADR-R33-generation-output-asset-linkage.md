@@ -144,6 +144,17 @@ PROJECT.CREATE → EPISODE.CREATE → SCRIPT.IMPORT → SHOT.DRAFT.CREATE(Agent)
 6. **``rights_manifest_ref`` 未进契约正文**：它是实现扩展列。解除条件——
    契约修订把"生成产出的权利凭据引用"写进 GenerationTask（或明确"产出权利
    一律由资产域登记时补"），届时本列改名为契约字段或删除。
+7. **「单一路线生成」的拒绝语义没有载体**（Phase 1 验收清单 C4）：C4 要求
+   "并发发起两条路线时拒绝第二条并给出结构化错误，不得静默排队"。当前
+   ``PRODUCTION.ROUTE.SELECT`` 只记录"选中事实"（outbox 事件），没有
+   "某镜头当前生效路线"的对象，也没有唯一性约束——因此**第二条路线的选择
+   会被接受**，同一镜头也可以在两个路线上各受理一次生成。这不是本段引入的
+   缺陷，但本段的主链证据不得声称 C4 已通过。解除条件：契约新增
+   "镜头生效路线"承载对象（或给 ProductionRoute 增加 project/shot 归属 +
+   部分唯一索引），届时在选路入口做"已存在生效路线则拒绝"的判定。
+   禁止在没有载体时靠"查 outbox 里有没有 ROUTE_SELECTED 事件"实现——
+   审计事件是事实记录，不是状态存储，用它做唯一性判定会把审计链变成并发
+   竞争点。
 
 ## 4. 后果
 
@@ -156,3 +167,10 @@ PROJECT.CREATE → EPISODE.CREATE → SCRIPT.IMPORT → SHOT.DRAFT.CREATE(Agent)
   （当前唯一解析方是测试）。
 - 计数不变：状态机 41、事件 26（本段不新增状态机与事件）；新增迁移 1 个
   （``c9d0e1f2a3b4``）、端口 1 个、测试文件 2 个。
+- 对 Phase 1 验收的贡献与未覆盖项（对照 ``Phase1-实现验收清单.md``）：
+  - 已具备证据：C1（建项目→剧本→拆镜→人工确认的完整跑通记录）、
+    C3（ACTIVE 约束包硬门，含负向断言）、C6 的 DeliveryManifest 部分
+    （清单引用 APPROVED 资产 + Gate4 裁决，含"未批准资产被拒"负向断言）；
+  - **仍无证据**：C4（见 §3 债务 7）、C5（QCIssue 缺陷闭环与
+    RESOLVED→CLOSED 跳关拒绝——本段只走 PASS 路径）、A3（trace 全链路
+    截图，属可观测性验收，不在本段范围）。
