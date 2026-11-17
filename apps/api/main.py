@@ -23,6 +23,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text
 
+from apps.api.resource_ownership import CompositeResourceOwnershipPort
 from packages.errors.error_codes import (
     DomainError,
     ErrorCode,
@@ -65,6 +66,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     assert_no_signing_key_in_api_process(settings)
     get_public_key_store()
     async with database_lifespan(app):
+        # 跨域资源归属解析端口（组合根装配）：审批发起时校验目标资源
+        # 存在且属于票据项目（R4-2 收口）。池就绪后才可构造。
+        app.state.resource_ownership_port = CompositeResourceOwnershipPort(
+            app.state.pools
+        )
         yield
 
 

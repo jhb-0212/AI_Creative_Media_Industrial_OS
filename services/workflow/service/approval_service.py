@@ -34,14 +34,23 @@ from services.workflow.domain.approval import (
     evaluate,
 )
 from services.workflow.domain.enums import ApprovalMode, TicketStatus, VoteDecision
+from services.workflow.domain.ports import ResourceOwnershipPort
 from services.workflow.domain.state_machine import assert_transition
 from services.workflow.repository.approval_repo import ApprovalRepository
 
 
 class ApprovalService:
-    def __init__(self, repo: ApprovalRepository, outbox: OutboxWriter) -> None:
+    def __init__(
+        self,
+        repo: ApprovalRepository,
+        outbox: OutboxWriter,
+        ownership: ResourceOwnershipPort,
+    ) -> None:
         self._repo = repo
         self._outbox = outbox
+        # 跨域归属端口：组合根注入（apps/api），workflow 只消费归属结论。
+        # 必填——没有它就退回"盲发票据"，R4-2 缺口重新打开。
+        self._ownership = ownership
 
     async def start(
         self,
@@ -86,6 +95,40 @@ class ApprovalService:
                 detail=(
                     f"目标动作 {target_action_key} 的契约资源类型是 "
                     f"{spec.resource_type!r}，与请求的 {resource_type!r} 不一致"
+                ),
+            )
+
+        # R4-2 收口：目标资源必须真实存在且属于票据声明的项目。
+        # 归属解析经跨域只读端口（组合根适配），workflow 角色不直读他域表。
+        if not self._ownership.can_resolve(resource_type):
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=(
+                    f"资源类型 {resource_type!r} 没有跨域归属解析器，"
+                    "无法证明资源存在且属于本项目，拒绝盲发审批票据"
+                ),
+            )
+        ownership = await self._ownership.resolve(
+            tenant_id=principal.tenant_id,
+            organization_id=principal.organization_id,
+            resource_type=resource_type,
+            resource_id=resource_id,
+        )
+        if ownership is None:
+            raise DomainError(
+                ErrorRegistry.NOT_FOUND,
+                detail=(
+                    f"目标资源 {resource_type}/{resource_id} 在租户内不存在，"
+                    "拒绝为不存在的资源发起审批"
+                ),
+            )
+        if ownership.project_id != project_id:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=(
+                    f"目标资源 {resource_type}/{resource_id} 归属项目 "
+                    f"{ownership.project_id!r}，与票据声明项目 {project_id!r} "
+                    "不一致，拒绝跨项目发起审批"
                 ),
             )
 

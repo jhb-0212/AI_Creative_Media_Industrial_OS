@@ -493,6 +493,11 @@ DATABASE_ACCESS_ALLOWLIST: dict[str, str] = {
     "apps.api.main": (
         "就绪探针用身份域池探活（最小权限域），不承载任何业务读写"
     ),
+    "apps.api.resource_ownership": (
+        "跨域归属解析组合根适配器（ADR-R28）：按资源类型登记式路由到"
+        "所有者域的只读仓储（svc_asset/svc_shot_planning 身份），"
+        "挑选池是登记式路由的必要输入；只读探针，不承载任何写路径"
+    ),
     "workers.relay.__main__": (
         "Relay 进程入口：只起投递域连接池，与 API 进程身份不同"
     ),

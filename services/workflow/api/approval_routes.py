@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.identity.authorization import ResourceRef
 from packages.identity.enforcement import authorize
 from packages.shared.contract_models import contract_model
@@ -23,6 +24,7 @@ from services.identity_access.deps import (
     require_action,
 )
 from services.workflow.domain.enums import VoteDecision
+from services.workflow.domain.ports import ResourceOwnershipPort
 from services.workflow.repository.sqlalchemy_approval_repo import (
     SqlAlchemyApprovalRepository,
 )
@@ -49,14 +51,37 @@ class SubmitVoteRequest(BaseModel):
     entity_id: str | None = Field(default=None, max_length=64)
 
 
-def _build_service(session: AsyncSession) -> ApprovalService:
+def _get_ownership_port(request: Request) -> ResourceOwnershipPort:
+    """取组合根挂载的跨域归属解析端口（apps/api lifespan 装配）。
+
+    fail-closed：端口缺失说明进程装配不完整，拒绝发起而不是盲发票据。
+    """
+    port: ResourceOwnershipPort | None = getattr(
+        request.app.state, "resource_ownership_port", None
+    )
+    if port is None:
+        raise DomainError(
+            ErrorRegistry.INTERNAL_ERROR,
+            detail="归属解析端口未装配（app.state.resource_ownership_port 缺失），拒绝发起审批",
+        )
+    return port
+
+
+def _build_service(
+    session: AsyncSession, ownership: ResourceOwnershipPort
+) -> ApprovalService:
     return ApprovalService(
-        SqlAlchemyApprovalRepository(session), SqlAlchemyOutboxWriter(session)
+        SqlAlchemyApprovalRepository(session),
+        SqlAlchemyOutboxWriter(session),
+        ownership,
     )
 
 
-def _get_service(uow: UnitOfWork = Depends(get_workflow_uow)) -> ApprovalService:
-    return _build_service(uow.session)
+def _get_service(
+    uow: UnitOfWork = Depends(get_workflow_uow),
+    ownership: ResourceOwnershipPort = Depends(_get_ownership_port),
+) -> ApprovalService:
+    return _build_service(uow.session, ownership)
 
 
 @router.post("", status_code=201, response_model=_ApprovalTicketResponse)

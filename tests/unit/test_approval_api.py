@@ -15,9 +15,15 @@ import uuid
 import pytest
 import sqlalchemy as sa
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from apps.api.main import app
+from packages.shared.database import build_migration_url
 from tests.conftest import apply_db_context, make_test_headers
 
 _PROJECT = "proj_approval_api"
@@ -45,6 +51,48 @@ def _client(
         base_url="http://test",
         headers=headers,
     )
+
+
+_admin_engine: AsyncEngine | None = None
+
+
+def _get_admin_engine() -> AsyncEngine:
+    """管理员引擎（迁移 URL 身份，绕过 RLS）：模块级惰性单例，用于种子落库。"""
+    global _admin_engine
+    if _admin_engine is None:
+        _admin_engine = create_async_engine(build_migration_url())
+    return _admin_engine
+
+
+async def _seed_manifest(
+    admin_engine: AsyncEngine,
+    *,
+    tenant_id: uuid.UUID,
+    resource_id: str,
+    project_id: str,
+) -> None:
+    """种子一份交付清单（归属校验开启后，票据目标必须真实存在）。"""
+    async with admin_engine.begin() as conn:
+        await conn.execute(
+            sa.text(
+                """
+                INSERT INTO asset_service.delivery_manifests (
+                    entity_id, entity_type, schema_version, entity_version,
+                    status, owner_module, tenant_id, organization_id,
+                    created_at, created_by, updated_at, audit_ref,
+                    project_id, asset_refs, checksum, picture_lock_ref,
+                    qc_final_ref, rebuild_recipe, rights_evidence_refs, spec_ref
+                ) VALUES (
+                    :eid, 'DeliveryManifest', 205, 1,
+                    'DRAFT', 'asset_service', :tid, :tid,
+                    now(), 'seed', now(), NULL,
+                    :pid, '["asset-a"]'::jsonb, repeat('0', 64), 'picture-lock-1',
+                    'qc-final-1', 'recipe://spec/v1', '["rights-1"]'::jsonb, 'spec-1'
+                )
+                """
+            ),
+            {"eid": resource_id, "tid": tenant_id, "pid": project_id},
+        )
 
 
 @pytest.fixture
@@ -80,7 +128,15 @@ def _start_body(**overrides: object) -> dict[str, object]:
 
 
 async def _start(client: AsyncClient, **overrides: object) -> dict[str, object]:
-    response = await client.post("/approval-tickets", json=_start_body(**overrides))
+    body = _start_body(**overrides)
+    # R4-2 收口后，票据目标资源必须真实存在且属于声明项目——先种子清单。
+    await _seed_manifest(
+        _get_admin_engine(),
+        tenant_id=_TENANT,
+        resource_id=str(body["resource_id"]),
+        project_id=str(body["project_id"]),
+    )
+    response = await client.post("/approval-tickets", json=body)
     assert response.status_code == 201, response.text
     return response.json()
 
@@ -126,6 +182,35 @@ async def test_unbound_target_action_is_denied(initiator_client: AsyncClient) ->
 
 
 # --- 投票闭环 ----------------------------------------------------------------
+
+
+async def test_missing_resource_is_rejected() -> None:
+    """目标资源不存在：404（归属校验开启后拒绝为幽灵资源发票据）。"""
+    async with _client("approval_initiator", ["制片", "交付负责人"]) as client:
+        response = await client.post(
+            "/approval-tickets", json=_start_body(resource_id="manifest-ghost-x")
+        )
+    assert response.status_code == 404, response.text
+    assert response.json()["error_code"] == "NOT_FOUND"
+
+
+async def test_cross_project_resource_is_rejected() -> None:
+    """目标资源属于别的项目：归属与票据声明不一致 → 422（R4-2 收口）。"""
+    other_id = f"manifest-{uuid.uuid4().hex[:12]}"
+    await _seed_manifest(
+        _get_admin_engine(),
+        tenant_id=_TENANT,
+        resource_id=other_id,
+        project_id=_OTHER_PROJECT,
+    )
+    async with _client("approval_initiator", ["制片", "交付负责人"]) as client:
+        response = await client.post(
+            "/approval-tickets", json=_start_body(resource_id=other_id)
+        )
+    assert response.status_code == 422, response.text
+    body = response.json()
+    assert body["error_code"] == "VALIDATION_ERROR"
+    assert _OTHER_PROJECT in str(body["message"])
 
 
 async def test_two_group_approval_completes_ticket(

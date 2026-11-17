@@ -196,6 +196,11 @@ async def db_pools() -> AsyncIterator[DomainPools]:
     """
     pools = DomainPools.create()
     app.state.pools = pools
+    # 镜像生产 lifespan 的组合根装配：池就绪即挂跨域归属解析端口，
+    # 审批发起的目标资源归属校验（R4-2 收口）在测试里走同一实现。
+    from apps.api.resource_ownership import CompositeResourceOwnershipPort
+
+    app.state.resource_ownership_port = CompositeResourceOwnershipPort(pools)
     try:
         yield pools
     finally:

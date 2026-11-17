@@ -28,6 +28,7 @@ from services.workflow.domain.approval import (
     ApprovalTicket,
 )
 from services.workflow.domain.enums import ApprovalMode, TicketStatus, VoteDecision
+from services.workflow.domain.ports import ResourceOwnership
 from services.workflow.repository.approval_repo import ApprovalRepository
 from services.workflow.service.approval_service import ApprovalService
 from tests import make_test_capability
@@ -129,10 +130,42 @@ class FakeApprovalRepository(ApprovalRepository):
         return None
 
 
+class FakeOwnershipPort:
+    """按 (resource_type, resource_id) 返回归属结论的测试桩。
+
+    ``unknown`` 集合里的资源视为不存在；``mismatches`` 里的资源归属
+    与请求项目不同的项目（用于跨项目拒绝测试）；未登记的类型视为
+    无解析器（fail-closed 测试）。
+    """
+
+    def __init__(self) -> None:
+        self.ownership: dict[tuple[str, str], str] = {}
+        self.unknown: set[tuple[str, str]] = set()
+        self.unresolvable_types: set[str] = set()
+
+    def can_resolve(self, resource_type: str) -> bool:
+        return resource_type not in self.unresolvable_types
+
+    async def resolve(
+        self,
+        *,
+        tenant_id: object,
+        organization_id: object,
+        resource_type: str,
+        resource_id: str,
+    ) -> ResourceOwnership | None:
+        key = (resource_type, resource_id)
+        if key in self.unknown:
+            return None
+        project = self.ownership.get(key, _PROJECT)
+        return ResourceOwnership(project_id=project)
+
+
 def _service(repo: ApprovalRepository | None = None):
     store = repo or FakeApprovalRepository()
     outbox = FakeOutboxWriter()
-    return ApprovalService(store, outbox), store, outbox
+    ownership = FakeOwnershipPort()
+    return ApprovalService(store, outbox, ownership), store, outbox, ownership
 
 
 def _start_fields(**overrides: object) -> dict[str, object]:
@@ -173,7 +206,7 @@ def _events(outbox: FakeOutboxWriter, event_type: str) -> list[dict[str, object]
 
 async def test_start_creates_flow_ticket_and_event_from_principal() -> None:
     """发起票据：身份来自 Principal，状态 PENDING，发 CREATED 事件。"""
-    service, store, outbox = _service()
+    service, store, outbox, _ownership = _service()
     ticket = await _start(service, entity_id="ticket-1")
 
     assert ticket.status is TicketStatus.PENDING
@@ -196,7 +229,7 @@ async def test_start_creates_flow_ticket_and_event_from_principal() -> None:
 
 async def test_start_rejects_unbound_action() -> None:
     """目标动作没有审批绑定：fail-closed 拒绝，不落票据。"""
-    service, store, outbox = _service()
+    service, store, outbox, _ownership = _service()
     with pytest.raises(DomainError) as exc:
         await _start(service, target_action_key="SCRIPT.IMPORT")
     assert exc.value.error_code is ErrorRegistry.VALIDATION_ERROR
@@ -206,7 +239,7 @@ async def test_start_rejects_unbound_action() -> None:
 
 async def test_start_rejects_role_outside_initiator_scope() -> None:
     """越权发起：编剧不在 START_APPROVAL 允许主体内。"""
-    service, store, outbox = _service()
+    service, store, outbox, _ownership = _service()
     with pytest.raises(DomainError) as exc:
         await _start(service, principal=_principal("writer", "编剧"))
     assert exc.value.error_code is ErrorRegistry.AUTH_SCOPE_DENIED
@@ -216,7 +249,7 @@ async def test_start_rejects_role_outside_initiator_scope() -> None:
 
 async def test_start_rejects_project_out_of_scope() -> None:
     """越权发起：项目不在令牌授权范围。"""
-    service, store, _ = _service()
+    service, store, _, _ownership = _service()
     narrow = _principal("producer", "制片", project_ids=frozenset({"proj-other"}))
     with pytest.raises(DomainError) as exc:
         await _start(service, principal=narrow)
@@ -233,7 +266,7 @@ async def test_start_rejects_when_binding_text_drifts_from_contract(
         "services.workflow.service.approval_service.binding_for",
         lambda _key: drifted,
     )
-    service, store, outbox = _service()
+    service, store, outbox, _ownership = _service()
     with pytest.raises(DomainError) as exc:
         await _start(service)
     assert exc.value.error_code is ErrorRegistry.INTERNAL_ERROR
@@ -243,7 +276,7 @@ async def test_start_rejects_when_binding_text_drifts_from_contract(
 
 async def test_start_rejects_phase_gated_action() -> None:
     """R4-2：目标动作 PHASE_GATED（未开放）→ 拒绝发起票据，不落票据。"""
-    service, store, outbox = _service()
+    service, store, outbox, _ownership = _service()
     with pytest.raises(DomainError) as exc:
         await _start(
             service,
@@ -258,7 +291,7 @@ async def test_start_rejects_phase_gated_action() -> None:
 
 async def test_start_rejects_resource_type_mismatch() -> None:
     """R4-2：请求的 resource_type 与目标动作契约不符 → 拒绝。"""
-    service, store, outbox = _service()
+    service, store, outbox, _ownership = _service()
     with pytest.raises(DomainError) as exc:
         await _start(
             service,
@@ -287,9 +320,47 @@ class ApprovalBindingStub:
 # --- 投票与授权 --------------------------------------------------------------
 
 
+async def test_start_rejects_resource_missing() -> None:
+    """目标资源不存在（租户内查无此资源）：拒绝为幽灵资源发票据。"""
+    service, _, _, ownership = _service()
+    ownership.unknown.add(("DeliveryManifest", "manifest-ghost"))
+    with pytest.raises(DomainError) as exc_info:
+        await _start(service, resource_id="manifest-ghost")
+    assert exc_info.value.error_code.code == "NOT_FOUND"
+
+
+async def test_start_rejects_cross_project_resource() -> None:
+    """目标资源属于别的项目：归属与票据声明不一致即拒绝（R4-2 收口）。"""
+    service, _, _, ownership = _service()
+    ownership.ownership[("DeliveryManifest", "manifest-1")] = "proj-other"
+    with pytest.raises(DomainError) as exc_info:
+        await _start(service)
+    assert exc_info.value.error_code.code == "VALIDATION_ERROR"
+    assert "proj-other" in str(exc_info.value.detail)
+
+
+async def test_start_rejects_unresolvable_resource_type() -> None:
+    """资源类型没有归属解析器：fail-closed，不盲发票据。"""
+    service, _, _, ownership = _service()
+    ownership.unresolvable_types.add("DeliveryManifest")
+    with pytest.raises(DomainError) as exc_info:
+        await _start(service)
+    assert exc_info.value.error_code.code == "VALIDATION_ERROR"
+    assert "归属解析器" in str(exc_info.value.detail)
+
+
+async def test_start_passes_when_resource_owned_by_ticket_project() -> None:
+    """目标资源存在且归属票据项目：正常建票（归属校验不误伤主链）。"""
+    service, _, outbox, ownership = _service()
+    ownership.ownership[("DeliveryManifest", "manifest-1")] = _PROJECT
+    ticket = await _start(service, entity_id="ticket-owned")
+    assert ticket.status.value == "PENDING"
+    assert len(_events(outbox, "APPROVAL_TICKET_CREATED")) == 1
+
+
 async def test_two_groups_approve_completes_ticket_once() -> None:
     """ALL：两组都赞成 → 票据 APPROVED，完成事件只发一次。"""
-    service, store, outbox = _service()
+    service, store, outbox, _ownership = _service()
     await _start(service, entity_id="ticket-1")
 
     await service.submit_vote(**_vote_fields("ticket-1", _OWNER, entity_id="step-1"))
@@ -316,7 +387,7 @@ async def test_two_groups_approve_completes_ticket_once() -> None:
 
 async def test_reject_completes_ticket_immediately() -> None:
     """ALL：一组否决即终结，不必等另一组。"""
-    service, store, outbox = _service()
+    service, store, outbox, _ownership = _service()
     await _start(service, entity_id="ticket-1")
     await service.submit_vote(
         **_vote_fields(
@@ -335,7 +406,7 @@ async def test_reject_completes_ticket_immediately() -> None:
 
 async def test_vote_rejects_principal_outside_allowed_upper_bound() -> None:
     """无权限投票：角色不在 WORKFLOW.SUBMIT_VOTE 主体上界。"""
-    service, store, outbox = _service()
+    service, store, outbox, _ownership = _service()
     await _start(service, entity_id="ticket-1")
     writer = _principal("writer", "编剧")
     with pytest.raises(DomainError) as exc:
@@ -347,7 +418,7 @@ async def test_vote_rejects_principal_outside_allowed_upper_bound() -> None:
 
 async def test_vote_rejects_principal_outside_group() -> None:
     """无权限投票：主体上界通过，但角色不在目标分组。"""
-    service, store, _ = _service()
+    service, store, _, _ownership = _service()
     await _start(service, entity_id="ticket-1")
     # 版权在主体上界内，但 delivery_owner 分组只接受交付负责人。
     rights = _principal("rights", "版权")
@@ -359,7 +430,7 @@ async def test_vote_rejects_principal_outside_group() -> None:
 
 async def test_vote_rejects_agent() -> None:
     """Agent 投票：CRITICAL 动作由授权层拒绝（领域与数据库还有两道）。"""
-    service, store, _ = _service()
+    service, store, _, _ownership = _service()
     await _start(service, entity_id="ticket-1")
     agent = _principal(
         "agent-1", "交付负责人", subject_type=SubjectType.AGENT
@@ -372,7 +443,7 @@ async def test_vote_rejects_agent() -> None:
 
 async def test_initiator_cannot_vote_on_own_ticket() -> None:
     """发起人不得投自己的票：职责分离，身份来自票据创建人。"""
-    service, store, _ = _service()
+    service, store, _, _ownership = _service()
     await _start(service, entity_id="ticket-1")
     with pytest.raises(DomainError) as exc:
         await service.submit_vote(**_vote_fields("ticket-1", _INITIATOR))
@@ -382,7 +453,7 @@ async def test_initiator_cannot_vote_on_own_ticket() -> None:
 
 async def test_terminal_ticket_rejects_vote() -> None:
     """终态票据不可再投票（结论不可改写）。"""
-    service, store, outbox = _service()
+    service, store, outbox, _ownership = _service()
     await _start(service, entity_id="ticket-1")
     await service.submit_vote(
         **_vote_fields(
@@ -403,7 +474,7 @@ async def test_terminal_ticket_rejects_vote() -> None:
 
 
 async def test_unknown_group_is_rejected() -> None:
-    service, store, _ = _service()
+    service, store, _, _ownership = _service()
     await _start(service, entity_id="ticket-1")
     with pytest.raises(DomainError) as exc:
         await service.submit_vote(
@@ -418,7 +489,7 @@ async def test_unknown_group_is_rejected() -> None:
 
 async def test_repeat_same_vote_is_idempotent() -> None:
     """同主体同组重复提交同一票：返回既有选票，不重复发事件。"""
-    service, store, outbox = _service()
+    service, store, outbox, _ownership = _service()
     await _start(service, entity_id="ticket-1")
     first = await service.submit_vote(
         **_vote_fields("ticket-1", _OWNER, entity_id="step-1")
@@ -433,7 +504,7 @@ async def test_repeat_same_vote_is_idempotent() -> None:
 
 async def test_repeat_vote_with_different_content_is_conflict() -> None:
     """改写已投的票：409，选票不可改写。"""
-    service, store, outbox = _service()
+    service, store, outbox, _ownership = _service()
     await _start(service, entity_id="ticket-1")
     await service.submit_vote(**_vote_fields("ticket-1", _OWNER, entity_id="step-1"))
     with pytest.raises(DomainError) as exc:
@@ -455,7 +526,7 @@ async def test_concurrent_duplicate_vote_is_idempotent() -> None:
     """唯一键冲突 + 回查命中同内容：幂等返回，不重复发事件。"""
     repo = FakeApprovalRepository()
     repo.hide_first_step = True
-    service, store, outbox = _service(repo)
+    service, store, outbox, _ownership = _service(repo)
     await _start(service, entity_id="ticket-1")
     # 先落一张选票，再让下一次 find_step 首次返回 None、add_step 抛重复。
     await service.submit_vote(**_vote_fields("ticket-1", _OWNER, entity_id="step-1"))
@@ -471,7 +542,7 @@ async def test_concurrent_duplicate_vote_is_idempotent() -> None:
 async def test_concurrent_reject_emits_completed_once() -> None:
     """并发驳回：两路都读到 PENDING，但只有抢到乐观锁的一路推进并发完成事件。"""
     repo = FakeApprovalRepository()
-    service, store, outbox = _service(repo)
+    service, store, outbox, _ownership = _service(repo)
     ticket = await _start(service, entity_id="ticket-1")
     # 固定旧快照：两路投票都认为自己读到的票据还是 v1/PENDING。
     repo.stale_ticket = replace(ticket)
@@ -505,7 +576,7 @@ async def test_concurrent_reject_emits_completed_once() -> None:
 
 
 async def test_get_missing_ticket_is_not_found() -> None:
-    service, _, _ = _service()
+    service, _, _, _ = _service()
     with pytest.raises(DomainError) as exc:
         await service.get_ticket("missing")
     assert exc.value.error_code is ErrorRegistry.NOT_FOUND
