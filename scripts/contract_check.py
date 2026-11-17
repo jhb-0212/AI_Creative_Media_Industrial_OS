@@ -778,6 +778,10 @@ _RESOURCE_SERIALIZERS: dict[str, tuple[str, str]] = {
         "services.workflow.domain.approval",
         "ApprovalTicket",
     ),
+    "ShotRouteSelection": (
+        "services.generation_execution.domain.shot_route_selection",
+        "ShotRouteSelection",
+    ),
 }
 
 
@@ -788,6 +792,9 @@ def _serializer_factories() -> dict[str, object]:
     from services.asset_service.domain.asset_version import AssetVersion
     from services.asset_service.domain.delivery_manifest import DeliveryManifest
     from services.asset_service.domain.qc_report import QCReport
+    from services.generation_execution.domain.shot_route_selection import (
+        ShotRouteSelection,
+    )
     from services.project_planning.domain.episode import Episode
     from services.project_planning.domain.project import Project
     from services.project_planning.domain.script import ScriptRevision
@@ -797,6 +804,14 @@ def _serializer_factories() -> dict[str, object]:
 
     tenant_id = uuid4()
     return {
+        "ShotRouteSelection": ShotRouteSelection(
+            entity_id="probe-selection",
+            project_id="probe-project",
+            shot_id="probe-shot",
+            route_id="probe-route",
+            created_by="probe",
+            tenant_id=tenant_id,
+        ),
         "AssetVersion": AssetVersion(
             entity_id="probe-asset",
             created_by="probe",

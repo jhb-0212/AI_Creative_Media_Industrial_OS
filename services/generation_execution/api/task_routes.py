@@ -25,6 +25,9 @@ from services.generation_execution.repository.generation_task_sqlalchemy_repo im
 from services.generation_execution.repository.production_route_sqlalchemy_repo import (
     SqlAlchemyProductionRouteRepository,
 )
+from services.generation_execution.repository.shot_route_selection_sqlalchemy_repo import (
+    SqlAlchemyShotRouteSelectionRepository,
+)
 from services.generation_execution.service.generation_service import GenerationService
 from services.identity_access.deps import (
     Principal,
@@ -85,6 +88,7 @@ def _get_service(
     return GenerationService(
         SqlAlchemyGenerationTaskRepository(uow.session),
         SqlAlchemyProductionRouteRepository(uow.session),
+        SqlAlchemyShotRouteSelectionRepository(uow.session),
         ref_port,
         SqlAlchemyOutboxWriter(uow.session),
     )
@@ -97,7 +101,7 @@ async def request_generation(
     uow: UnitOfWork = Depends(get_generation_uow),
     service: GenerationService = Depends(_get_service),
 ) -> GenerationRequestAccepted:
-    """受理生成任务（准入：路线 VERIFIED + 引用归属 + 预算/配额引用）。"""
+    """受理生成任务（准入：路线 VERIFIED + 引用归属 + 预算/配额引用 + 生效路线）。"""
     authorize(
         principal,
         "GENERATION.REQUEST",

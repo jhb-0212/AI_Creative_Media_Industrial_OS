@@ -60,6 +60,10 @@ bindings:
     module: services.generation_execution.domain.enums
     enum: GenerationTaskStatus
     source: enum_registry
+  ShotRouteSelection:
+    module: services.generation_execution.domain.enums
+    enum: ShotRouteSelectionStatus
+    source: enum_registry
   ShotVisualPlan:
     module: services.shot_planning.domain.enums
     enum: ShotVisualPlanStatus

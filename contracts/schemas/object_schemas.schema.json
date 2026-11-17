@@ -2645,6 +2645,79 @@
       ],
       "additionalProperties": true
     },
+    "ShotRouteSelection": {
+      "type": "object",
+      "description": "权威所有者：Generation Execution Domain（修订 V205-R14-A9；基线 31.2 Phase 1「单一路线生成」）。镜头的生效生产路线记录：同一项目同一镜头在任一时刻只允许一条生效路线（数据库唯一约束 (tenant_id, project_id, shot_id)）。由 PRODUCTION.ROUTE.SELECT 写入——重复选择同一路线幂等返回既有记录；选择另一条路线以 ROUTE_ALREADY_SELECTED（409）结构化拒绝，不得静默排队。生效路线是**受理事实**：登记后不可改写（变更路线的治理动作不在动作矩阵中，fail-closed）。status 恒为 ACTIVE，无状态转移（state_machines.yaml 登记为单值状态集）。",
+      "required": [
+        "selection_id",
+        "project_id",
+        "shot_id",
+        "route_id",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "selection_id": {
+          "type": "string"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "shot_id": {
+          "type": "string"
+        },
+        "route_id": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "x-afs-sources": [
+        "31.2 Phase 1 核心生产主链「单一路线生成」",
+        "动作矩阵 PRODUCTION.ROUTE.SELECT 行（scope project/shot/task）",
+        "C.7 关键状态机与版本不可变规则（事实记录不可原地改写）"
+      ],
+      "additionalProperties": true
+    },
     "ShotDraft": {
       "type": "object",
       "description": "权威所有者：Shot Planning Domain。AI 剧本拆镜输出的草案（ADR-R07 债务兑现，ADR-032 草案优先、人工确认）。不写正式 ShotRevision，确认前不得进入 DAG。",

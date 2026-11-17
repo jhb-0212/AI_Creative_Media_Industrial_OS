@@ -218,6 +218,15 @@ objects:
   - 动作矩阵 GENERATION.REQUEST 行
   - 9.4 重试与故障分类（Worker 崩溃重新领取、失败为终结态）
   - 31.3 核心生产流程（生成任务环）
+- object: ShotRouteSelection
+  authoritative_source: 31.2 Phase 1 核心生产主链「单一路线生成」+ 动作矩阵 PRODUCTION.ROUTE.SELECT 行
+  states: ACTIVE（单值；无转移）
+  note: 生效路线是**受理事实**，不是生命周期对象——同一项目同一镜头在任一时刻只有一条 ACTIVE 记录（数据库唯一约束），登记后不可改写、不可删除、无状态转移。设计理由是「变更路线」属于独立治理动作（触发既有资产 STALE 传播、需要审批），动作矩阵中没有对应 action：造一条 ACTIVE→SUPERSEDED 边却没有任何合法入口，等于在契约里留一个不可达状态。故本对象只有登记与拒绝两种结果，任何状态改写一律拒绝（数据库守卫触发器同表拦截）。
+  source_kind: text_only_definition
+  all_sources:
+  - 31.2 Phase 1 核心生产主链（单一路线生成）
+  - 动作矩阵 PRODUCTION.ROUTE.SELECT 行（scope project/shot/task）
+  - C.7 关键状态机与版本不可变规则（事实记录不可原地改写）
 - object: QCReviewSession
   authoritative_source: C.7 关键状态机与版本不可变规则
   states: OPEN→IN_REVIEW→DECISION_PENDING→RESOLVED→GATE_ELIGIBLE→CLOSED

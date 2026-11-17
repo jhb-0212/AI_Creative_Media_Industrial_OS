@@ -262,6 +262,15 @@ objects:
   - 动作矩阵 GENERATION.REQUEST 行
   - 9.4 重试与故障分类（失败为终结态、重试上限）
   - 31.3 核心生产流程（生成任务环）
+- object: ShotRouteSelection
+  authoritative_source: 31.2 Phase 1 核心生产主链「单一路线生成」+ 动作矩阵 PRODUCTION.ROUTE.SELECT 行
+  states:
+  - ACTIVE
+  note: 单值状态集——生效路线是受理事实而非生命周期对象，登记后不可改写、无状态转移（V205-R14-A9 追认；变更路线属独立治理动作，动作矩阵无入口，故不造 SUPERSEDED 边）。
+  source_kind: text_only_definition
+  all_sources:
+  - 31.2 Phase 1 核心生产主链（单一路线生成）
+  - 动作矩阵 PRODUCTION.ROUTE.SELECT 行
 - object: QCReviewSession
   authoritative_source: C.7 关键状态机与版本不可变规则
   states:

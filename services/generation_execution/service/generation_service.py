@@ -13,7 +13,11 @@
      镜头标记 NOT_APPLICABLE）；
   4. retry_of（可选）必须指向同项目同镜头的 FAILED 终态任务，新任务
      attempt = 被重试任务 attempt + 1——重试以新任务承载，不在原任务复活；
-  5. 受理发出契约登记的审计事件 GENERATION_REQUESTED。
+  5. 路线必须是该镜头**当前生效路线**（ShotRouteSelection，V205-R14-A9）：
+     未选路或路线不一致一律 409 ROUTE_NOT_EFFECTIVE。这是「单一路线生成」
+     （Phase 1 验收 C4）在受理侧的强制——只守选路入口不守受理入口，
+     同一镜头仍可在两个路线上各受理一次生成；
+  6. 受理发出契约登记的审计事件 GENERATION_REQUESTED。
 - ``rights_manifest_ref``（可选，ADR-R33）：本次产出的权利凭据引用。它不影响
   受理是否成立（生成可以先做），但决定产出能否进入批准链：资产批准要求
   权利证据非空，缺失时资产照样登记却不可批准——fail-closed，不伪造权利事实。
@@ -57,6 +61,9 @@ from services.generation_execution.repository.generation_task_repo import (
 from services.generation_execution.repository.production_route_repo import (
     ProductionRouteRepository,
 )
+from services.generation_execution.repository.shot_route_selection_repo import (
+    ShotRouteSelectionRepository,
+)
 
 #: 引用字段 →（解析资源类型）。constraint_snapshot_ref 的哨兵值单独处理。
 _REF_RESOURCE_TYPES: tuple[tuple[str, str], ...] = (
@@ -72,11 +79,13 @@ class GenerationService:
         self,
         task_repository: GenerationTaskRepository,
         route_repository: ProductionRouteRepository,
+        selection_repository: ShotRouteSelectionRepository,
         ref_ownership_port: RefOwnershipPort,
         outbox_writer: OutboxWriter,
     ) -> None:
         self._task_repository = task_repository
         self._route_repository = route_repository
+        self._selection_repository = selection_repository
         self._ref_ownership_port = ref_ownership_port
         self._outbox_writer = outbox_writer
 
@@ -198,6 +207,17 @@ class GenerationService:
                 organization_id=principal.organization_id,
             )
 
+        # 4) 生效路线一致性（单一路线生成，Phase 1 验收 C4 / V205-R14-A9）：
+        #    生成必须落在该镜头**当前生效**的路线上。
+        #    没有这一条，「同一镜头在两个路线上各受理一次生成」仍然成立——
+        #    路线的唯一性只在选路入口守着，受理入口却可以绕过它另开一条。
+        #    顺序刻意排在最后：先判请求本身是否合法（对象存在 / 状态 / 归属），
+        #    再判状态一致性——请求还没修好时告诉调用方"路线不是生效路线"
+        #    只会把真正的输入错误藏起来。
+        await self._assert_route_effective(
+            project_id=project_id, shot_id=shot_id, route_id=route_id
+        )
+
         task = GenerationTask(
             entity_id=f"gen_{uuid4().hex[:12]}",
             created_by=principal.subject_id,
@@ -237,6 +257,51 @@ class GenerationService:
             },
         )
         return task
+
+    async def _assert_route_effective(
+        self, *, project_id: str, shot_id: str, route_id: str
+    ) -> None:
+        """生成路线必须是该镜头当前生效路线（单一路线生成）。
+
+        两种不成立的情形都给同一个结构化结论 ``ROUTE_NOT_EFFECTIVE``（409）：
+        - 镜头尚未选路：拒绝而不是"顺手帮你选"——默认选路会让"谁定的路线"
+          这个事实消失，出了问题无人可问；
+        - 路线与生效路线不一致：拒绝而不是"按生效路线执行"——静默替换输入，
+          调用方会以为自己在跑路线 B，产出的却是路线 A 的东西。
+
+        用 409 而不是 422：请求本身是合法的，冲突来自平台当前状态。
+        """
+        effective = await self._selection_repository.get_effective(
+            project_id=project_id, shot_id=shot_id
+        )
+        if effective is None:
+            raise DomainError(
+                ErrorRegistry.ROUTE_NOT_EFFECTIVE,
+                detail=(
+                    f"镜头 {project_id}/{shot_id} 尚无生效生产路线，"
+                    "须先经 PRODUCTION.ROUTE.SELECT 选路（单一路线生成）"
+                ),
+                context={
+                    "project_id": project_id,
+                    "shot_id": shot_id,
+                    "requested_route_id": route_id,
+                },
+            )
+        if effective.route_id != route_id:
+            raise DomainError(
+                ErrorRegistry.ROUTE_NOT_EFFECTIVE,
+                detail=(
+                    f"路线 {route_id} 不是镜头 {project_id}/{shot_id} 的生效路线"
+                    f"（生效路线为 {effective.route_id}）——单一路线生成拒绝"
+                ),
+                context={
+                    "project_id": project_id,
+                    "shot_id": shot_id,
+                    "requested_route_id": route_id,
+                    "effective_route_id": effective.route_id,
+                    "effective_selection_id": effective.entity_id,
+                },
+            )
 
     async def _assert_ref_owned(
         self,

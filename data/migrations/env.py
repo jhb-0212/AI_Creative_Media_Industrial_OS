@@ -33,6 +33,7 @@ from services.generation_execution.repository.orm import (  # noqa: F401
     GenerationTaskStatusTransitionModel,
     ProductionRouteModel,
     ProductionRouteStatusTransitionModel,
+    ShotRouteSelectionModel,
 )
 from services.project_planning.repository.orm import (  # noqa: F401
     EpisodeModel,

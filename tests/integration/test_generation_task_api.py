@@ -37,6 +37,7 @@ from tests.support.generation_seed import (
     new_route_id,
     request_body,
     seed_route,
+    seed_selection,
     seed_shot_refs,
     seed_task,
 )
@@ -83,14 +84,25 @@ async def test_generation_request_admitted(
     shot_sm: async_sessionmaker[AsyncSession],
     route_id: str,
 ) -> None:
-    """受理成功：任务落 PENDING，审计事件进 outbox，引用真实跨域解析。"""
+    """受理成功：任务落 PENDING，审计事件进 outbox，引用真实跨域解析。
+
+    每测试唯一项目：该镜头必须先"已选路"（前置），而生效路线是只增不改的
+    结构事实——复用固定项目会让第二次运行从"受理成功"变成"409"。
+    """
+    project = f"proj_{uuid.uuid4().hex[:8]}"
     await seed_route(gen_sm, route_id=route_id)
-    spec_id, vplan_id = await seed_shot_refs(shot_sm, project_id=_PROJECT)
+    spec_id, vplan_id = await seed_shot_refs(shot_sm, project_id=project)
+    await seed_selection(gen_sm, route_id=route_id, project_id=project)
 
     resp = await auth_client.post(
         "/actions/generation.request",
         headers=_auth_headers(),
-        json=request_body(route_id=route_id, spec_ref=spec_id, vplan_ref=vplan_id),
+        json=request_body(
+            route_id=route_id,
+            project_id=project,
+            spec_ref=spec_id,
+            vplan_ref=vplan_id,
+        ),
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -112,7 +124,7 @@ async def test_generation_request_admitted(
             )
         ).scalar_one_or_none()
     assert row is not None
-    assert row["project_id"] == _PROJECT
+    assert row["project_id"] == project
     assert row["attempt"] == 1
 
 
@@ -172,17 +184,23 @@ async def test_retry_of_failed_task_increments_attempt(
     route_id: str,
 ) -> None:
     """重试以新任务承载：FAILED 任务可被引用，新任务 attempt+1。"""
+    project = f"proj_{uuid.uuid4().hex[:8]}"
     await seed_route(gen_sm, route_id=route_id)
-    spec_id, vplan_id = await seed_shot_refs(shot_sm, project_id=_PROJECT)
+    spec_id, vplan_id = await seed_shot_refs(shot_sm, project_id=project)
     failed = await seed_task(
-        gen_sm, entity_id=f"gen_fail_{uuid.uuid4().hex[:8]}", route_id=route_id
+        gen_sm,
+        entity_id=f"gen_fail_{uuid.uuid4().hex[:8]}",
+        route_id=route_id,
+        project_id=project,
     )
+    await seed_selection(gen_sm, route_id=route_id, project_id=project)
 
     resp = await auth_client.post(
         "/actions/generation.request",
         headers=_auth_headers(),
         json=request_body(
             route_id=route_id,
+            project_id=project,
             spec_ref=spec_id,
             vplan_ref=vplan_id,
             retry_of=failed.entity_id,
@@ -422,6 +440,7 @@ async def test_worker_failure_path_is_terminal_and_retryable_via_new_task(
 
     # 失败任务不复活：经 API 重试 → 新任务 attempt+1。
     await seed_route(gen_sm, route_id=route_id)
+    await seed_selection(gen_sm, route_id=route_id, project_id=project)
     spec_id, vplan_id = await seed_shot_refs(shot_sm, project_id=project)
     resp = await auth_client.post(
         "/actions/generation.request",

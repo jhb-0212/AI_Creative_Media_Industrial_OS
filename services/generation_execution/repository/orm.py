@@ -1,7 +1,8 @@
 """Generation Execution ORM 模型（映射到独立 schema：generation_execution）。
 
 数据所有权（V2.0.5 14.2 / ADR-R27 范式）：
-- generation_execution 模块拥有 ProductionRoute / GenerationTask 表的写入权；
+- generation_execution 模块拥有 ProductionRoute / GenerationTask /
+  ShotRouteSelection 表的写入权；
 - 使用独立 schema「generation_execution」与独立数据库角色
   svc_generation_execution（packages/shared/db_roles.py）；
 - 表结构严格对齐 C.3.1 通用实体信封字段（信封列收敛到 EntityMixin）。
@@ -11,7 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Index, String, text
+from sqlalchemy import DateTime, Index, String, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -126,3 +127,30 @@ class GenerationTaskStatusTransitionModel(Base):
 
     from_status: Mapped[str] = mapped_column(String(32), primary_key=True)
     to_status: Mapped[str] = mapped_column(String(32), primary_key=True)
+
+
+class ShotRouteSelectionModel(EntityMixin, Base):
+    """shot_route_selections 表模型（镜头生效路线，A9）。
+
+    唯一约束 ``(tenant_id, project_id, shot_id)`` 是「单一路线生成」的结构事实：
+    同一镜头在任一时刻只能有一条生效路线。它不能靠"选路前先查一下"实现——
+    两个并发请求都会查到"没有"，然后都插入成功；只有约束能让第二个必然失败。
+
+    没有 UPDATE 语义：生效路线是受理事实，数据库守卫触发器拒绝任何改写与删除，
+    应用角色也没有 UPDATE/DELETE 权限（见迁移 e1f2a3b4c5d6）。
+    """
+
+    __tablename__ = "shot_route_selections"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "shot_id",
+            name="ux_shot_route_selection_effective",
+        ),
+        {"schema": SCHEMA_NAME},
+    )
+
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    shot_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    route_id: Mapped[str] = mapped_column(String(64), nullable=False)

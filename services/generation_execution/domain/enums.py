@@ -2,6 +2,7 @@
 
 严格对齐冻结契约：
 - object_schemas.schema.json → ProductionRoute（V205-R14-A6 追认）
+- object_schemas.schema.json → ShotRouteSelection（V205-R14-A9 追认）
 - 契约修订 A6 残余风险登记：状态集随本域实现段显式定型（本次定型）
 """
 
@@ -44,3 +45,20 @@ class GenerationTaskStatus(str, Enum):
     RUNNING = "RUNNING"      # worker 已领取，执行中
     SUCCEEDED = "SUCCEEDED"  # 产出就绪（终态）
     FAILED = "FAILED"        # 执行失败（终态；重试以新任务承载）
+
+
+class ShotRouteSelectionStatus(str, Enum):
+    """镜头生效路线的状态（单值状态集，无转移）。
+
+    对齐契约依据（V205-R14-A9 / 基线正文既有规则，非新造）：
+    - 31.2 Phase 1 核心生产主链：**单一路线生成**；
+    - C.7：事实记录不可原地改写。
+
+    为什么只有一个值：生效路线是「某镜头在某一刻选定某路线」的**受理事实**，
+    不是生命周期对象。它不是"会推进"的东西，只有两种结局——登记成功或被
+    拒绝（ROUTE_ALREADY_SELECTED）。造一个 SUPERSEDED 值却没有对应 action
+    可触发，等于在契约里留一个不可达状态；真正的路线变更（带 STALE 传播与
+    审批）应由独立治理动作承载，届时同步扩状态集。
+    """
+
+    ACTIVE = "ACTIVE"  # 唯一的生效态（登记后不可改写、不可删除）

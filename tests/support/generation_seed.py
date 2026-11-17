@@ -21,11 +21,17 @@ from services.generation_execution.domain.enums import (
 )
 from services.generation_execution.domain.generation_task import GenerationTask
 from services.generation_execution.domain.production_route import ProductionRoute
+from services.generation_execution.domain.shot_route_selection import (
+    ShotRouteSelection,
+)
 from services.generation_execution.repository.generation_task_sqlalchemy_repo import (
     SqlAlchemyGenerationTaskRepository,
 )
 from services.generation_execution.repository.production_route_sqlalchemy_repo import (
     SqlAlchemyProductionRouteRepository,
+)
+from services.generation_execution.repository.shot_route_selection_sqlalchemy_repo import (
+    SqlAlchemyShotRouteSelectionRepository,
 )
 from tests.conftest import TEST_TENANT_ID, apply_db_context, set_raw_rls_context
 
@@ -147,6 +153,34 @@ async def seed_task(
         await SqlAlchemyGenerationTaskRepository(session).add(task)
         await session.commit()
     return task
+
+
+async def seed_selection(
+    gen_sm: SessionMaker,
+    *,
+    route_id: str,
+    project_id: str = DEFAULT_TEST_PROJECT,
+    shot_id: str = "SHOT_001",
+) -> ShotRouteSelection:
+    """播种镜头生效路线（受理前置：GENERATION.REQUEST 要求路线是生效路线）。
+
+    经仓储端口 + RLS 写入，与 PRODUCTION.ROUTE.SELECT 的生产路径同口径
+    （唯一约束、不可变守卫都参与）。用例若要验证"选路"本身的行为，请走 HTTP
+    入口，不要用本函数——种子的职责只是把测试推进到"已选路"这个前提。
+    """
+    selection = ShotRouteSelection(
+        entity_id=f"srs_{uuid.uuid4().hex[:12]}",
+        project_id=project_id,
+        shot_id=shot_id,
+        route_id=route_id,
+        created_by="producer_001",
+        tenant_id=TEST_TENANT_ID,
+    )
+    async with gen_sm() as session:
+        await apply_db_context(session, project_ids=(project_id,))
+        await SqlAlchemyShotRouteSelectionRepository(session).add(selection)
+        await session.commit()
+    return selection
 
 
 def request_body(

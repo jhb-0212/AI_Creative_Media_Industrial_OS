@@ -16,9 +16,10 @@
    适配器认识的字符串；
 3. **审计链完整**：契约登记的事件沿同一条链真实到达 outbox（按 aggregate
    逐个核对，不靠"事件总数看起来对"）；
-4. **证据与角色闸门真的会拦**：DRAFT 约束包进不了生成受理、GENERATED 资产
-   进不了交付清单、制片头衔生成不了交付清单——负向断言就插在正向路径的同一个
-   测试里，证明闸门在链上生效，而不是只在别的文件里存在。
+4. **证据与角色闸门真的会拦**：DRAFT 约束包进不了生成受理、同一镜头的第二条
+   路线被拒且非生效路线进不了生成受理、GENERATED 资产进不了交付清单、
+   制片头衔生成不了交付清单——负向断言就插在正向路径的同一个测试里，证明
+   闸门在链上生效，而不是只在别的文件里存在。
 
 诚实边界（不允许伪装成"已实现"）：
 1. ShotSpec / ShotVisualPlan 的**创建**是内部领域用例（契约没有冻结对应
@@ -377,10 +378,38 @@ async def test_phase1_main_chain_end_to_end(
         )
         assert resp.status_code == 200, resp.text
         assert resp.json()["audit_event"] == "PRODUCTION_ROUTE_SELECTED"
+        selection_id = resp.json()["selection_id"]
+
+        # 负向（C4 选路面）：同一镜头的第二条路线必须被拒绝，且不得静默排队。
+        # 这是 Phase 1 验收清单里唯一以"并发"为口径的条目——这里不并发是为了
+        # 让断言确定性；并发口径由 test_generation_route_api 的 gather 用例覆盖。
+        second_route_id = await _seed_verified_route(gen_sm, project_scope=project_id)
+        resp = await producer.post(
+            "/actions/production.route.select",
+            json={
+                "route_id": second_route_id,
+                "project_id": project_id,
+                "shot_id": shot_id,
+            },
+        )
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["error_code"] == "ROUTE_ALREADY_SELECTED"
+        assert resp.json()["details"]["effective_route_id"] == route_id
+        assert resp.json()["details"]["effective_selection_id"] == selection_id
 
         # ------------------------------------------------------------------
         # 8) 生成受理（GENERATION.REQUEST）
         # ------------------------------------------------------------------
+        # 负向（C4 受理面）：在非生效路线上受理生成必须被拒——只守选路入口
+        # 的话，"同一镜头在两个路线上各受理一次生成"仍然成立。
+        resp = await director.post(
+            "/actions/generation.request",
+            json={**request_body, "route_id": second_route_id},
+        )
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["error_code"] == "ROUTE_NOT_EFFECTIVE"
+        assert resp.json()["details"]["effective_route_id"] == route_id
+
         resp = await director.post("/actions/generation.request", json=request_body)
         assert resp.status_code == 200, resp.text
         accepted = resp.json()

@@ -119,6 +119,20 @@ class ErrorRegistry:
         message="目标对象不存在",
     )
 
+    # 单一路线生成（Phase 1 验收 C4，V205-R14-A9）
+    ROUTE_ALREADY_SELECTED = ErrorCode(
+        code="ROUTE_ALREADY_SELECTED",
+        category=ErrorCategory.CONFLICT,
+        http_status=409,
+        message="该镜头已有生效生产路线，第二路线被拒绝（单一路线生成）",
+    )
+    ROUTE_NOT_EFFECTIVE = ErrorCode(
+        code="ROUTE_NOT_EFFECTIVE",
+        category=ErrorCategory.CONFLICT,
+        http_status=409,
+        message="请求的路线不是该镜头当前生效的生产路线",
+    )
+
     # 限流
     RATE_LIMIT = ErrorCode(
         code="RATE_LIMIT",

@@ -300,6 +300,7 @@ amendments:
       # 2026-11-17 段 2（ADR-R31）收口进度：
       - 'A7 收口（部分）：ProductionRoute 状态机条目已登记，状态集定型 UNVERIFIED→VERIFIED（VERIFIED 终态；A6 预估的 RETIRED 无基线语义，不造撤销边）；14.1 目录树与 14.2 矩阵 Generation Execution 行已入正文；PRODUCTION_ROUTE_SELECTED 已随 PRODUCTION.ROUTE.SELECT 实现（段 2）当日登记'
       - 'A6 收口进度（2026-11-17 段 3，ADR-R32）：GenerationTask 状态机条目已随 A8 登记（PENDING→RUNNING→SUCCEEDED/FAILED，终态定型）；GENERATION_REQUESTED 已随 GENERATION.REQUEST 实现（段 3）当日登记；两对象数据所有权行已在 14.2（A7）'
+      - 'A6 收口进度（2026-11-17，ADR-R35）：A6 冻结的两对象不足以承载 Phase 1 C4「单一路线生成」——ProductionRoute 是能力目录条目（无 project/shot 归属），GenerationTask 是单次生成任务，二者都不回答"这个镜头现在走哪条路线"。已由 A9 新增强制对象 ShotRouteSelection 补齐，选路入口与受理入口双向强制'
       - '仍未收口：预算/配额数值校验与真实供应商适配随 budget_quota / model_gateway 域落地（ADR-R32 §3 债务）'
   - id: V205-R14-A7
     title: generation_execution 域落地登记：14.1 目录树 / 14.2 所有权矩阵行 / ProductionRoute 状态机条目
@@ -349,6 +350,32 @@ amendments:
       state_machines: 41
     residual_risks:
       - 'budget_quota 数值校验（不可超卖/租约/余额）与真实供应商适配（model_gateway）未实现，budget_reservation_ref/quota_reservation_ref 仅结构性准入——债务在 ADR-R32 §3 显式登记，budget_quota 域实现后把数值校验插入受理入口'
+  - id: V205-R14-A9
+    title: 镜头生效路线对象 ShotRouteSelection（Phase 1 验收 C4「单一路线生成」的契约载体）
+    retroactive: false
+    recorded_at: '2026-11-17'
+    discovered_by: docs/adr/ADR-R33-generation-output-asset-linkage.md §3 债务 7（C4 拒绝语义无载体）
+    reason: "Phase 1 验收清单 C4 要求「并发发起两条路线时拒绝第二条并给出结构化错误，不得静默排队」，但 A6 只冻结了 ProductionRoute（平台能力目录条目，字段集无 project/shot 归属）与 GenerationTask——没有任何对象承载「某镜头当前生效路线」，因此第二条路线会被接受，同一镜头也能在两个路线上各受理一次生成。基线依据：31.2 Phase 1 核心生产主链明确「单一路线生成」，C.7 要求事实记录不可原地改写。以修订追认一个「镜头生效路线」承载对象：唯一约束 (tenant_id, project_id, shot_id) 使「单一路线」成为结构事实而非应用层约定；单值状态 ACTIVE（变更路线属独立治理动作，动作矩阵无入口，不造不可达边）。不开新 action——写入入口仍是 PRODUCTION.ROUTE.SELECT。"
+    adr: docs/adr/ADR-R35-shot-route-selection.md
+    approved_by: 项目所有者（Phase 1 主链 C4 收口推进指令）
+    approved_at: '2026-11-17'
+    source_commits: []
+    additions:
+      actions: []
+      schema_objects:
+        - object: ShotRouteSelection
+          why: "镜头生效路线承载对象：selection_id/project_id/shot_id/route_id + 信封。唯一性（同项目同镜头仅一条）在数据库层强制；status 为单值 ACTIVE（state_machines.yaml 同批登记），登记后不可改写、不可删除。"
+      state_machines:
+        - object: ShotRouteSelection
+          why: "单值状态集 ACTIVE（无转移边）：登记事实的两种结果是「登记」与「拒绝」，不存在生命周期推进；任何状态改写由数据库守卫触发器拒绝。依据 31.2 单一路线生成 + C.7 不可原地改写。"
+    counts_after:
+      actions: 83
+      openapi_operations: 83
+      schema_objects: 85
+      state_machines: 42
+    residual_risks:
+      - '路线变更（同一镜头从路线 A 换到路线 B）没有治理动作：基线第 106/2215 行的「路线切换」属于白模/控制信号解耦语境，动作矩阵未给对应 action，且切换会触发既有资产的 STALE 传播（ADR-028）与审批——本修订只登记「拒绝静默改路」，切换流程随调度治理域落地时另立动作与状态边，届时须同时决定旧选择记录的处置（当前不可改写）'
+      - 'ShotRouteSelection 的 owner 矩阵行沿用 14.2 的 Generation Execution 行（A7 已入正文），未新增行——对象归属同域，不引入新的所有权边界'
 
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

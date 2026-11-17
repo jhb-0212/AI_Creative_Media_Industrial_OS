@@ -2,7 +2,10 @@
 
 契约对齐（动作矩阵 / openapi.draft /actions/production.route.select）：
 - PRODUCTION.ROUTE.SELECT：为镜头选定生产路线（MEDIUM，制片/TD/授权调度器）；
-  路线须处于 VERIFIED 且满足 rights/capability（ACT-ROUTE-NEG-001）。
+  路线须处于 VERIFIED 且满足 rights/capability（ACT-ROUTE-NEG-001）；
+- 选路同时写下该镜头的**生效路线**（ShotRouteSelection，V205-R14-A9）：
+  同一镜头已有生效路线时，选同一条路线幂等返回、换一条路线 409 拒绝
+  （ROUTE_ALREADY_SELECTED，Phase 1 验收 C4「单一路线生成」）；
 - 请求/响应走统一信封与错误信封；业务逻辑下沉到 RouteService。
 - 挂载在契约冻结路径 /actions/production.route.select 上（与 openapi.draft
   同路径，来源可追溯，与 constraint-pack 的资源式路径不同——本动作语义是
@@ -23,6 +26,9 @@ from packages.shared.unit_of_work import UnitOfWork
 from services.generation_execution.repository.production_route_sqlalchemy_repo import (
     SqlAlchemyProductionRouteRepository,
 )
+from services.generation_execution.repository.shot_route_selection_sqlalchemy_repo import (
+    SqlAlchemyShotRouteSelectionRepository,
+)
 from services.generation_execution.service.route_service import RouteService
 from services.identity_access.deps import (
     Principal,
@@ -42,19 +48,26 @@ class SelectRouteRequest(BaseModel):
 
 
 class RouteSelectionAccepted(BaseModel):
-    """选路受理回执（对齐 openapi.draft ActionAccepted）。"""
+    """选路受理回执（对齐 openapi.draft ActionAccepted）。
+
+    ``idempotent_replay``=True 表示该镜头早已在这条路线上：本次请求没有制造
+    新的生效事实（也没有第二条审计事件），返回的是既有记录。
+    """
 
     status: str = "ACCEPTED"
     audit_event: str = "PRODUCTION_ROUTE_SELECTED"
     route_id: str
     project_id: str
     shot_id: str
+    selection_id: str
+    idempotent_replay: bool = False
 
 
 def _build_service(session: Any) -> RouteService:
-    """服务装配：RLS 会话 + 路线仓储端口 + Outbox 写入端口。"""
+    """服务装配：RLS 会话 + 路线/生效路线仓储端口 + Outbox 写入端口。"""
     return RouteService(
         SqlAlchemyProductionRouteRepository(session),
+        SqlAlchemyShotRouteSelectionRepository(session),
         SqlAlchemyOutboxWriter(session),
     )
 
@@ -71,7 +84,11 @@ async def select_production_route(
     uow: UnitOfWork = Depends(get_generation_uow),
     service: RouteService = Depends(_get_service),
 ) -> RouteSelectionAccepted:
-    """为镜头选定生产路线（UNVERIFIED 路线拒绝：ACT-ROUTE-NEG-001）。"""
+    """为镜头选定生产路线（UNVERIFIED 路线拒绝：ACT-ROUTE-NEG-001）。
+
+    同一镜头第二条路线一律 409（ROUTE_ALREADY_SELECTED）——不得静默排队，
+    也不得"自动改路"（改路属独立治理动作，动作矩阵无入口）。
+    """
     authorize(
         principal,
         "PRODUCTION.ROUTE.SELECT",
@@ -79,7 +96,7 @@ async def select_production_route(
             resource_type="ProductionRoute", project_id=body.project_id
         ),
     )
-    route = await service.select_route(
+    result = await service.select_route(
         route_id=body.route_id,
         project_id=body.project_id,
         shot_id=body.shot_id,
@@ -87,7 +104,9 @@ async def select_production_route(
     )
     await uow.commit()
     return RouteSelectionAccepted(
-        route_id=route.entity_id,
-        project_id=body.project_id,
-        shot_id=body.shot_id,
+        route_id=result.route.entity_id,
+        project_id=result.selection.project_id,
+        shot_id=result.selection.shot_id,
+        selection_id=result.selection.entity_id,
+        idempotent_replay=not result.created,
     )

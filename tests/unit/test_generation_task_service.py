@@ -16,6 +16,9 @@ from services.generation_execution.domain.enums import (
 from services.generation_execution.domain.generation_task import GenerationTask
 from services.generation_execution.domain.ports import RefOwnership
 from services.generation_execution.domain.production_route import ProductionRoute
+from services.generation_execution.domain.shot_route_selection import (
+    ShotRouteSelection,
+)
 from services.generation_execution.domain.state_machine import (
     GENERATION_TASK_ALLOWED_TRANSITIONS,
 )
@@ -24,6 +27,9 @@ from services.generation_execution.repository.generation_task_repo import (
 )
 from services.generation_execution.repository.production_route_repo import (
     ProductionRouteRepository,
+)
+from services.generation_execution.repository.shot_route_selection_repo import (
+    ShotRouteSelectionRepository,
 )
 from services.generation_execution.service.generation_service import GenerationService
 
@@ -117,6 +123,26 @@ class _FakeRouteRepository(ProductionRouteRepository):
         return self._store.get(entity_id)
 
 
+class _FakeSelectionRepository(ShotRouteSelectionRepository):
+    """生效路线 fake：同 (project, shot) 只允许一条（与数据库唯一约束同义）。"""
+
+    def __init__(self) -> None:
+        self._store: dict[tuple[str, str], ShotRouteSelection] = {}
+
+    async def add(self, selection: ShotRouteSelection) -> None:
+        from packages.errors.repository_errors import DuplicateEntityError
+
+        key = (selection.project_id, selection.shot_id)
+        if key in self._store:
+            raise DuplicateEntityError(entity=f"{selection.project_id}/{selection.shot_id}")
+        self._store[key] = selection
+
+    async def get_effective(
+        self, *, project_id: str, shot_id: str
+    ) -> ShotRouteSelection | None:
+        return self._store.get((project_id, shot_id))
+
+
 class _FakeRefOwnershipPort:
     """登记式 fake：resource_id → project_id 映射；未登记类型 fail-closed。"""
 
@@ -144,13 +170,33 @@ class _Harness:
     def __init__(self, ownership: dict[str, str] | None = None) -> None:
         self.tasks = _FakeTaskRepository()
         self.routes = _FakeRouteRepository()
+        self.selections = _FakeSelectionRepository()
         self.outbox = _RecordingOutboxWriter()
         self.port = _FakeRefOwnershipPort(
             ownership if ownership is not None else dict(_DEFAULT_OWNERSHIP)
         )
         self.service = GenerationService(
-            self.tasks, self.routes, self.port, self.outbox
+            self.tasks, self.routes, self.selections, self.port, self.outbox
         )
+
+    def seed_selection(
+        self,
+        route_id: str = "route_001",
+        *,
+        project_id: str = "proj_001",
+        shot_id: str = "SHOT_001",
+    ) -> ShotRouteSelection:
+        """播种该镜头的生效路线（受理前置：先选路，再生成）。"""
+        selection = ShotRouteSelection(
+            entity_id=f"srs_{uuid4().hex[:8]}",
+            project_id=project_id,
+            shot_id=shot_id,
+            route_id=route_id,
+            created_by="producer_000",
+            tenant_id=_TENANT,
+        )
+        self.selections._store[(project_id, shot_id)] = selection
+        return selection
 
     def seed_verified_route(self, route_id: str = "route_001") -> None:
         self.routes.seed(
@@ -232,6 +278,7 @@ class TestRequestGenerationAdmission:
     async def test_admitted_task_is_pending_and_event_emitted(self) -> None:
         h = _Harness()
         h.seed_verified_route()
+        h.seed_selection()
 
         task = await h.service.request_generation(**_request_args())
 
@@ -313,8 +360,46 @@ class TestRequestGenerationAdmission:
         """31.3：无锁定约束镜头标记 NOT_APPLICABLE，不做归属解析。"""
         h = _Harness()
         h.seed_verified_route()
+        h.seed_selection()
         task = await h.service.request_generation(**_request_args())
         assert task.constraint_snapshot_ref == "NOT_APPLICABLE"
+
+
+    @pytest.mark.asyncio
+    async def test_route_without_effective_selection_rejected(self) -> None:
+        """单一路线生成（C4）：未选路就不得受理生成（409 ROUTE_NOT_EFFECTIVE）。
+
+        拒绝而不是"顺手帮你选"：默认选路会让"谁定的路线"这个事实消失。
+        """
+        h = _Harness()
+        h.seed_verified_route()
+
+        with pytest.raises(DomainError) as exc_info:
+            await h.service.request_generation(**_request_args())
+
+        err = exc_info.value
+        assert err.error_code.code == "ROUTE_NOT_EFFECTIVE"
+        assert err.error_code.http_status == 409
+        assert err.context["shot_id"] == "SHOT_001"
+        assert err.context["requested_route_id"] == "route_001"
+        assert h.outbox.events == [], "拒绝路径不得发出受理事件"
+
+    @pytest.mark.asyncio
+    async def test_non_effective_route_rejected(self) -> None:
+        """同一镜头在另一条路线上受理生成 = C4 漏洞，必须拒绝。"""
+        h = _Harness()
+        h.seed_verified_route("route_a")
+        h.seed_verified_route("route_b")
+        selection = h.seed_selection("route_a")
+
+        with pytest.raises(DomainError) as exc_info:
+            await h.service.request_generation(**_request_args(route_id="route_b"))
+
+        err = exc_info.value
+        assert err.error_code.code == "ROUTE_NOT_EFFECTIVE"
+        assert err.context["effective_route_id"] == "route_a"
+        assert err.context["effective_selection_id"] == selection.entity_id
+        assert h.outbox.events == []
 
 
 class TestRetryChain:
@@ -323,6 +408,7 @@ class TestRetryChain:
         """重试以新任务承载：引用 FAILED 终态任务，attempt+1。"""
         h = _Harness()
         h.seed_verified_route()
+        h.seed_selection()
         _seed_failed_task(h.tasks)
 
         task = await h.service.request_generation(
