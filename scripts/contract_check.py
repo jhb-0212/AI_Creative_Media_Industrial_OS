@@ -136,6 +136,10 @@ def parse_state_chain(text: str) -> set[tuple[str, str]]:
 # 所有对象的状态机统一集中在 domain/state_machine.py（单一事实源），
 # 避免各聚合根内嵌转移表导致落点不一致。
 _STATE_MACHINE_SOURCES: dict[str, tuple[str, str]] = {
+    "ProductionRoute": (
+        "services.generation_execution.domain.state_machine",
+        "PRODUCTION_ROUTE_ALLOWED_TRANSITIONS",
+    ),
     "Project": ("services.project_planning.domain.state_machine", "ALLOWED_TRANSITIONS"),
     "ScriptRevision": (
         "services.project_planning.domain.state_machine",

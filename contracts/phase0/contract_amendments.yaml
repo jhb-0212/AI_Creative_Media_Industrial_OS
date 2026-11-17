@@ -297,6 +297,34 @@ amendments:
       - '两对象状态机条目未在 state_machines.yaml 登记（ProductionRoute UNVERIFIED→VERIFIED/RETIRED、GenerationTask PENDING→RUNNING→SUCCEEDED/FAILED），待 generation_execution 域实现时一并补登——不猜契约：状态集以域实现段按基线口径显式定型'
       - '两对象的数据所有权（14.2 矩阵 Generation Execution 行）随域实现段走基线正文修订登记，与 A4→A5 序列同范式；owner_module 取值 generation-execution'
       - 'GENERATION_REQUESTED / PRODUCTION_ROUTE_SELECTED 事件按双向校验规则不预先登记，随段 3 实现落地当日登记'
+      # 2026-11-17 段 2（ADR-R31）收口进度：
+      - 'A7 收口（部分）：ProductionRoute 状态机条目已登记，状态集定型 UNVERIFIED→VERIFIED（VERIFIED 终态；A6 预估的 RETIRED 无基线语义，不造撤销边）；14.1 目录树与 14.2 矩阵 Generation Execution 行已入正文；PRODUCTION_ROUTE_SELECTED 已随 PRODUCTION.ROUTE.SELECT 实现（段 2）当日登记'
+      - '仍未收口：GenerationTask 状态机与 GENERATION_REQUESTED 事件随段 3（GENERATION.REQUEST 实现）落地'
+  - id: V205-R14-A7
+    title: generation_execution 域落地登记：14.1 目录树 / 14.2 所有权矩阵行 / ProductionRoute 状态机条目
+    retroactive: false
+    recorded_at: '2026-11-17'
+    discovered_by: ADR-R31（Phase 1 主链段 2：PRODUCTION.ROUTE.SELECT 实现）
+    reason: "generation_execution 域以独立 schema + svc_generation_execution 角色落地（ADR-R16/R27 范式），PRODUCTION.ROUTE.SELECT 实现当日按「实现段登记」纪律补登三处：14.1 工程目录树加 generation-execution/；14.2 矩阵加 Generation Execution 行（ProductionRoute、GenerationTask——GenerationTask 为该域所有对象，实现随段 3）；state_machines.yaml 登记 ProductionRoute 状态机（UNVERIFIED→VERIFIED，状态集依据基线 16.1/16.2 与动作矩阵前置条件，VERIFIED 终态无撤销边）。"
+    adr: docs/adr/ADR-R31-generation-execution-domain.md
+    approved_by: 项目所有者（未闭合项收口指令 ①–⑤，任务 ② 段 2）
+    approved_at: '2026-11-17'
+    source_commits:
+      - 'ca5afea'  # feat(contract): A6 生成执行域对象契约（本修订的契约前置）
+    additions:
+      actions: []
+      schema_objects: []
+      state_machines:
+        - object: ProductionRoute
+          why: "UNVERIFIED→VERIFIED 唯一登记边，VERIFIED 终态；依据 16.1 未验证能力不得进入生产路由、16.2 仅可对实际通过验证的能力标 VERIFIED、动作矩阵前置条件「路线须处于 VERIFIED」。VERIFIED 标定入口是适配器验证工作流（与 EXTERNAL_TOOL.ADAPTER.VERIFY 同源规则），契约未给路线级状态变更 action，路线目录由运维播种（ADR-R31 §3）"
+    counts_after:
+      actions: 83
+      openapi_operations: 83
+      schema_objects: 84
+      state_machines: 40
+    residual_risks:
+      - 'contract_check 的转移入口债务启发式把 PRODUCTION.ROUTE.SELECT（非 CREATE/READ）当作 ProductionRoute 的状态变更入口——该动作实际不改路线状态，此启发式偏差在 ADR-R31 §3 显式说明，不作为验证入口已补上的证据'
+      - 'GenerationTask 状态机与 GENERATION_REQUESTED 事件随段 3 落地，届时走 A8 登记'
 
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

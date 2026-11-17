@@ -140,6 +140,9 @@ from services.asset_service.api.asset_routes import router as asset_router  # no
 from services.asset_service.api.delivery_routes import (  # noqa: E402
     router as delivery_router,
 )
+from services.generation_execution.api.route_routes import (  # noqa: E402
+    router as generation_route_router,
+)
 from services.project_planning.api.episode_routes import router as episode_router  # noqa: E402
 from services.project_planning.api.project_routes import router as project_router  # noqa: E402
 from services.project_planning.api.script_routes import router as script_router  # noqa: E402
@@ -158,6 +161,7 @@ app.include_router(shot_router)
 app.include_router(spec_router)
 app.include_router(constraint_pack_router)
 app.include_router(asset_router)
+app.include_router(generation_route_router)
 app.include_router(delivery_router)
 app.include_router(gate_router)
 app.include_router(workflow_router)

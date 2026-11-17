@@ -1941,6 +1941,7 @@ my-ai-studio/
 │   ├── orchestrator/
 │   ├── project-planning/
 │   ├── shot-planning/
+│   ├── generation-execution/
 │   ├── asset-service/
 │   ├── rights-governance/
 │   ├── model-gateway/
@@ -2019,6 +2020,7 @@ my-ai-studio/
 | Orchestration | WorkflowRun、Task、Dependency、GateInstance、Outbox/Inbox | Orchestrator Domain Service | Command API、Task/Gate Events |
 | Asset Management | Asset、AssetVersion、Manifest、Storage Metadata、BlockingAsset 文件版本 | Asset Service | Asset API、AssetVersionCreated Event |
 | Model Gateway | Provider、ModelCapability、ModelInvocation、ProviderJob | Model Gateway | Submit/Status API、Invocation Events |
+| Generation Execution | ProductionRoute、GenerationTask（生成任务） | Generation Domain Service | Route Select API、GenerationTask Events |
 | Quality & Governance | QCReport、DetectorRegistry、Benchmark、QualityProfile、RightsCase、Override | QC/Governance Service | Evaluate API、Governance Gate Events |
 | Memory & Learning | Memory、Canon Index、MemoryVersion、Feedback、Pattern Evidence | Memory Service | Memory Query/Write API |
 | Cost & Operations | CostLedger、Forecast、Capacity Snapshot、RCA、SLO Metrics | Cost/Ops/RCA Domain Services | Forecast/RCA API、Operational Events |

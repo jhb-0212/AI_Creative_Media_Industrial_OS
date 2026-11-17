@@ -52,6 +52,10 @@ bindings:
     module: services.shot_planning.domain.enums
     enum: ConstraintPackStatus
     source: enum_registry
+  ProductionRoute:
+    module: services.generation_execution.domain.enums
+    enum: ProductionRouteStatus
+    source: enum_registry
   ShotVisualPlan:
     module: services.shot_planning.domain.enums
     enum: ShotVisualPlanStatus

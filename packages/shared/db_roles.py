@@ -44,6 +44,11 @@ class DatabaseDomain(StrEnum):
     SHOT_PLANNING = "shot_planning"
     # 资产版本与 QC 报告（services.asset_service）
     ASSET = "asset"
+    # 生成执行（services.generation_execution）：生产路线目录与生成任务
+    # （V2.0.5 14.2 Generation Execution 行 / ADR-R31）。独立于资产域：
+    # "生成流水线"与"资产事实"是两类职责，共用身份会让任务执行路径
+    # 同时握有资产写入权。
+    GENERATION_EXECUTION = "generation_execution"
     # Gate 决策与质量治理裁决（services.qc_governance）
     #
     # 为什么 Gate 决策不复用 ``ASSET`` 角色：Gate 是**对人类职责主体的授权裁决**，
@@ -68,6 +73,7 @@ _DOMAIN_ROLES: Final[Mapping[DatabaseDomain, str]] = MappingProxyType(
         DatabaseDomain.PROJECT_PLANNING: "svc_project_planning",
         DatabaseDomain.SHOT_PLANNING: "svc_shot_planning",
         DatabaseDomain.ASSET: "svc_asset",
+        DatabaseDomain.GENERATION_EXECUTION: "svc_generation_execution",
         DatabaseDomain.QC_GOVERNANCE: "svc_qc_governance",
         DatabaseDomain.WORKFLOW: "svc_workflow",
         DatabaseDomain.OUTBOX_RELAY: "svc_outbox_relay",

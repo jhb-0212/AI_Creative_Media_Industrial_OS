@@ -200,6 +200,15 @@ objects:
   all_sources:
   - 24.11 社区状态机、分享链接与复用状态机
   - 31.5 社区对象状态机最终定义
+- object: ProductionRoute
+  authoritative_source: 16.1/16.2 能力验证规则 + 动作矩阵 PRODUCTION.ROUTE.SELECT 行
+  states: UNVERIFIED→VERIFIED
+  note: VERIFIED 为终态——验证是"对已提交证据完成验证"的事实记录，基线未给撤销语义，不造撤销边；VERIFIED 标定入口是适配器验证工作流（与 EXTERNAL_TOOL.ADAPTER.VERIFY 同源规则），动作矩阵未给路线级状态变更 action，路线目录由运维播种。未登记转移一律拒绝。
+  source_kind: text_only_definition
+  all_sources:
+  - 16.1 长期目标架构契约冻结清单（UNVERIFIED 语义）
+  - 16.2 能力验证规范（VERIFIED 证据背书）
+  - 动作矩阵 PRODUCTION.ROUTE.SELECT 行（须处于 VERIFIED）
 - object: QCReviewSession
   authoritative_source: C.7 关键状态机与版本不可变规则
   states: OPEN→IN_REVIEW→DECISION_PENDING→RESOLVED→GATE_ELIGIBLE→CLOSED

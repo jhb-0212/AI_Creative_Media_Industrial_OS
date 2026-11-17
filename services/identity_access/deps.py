@@ -164,6 +164,11 @@ get_read_qc_uow = build_tenant_uow_dependency(
 get_workflow_uow = build_tenant_uow_dependency(
     get_principal, domain=DatabaseDomain.WORKFLOW
 )
+# 生成执行域（services.generation_execution）：路线目录与生成任务
+# （V2.0.5 14.2 Generation Execution 行 / ADR-R31）。
+get_generation_uow = build_tenant_uow_dependency(
+    get_principal, domain=DatabaseDomain.GENERATION_EXECUTION
+)
 
 
 def require_action(action_key: str) -> Callable[..., Awaitable[Principal]]:
@@ -191,6 +196,7 @@ def require_action(action_key: str) -> Callable[..., Awaitable[Principal]]:
 __all__ = [
     "Principal",
     "get_asset_uow",
+    "get_generation_uow",
     "get_principal",
     "get_project_uow",
     "get_qc_uow",

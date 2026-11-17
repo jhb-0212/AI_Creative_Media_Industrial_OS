@@ -238,6 +238,17 @@ objects:
   - REJECTED
   - RETURNED
   note: 独立审核对象；保存审核人、规则版本、证据、原因和决定时间；审核人与提交人分离。
+- object: ProductionRoute
+  authoritative_source: 16.1/16.2 能力验证规则 + 动作矩阵 PRODUCTION.ROUTE.SELECT 行
+  states:
+  - UNVERIFIED
+  - VERIFIED
+  note: 未验证能力标记 UNVERIFIED，不得作为生产路由的可用能力；仅可将实际通过验证的能力标记为 VERIFIED（V205-R14-A6 追认，状态集随 generation_execution 域实现段定型，ADR-R31）。
+  source_kind: text_only_definition
+  all_sources:
+  - 16.1 长期目标架构契约冻结清单（UNVERIFIED 语义）
+  - 16.2 能力验证规范（VERIFIED 证据背书）
+  - 动作矩阵 PRODUCTION.ROUTE.SELECT 行（须处于 VERIFIED）
 - object: QCReviewSession
   authoritative_source: C.7 关键状态机与版本不可变规则
   states:

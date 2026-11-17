@@ -95,12 +95,13 @@ implemented:
   CONSTRAINT.PACK.LOCK:
     route: "POST /shots/constraint-packs/{pack_id}/lock"
     module: services/shot_planning/api/constraint_pack_routes.py
+  PRODUCTION.ROUTE.SELECT:
+    route: "POST /actions/production.route.select"
+    module: services/generation_execution/api/route_routes.py
 
 # 以下 ACTIVE action 契约已启用、运行时尚未实现。每一项都是一条待排期的真实缺口。
 not_implemented:
   # --- 生成与资产 ---
-  PRODUCTION.ROUTE.SELECT:
-    reason: "生产路线库（ProductionRoute）未建模；选路依据 rights/capability 尚不存在"
   GENERATION.REQUEST:
     reason: "生成任务表与预算/配额校验未落地；模型网关未接入"
   # --- 权利与 Canon ---

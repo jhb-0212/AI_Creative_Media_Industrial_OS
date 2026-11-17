@@ -325,6 +325,18 @@ events:
       - tenant_id
       - status
     contract_ref: contracts/schemas/object_schemas.schema.json#ConstraintPack
+  - event_type: PRODUCTION_ROUTE_SELECTED
+    aggregate_type: ProductionRoute
+    emitted_by: services/generation_execution/service/route_service.py
+    payload_required:
+      - route_id
+      - route_type
+      - project_id
+      - shot_id
+      - selected_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#ProductionRoute
   - event_type: CONSTRAINT_PACK_LOCKED
     aggregate_type: ConstraintPack
     emitted_by: services/shot_planning/service/constraint_pack_service.py

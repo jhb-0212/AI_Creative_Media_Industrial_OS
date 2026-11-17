@@ -232,6 +232,12 @@ def qc_sm(db_pools: DomainPools) -> async_sessionmaker[AsyncSession]:
 
 
 @pytest.fixture
+def gen_sm(db_pools: DomainPools) -> async_sessionmaker[AsyncSession]:
+    """生成执行域会话工厂（读写 generation_execution，写不了 shot_planning）。"""
+    return db_pools.sessionmaker(DatabaseDomain.GENERATION_EXECUTION)
+
+
+@pytest.fixture
 def workflow_sm(db_pools: DomainPools) -> async_sessionmaker[AsyncSession]:
     """审批引擎域会话工厂（读写 workflow schema，其它业务域角色无权）。"""
     return db_pools.sessionmaker(DatabaseDomain.WORKFLOW)

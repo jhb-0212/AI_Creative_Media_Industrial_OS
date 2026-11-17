@@ -28,6 +28,10 @@ from services.asset_service.repository.orm import (  # noqa: F401
     AssetVersionModel,
     QCReportModel,
 )
+from services.generation_execution.repository.orm import (  # noqa: F401
+    ProductionRouteModel,
+    ProductionRouteStatusTransitionModel,
+)
 from services.project_planning.repository.orm import (  # noqa: F401
     EpisodeModel,
     ProjectModel,
