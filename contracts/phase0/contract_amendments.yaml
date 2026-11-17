@@ -100,5 +100,38 @@ amendments:
       - '本修订为事后追认，冻结期内确实存在「派生文件先于权威记录变更」的窗口'
       - 'Project/Episode/ScriptRevision 的权限矩阵条目仍需在包 B（身份与数据所有权）中补齐资源范围授权'
 
+  - id: 'V205-R14-A2'
+    title: 'Phase 6 状态推进入口——Project/Episode 生命周期状态变更动作'
+    retroactive: false
+    recorded_at: '2026-11-17'
+    discovered_by: 'docs/audits/2026-11-16-review-round3.md（第三轮深度审查，F01）'
+    reason: >-
+      基线（含 A1 修订）只给了 Project/Episode 的 CREATE/READ 动作，域状态机
+      已有转移表（Project 7 条边、Episode 3 条边），但没有任何 action 能触发
+      这些转移——项目创建后停在 DRAFT，平台无法推进到生产态（审计 P2-1、
+      F01「状态推进入口缺失」）。本修订补登记两个状态变更动作，把已冻结的
+      状态机转移边暴露为可执行入口。动作粒度采用「单一 STATUS.CHANGE」，
+      目标状态作为参数，转移合法性由 state_machines.yaml 的转移表在运行时
+      校验（未登记转移一律拒绝），不按转移逐条拆分动作以避免与状态机表
+      重复维护。此为正文口径的正式落地（解除 ADR-R12「需等正文口径」约束）。
+    adr: 'docs/adr/ADR-R12-contract-gates-outbox-deadletter-and-token-revocation.md'
+    approved_by: '项目所有者（本次 Phase 6 应答）'
+    approved_at: '2026-11-17'
+    source_commits: []
+    additions:
+      actions:
+        - action_key: 'PROJECT.STATUS.CHANGE'
+          why: '项目生命周期推进入口；目标状态作参数，运行时按 Project 转移表校验，终态 ARCHIVED 不可原地复活'
+        - action_key: 'EPISODE.STATUS.CHANGE'
+          why: '集数生命周期推进入口；目标状态作参数，运行时按 Episode 转移表校验'
+    counts_after:
+      actions: 83
+      openapi_operations: 83
+      schema_objects: 79
+      state_machines: 38
+    residual_risks:
+      - '主文档 31.6 主表工作副本在 A1 后未同步 6 个 Phase 1 动作（PROJECT.READ/EPISODE.CREATE/EPISODE.READ/SCRIPT.READ/SCRIPT.LOCK.REQUEST/ASSET.VERSION.READ），本修订一并补齐，使工作副本与派生视图完全一致'
+      - '状态变更入口的 DB 迁移（若涉及新列）与真实 PG 环境验证未执行，已在 residual_risk 标注'
+
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

@@ -1380,6 +1380,164 @@ def check_event_catalog() -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# 安全与数据边界契约校验（Security & Data Boundary Contract）
+# --------------------------------------------------------------------------- #
+# 为什么需要这个校验（R1 一个事实一个权威源 + 边界缺口不可静默增长）
+# ------------------------------------------------------------------------
+# contracts/security_boundary.yaml 是授权/资源归属/数据所有权/进程密钥四条
+# 边界的唯一权威源。它必须是**结构化约束**而非解释文档：本函数把它读进来，
+# 逐条校验结构自洽——每条不变量必须落在 satisfied / partial / debt 三态之一，
+# 且 debt 必须给 reason / contract_ref / unblocks_when 三项完整、partial 必须
+# 给 satisfied / missing / unblocks_when。这样「边界缺口」就与 resource_schema_gaps /
+# state_machine_gaps 一样，成为可双向校验的显式债务，而不是没人读的散文。
+#
+# 校验点：
+# 1. 文件存在且顶层为映射，含四条边界（authorization / resource_scope /
+#    data_ownership / process_keys），缺一报红；
+# 2. 每条不变量有 id / name / statement / fact_source / verification / status；
+# 3. status ∈ {satisfied, partial, debt}，且按状态要求对应字段：
+#    - debt     → reason / contract_ref / unblocks_when 三项完整；
+#    - partial  → satisfied / missing / unblocks_when 三项完整；
+#    - satisfied→ 不得残留 debt / partial 子块（陈旧债务必须清理）。
+# 4. 不变量 id 全局唯一（防复制粘贴出重名）。
+
+SECURITY_BOUNDARY_PATH = CONTRACTS / "security_boundary.yaml"
+
+_SECURITY_BOUNDARY_SECTIONS = (
+    "authorization",
+    "resource_scope",
+    "data_ownership",
+    "process_keys",
+)
+
+_SECURITY_BOUNDARY_INVARIANT_REQUIRED = (
+    "id",
+    "name",
+    "statement",
+    "fact_source",
+    "verification",
+    "status",
+)
+
+_SECURITY_BOUNDARY_STATUSES = ("satisfied", "partial", "debt")
+
+_DEBT_REQUIRED = ("reason", "contract_ref", "unblocks_when")
+_PARTIAL_REQUIRED = ("satisfied", "missing", "unblocks_when")
+
+
+def check_security_boundary() -> bool:
+    """校验安全与数据边界契约的结构自洽（债务/半满足/已满足三态一致）。"""
+    data = load_yaml_mapping(SECURITY_BOUNDARY_PATH)
+    ok = True
+
+    missing_sections = [
+        s for s in _SECURITY_BOUNDARY_SECTIONS if s not in data
+    ]
+    if missing_sections:
+        print(
+            f"[FAIL] security_boundary.yaml 缺少边界分区: {missing_sections}"
+        )
+        ok = False
+
+    seen_ids: set[str] = set()
+    total_invariants = 0
+    debt_count = 0
+    partial_count = 0
+
+    for section in _SECURITY_BOUNDARY_SECTIONS:
+        invariants = data.get(section, {}).get("invariants")
+        if not isinstance(invariants, list):
+            print(
+                f"[FAIL] security_boundary.yaml 的 {section}.invariants 必须是列表"
+            )
+            ok = False
+            continue
+
+        for inv in invariants:
+            if not isinstance(inv, dict):
+                print(
+                    f"[FAIL] {section} 存在非映射的不变量条目: {inv!r}"
+                )
+                ok = False
+                continue
+            total_invariants += 1
+
+            inv_id = str(inv.get("id", "")).strip()
+            missing_fields = [
+                f for f in _SECURITY_BOUNDARY_INVARIANT_REQUIRED
+                if not str(inv.get(f, "")).strip()
+            ]
+            if missing_fields:
+                print(
+                    f"[FAIL] {section}/{inv_id or '?'} 不变量缺字段: {missing_fields}"
+                )
+                ok = False
+
+            if inv_id in seen_ids:
+                print(f"[FAIL] security_boundary.yaml 存在重复不变量 id: {inv_id}")
+                ok = False
+            seen_ids.add(inv_id)
+
+            status = str(inv.get("status", "")).strip()
+            if status not in _SECURITY_BOUNDARY_STATUSES:
+                print(
+                    f"[FAIL] {inv_id} 的 status 非法: {status!r}（须为 "
+                    f"{'/'.join(_SECURITY_BOUNDARY_STATUSES)}）"
+                )
+                ok = False
+                continue
+
+            if status == "debt":
+                debt_count += 1
+                debt = inv.get("debt")
+                if not isinstance(debt, dict):
+                    print(f"[FAIL] {inv_id} 为 debt 但缺少 debt 子块")
+                    ok = False
+                    continue
+                missing = [
+                    k for k in _DEBT_REQUIRED if not str(debt.get(k, "")).strip()
+                ]
+                if missing:
+                    print(f"[FAIL] {inv_id} 债务登记缺字段: {missing}")
+                    ok = False
+                # 防陈旧：status 已是 satisfied 却仍挂 debt 子块。
+                if "debt" in inv and inv.get("status") == "satisfied":
+                    print(
+                        f"[FAIL] {inv_id} 已满足却残留 debt 子块（陈旧债务必须清理）"
+                    )
+                    ok = False
+
+            elif status == "partial":
+                partial_count += 1
+                part = inv.get("partial")
+                if not isinstance(part, dict):
+                    print(f"[FAIL] {inv_id} 为 partial 但缺少 partial 子块")
+                    ok = False
+                    continue
+                missing = [
+                    k for k in _PARTIAL_REQUIRED if not str(part.get(k, "")).strip()
+                ]
+                if missing:
+                    print(f"[FAIL] {inv_id} 半满足登记缺字段: {missing}")
+                    ok = False
+
+            elif status == "satisfied" and ("debt" in inv or "partial" in inv):
+                # 已满足的不变量不得残留任何债务/半满足子块。
+                print(
+                    f"[FAIL] {inv_id} 已满足却残留 debt/partial 子块"
+                    "（陈旧债务必须清理）"
+                )
+                ok = False
+    if ok:
+        print(
+            f"[PASS] 安全与数据边界契约：{total_invariants} 条不变量"
+            f"（debt {debt_count} / partial {partial_count} / satisfied "
+            f"{total_invariants - debt_count - partial_count}）结构自洽"
+        )
+    return ok
+
+
+# --------------------------------------------------------------------------- #
 # 入口
 # --------------------------------------------------------------------------- #
 def main() -> int:
@@ -1406,6 +1564,7 @@ def main() -> int:
         ok &= check_permission_matrix()
         ok &= check_schema_objects()
         ok &= check_event_catalog()
+        ok &= check_security_boundary()
     except ValueError as exc:
         # 契约文件缺失/为空/非映射时，load_yaml_mapping 统一抛 ValueError；
         # 这是脚本级致命错误（契约损坏无法继续校验），在此统一兜底报红。
