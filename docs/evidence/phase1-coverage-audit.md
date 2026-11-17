@@ -54,10 +54,10 @@
 
 | 编号 | 判定 | 证据指针 | 缺口 |
 |---|---|---|---|
-| A1 环境可复现 | `PARTIAL` | `uv.lock`、`pyproject.toml`、`Makefile:install`（`uv sync --frozen`）、`infra/docker/Dockerfile.api`、`infra/compose/docker-compose.yml`（迁移为独立一次性容器，fail-closed 依赖链） | 清单要求**镜像摘要**与**配置清单**成文。仓库内无 digest 记录（`grep -rn "镜像摘要\|image digest" docs/` 零命中），无配置项清单（环境变量全集与必填项）。"从空环境按清单重建"目前只能靠读 compose 文件反推 |
-| A2 Schema 迁移与回滚 | `PARTIAL` + `SCOPE-DRIFT` | `data/migrations/versions/` 38 个迁移，38 个均有 `downgrade()`；`alembic check` → `No new upgrade operations detected`；降级路径与禁止事项（禁 `stamp head`、禁手工 DROP/CREATE）写在 `docs/runbooks/runbook-db-migration.md` §2 | **无演练记录**：没有一次 `upgrade head → downgrade -N → upgrade head` 的实测输出，也没有"回滚不丢已提交版本记录"的断言。方案齐、演练缺 |
+| A1 环境可复现 | `PASS`（2026-11-17 补齐） | `uv.lock`（`uv sync --frozen`，漂移即失败）；**配置清单** `docs/evidence/phase1-runtime-inventory.md`（由 `scripts/runtime_inventory.py` 从 `Settings` 与 Dockerfile 生成，43 字段 / 11 敏感 / 3 条启动期校验，`tests/unit/test_runtime_inventory.py` 6 例防漂移）；**镜像摘要**：基础镜像按索引 digest 固定（`sha256:e5b65587…`），业务镜像构建并自检（`/health` 返回 `version=2.0.5`、Python 3.12.12、uv 已移除、uid=10001）。详见 `docs/evidence/phase1-a1-environment.md` | 本轮修掉一个实质缺陷：镜像未声明 `image.version`，继承了基础镜像的 `0.9.30-…`（uv 版本）——已用 `ARG APP_VERSION` 写入并由测试钉住三处版本一致。边界：不声称 bit-for-bit 可复现、未在 CI 重建比对、单架构验证（见该文档 §7） |
+| A2 Schema 迁移与回滚 | `PASS`（2026-11-17 演练） | `scripts/migration_rollback_drill.py` 在一次性 scratch 库执行 `upgrade head → 写哨兵 → downgrade -1 → upgrade head → alembic check`，11 条断言全过（哨兵 `schema_version=205`/`entity_version=7` 跨回滚未变；被降级迁移建的表消失又恢复；表数 33→32→33）；证据 `docs/evidence/phase1-migration-rollback.json`。38 个迁移均有 `downgrade()` | 只演练降一步：降到 base 会执行 `c2d3e4f5a6b7` 的 `DROP ROLE`，而角色是跨库对象，共享集群上会删掉其它库在用的角色（边界已写入证据 `limitations`）。清单原文"76 对象"仍属 SCOPE-DRIFT |
 | A3 可观测链路 | `MISSING` | `packages/telemetry/tracing.py`（97 行）提供 `setup_telemetry` / `get_current_trace_id`；错误信封（`packages/errors/error_codes.py:179`）与日志（`packages/shared/logging.py:91`）自动带 trace_id；`infra/monitoring/prometheus/outbox-rules.yml` | **业务链零 span**：`grep -rn "start_span\|tracer()" packages/ services/ apps/ workers/` 除 `tracing.py` 自身外零命中。没有任何 Task / Gate / 生成调用创建 span，所以"一次主链任务的 trace 全链路"必然断链——trace_id 能串起日志，串不起调用层级。清单要求的"每个 Task/Gate/生成调用可在 trace 中定位"不成立 |
-| A4 备份与恢复 | `PARTIAL` | `docs/runbooks/runbook-db-migration.md` §2：`pg_dump -Fc` + `Get-FileHash -Algorithm SHA256` + "没有校验和的备份等于没备份"；§4 要求 incident 留痕（revision / 锁 PID / 备份位置与校验和 / 恢复时间点） | **无恢复演练**：没有 `pg_restore` 脚本，没有一次真实恢复记录，因此"恢复到指定时间点后 DeliveryManifest 可重建且哈希一致"从未被验证。`grep -rn pg_dump` 在项目代码/脚本中零命中（仅 runbook 文本） |
+| A4 备份与恢复 | `PASS`（2026-11-17 演练） | `scripts/backup_restore_drill.py`：scratch 库 → 种子一条校验和自洽的 DeliveryManifest → `pg_dump -Fc`（177212 字节）→ `pg_restore` 到第二库 → **33 张表逐表内容哈希一致** → 从恢复出的行用 `compute_manifest_checksum` 重算，等于存储值与备份前值；7 条断言全过；证据 `docs/evidence/phase1-backup-restore.json`。备份策略另见 `docs/runbooks/runbook-db-migration.md` §2（`pg_dump` + SHA256 + 留痕要求） | 只覆盖 pg_dump 快照点恢复，不覆盖 PITR（WAL 归档 + `recovery_target_time`）与物理备份——属运维/Phase 4 灾备，证据 `limitations` 已写明 |
 
 ---
 
@@ -134,14 +134,14 @@
 
 | 组 | 要求 | 实测 | 结论 |
 |---|---|---|---|
-| A | 全绿（A1–A4） | A1 PARTIAL、A2 PARTIAL、**A3 MISSING**、A4 PARTIAL | ✗ |
+| A | 全绿（A1–A4） | A1 PASS、A2 PASS、**A3 MISSING**、A4 PASS | ✗（仅剩 A3） |
 | B | 全绿（B1–B4） | B1 MISSING（15 动作无端点）、B2/B3/B4 PASS | ✗ |
 | C | 全绿（C1–C6） | C1–C5 PASS、**C6 PARTIAL** | ✗ |
 | D | D1、D2 必绿 | **D1 PARTIAL**（10/42 状态机）、D2 PASS | ✗ |
 | E | E1、E2 必绿 | **E1 MISSING、E2 MISSING** | ✗ |
 | F | F1 必绿 | F1 PASS（ADR-R37）；F2/F3 MISSING，按规则需逐项登记 owner / 阻塞范围 / 复审时点 | ✓ 条件成立 |
 
-**Phase 1 出口不成立。** 五组各有阻塞项（F 组已不再阻塞），B/E 两组是零到一的
+**Phase 1 出口不成立。** 五组各有阻塞项（A 组只剩 A3 一项），B/E 两组是零到一的
 缺口（不是打磨问题）。
 
 必须诚实的一句话：当前形态是**"主链单点闭环 + 横切能力齐备，域覆盖不足"**——
@@ -177,9 +177,13 @@ C1–C5 这条竖切是真的端到端通（含负向断言与数据库层证据
 **这一类是投入产出比最高的**：不需要建域，不动契约模型，改完立刻多三项绿。
 
 ### 类 3 · 实现有、证据缺（只差记录）
-- A1 镜像摘要与配置清单未成文。
-- A2 迁移回滚演练未跑。
-- A4 恢复演练未跑（备份策略已写在 runbook §2）。
+- ~~A1 镜像摘要与配置清单未成文~~：**已闭（2026-11-17）**。配置清单改为
+  代码生成 + 6 条防漂移断言；基础镜像按 digest 固定；顺带修掉"镜像继承基础
+  镜像版本标签"的实质缺陷。见 `phase1-a1-environment.md`。
+- ~~A2 迁移回滚演练未跑~~：**已闭**。`scripts/migration_rollback_drill.py`，
+  11 条断言，证据 `phase1-migration-rollback.json`。
+- ~~A4 恢复演练未跑~~：**已闭**。`scripts/backup_restore_drill.py`，33 张表
+  逐表哈希比对 + 清单校验和重算，证据 `phase1-backup-restore.json`。
 - C6 Gate 0—3 逐 Gate 决策记录未取。
 - G1 端到端重建未做。
 - G3 十个写操作审计抽样未做。
@@ -194,8 +198,8 @@ C1–C5 这条竖切是真的端到端通（含负向断言与数据库层证据
 
 1. **先做口径重裁定**（第 2 节）。理由：分母不定，"全绿"没有定义，
    后面所有取证可能白做。产出：清单 A2/B1/D1 三行改写 + 裁定记录。
-2. **清类 3**（证据补齐）。一次作业，把 7 项 PARTIAL 变成 PASS 或明确的
-   "已做但差 XX"。其中 A2/A4 的演练需要一个干净库，可与类 2 的改造成本合并。
+2. **清类 3**（证据补齐）。A1/A2/A4 已完成（2026-11-17）；剩余 C6 的逐 Gate
+   记录、G1 端到端重建、G3 十个写操作抽样、B2 编号对齐，仍是一次集中作业。
 3. **清类 2**（A3 span / D3 幂等；F1 已完成，见 ADR-R37）。A3 与 D3 都不动
    契约模型，属于可以连续推进的工程项。
 4. **决策类 1**：建域 or 裁范围。这是产品/架构决策，不是工程任务。

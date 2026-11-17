@@ -10,10 +10,20 @@
 # 2. runtime 删除 uv / uvx：交付层只留解释器、依赖与源码，减少可执行面。
 # 3. 迁移不进镜像启动流程：由编排在 API 起来之前单独跑 `alembic upgrade head`，
 #    避免多副本滚动发布时并发迁移。
+# 4. 基础镜像**按 digest 固定**（A1「按清单重建出同一版本」的前提）。只写
+#    `:tag` 时 tag 是可变的，同一个 Dockerfile 今天和明天会构建出两个不同的
+#    运行时。这里用**索引 digest**（manifest list）而不是某一平台的 digest：
+#    索引会按架构分发，x86 与 arm64 都能构建，同时字节仍被固定。
+#
+#    更新基础镜像的唯一正确做法：
+#      docker pull ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+#      docker inspect --format '{{index .RepoDigests 0}}' <该镜像>
+#    把新的索引 digest 换进下面两处 FROM（**必须同时改**，见约束 1），
+#    然后重跑 scripts/runtime_inventory.py --write 更新 A1 清单。
 # ============================================================
 
 # ---------- Stage 1: 依赖解析与安装（uv + 锁文件，保证可复现） ----------
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58 AS builder
 
 # 字节码预编译（缩短冷启动）与 copy 链接模式（跨层复制不依赖硬链接）。
 ENV UV_COMPILE_BYTECODE=1 \
@@ -41,7 +51,8 @@ COPY alembic.ini ./
 RUN uv sync --frozen --no-dev
 
 # ---------- Stage 3: 运行时镜像 ----------
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS runtime
+# digest 必须与 Stage 1 完全一致（约束 1：venv 里的解释器路径依赖同源镜像）。
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58 AS runtime
 
 # 非 root 运行（最小权限），并移除构建工具 uv。
 RUN rm -f /usr/local/bin/uv /usr/local/bin/uvx \
@@ -63,6 +74,20 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONDONTWRITEBYTECODE=1
 
 USER appuser
+
+# OCI 标准标签（A1「版本号与基线一致」的载体）。
+#
+# 为什么必须显式写 version：不写就等于**继承基础镜像的标签**——实测本镜像
+# 的 org.opencontainers.image.version 是 `0.9.30-python3.12-bookworm-slim`
+# （uv 的版本）。一个声称自己是 uv 0.9.30 的业务镜像，在制品库/漏洞扫描/
+# 事故复盘里都会被认错版本。
+#
+# APP_VERSION 用 ARG 而不是写字面量：`tests/unit/test_runtime_inventory.py`
+# 断言它与 pyproject.toml 的 version 一致，防止两处各改各的。
+ARG APP_VERSION=2.0.5
+LABEL org.opencontainers.image.title="AI 影视工业化生产平台 API" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.licenses="Proprietary"
 
 # 就绪探针打 /readyz：真实探测数据库，而不是只看进程是否活着。
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

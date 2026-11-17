@@ -1,0 +1,89 @@
+{
+  "checklist_item": "A2",
+  "title": "Schema 迁移与回滚演练",
+  "generated_at": "2026-11-17T09:04:56.638643+00:00",
+  "commit": "c55722e",
+  "scratch_database": "ai_film_drill_a2_20261117090440",
+  "server_version": "16.15 (Debian 16.15-1.pgdg13+2)",
+  "head_revision": "f1a2b3c4d5e6",
+  "revision_after_downgrade": "e1f2a3b4c5d6",
+  "tables_at_head": 33,
+  "tables_after_downgrade": 31,
+  "sentinel": {
+    "entity_id": "drill_sentinel_20261117090440",
+    "value": [
+      205,
+      7,
+      "DRAFT"
+    ]
+  },
+  "assertions": [
+    {
+      "name": "head 与脚本期望一致（否则本演练会退化成空跑）",
+      "ok": true,
+      "detail": "实际 f1a2b3c4d5e6，期望 f1a2b3c4d5e6；head 前进后请同步更新 _EXPECTED_HEAD 与 _HEAD_CREATED_TABLE"
+    },
+    {
+      "name": "被降级迁移建的表在 head 上存在",
+      "ok": true,
+      "detail": "qc_governance.qc_review_sessions"
+    },
+    {
+      "name": "哨兵记录写入成功（schema_version / entity_version 符合预期）",
+      "ok": true,
+      "detail": "实际 (205, 7, 'DRAFT')"
+    },
+    {
+      "name": "降级后 revision 确实回退（不是空操作）",
+      "ok": true,
+      "detail": "降级前后同为 f1a2b3c4d5e6"
+    },
+    {
+      "name": "被降级迁移建的表已消失（结构真的回退）",
+      "ok": true,
+      "detail": "qc_governance.qc_review_sessions"
+    },
+    {
+      "name": "降级删除了表（表数下降）",
+      "ok": true,
+      "detail": "降级前 33 → 降级后 31"
+    },
+    {
+      "name": "回滚不丢已提交的版本记录（哨兵 schema_version / entity_version 未变）",
+      "ok": true,
+      "detail": "回滚前 (205, 7, 'DRAFT') → 回滚后 (205, 7, 'DRAFT')"
+    },
+    {
+      "name": "二次升级回到同一 head",
+      "ok": true,
+      "detail": "f1a2b3c4d5e6 != f1a2b3c4d5e6"
+    },
+    {
+      "name": "二次升级后表结构恢复",
+      "ok": true,
+      "detail": "qc_governance.qc_review_sessions"
+    },
+    {
+      "name": "二次升级后表数恢复",
+      "ok": true,
+      "detail": "33 != 33"
+    },
+    {
+      "name": "二次升级后哨兵记录仍在且版本未变",
+      "ok": true,
+      "detail": "哨兵丢失或版本被改写"
+    }
+  ],
+  "steps": [
+    "upgrade head → revision=f1a2b3c4d5e6",
+    "哨兵写入：(205, 7, 'DRAFT')；用户表 33 张",
+    "downgrade -1 → revision=e1f2a3b4c5d6",
+    "upgrade head（二次）→ revision=f1a2b3c4d5e6",
+    "alembic check：无结构漂移"
+  ],
+  "limitations": [
+    "只演练降一步（downgrade -1）。降到 base 会执行 c2d3e4f5a6b7 的 DROP ROLE，而角色是跨库对象——在共享集群上降 base 会删掉其它库正在使用的角色。降 base 演练需要独立集群。",
+    "未覆盖生产规模数据量下的迁移耗时与锁等待（属压测范围，见 phase1-resilience.md）。",
+    "未覆盖「迁移中途失败（部分应用）」后的恢复；alembic 在 PostgreSQL 上是单事务，天然回滚，但本演练未构造该场景。"
+  ]
+}
