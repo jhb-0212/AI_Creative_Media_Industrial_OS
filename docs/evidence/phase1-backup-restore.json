@@ -1,12 +1,12 @@
 {
   "checklist_item": "A4",
   "title": "备份与恢复演练",
-  "generated_at": "2026-11-17T09:05:03.823230+00:00",
-  "commit": "c55722e",
+  "generated_at": "2026-11-17T09:19:51.400133+00:00",
+  "commit": "a32730e",
   "server_version": "16.15 (Debian 16.15-1.pgdg13+2)",
-  "source_database": "ai_film_drill_a4src_20261117090457",
-  "target_database": "ai_film_drill_a4dst_20261117090457",
-  "dump_bytes": 177212,
+  "source_database": "ai_film_drill_a4src_20261117091945",
+  "target_database": "ai_film_drill_a4dst_20261117091945",
+  "dump_bytes": 177213,
   "table_count": 33,
   "tables_compared": 33,
   "manifest_checksum": "a1310822cab4459a607dda11722c6eb831b429af64b7049939ff223229af0d16",
@@ -19,7 +19,7 @@
     {
       "name": "备份文件已生成且非空（空文件是最容易被忽略的失败）",
       "ok": true,
-      "detail": "177212 字节"
+      "detail": "177213 字节"
     },
     {
       "name": "恢复后表数量与源库一致",
@@ -49,7 +49,7 @@
   ],
   "steps": [
     "种子完成：清单 manifest_drill_001 checksum=a1310822cab4…；表 33 张",
-    "pg_dump 完成：177212 字节",
+    "pg_dump 完成：177213 字节",
     "pg_restore 完成：表 33 张",
     "逐表哈希比对：33 张表全部一致",
     "清单重建校验和一致：a1310822cab4459a…"

@@ -1,16 +1,16 @@
 {
   "checklist_item": "A2",
   "title": "Schema 迁移与回滚演练",
-  "generated_at": "2026-11-17T09:04:56.638643+00:00",
-  "commit": "c55722e",
-  "scratch_database": "ai_film_drill_a2_20261117090440",
+  "generated_at": "2026-11-17T09:19:44.283023+00:00",
+  "commit": "a32730e",
+  "scratch_database": "ai_film_drill_a2_20261117091929",
   "server_version": "16.15 (Debian 16.15-1.pgdg13+2)",
   "head_revision": "f1a2b3c4d5e6",
   "revision_after_downgrade": "e1f2a3b4c5d6",
   "tables_at_head": 33,
   "tables_after_downgrade": 31,
   "sentinel": {
-    "entity_id": "drill_sentinel_20261117090440",
+    "entity_id": "drill_sentinel_20261117091929",
     "value": [
       205,
       7,
