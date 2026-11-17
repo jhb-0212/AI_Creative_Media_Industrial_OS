@@ -30,6 +30,7 @@ from apps.api.resource_ownership import (
     CompositeResourceOwnershipPort,
     GenerationRefOwnershipAdapter,
     ShotPlanningShotOwnershipAdapter,
+    ShotPlanningSpecEvidenceAdapter,
 )
 from packages.errors.error_codes import (
     DomainError,
@@ -100,6 +101,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             app.state.qc_report_ref_port = AssetQCReportRefAdapter(app.state.pools)
             # 选路的镜头归属端口：以 shot_planning 身份解析镜头存在性与项目归属。
             app.state.shot_ownership_port = ShotPlanningShotOwnershipAdapter(
+                app.state.pools
+            )
+            # 交付清单重建的规格证据端口：以 shot_planning 身份解析 ShotSpec
+            # （ADR-R28）。装配在这里而不是等到有读端点时再补——证据重建
+            # 一旦悄悄缺端口，就会退化成"跳过 spec_ref 的假通过"。
+            app.state.spec_evidence_port = ShotPlanningSpecEvidenceAdapter(
                 app.state.pools
             )
             yield

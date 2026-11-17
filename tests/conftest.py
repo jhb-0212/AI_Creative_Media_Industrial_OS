@@ -203,7 +203,8 @@ async def db_pools() -> AsyncIterator[DomainPools]:
         CompositeResourceOwnershipPort,
         GenerationRefOwnershipAdapter,
         ShotPlanningShotOwnershipAdapter,
-)
+        ShotPlanningSpecEvidenceAdapter,
+    )
 
     ownership_port = CompositeResourceOwnershipPort(pools)
     app.state.resource_ownership_port = ownership_port
@@ -216,6 +217,8 @@ async def db_pools() -> AsyncIterator[DomainPools]:
     app.state.qc_report_ref_port = AssetQCReportRefAdapter(pools)
     # 选路的镜头归属端口（同上）。
     app.state.shot_ownership_port = ShotPlanningShotOwnershipAdapter(pools)
+    # 交付清单重建的规格证据端口（同上：镜像生产 lifespan 的装配）。
+    app.state.spec_evidence_port = ShotPlanningSpecEvidenceAdapter(pools)
     try:
         yield pools
     finally:

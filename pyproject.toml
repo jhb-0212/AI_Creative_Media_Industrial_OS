@@ -102,6 +102,7 @@ addopts = "-ra -q -m 'not resilience'"
 # 并在交付前跑（见 docs/evidence/phase1-resilience.md）。
 markers = [
     "resilience: 压测与故障恢复证据（慢；需真实 PostgreSQL；默认不跑）",
+    "agent_negative(case_id): 绑定基线 31.6 负向测试表的 AGENT-NEG-xxx 编号（B2 证据映射；参数为编号）",
 ]
 # 显式将项目根目录加入 sys.path，确保 services/apps 等顶层包在任意
 # 工作目录（含 CI 的 pip install -e 环境）下都能被 pytest 正确 import，

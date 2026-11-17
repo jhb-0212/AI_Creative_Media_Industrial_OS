@@ -10,6 +10,12 @@
 归属解析按租户全域注入 RLS 上下文（项目范围 ``*``）：只有看得见跨项目
 行，才能区分「不存在」与「在别的项目」两种拒绝原因。适配器只输出
 ``ResourceOwnership``（project_id 一个字段），不向 workflow 泄漏业务数据。
+
+本模块还承载**证据解析**适配器（``AssetQCReportRefAdapter`` /
+``ShotPlanningSpecEvidenceAdapter``）：它们与归属解析共用同一套约束
+（跨域只读、所有者域身份、只读探针），差别只在输出的事实集。放在一起是为了
+让"组合根里可以跨域读"这件事只有一个落点——每多一个这样的模块，
+R4（数据库身份旁路）白名单就多一个装配点，而装配点的数量就是这层防线的强度。
 """
 
 from __future__ import annotations
@@ -22,6 +28,7 @@ from packages.identity.principal import Principal, SubjectType
 from packages.shared.database import DomainPools
 from packages.shared.db_roles import DatabaseDomain
 from packages.shared.rls import set_request_context
+from services.asset_service.domain.ports import SpecEvidence
 from services.asset_service.repository.sqlalchemy_manifest_repo import (
     SqlAlchemyDeliveryManifestRepository,
 )
@@ -323,3 +330,51 @@ class ShotPlanningShotOwnershipAdapter:
         if revision is None:
             return None
         return ShotFacts(shot_id=revision.shot_id, project_id=revision.project_id)
+
+
+class ShotPlanningSpecEvidenceAdapter:
+    """ShotSpec 证据解析（资产域 ``SpecEvidencePort`` 的生产实现）。
+
+    与上面几个适配器的关系：它们回答"这个对象归谁"（授权判定），本适配器回答
+    "这条证据还成不成立"（交付清单重建，G1）。刻意放在**同一个组合根模块**而不是
+    新建 `apps/api/evidence_ports.py`：新文件会因为 import `DomainPools` 而需要
+    给 R4 白名单加第 9 个装配点，而装配点数量本身就是这层防线的强度
+    （每加一个就多一处"可以挑权限更大的角色连接"的地方）。职责差异已由类名与
+    端口类型表达，不需要再拆文件。
+    """
+
+    def __init__(self, pools: DomainPools) -> None:
+        self._pools = pools
+
+    async def resolve(
+        self,
+        *,
+        tenant_id: UUID,
+        organization_id: UUID | None,
+        spec_id: str,
+    ) -> SpecEvidence | None:
+        """按 id 取规格事实；不可见/不存在返回 None（不区分两者，见端口文档）。"""
+        sessionmaker = self._pools.sessionmaker(DatabaseDomain.SHOT_PLANNING)
+        async with sessionmaker() as session:
+            # 只读探针：项目范围取 * 才能区分"不存在"（MISSING）与"属于别的
+            # 项目"（MISMATCHED）——两种结论对交付取证的意义完全不同。
+            await set_request_context(
+                session,
+                Principal(
+                    subject_id="spec-evidence-resolver",
+                    tenant_id=tenant_id,
+                    organization_id=organization_id or tenant_id,
+                    subject_type=SubjectType.AGENT,
+                    project_ids=frozenset({"*"}),
+                ),
+            )
+            spec = await SqlAlchemyShotSpecRepository(session).get_by_id(spec_id)
+        if spec is None:
+            return None
+        return SpecEvidence(
+            spec_id=spec.entity_id,
+            project_id=spec.project_id,
+            shot_id=spec.shot_id,
+            status=getattr(spec.status, "value", str(spec.status)),
+            entity_version=spec.entity_version,
+        )

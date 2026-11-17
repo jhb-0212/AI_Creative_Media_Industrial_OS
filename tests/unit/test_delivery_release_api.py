@@ -156,6 +156,7 @@ async def test_unauthorized_role_is_403(admin_engine: AsyncEngine) -> None:
     assert response.status_code == 403, response.text
 
 
+@pytest.mark.agent_negative("AGENT-NEG-002")
 async def test_agent_cannot_release_critical(admin_engine: AsyncEngine) -> None:
     """Agent 不得执行 CRITICAL 动作（红线）。"""
     manifest_id = await _seed_manifest(

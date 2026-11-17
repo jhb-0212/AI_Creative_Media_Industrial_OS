@@ -184,6 +184,7 @@ def test_agent_can_execute_non_critical_action() -> None:
     assert decision.effect is DecisionEffect.ALLOW
 
 
+@pytest.mark.agent_negative("AGENT-NEG-001")
 def test_self_approval_is_denied() -> None:
     decision = decide(
         _principal("导演", subject="user-1"),
@@ -406,6 +407,7 @@ def test_no_action_is_open_to_principal_without_roles() -> None:
     assert leaked == [], f"以下动作对无角色主体放行: {leaked}"
 
 
+@pytest.mark.agent_negative("AGENT-NEG-001")
 def test_no_critical_action_is_executable_by_agent() -> None:
     """10 条 CRITICAL 动作逐个验证：角色完全匹配的 Agent 也必须被拒。"""
     violations: list[str] = []

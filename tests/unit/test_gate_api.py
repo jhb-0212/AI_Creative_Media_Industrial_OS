@@ -112,6 +112,7 @@ async def test_unbound_role_is_denied(producer_client: AsyncClient) -> None:
     assert response.json()["error_code"] == "AUTH_SCOPE_DENIED"
 
 
+@pytest.mark.agent_negative("AGENT-NEG-001")
 async def test_agent_cannot_approve_even_with_director_role(
     agent_client: AsyncClient,
 ) -> None:

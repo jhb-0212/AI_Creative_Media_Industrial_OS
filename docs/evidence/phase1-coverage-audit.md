@@ -66,7 +66,7 @@
 | 编号 | 判定 | 证据指针 | 缺口 |
 |---|---|---|---|
 | B1 动作服务端落地 | `MISSING` + `SCOPE-DRIFT` | `contract_check`：`ACTIVE 41 个（已实现 26 / 登记未实现 15）`；`已实现 action 的授权落点：26 个动作均已挂 require_action`（机器校验，声明无法撒谎） | **15 个 ACTIVE 动作无端点**，明细见 `contracts/runtime/action_implementations.yaml` 的 `not_implemented`。按域聚簇：预算 2（`BUDGET.SHOT.REQUEST/APPROVE`）、社区展示 4（`SHOWCASE.SNAPSHOT.CREATE/REVOKE`、`SHOWCASE.SHARE.CREATE/REVOKE`）、反推 2、客户审片 2、权利/Canon 2、复用申请 1、交付 2（`DELIVERY.SPEC.APPROVE`、`DELIVERY.MANIFEST.APPROVE`）。清单要求"每个 action_key 在服务端有校验"——未实现的 15 个既无校验也无端点 |
-| B2 Agent 不得自批自用 | `PASS` | `packages/identity/authorization.py:342` `DecisionReason.AGENT_CRITICAL_FORBIDDEN`；多层负向：授权决策（`tests/permission/test_authorization_policy.py:171,180,416,465`）、领域（`tests/unit/test_shot_spec_service.py:160,258`、`test_constraint_pack_service.py:100-157`）、数据库 CHECK（`tests/integration/test_workflow_approval_invariants.py:194 test_agent_voter_rejected_by_check`） | 唯一缺口是**编号映射**：清单要求 AGENT-NEG-001～004 四条执行记录，用例存在但未逐条标注对应哪个编号。属证据整理问题，不属能力缺失 |
+| B2 Agent 不得自批自用 | `PARTIAL`（2026-11-17 二次修订） | **编号已机器对齐**：`tests/permission/test_agent_negative_matrix.py`（6 条校验：编号集合从基线 31.6 解析、每条编号"有用例"或"登记阻塞"二选一、证据节点必须真带 `@pytest.mark.agent_negative("<编号>")`、反向漂移、阻塞必附解锁条件、marker 已注册）。承载用例 7 条，执行记录 `pytest -m agent_negative` → 7 passed / 965 deselected。证据 `docs/evidence/phase1-b2-agent-negative.md` | **AGENT-NEG-004 阻塞**：`services/budget_quota` 仍为空壳，无"超预算/超配额 → 结构化错误"的可执行载体（ADR-R32 债务）。故 B2 由 `PASS` **下调为 `PARTIAL`**——原判定把"用例存在"当成了"四条都可执行" |
 | B3 CapabilityToken 生命周期 | `PASS` | `packages/identity/` 的 `capability.py` / `issuer.py` / `jwt_core.py` / `jwks.py` / `keys.py` / `token_revocation.py` / `revoked_token_model.py`；签发/使用/过期/撤销四类用例：`tests/unit/test_capability_token.py`、`test_token_revocation.py`、`test_identity_jwks_rotation.py`、`tests/integration/test_jwks_endpoint.py`、`test_auth_revocation_and_grants.py`；ADR-R26 / ADR-R29 | 无（`capability_token_jti` 与 `user_intent_id` 的绑定在 `capability.py:164 to_audit_dict` 与审批链用例中体现） |
 | B4 职责分离 | `PASS`（局部） | `DecisionReason.SELF_APPROVAL_FORBIDDEN`（`tests/permission/test_authorization_policy.py:194`，并把 `separation_of_duties` 记入 `deferred_checks`）；业务面 `tests/unit/test_asset_service.py:298`、`tests/unit/test_shot_visual_plan_service.py:122 test_separation_of_duties` | C.5.1 的对象覆盖不全：仅剧本锁、视觉方案、资产审批、交付审批有分离校验；其余"申请—审批"对未逐一验证 |
 
@@ -81,7 +81,7 @@
 | C3 ConstraintPack 硬门 | `PASS` | `tests/unit/test_constraint_pack_service.py`；主链内联负向断言（DRAFT 约束包不得作为生成输入，ADR-R33 §2.5） | NOT_APPLICABLE 包的 ACTIVE 前置校验已含；无 |
 | C4 单一路线生成 | `PASS` | ADR-R35 / 契约修订 A9；`tests/unit/test_shot_route_selection_domain.py`、`test_shot_route_selection_parity.py`；`tests/integration/test_generation_route_api.py`（并发恰一成功一 409 + 唯一约束直连 SQL 证据） | 无 |
 | C5 核心 QC | `PASS` | ADR-R36 / 契约修订 A10；`docs/evidence/phase1-c5-qc-review.md`（E1–E33，57 用例） | 无（债务已登记 ADR-R36 §3） |
-| C6 Gate 决策 + DeliveryManifest | `PARTIAL` | `tests/unit/test_gate_api.py`、`test_gate_decision_domain.py`、`test_delivery_manifest_domain.py`、`test_main_chain_e2e.py`（清单引用 APPROVED 资产 + Gate4 裁决，含"未批准资产被拒"负向断言） | ① 清单要求"**Gate 0—4 各一次**决策记录"，当前只对 Gate4 与主链末段有取证，Gate 0—3 无逐 Gate 记录；② `DELIVERY.MANIFEST.APPROVE` 未实现（`allowed_principals` 含 `+` 为 AND 语义，联合审批未落地，权限层 fail-closed 拒绝），交付止于 DRAFT——ADR-R33 §3 债务 1 已登记 |
+| C6 Gate 决策 + DeliveryManifest | `PARTIAL`（2026-11-17 用例就位，取证待跑） | 新增 `tests/integration/test_c6_gate_decisions.py`（4 条）：Gate 0—4 各一条裁决走真实 `PRODUCTION.GATE.APPROVE` 入口、逐条断言 7.4 字段（`_FIELDS_74` 由基线 7.4 小节正文回核，不凭记忆）、落库回读 5 行、5 条 `PRODUCTION_GATE_APPROVED` 事件；`exit_actions` 单独钉死为「行为不落库」（契约无该字段）；清单侧两条独立证据——契约字段集无 gate 类字段、未批准资产进清单 422 | ① **执行记录未取得**：取证需真实 PostgreSQL，本轮沙箱内 Docker 引擎不可用（`wsl.exe` 被安全策略拦截），故判定维持 `PARTIAL`，命令见文末附录「待执行取证」；② `DELIVERY.MANIFEST.APPROVE` 未实现（AND 联合审批），交付止于 DRAFT（ADR-R33 §3 债务 1） |
 
 ---
 
@@ -122,9 +122,9 @@
 
 | 编号 | 判定 | 证据指针 | 缺口 |
 |---|---|---|---|
-| G1 DeliveryManifest 可重建 | `PARTIAL` | `tests/unit/test_delivery_manifest_domain.py`：`test_rebuild_projection_matches_original_checksum`、`test_checksum_ignores_reference_order`、`test_checksum_excludes_manifest_id_and_timestamps`、`test_checksum_is_stable_hex_digest`；ADR-R22 | 清单要求"**用清单重建一次交付**"的端到端记录。当前只到"投影重算校验和相等"这一层，未验证"按清单从存储取回全部证据并逐项比对"，也未验证"缺证据时明确列缺项、不静默补全" |
+| G1 DeliveryManifest 可重建 | `PARTIAL`（2026-11-17 能力就位，取证待跑） | **新增重建能力**：`services/asset_service/service/manifest_rebuild_service.py`（逐项解析 asset_refs / qc_final_ref / spec_ref → 只用解析成功的证据重算校验和；缺项分 `MISSING` / `MISMATCHED` / `NOT_MODELED` 三类，不合并）+ `services/asset_service/domain/ports.py`（跨域规格证据端口，ADR-R28）+ `ShotPlanningSpecEvidenceAdapter`（组合根，所有者域身份只读）。用例 `tests/integration/test_g1_manifest_rebuild.py`（3 条：全部成立→校验和一致且 4 条 verified；QC 报告不存在→missing 且校验和必然不同；QC 报告属另一资产→mismatched） | ① **执行记录未取得**（PostgreSQL 不可用，命令见文末附录「待执行取证」）；② 字节级内容校验做不到——平台无对象存储适配器（`adapters/storage/` 仅 `.gitkeep`），`VERIFIED` 的含义是「元数据自洽且归属与状态正确」，不是「内容哈希已验证」（ADR-R33 §4 债务）；③ PictureLock / RightsManifest 未建模 → 恒为 `NOT_MODELED`，故 `complete` 恒 False |
 | G2 交付后缺陷闭环 | `MISSING` | `EscapeReport` 仅出现在 `contracts/metrics/metric_dictionary.yaml` 与 `contracts/phase0/frozen_inventory.yaml`（均为契约侧） | 无 EscapeReport 对象、无 RCA 记录、无"不改写原交付"的关联链 |
-| G3 写操作审计覆盖 | `PARTIAL` | 审计经 outbox 事件承载：28 个事件 / 28 个发出点（`contract_check` 机器校验）；outbox 不可变与保留策略见 ADR-R11 / ADR-R11-2 | 无独立审计表，审计"不可被业务侧删除"由 outbox 追加性间接保证。清单要求"**抽样 10 个写操作**查审计，全部有调用主体、目标对象、前后状态"——该抽样从未做过；且并非所有事件的 payload 都含 `from_status`/`to_status`（仅状态转移类含） |
+| G3 写操作审计覆盖 | `PARTIAL`（2026-11-17 抽样用例就位，取证待跑） | 新增 `tests/integration/test_g3_audit_sampling.py`（3 条）：**按 `contracts/runtime/event_catalog.yaml` 的 `payload_required` 驱动断言**（不硬编码字段名，唯一事实源是契约）——10 个写操作走真实入口，逐个断言 `payload_required ⊆ 实际 payload` 且正文含聚合 id；另验证 6 个业务域角色对 `outbox.outbox_events` 无 UPDATE/DELETE（`permission denied`，非「0 行受影响」），relay 仅可改 4 个投递列、payload 仍不可改 | ① **执行记录未取得**（PostgreSQL 不可用，命令见文末附录「待执行取证」）；② 「被拒绝的直连写不产生审计行」属真实缺口（B2 003 的「审计记录调用主体和目标对象」只对成功写成立），见表后备注 |
 
 ---
 
@@ -135,8 +135,8 @@
 | 组 | 要求 | 实测 | 结论 |
 |---|---|---|---|
 | A | 全绿（A1–A4） | A1 PASS、A2 PASS、**A3 MISSING**、A4 PASS | ✗（仅剩 A3） |
-| B | 全绿（B1–B4） | B1 MISSING（15 动作无端点）、B2/B3/B4 PASS | ✗ |
-| C | 全绿（C1–C6） | C1–C5 PASS、**C6 PARTIAL** | ✗ |
+| B | 全绿（B1–B4） | B1 MISSING（15 动作无端点）、**B2 PARTIAL**（AGENT-NEG-004 无载体）、B3/B4 PASS | ✗ |
+| C | 全绿（C1–C6） | C1–C5 PASS、**C6 PARTIAL**（用例就位，取证待跑） | ✗ |
 | D | D1、D2 必绿 | **D1 PARTIAL**（10/42 状态机）、D2 PASS | ✗ |
 | E | E1、E2 必绿 | **E1 MISSING、E2 MISSING** | ✗ |
 | F | F1 必绿 | F1 PASS（ADR-R37）；F2/F3 MISSING，按规则需逐项登记 owner / 阻塞范围 / 复审时点 | ✓ 条件成立 |
@@ -184,10 +184,16 @@ C1–C5 这条竖切是真的端到端通（含负向断言与数据库层证据
   11 条断言，证据 `phase1-migration-rollback.json`。
 - ~~A4 恢复演练未跑~~：**已闭**。`scripts/backup_restore_drill.py`，33 张表
   逐表哈希比对 + 清单校验和重算，证据 `phase1-backup-restore.json`。
-- C6 Gate 0—3 逐 Gate 决策记录未取。
-- G1 端到端重建未做。
-- G3 十个写操作审计抽样未做。
-- B2 用例与 AGENT-NEG-001～004 编号未对齐。
+- ~~B2 用例与 AGENT-NEG-001～004 编号未对齐~~：**已闭（2026-11-17）**。编号映射
+  做成机器校验（6 条门禁断言），证据 `phase1-b2-agent-negative.md`。但 004 本身
+  **不是**编号问题而是载体缺失，见 11 节的判定下调。
+- ~~C6 Gate 0—3 逐 Gate 决策记录未取~~：**用例就位（2026-11-17），执行记录待跑**。
+  `tests/integration/test_c6_gate_decisions.py`。
+- ~~G1 端到端重建未做~~：**能力就位（2026-11-17），执行记录待跑**。
+  重建服务 + 跨域规格端口 + 3 条用例。
+- ~~G3 十个写操作审计抽样未做~~：**用例就位（2026-11-17），执行记录待跑**。
+  catalog 驱动的抽样断言 + outbox 权限探针。
+- 仍在类 1：`AGENT-NEG-004`（预算/配额数值校验）随 budget_quota 域一起解锁。
 
 **这一类全是"工程已做、验收记录没写"，可以靠一次集中的取证作业清零**，
 且不需要新写业务代码。
@@ -250,3 +256,51 @@ python -m pytest tests/unit/test_phase_gate.py -q
 # 手工复核一条（未认证也应得到 409，见 ADR-R37 §3 债务 1）
 curl -s -X POST localhost:8000/actions/creator.mode.upgrade | jq .error_code
 ```
+
+---
+
+## 附二：待执行取证（2026-11-17，DB 不可用未跑）
+
+**为什么没跑**：本轮 B2/C6/G1/G3 的用例全部在会话级 autouse 夹具里建数据库连接池，
+而沙箱内 Docker 引擎已停止、且 `docker desktop start` 被安全策略拦截
+（`wsl.exe` 在程序黑名单中，无法从本会话放行）。本地 5432 上是另一个 PostgreSQL
+实例，不接受本项目的角色与库，未触碰。因此**执行记录为空，判定一律维持 PARTIAL**，
+不用"用例存在"冒充"用例通过"。
+
+**前置**（Docker Desktop 启动后）：
+
+```bash
+docker compose -f infra/compose/docker-compose.yml up -d postgres
+python -m alembic upgrade head
+```
+
+**逐项取证命令与观察点**：
+
+```bash
+# B2（已在 DB 可用时跑过：7 passed / 965 deselected）
+python -m pytest tests/permission/test_agent_negative_matrix.py -v   # 6 条编号门禁
+python -m pytest -m agent_negative -v                               # 7 条被标注的真实负向用例
+
+# C6：Gate 0—4 各一条决策记录
+python -m pytest tests/integration/test_c6_gate_decisions.py -v
+# 观察点：每条 Gate 的 7.4 字段非空；gate_decisions 表 5 行；5 条 PRODUCTION_GATE_APPROVED；
+#         exit_actions 断言"契约无此字段"；未批准资产进清单返回 422
+
+# G1：清单端到端重建
+python -m pytest tests/integration/test_g1_manifest_rebuild.py -v
+# 观察点：checksum_match True 且 4 条 verified（2 资产 + 1 QC + 1 规格）；
+#         缺 QC → missing 且 checksum_match False；QC 报告属另一资产 → mismatched
+
+# G3：十个写操作审计抽样（payload_required 由 event_catalog 驱动）
+python -m pytest tests/integration/test_g3_audit_sampling.py -v
+# 观察点：10 个动作的事件 payload ⊇ payload_required；正文含聚合 id；
+#         6 个业务角色 UPDATE/DELETE outbox 均 permission denied；
+#         relay 只能改 published_at / attempts / next_attempt_at / dead_lettered_at
+
+# 全量闸门
+python -m pytest
+```
+
+**跑完后要回填的四处**：① 本文档 §4 的 B2 行、§5 的 C6 行、§9 的 G1/G3 行；
+② §10 出口表对应行；③ 各判定里的「取证待跑」改为实测计数；
+④ 若全绿，把 C6/G1/G3 从 `PARTIAL` 提升为 `PASS` 并在证据指针里补上实测数字。

@@ -129,6 +129,7 @@ async def test_update_and_delete_rejected_even_for_superuser(
     assert "append-only" in str(exc_info.value)
 
 
+@pytest.mark.agent_negative("AGENT-NEG-003")
 async def test_agent_decider_is_rejected_by_check(admin_engine: AsyncEngine) -> None:
     """Agent 不得自批自用：绕过所有应用代码仍被数据库拒绝。"""
     with pytest.raises(DBAPIError) as exc_info:

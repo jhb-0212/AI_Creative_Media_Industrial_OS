@@ -191,6 +191,7 @@ async def test_facts_are_append_only_even_for_superuser(
 # --- CHECK 约束 --------------------------------------------------------------
 
 
+@pytest.mark.agent_negative("AGENT-NEG-003")
 async def test_agent_voter_rejected_by_check(admin_engine: AsyncEngine) -> None:
     """Agent 不得投票：绕过所有应用代码仍被数据库拒绝。"""
     ticket_id = await _insert_ticket(admin_engine)

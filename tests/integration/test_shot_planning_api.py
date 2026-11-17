@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import uuid
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -118,6 +119,7 @@ async def test_human_confirms_revision(auth_client: AsyncClient) -> None:
     assert body["created_by"] == "director_001"
 
 
+@pytest.mark.agent_negative("AGENT-NEG-002")
 async def test_agent_cannot_confirm_revision(auth_client: AsyncClient) -> None:
     """Agent 确认正式镜头修订 → 403 AUTH_SCOPE_DENIED（「Agent 不得自批自用」）。"""
     project_id = f"proj_{uuid.uuid4().hex[:8]}"
