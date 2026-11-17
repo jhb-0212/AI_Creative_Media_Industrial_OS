@@ -13,10 +13,11 @@
 
 三条结构性决定（对应审查与验收清单原文）：
 
-1. **只可能产生 DRAFT。** `DELIVERY.MANIFEST.CREATE` 的契约约束就是"仅生成 DRAFT"。
-   进入 VALIDATING/VALIDATED/RELEASED 需要 Gate4 PASS、PictureLock、权利证据与
-   终检报告齐备（`DELIVERY.MANIFEST.APPROVE` / `RELEASE`），这两条动作尚未实现，
-   属显式债务。把状态机写全但只开一个入口，比"接口存在、状态可以随便写"更安全。
+1. **CREATE 只可能产生 DRAFT。** `DELIVERY.MANIFEST.CREATE` 的契约约束就是"仅生成
+   DRAFT"；这条约束属于**创建用例**，不是对象构造——`transition_to()` 让同一对象
+   能沿登记边推进到 VALIDATING/VALIDATED/RELEASED（D4），但创建入口仍固定 DRAFT。
+   进入 VALIDATED 必须核验审批引擎的 APPROVAL_TICKET_COMPLETED 权威事件，
+   这是 D4 的 `DeliveryApprovalService` 的职责，客户端无法声明结论。
 2. **清单不声明 Gate PASS，结构上做不到。** 契约里这个对象没有 `gate_pass` 之类
    的布尔字段，只有 `qc_final_ref` / `picture_lock_ref` / `rights_evidence_refs`
    这类**证据引用**。引用只能指向已存在的证据，不能表达"Gate4 已通过"这种结论——
@@ -41,7 +42,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -49,6 +50,7 @@ from uuid import UUID
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.entity import utcnow
 from services.asset_service.domain.enums import DeliveryManifestStatus
+from services.asset_service.domain.state_machine import assert_transition_manifest
 
 
 def compute_manifest_checksum(
@@ -143,14 +145,33 @@ class DeliveryManifest:
                 ErrorRegistry.VALIDATION_ERROR,
                 detail="rebuild_recipe 不能为空（无重建配方的清单无法复现）",
             )
-        if self.status is not DeliveryManifestStatus.DRAFT:
+        # 状态取值本身由枚举保证。这里刻意不限制"构造时必须是 DRAFT"：
+        # 从数据库读回的清单可能是 VALIDATED/RELEASED，构造期拒绝会让只读
+        # 路径崩溃。"CREATE 只产出 DRAFT"属于创建用例的约束（见模块 docstring），
+        # 而"能进入哪些状态"由 transition_to() 的状态机校验统一把守。
+
+    def transition_to(
+        self, target: DeliveryManifestStatus, *, audit_ref: str
+    ) -> DeliveryManifest:
+        """沿登记边推进状态，返回推进后的新对象（原对象不可变）。
+
+        `audit_ref` 是推进该状态的权威依据引用——必须是 outbox 里的事件 id，
+        使"这个状态是怎么来的"永久可追（ADR-R11-G）。内容字段在这条路径上
+        没有任何入口可改，数据库列级 UPDATE 再加一道兜底。
+        """
+        assert_transition_manifest(self.status, target)
+        if not audit_ref.strip():
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,
-                detail=(
-                    "DELIVERY.MANIFEST.CREATE 只生成 DRAFT；"
-                    "VALIDATED/RELEASED 需经 Gate4 与权利/终检证据审批"
-                ),
+                detail="状态推进必须提供权威依据 audit_ref（审批事件 id）",
             )
+        return replace(
+            self,
+            status=target,
+            audit_ref=audit_ref.strip(),
+            entity_version=self.entity_version + 1,
+            updated_at=utcnow(),
+        )
 
     @property
     def checksum(self) -> str:

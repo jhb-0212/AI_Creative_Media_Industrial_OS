@@ -40,6 +40,23 @@ gaps:
       reason: "契约只写「可进入 ARCHIVED」，未给来源边与归档保留期口径"
       contract_ref: "contracts/state_machines/state_machines.yaml:45-46"
       unblocks_when: "正文补登记归档来源边与保留期（与 R06 Outbox 保留期策略对齐）"
+  DeliveryManifest:
+    INVALID:
+      reason: "契约 31.5 只把 INVALID 列为异常态，未给来源边与判定前置条件；不能凭空造边"
+      contract_ref: "contracts/state_machines/state_machines.yaml:DeliveryManifest"
+      unblocks_when: "正文补登记 INVALID 的来源边（预期来自校验失败的交付动作）与判定依据后补边并删本条目"
+    STALE:
+      reason: "契约写「源或规格变化标记 STALE」，但未定义是哪个动作、以什么证据触发这条转移"
+      contract_ref: "contracts/state_machines/state_machines.yaml:DeliveryManifest"
+      unblocks_when: "正文补登记 STALE 的触发动作（预期 DELIVERY.MANIFEST.INVALIDATE）与源版本比对规则后补边"
+    REVOKED:
+      reason: "契约写「权利/安全撤销标记 REVOKED」，但撤销动作的契约与授权主体尚未定义"
+      contract_ref: "contracts/state_machines/state_machines.yaml:DeliveryManifest"
+      unblocks_when: "正文补登记 REVOKED 的触发动作（预期 CREATOR.RELEASE.REVOKE 的同族交付动作）后补边"
+    SUPERSEDED:
+      reason: "契约只列 SUPERSEDED 为失效态，未给取代来源边与新版本引用规则"
+      contract_ref: "contracts/state_machines/state_machines.yaml:DeliveryManifest"
+      unblocks_when: "正文补登记取代来源边（预期 VALIDATED→SUPERSEDED，携带新 manifest_id）后补边"
 
 # 已实现状态机的「转移无 HTTP 入口」债务（与上面的 gaps 区分语义）：
 # - gaps 登记的是「状态在域转移表中不可达」（缺来源边）；

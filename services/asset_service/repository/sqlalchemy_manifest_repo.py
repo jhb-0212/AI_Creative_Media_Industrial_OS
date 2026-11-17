@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.persistence import translate_integrity_errors
+from packages.shared.versioning import ConcurrentModificationError
 from services.asset_service.domain.delivery_manifest import DeliveryManifest
 from services.asset_service.domain.enums import DeliveryManifestStatus
 from services.asset_service.repository.manifest_repo import (
@@ -94,6 +96,35 @@ class SqlAlchemyDeliveryManifestRepository(DeliveryManifestRepository):
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
         return _to_domain(model) if model is not None else None
+
+    async def save_status(
+        self, manifest: DeliveryManifest, *, expected_version: int
+    ) -> None:
+        """乐观锁推进状态投影：只碰四列，版本不符即拒绝。
+
+        WHERE 带 entity_version = expected_version：并发推进时只有第一个 UPDATE
+        命中一行，其余 rowcount=0 抛并发异常，由用例层按"重放还是拒绝"处理。
+        """
+        stmt = (
+            update(DeliveryManifestModel)
+            .where(
+                DeliveryManifestModel.entity_id == manifest.manifest_id,
+                DeliveryManifestModel.entity_version == expected_version,
+            )
+            .values(
+                status=manifest.status.value,
+                entity_version=manifest.entity_version,
+                updated_at=manifest.updated_at,
+                audit_ref=manifest.audit_ref,
+            )
+        )
+        result = await self._session.execute(stmt)
+        # update() 的 execute 运行期返回 CursorResult（带 rowcount）；SQLAlchemy
+        # 的 AsyncSession.execute 类型签名统一标为 Result，故此处显式收窄。
+        if not isinstance(result, CursorResult) or result.rowcount != 1:
+            raise ConcurrentModificationError(
+                f"delivery_manifest:{manifest.manifest_id}", expected_version
+            )
 
 
 # 供 contract_check 的序列化探针使用：构造最小合法对象。

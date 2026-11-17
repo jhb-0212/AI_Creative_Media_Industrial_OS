@@ -496,6 +496,10 @@ DATABASE_ACCESS_ALLOWLIST: dict[str, str] = {
     "workers.relay.__main__": (
         "Relay 进程入口：只起投递域连接池，与 API 进程身份不同"
     ),
+    "workers.delivery.__main__": (
+        "交付消费进程入口（D4）：只起资产域连接池消费审批事件；"
+        "与 relay 不同角色，进程级隔离由入口各自建池保证"
+    ),
 }
 
 #: 允许出现 ``app.state.pools`` 的模块（与上表分列：import 工厂 ≠ 访问运行时池）。

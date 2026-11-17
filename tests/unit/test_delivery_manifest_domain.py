@@ -8,8 +8,9 @@
 2. **缺证据的清单不可存在**：`asset_refs` / `rights_evidence_refs` /
    `rebuild_recipe` 任一为空即拒绝。清单是对客户的交付依据，缺权利证据
    的清单一旦成立，风险直接出到客户侧。
-3. **只可能产生 DRAFT**：`DELIVERY.MANIFEST.CREATE` 的语义就是"仅生成 DRAFT"，
-   在领域对象层就把非 DRAFT 拦掉，而不是指望路由不传。
+3. **CREATE 只产出 DRAFT，状态只能沿登记边推进**：`DELIVERY.MANIFEST.CREATE`
+   固定生成 DRAFT；构造期允许读出已推进的状态（否则只读路径会崩），但状态变化
+   只能经 `transition_to()` 沿状态机合法边进行，非法跳转被拒（D4）。
 """
 
 from __future__ import annotations
@@ -136,11 +137,34 @@ def test_required_reference_must_not_be_blank(field: str) -> None:
         _manifest(**{field: "   "})
 
 
-def test_non_draft_status_is_rejected() -> None:
-    """非 DRAFT 一律拒绝：VALIDATED/RELEASED 需走审批动作，不是构造参数。"""
+def test_illegal_status_jump_is_rejected() -> None:
+    """状态只能沿登记边推进：DRAFT 不能直接跳 VALIDATED/RELEASED（31.5）。"""
+    manifest = _manifest()
     with pytest.raises(DomainError) as exc:
-        _manifest(status=DeliveryManifestStatus.VALIDATED)
-    assert "DRAFT" in str(exc.value.detail)
+        manifest.transition_to(
+            DeliveryManifestStatus.VALIDATED, audit_ref="event-1"
+        )
+    assert "DRAFT" in str(exc.value.detail) and "VALIDATED" in str(exc.value.detail)
+
+
+def test_transition_requires_authoritative_audit_ref() -> None:
+    """每次状态推进都必须带权威依据（事件 id），否则状态无来源可追。"""
+    with pytest.raises(DomainError):
+        _manifest().transition_to(DeliveryManifestStatus.VALIDATING, audit_ref="  ")
+
+
+def test_transition_is_immutable_and_bumps_version() -> None:
+    """推进返回新对象：内容不变、状态推进、版本递增、audit_ref 记录来源。"""
+    original = _manifest()
+    advanced = original.transition_to(
+        DeliveryManifestStatus.VALIDATING, audit_ref="event-1"
+    )
+    assert original.status is DeliveryManifestStatus.DRAFT
+    assert original.entity_version == 1
+    assert advanced.status is DeliveryManifestStatus.VALIDATING
+    assert advanced.entity_version == 2
+    assert advanced.audit_ref == "event-1"
+    assert advanced.checksum == original.checksum  # 内容哈希不变
 
 
 def test_to_dict_omits_private_columns() -> None:

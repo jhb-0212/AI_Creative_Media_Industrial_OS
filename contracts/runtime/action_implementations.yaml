@@ -55,9 +55,16 @@ implemented:
   ASSET.VERSION.READ:
     route: "GET /assets/{asset_version_id}"
     module: services/asset_service/api/asset_routes.py
-  # --- 交付域（DeliveryManifest，仅 CREATE：APPROVE/RELEASE 依赖 Gate 决策链）---
+  # --- 交付域（DeliveryManifest）---
+  # CREATE 只产出 DRAFT；RELEASE 放行已 VALIDATED 的不可变版本（D4）。
+  # APPROVE 是联合审批（allowed_principals 含 +），授权层恒 fail-closed，
+  # 无专用 HTTP 端点：发起走 WORKFLOW.START_APPROVAL，结论由 asset 域消费
+  # APPROVAL_TICKET_COMPLETED 推进 VALIDATED（见 not_implemented 的原因）。
   DELIVERY.MANIFEST.CREATE:
     route: "POST /delivery-manifests"
+    module: services/asset_service/api/delivery_routes.py
+  DELIVERY.MANIFEST.RELEASE:
+    route: "POST /delivery-manifests/{manifest_id}/release"
     module: services/asset_service/api/delivery_routes.py
   # --- 质量治理域（Gate 裁决，append-only）---
   PRODUCTION.GATE.APPROVE:
@@ -122,6 +129,4 @@ not_implemented:
   DELIVERY.SPEC.APPROVE:
     reason: "交付规格未建模；职责分离需交付审核角色域"
   DELIVERY.MANIFEST.APPROVE:
-    reason: "业务专用 APPROVE 端点已废弃（ADR-R11-G）；改由通用审批引擎承接，绑定见 approval_bindings.yaml。仍缺：业务侧消费 APPROVAL_TICKET_COMPLETED 后推进 VALIDATED 的处理器，以及跨域证据有效性校验"
-  DELIVERY.MANIFEST.RELEASE:
-    reason: "交付清单已可创建（DRAFT），但放行依赖已 VALIDATED 的清单与客户交付通道，均未落地"
+    reason: "无专用 HTTP 端点（allowed_principals 含 + 恒 fail-closed，ADR-R11-G）：发起走 WORKFLOW.START_APPROVAL，投票走 WORKFLOW.SUBMIT_VOTE，结论由 DeliveryApprovalService 消费 outbox 的 APPROVAL_TICKET_COMPLETED 推进 VALIDATED（D4 / ADR-R24）。此处保持 not_implemented 是因为本动作没有以自身 key 命名的独立端点，不能登记一个不存在的 route。仍缺：PictureLock/权利证据对象的跨域存在性校验（Phase 1 主链未落地）"

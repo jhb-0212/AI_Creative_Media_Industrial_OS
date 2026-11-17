@@ -16,7 +16,46 @@
 from __future__ import annotations
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
-from services.asset_service.domain.enums import AssetStatus
+from services.asset_service.domain.enums import AssetStatus, DeliveryManifestStatus
+
+#: 交付清单状态机（对齐 contracts/state_machines.yaml#DeliveryManifest 与迁移
+#: a2b3c4d5e6f7 的 delivery_manifest_status_transitions 表）。
+#:
+#: 只登记契约有明确来源边的三段主链。异常/失效态（INVALID/STALE/REVOKED/
+#: SUPERSEDED）正文只写「可进入」未给来源边，按 31.5 不造边；其不可达性登记在
+#: contracts/runtime/state_machine_gaps.yaml，由闸门双向校验。
+#:
+#: 这份字典是领域层唯一事实源；数据库转移表是它的持久化副本（逐值一致由
+#: tests/unit/test_delivery_manifest_domain.py 与迁移字面量对照守）。
+DELIVERY_MANIFEST_ALLOWED_TRANSITIONS: dict[
+    DeliveryManifestStatus, frozenset[DeliveryManifestStatus]
+] = {
+    DeliveryManifestStatus.DRAFT: frozenset({DeliveryManifestStatus.VALIDATING}),
+    DeliveryManifestStatus.VALIDATING: frozenset({DeliveryManifestStatus.VALIDATED}),
+    DeliveryManifestStatus.VALIDATED: frozenset({DeliveryManifestStatus.RELEASED}),
+    DeliveryManifestStatus.RELEASED: frozenset(),
+}
+
+
+def can_transition_manifest(
+    source: DeliveryManifestStatus, target: DeliveryManifestStatus
+) -> bool:
+    """判断交付清单 source -> target 是否为已登记转移。"""
+    return target in DELIVERY_MANIFEST_ALLOWED_TRANSITIONS.get(source, frozenset())
+
+
+def assert_transition_manifest(
+    source: DeliveryManifestStatus, target: DeliveryManifestStatus
+) -> None:
+    """校验交付清单转移合法性，未登记则拒绝（31.5）。"""
+    if not can_transition_manifest(source, target):
+        raise DomainError(
+            ErrorRegistry.STATE_TRANSITION_DENIED,
+            detail=(
+                f"非法状态转移：{source.value} -> {target.value}"
+                "（交付清单未登记该边，已拒绝）"
+            ),
+        )
 
 ASSET_ALLOWED_TRANSITIONS: dict[AssetStatus, frozenset[AssetStatus]] = {
     AssetStatus.GENERATED: frozenset({AssetStatus.TECHNICAL_QC}),

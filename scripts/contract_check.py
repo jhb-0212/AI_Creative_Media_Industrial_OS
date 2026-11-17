@@ -146,6 +146,10 @@ _STATE_MACHINE_SOURCES: dict[str, tuple[str, str]] = {
         "services.asset_service.domain.state_machine",
         "ASSET_ALLOWED_TRANSITIONS",
     ),
+    "DeliveryManifest": (
+        "services.asset_service.domain.state_machine",
+        "DELIVERY_MANIFEST_ALLOWED_TRANSITIONS",
+    ),
     "ApprovalTicket": (
         "services.workflow.domain.state_machine",
         "TICKET_ALLOWED_TRANSITIONS",

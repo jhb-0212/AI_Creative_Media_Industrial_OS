@@ -71,6 +71,21 @@ class AssetStatusTransitionModel(Base):
     to_status: Mapped[str] = mapped_column(String(32), primary_key=True)
 
 
+class DeliveryManifestStatusTransitionModel(Base):
+    """`delivery_manifest_status_transitions` 表模型（D4，只读参考数据）。
+
+    与 AssetStatusTransitionModel 同口径：它是清单状态机在数据库层的表达，
+    `delivery_manifests_guard()` 按它判定 status 变化是否合法。应用角色只读，
+    写入只在迁移里发生。声明成模型让 alembic check 能校验这张表的结构。
+    """
+
+    __tablename__ = "delivery_manifest_status_transitions"
+    __table_args__ = {"schema": SCHEMA_NAME}
+
+    from_status: Mapped[str] = mapped_column(String(32), primary_key=True)
+    to_status: Mapped[str] = mapped_column(String(32), primary_key=True)
+
+
 class QCReportModel(Base):
     """qc_reports 表模型（不可变检测证据）。
 

@@ -22,6 +22,7 @@ import pytest
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.errors.repository_errors import DuplicateEntityError
 from packages.identity.principal import Principal  # noqa: F401  (类型标注用)
+from packages.shared.versioning import ConcurrentModificationError
 from services.asset_service.domain.asset_version import AssetVersion
 from services.asset_service.domain.delivery_manifest import DeliveryManifest
 from services.asset_service.domain.enums import AssetStatus
@@ -72,6 +73,17 @@ class FakeManifestRepository(DeliveryManifestRepository):
     async def get_by_id(self, manifest_id: str) -> DeliveryManifest | None:
         stored = self.rows.get(manifest_id)
         return replace(stored) if stored is not None else None
+
+    async def save_status(
+        self, manifest: DeliveryManifest, *, expected_version: int
+    ) -> None:
+        """状态推进端口（D4）：本 fake 只服务 CREATE 用例，用不到，但需满足端口。"""
+        current = self.rows.get(manifest.manifest_id)
+        if current is None or current.entity_version != expected_version:
+            raise ConcurrentModificationError(
+                f"delivery_manifest:{manifest.manifest_id}", expected_version
+            )
+        self.rows[manifest.manifest_id] = replace(manifest)
 
 
 class _StaleReadManifestRepository(FakeManifestRepository):

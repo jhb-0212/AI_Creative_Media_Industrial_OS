@@ -163,6 +163,34 @@ events:
       - tenant_id
     contract_ref: contracts/schemas/object_schemas.schema.json#DeliveryManifest
 
+  # --- 交付审批消费（D4）：状态推进的事实来源，与 CREATE 同属资产域 ---
+  # APPROVED 由 DeliveryApprovalService 消费通用审批引擎的
+  # APPROVAL_TICKET_COMPLETED 后发出：清单从 DRAFT 经 VALIDATING 推进到 VALIDATED。
+  # 只有 VALIDATED 的不可变版本可 RELEASE。
+  - event_type: DELIVERY_MANIFEST_APPROVED
+    aggregate_type: DeliveryManifest
+    emitted_by: services/asset_service/service/delivery_approval_service.py
+    payload_required:
+      - manifest_id
+      - project_id
+      - checksum
+      - approval_event_id
+      - votes
+      - status
+      - tenant_id
+    contract_ref: contracts/schemas/object_schemas.schema.json#DeliveryManifest
+  - event_type: DELIVERY_MANIFEST_RELEASED
+    aggregate_type: DeliveryManifest
+    emitted_by: services/asset_service/service/delivery_approval_service.py
+    payload_required:
+      - manifest_id
+      - project_id
+      - checksum
+      - status
+      - released_by
+      - tenant_id
+    contract_ref: contracts/schemas/object_schemas.schema.json#DeliveryManifest
+
   # --- 质量治理域（Gate 裁决）---
   #
   # 为什么一个动作登记三条事件：`PRODUCTION.GATE.APPROVE` 的契约只声明了一个

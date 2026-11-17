@@ -1,13 +1,15 @@
-"""交付清单的结构性约束验证（数据库层，append-only + 状态登记 + 最小授权）。
+"""交付清单的结构性约束验证（数据库层，内容不可变 + 状态登记 + 最小授权）。
 
 审查口径是「约束不能只活在代码里」。本文件不经过服务层，直接对表动手，
 证明四条性质：
 
-1. **版本不可变**：`UPDATE` / `DELETE` 被触发器拒绝——**以超级用户直连也一样**，
-   证明拦的是结构而不是角色授权（与 `qc_reports` 同口径）；
-2. **状态可表示但不可乱写**：契约外取值被 CHECK 拒绝，DRAFT 之外的合法取值
-   在当前流程下不由 CREATE 产生（服务层的 `__post_init__` 拦，见单测）；
-3. **只授 SELECT/INSERT**：资产域角色没有任何 UPDATE/DELETE 权限，
+1. **内容不可变**：改业务内容列的 `UPDATE`、`DELETE` 被触发器拒绝——
+   **以超级用户直连也一样**，证明拦的是结构而不是角色授权（D4 后清单从"全禁
+   UPDATE"演进为"内容不可变 + 状态沿边推进"，C1 同款模式）；
+2. **状态可表示但不可乱写**：契约外取值被 CHECK 拒绝；合法转移必须命中
+   `delivery_manifest_status_transitions` 登记边，DRAFT→RELEASED 这类跳跃被拒；
+3. **最小授权**：资产域角色有 SELECT/INSERT + 仅四列（status/entity_version/
+   updated_at/audit_ref）的列级 UPDATE，没有 DELETE、没有内容列 UPDATE；
    系统目录可查（授权是数据库状态，测业务路径证明不了"别的路径走不通"）；
 4. **RLS 双策略生效**：跨租户读不到，同租户跨项目也读不到（`project_scope_*`
    是限制性策略，缺 `project_id` 列时这条根本没法落）。
@@ -111,11 +113,11 @@ async def test_update_is_rejected_even_for_superuser(admin_engine: AsyncEngine) 
                 ),
                 {"e": entity_id},
             )
-    assert "append-only" in str(exc_info.value)
+    assert "不可变内容列" in str(exc_info.value)
 
 
-async def test_status_change_is_rejected(admin_engine: AsyncEngine) -> None:
-    """状态也不得原地改：VALIDATED 必须走审批动作产生新事实，不是 UPDATE。"""
+async def test_illegal_status_jump_is_rejected(admin_engine: AsyncEngine) -> None:
+    """状态跳跃被拒：DRAFT 不能直接到 RELEASED（未登记的边，31.5）。"""
     entity_id = await _new_manifest(admin_engine)
     with pytest.raises(DBAPIError) as exc_info:
         async with admin_engine.begin() as conn:
@@ -126,7 +128,32 @@ async def test_status_change_is_rejected(admin_engine: AsyncEngine) -> None:
                 ),
                 {"e": entity_id},
             )
-    assert "append-only" in str(exc_info.value)
+    assert "非法状态转移" in str(exc_info.value)
+
+
+async def test_registered_status_transition_succeeds(
+    admin_engine: AsyncEngine,
+) -> None:
+    """登记边可推进：DRAFT → VALIDATING 必须能走通（否则状态机是死的）。"""
+    entity_id = await _new_manifest(admin_engine)
+    async with admin_engine.begin() as conn:
+        await conn.execute(
+            sa.text(
+                "UPDATE asset_service.delivery_manifests "
+                "SET status = 'VALIDATING' WHERE entity_id = :e"
+            ),
+            {"e": entity_id},
+        )
+        status = (
+            await conn.execute(
+                sa.text(
+                    "SELECT status FROM asset_service.delivery_manifests "
+                    "WHERE entity_id = :e"
+                ),
+                {"e": entity_id},
+            )
+        ).scalar_one()
+    assert status == "VALIDATING"
 
 
 async def test_delete_is_rejected(admin_engine: AsyncEngine) -> None:
@@ -162,13 +189,16 @@ async def test_all_contract_status_values_are_representable(
     assert entity_id
 
 
-async def test_asset_role_has_no_update_or_delete() -> None:
-    """资产域角色只有 SELECT/INSERT（端口没有 save，权限也不给）。"""
+_MUTABLE_COLUMNS = {"status", "entity_version", "updated_at", "audit_ref"}
+
+
+async def test_asset_role_has_only_column_scoped_update() -> None:
+    """资产域角色：SELECT/INSERT + 仅四列 UPDATE，无 DELETE、无内容列 UPDATE。"""
     role = role_for(DatabaseDomain.ASSET)
     engine = create_async_engine(build_migration_url(), pool_pre_ping=True)
     try:
         async with engine.connect() as conn:
-            rows = (
+            table_privs = (
                 await conn.execute(
                     sa.text(
                         """
@@ -182,9 +212,72 @@ async def test_asset_role_has_no_update_or_delete() -> None:
                     {"role": role},
                 )
             ).scalars().all()
+            column_updates = (
+                await conn.execute(
+                    sa.text(
+                        """
+                        SELECT column_name
+                        FROM information_schema.column_privileges
+                        WHERE grantee = :role
+                          AND table_schema = 'asset_service'
+                          AND table_name = 'delivery_manifests'
+                          AND privilege_type = 'UPDATE'
+                        """
+                    ),
+                    {"role": role},
+                )
+            ).scalars().all()
     finally:
         await engine.dispose()
-    assert set(rows) == {"SELECT", "INSERT"}
+    # 表级权限仍是 SELECT/INSERT：列级 UPDATE 只在 column_privileges 出现，
+    # 这正是"没有表级 UPDATE、只有四列可改"的数据库证据。
+    assert set(table_privs) == {"SELECT", "INSERT"}
+    # 真正能改的列只有四列——内容列一个都不在。
+    assert set(column_updates) == _MUTABLE_COLUMNS
+
+
+async def test_transition_table_is_read_only_for_app_roles() -> None:
+    """转移表对应用角色只读：不能靠加一条边自我放行。"""
+    engine = create_async_engine(build_migration_url(), pool_pre_ping=True)
+    try:
+        async with engine.connect() as conn:
+            for role in all_business_roles():
+                rows = (
+                    await conn.execute(
+                        sa.text(
+                            """
+                            SELECT privilege_type
+                            FROM information_schema.table_privileges
+                            WHERE grantee = :role
+                              AND table_schema = 'asset_service'
+                              AND table_name = 'delivery_manifest_status_transitions'
+                            """
+                        ),
+                        {"role": role},
+                    )
+                ).scalars().all()
+                assert set(rows) <= {"SELECT"}, f"{role} 对转移表有多余权限: {rows}"
+    finally:
+        await engine.dispose()
+
+
+async def test_transition_table_seeds_registered_edges_only() -> None:
+    """转移表恰好只有三条登记边——异常态不在其中（不可达，登记在 gaps）。"""
+    engine = create_async_engine(build_migration_url(), pool_pre_ping=True)
+    try:
+        async with engine.connect() as conn:
+            edges = (
+                await conn.execute(
+                    sa.text(
+                        "SELECT from_status || '->' || to_status "
+                        "FROM asset_service.delivery_manifest_status_transitions "
+                        "ORDER BY 1"
+                    )
+                )
+            ).scalars().all()
+    finally:
+        await engine.dispose()
+    assert edges == ["DRAFT->VALIDATING", "VALIDATED->RELEASED", "VALIDATING->VALIDATED"]
 
 
 async def test_other_roles_cannot_insert_manifests() -> None:

@@ -23,11 +23,17 @@ from packages.identity.enforcement import authorize
 from packages.shared.contract_models import contract_model
 from packages.shared.outbox_writer import SqlAlchemyOutboxWriter
 from packages.shared.unit_of_work import UnitOfWork
+from services.asset_service.repository.sqlalchemy_approval_event_source import (
+    SqlAlchemyApprovalEventSource,
+)
 from services.asset_service.repository.sqlalchemy_asset_repo import (
     SqlAlchemyAssetRepository,
 )
 from services.asset_service.repository.sqlalchemy_manifest_repo import (
     SqlAlchemyDeliveryManifestRepository,
+)
+from services.asset_service.service.delivery_approval_service import (
+    DeliveryApprovalService,
 )
 from services.asset_service.service.delivery_service import DeliveryService
 from services.identity_access.deps import (
@@ -85,6 +91,21 @@ def _get_service(uow: UnitOfWork = Depends(get_asset_uow)) -> DeliveryService:
     return _build_service(uow.session)
 
 
+def _build_approval_service(session: AsyncSession) -> DeliveryApprovalService:
+    """审批消费/放行服务装配（与写事务共享同一 RLS 会话）。"""
+    return DeliveryApprovalService(
+        SqlAlchemyDeliveryManifestRepository(session),
+        SqlAlchemyApprovalEventSource(session),
+        SqlAlchemyOutboxWriter(session),
+    )
+
+
+def _get_approval_service(
+    uow: UnitOfWork = Depends(get_asset_uow),
+) -> DeliveryApprovalService:
+    return _build_approval_service(uow.session)
+
+
 @router.post("", status_code=201, response_model=_DeliveryManifestResponse)
 async def create_delivery_manifest(
     body: CreateDeliveryManifestRequest,
@@ -117,3 +138,38 @@ async def create_delivery_manifest(
     )
     await uow.commit()
     return manifest.to_dict()
+
+
+@router.post("/{manifest_id}/release", response_model=_DeliveryManifestResponse)
+async def release_delivery_manifest(
+    manifest_id: str,
+    principal: Principal = Depends(require_action("DELIVERY.MANIFEST.RELEASE")),
+    uow: UnitOfWork = Depends(get_asset_uow),
+    service: DeliveryApprovalService = Depends(_get_approval_service),
+) -> dict[str, Any]:
+    """放行已 VALIDATED 的不可变版本（DELIVERY.MANIFEST.RELEASE，CRITICAL）。
+
+    授权在依赖阶段由 ``require_action`` 完成：交付负责人/授权发行主体（OR），
+    Agent 由 CRITICAL 红线拒绝。这里再做一次资源级授权：项目归属取清单自身，
+    不接受客户端声明的项目 id（与 CREATE 同口径）。
+    """
+    # 先读清单拿项目归属（同一事务，RLS 上下文有效），再做资源级授权。
+    manifest = await service.get_manifest(manifest_id)
+    authorize(
+        principal,
+        "DELIVERY.MANIFEST.RELEASE",
+        resource=ResourceRef(
+            resource_type="DeliveryManifest",
+            organization_id=manifest.organization_id,
+            project_id=manifest.project_id,
+        ),
+        # 职责分离：申请人取清单自身的 created_by（服务端事实，不是客户端声明）。
+        # 放行主体不得是生成这份清单的人——这是 RELEASE 作为审批类动作的 W2 要求。
+        applicant_subject_id=manifest.created_by,
+    )
+    released = await service.release_manifest(
+        manifest_id=manifest_id, principal=principal
+    )
+    await uow.commit()
+    # D3 教训：SET LOCAL 的 RLS 上下文随 commit 清除，响应必须用 commit 前的对象。
+    return released.to_dict()
