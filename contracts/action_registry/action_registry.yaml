@@ -3,7 +3,7 @@
 # 校验口径：action_key 全局唯一、命名规范、audit_event 与 negative_test_id 一一对应
 registry_source: 'AFS-ARCH-MASTER-V2.0.5 / 31.6 Action Registry'
 registry_version: 'V2.0.5'
-total_actions: 83
+total_actions: 85
 actions:
   - action_key: 'PROJECT.CREATE'
     resource_type: 'Project'
@@ -180,6 +180,28 @@ actions:
     audit_event: 'QC_REPORT_CREATED'
     negative_test_id: 'ACT-QC-NEG-001'
     negative_test_desc: '缺证据报告不得 PASS'
+    status: 'ACTIVE'
+  - action_key: 'QC.REVIEW.OPEN'
+    resource_type: 'QCReviewSession'
+    scope: 'project/shot/asset_version'
+    risk_level: 'MEDIUM'
+    token_required: true
+    allowed_principals: 'QC 审核人/导演（按职责）'
+    approval_requirement: '只登记会话与缺陷快照，不作结论、不改 Gate；每条缺陷必须绑定 21.1 的九项，缺一即拒。'
+    audit_event: 'QC_REVIEW_OPENED'
+    negative_test_id: 'ACT-QC-NEG-002'
+    negative_test_desc: '缺陷缺必填项或报告归属不符拒绝开启会话'
+    status: 'ACTIVE'
+  - action_key: 'QC.REVIEW.DECIDE'
+    resource_type: 'QCReviewSession'
+    scope: 'project/asset_version'
+    risk_level: 'HIGH'
+    token_required: true
+    allowed_principals: 'QC 审核人/导演（按职责）'
+    approval_requirement: '每条缺陷须有证据与人工结论；CRITICAL 缺陷不得豁免；RESOLVED 后必须经 GATE_ELIGIBLE 才能 CLOSED（C.7 裁决 ④）。'
+    audit_event: 'QC_REVIEW_DECIDED'
+    negative_test_id: 'ACT-QC-NEG-003'
+    negative_test_desc: 'RESOLVED→CLOSED 跳关拒绝'
     status: 'ACTIVE'
   - action_key: 'PRODUCTION.GATE.APPROVE'
     resource_type: 'GateDecision'

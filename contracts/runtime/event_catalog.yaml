@@ -47,6 +47,33 @@ events:
       - tenant_id
     contract_ref: contracts/schemas/object_schemas.schema.json#QCReport
 
+  - event_type: QC_REVIEW_OPENED
+    aggregate_type: QCReviewSession
+    emitted_by: services/qc_governance/service/qc_review_service.py
+    payload_required:
+      - session_id
+      - project_id
+      - asset_version_id
+      - qc_report_ref
+      - issue_count
+      - status
+      - created_by
+      - tenant_id
+    contract_ref: contracts/schemas/object_schemas.schema.json#QCReviewSession
+
+  - event_type: QC_REVIEW_DECIDED
+    aggregate_type: QCReviewSession
+    emitted_by: services/qc_governance/service/qc_review_service.py
+    payload_required:
+      - session_id
+      - project_id
+      - asset_version_id
+      - from_status
+      - to_status
+      - decided_issue_ids
+      - decided_by
+      - tenant_id
+    contract_ref: contracts/schemas/object_schemas.schema.json#QCReviewSession
   - event_type: ASSET_VERSION_HUMAN_REVIEW_ENTERED
     aggregate_type: AssetVersion
     emitted_by: services/asset_service/service/asset_service.py

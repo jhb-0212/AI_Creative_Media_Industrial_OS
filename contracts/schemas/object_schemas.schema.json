@@ -3142,6 +3142,7 @@
         "asset_version_id",
         "decisions",
         "findings",
+        "project_id",
         "qc_report_ref",
         "reference_set",
         "reviewers",
@@ -3166,6 +3167,9 @@
         },
         "findings": {
           "type": "array"
+        },
+        "project_id": {
+          "type": "string"
         },
         "qc_report_ref": {
           "type": "string"
@@ -6412,7 +6416,7 @@
     },
     "QCIssue": {
       "type": "object",
-      "description": "",
+      "description": "权威所有者：QC Governance（21.1 缺陷字段列举；V205-R14-A10 补齐 issue_id / shot_id / qc_dimension）。每条缺陷必须绑定镜头、资产版本、时间码/帧区间、QC 维度、严重级别、证据、检测器版本、人工结论与处置。",
       "required": [
         "asset_version",
         "detector_version",
@@ -6420,6 +6424,9 @@
         "evidence",
         "frame_range",
         "human_decision",
+        "issue_id",
+        "qc_dimension",
+        "shot_id",
         "severity",
         "timecode",
         "entity_id",
@@ -6450,6 +6457,15 @@
           "type": "string"
         },
         "human_decision": {
+          "type": "string"
+        },
+        "issue_id": {
+          "type": "string"
+        },
+        "qc_dimension": {
+          "type": "string"
+        },
+        "shot_id": {
           "type": "string"
         },
         "severity": {

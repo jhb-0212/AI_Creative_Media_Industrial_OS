@@ -56,6 +56,63 @@ class GateDecisionValue(StrEnum):
     OVERRIDDEN = "OVERRIDDEN"
 
 
+class QCReviewSessionStatus(StrEnum):
+    """QC 复查会话状态（C.7 权威状态链 + 31.5 裁决 ④）。
+
+    链：OPEN→IN_REVIEW→DECISION_PENDING→RESOLVED→GATE_ELIGIBLE→CLOSED。
+    31.5 裁决 ④ 明确禁止 ``RESOLVED→CLOSED`` 跳关：跳过 Gate 资格校验等同
+    绕过 Gate 门禁。C.3 写的 ``RESOLVED→GATE_ELIGIBLE/CLOSED`` 是同一冲突的
+    另一表述，按权威顺序取 C.7，差异已登记在 state_machines.yaml 的 conflict 字段。
+
+    ``WAIVE_WITH_AUTHORITY`` 为什么在枚举里却没有转移边：enum_registry 把它
+    登记为 QCReviewSession 的状态值，而 C.7 状态链与 21.1 都把它当**人工结论
+    类型**（21.1 明列的五种 human_decision 之一）。删掉它会触发 enum_parity 缺值，
+    给它造边则等于凭空发明一条来源边。因此保留取值、不建边——与
+    ``GateDecisionValue.OVERRIDDEN`` 的「可表示 ≠ 可进入」同一口径，差异登记
+    于 ADR-R36 §3，待契约裁决。
+    """
+
+    OPEN = "OPEN"
+    IN_REVIEW = "IN_REVIEW"
+    DECISION_PENDING = "DECISION_PENDING"
+    RESOLVED = "RESOLVED"
+    GATE_ELIGIBLE = "GATE_ELIGIBLE"
+    CLOSED = "CLOSED"
+    WAIVE_WITH_AUTHORITY = "WAIVE_WITH_AUTHORITY"
+
+
+class QCIssueSeverity(StrEnum):
+    """缺陷严重级别（4.3 QC 严重级别）。
+
+    刻意不含 ``BLOCKER``：它只在 7.6 的 ReworkTask 字段表里出现，是**返工单**
+    的级别；把返工口径混进缺陷口径会让「这条缺陷到底多严重」随返工单变动。
+    ``CRITICAL`` 对应 4.3 的红线级（版权/安全/隐私/交付不可用），
+    因此不能以任何理由豁免——见 ``qc_issue`` 的豁免校验。
+    """
+
+    CRITICAL = "CRITICAL"
+    MAJOR = "MAJOR"
+    MINOR = "MINOR"
+    OBSERVATION = "OBSERVATION"
+
+
+class QCIssueHumanDecision(StrEnum):
+    """人工结论类型（21.1 明列五种；``PENDING`` 取自 8.9 QCReport 示例）。
+
+    ``PENDING`` 是**未作结论**的显式取值，不是第五种结论：允许它出现在
+    缺陷里，但不允许它作为一条裁决的结论（那样等于用"待定"推进会话）。
+    ``NEEDS_MORE_EVIDENCE`` 是"证据不足"的结论，会话可带着它进入
+    DECISION_PENDING，但不能进入 RESOLVED——未闭合的问题不是已解决的问题。
+    """
+
+    PENDING = "PENDING"
+    CONFIRM_DEFECT = "CONFIRM_DEFECT"
+    ARTISTIC_INTENTIONAL = "ARTISTIC_INTENTIONAL"
+    FALSE_POSITIVE = "FALSE_POSITIVE"
+    NEEDS_MORE_EVIDENCE = "NEEDS_MORE_EVIDENCE"
+    WAIVE_WITH_AUTHORITY = "WAIVE_WITH_AUTHORITY"
+
+
 class GateDecisionStatus(StrEnum):
     """决策记录自身的状态。
 

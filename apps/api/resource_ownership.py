@@ -25,7 +25,11 @@ from packages.shared.rls import set_request_context
 from services.asset_service.repository.sqlalchemy_manifest_repo import (
     SqlAlchemyDeliveryManifestRepository,
 )
+from services.asset_service.repository.sqlalchemy_qc_repo import (
+    SqlAlchemyQCReportRepository,
+)
 from services.generation_execution.domain.ports import RefOwnership
+from services.qc_governance.domain.ports import QCReportFacts
 from services.shot_planning.domain.enums import ConstraintPackStatus
 from services.shot_planning.repository.constraint_pack_sqlalchemy_repo import (
     SqlAlchemyConstraintPackRepository,
@@ -205,4 +209,50 @@ class GenerationRefOwnershipAdapter:
             organization_id=organization_id,
             resource_type=resource_type,
             resource_id=resource_id,
+        )
+
+
+class AssetQCReportRefAdapter:
+    """QC 报告引用解析适配器（qc_governance 端口的生产实现）。
+
+    为什么不把 QC 报告塞进 ``_RESOLVERS`` 复用通用解析器：那里的契约是
+    "只回答 project_id"（workflow / generation 两个消费域都不需要更多）。
+    QC 复查还要求报告与**同一个资产版本**绑定——把这条塞进通用解析器会让
+    两个无关消费域凭空多出一个它们不用的维度；单独一个适配器只多 20 行，
+    却让每个端口的字段集都恰好是它需要的。
+
+    读始终经过所有者：用 ``svc_asset`` 身份查 ``qc_reports``，qc_governance
+    不获得该表的任何权限（ADR-R28 同一纪律）。
+    """
+
+    def __init__(self, pools: DomainPools) -> None:
+        self._pools = pools
+
+    async def resolve(
+        self,
+        *,
+        tenant_id: object,
+        organization_id: object,
+        qc_report_id: str,
+    ) -> QCReportFacts | None:
+        sessionmaker = self._pools.sessionmaker(DatabaseDomain.ASSET)
+        async with sessionmaker() as session:
+            # 只读探针身份：项目范围取 * 以便区分"不存在"与"在别的项目"。
+            await set_request_context(
+                session,
+                Principal(
+                    subject_id="qc-report-resolver",
+                    tenant_id=UUID(str(tenant_id)),
+                    organization_id=UUID(str(organization_id)),
+                    subject_type=SubjectType.AGENT,
+                    project_ids=frozenset({"*"}),
+                ),
+            )
+            report = await SqlAlchemyQCReportRepository(session).get_by_id(qc_report_id)
+        if report is None:
+            return None
+        return QCReportFacts(
+            qc_report_id=report.qc_report_id,
+            project_id=report.project_id,
+            asset_version_id=report.asset_version_id,
         )

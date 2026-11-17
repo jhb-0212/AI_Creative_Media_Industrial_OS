@@ -69,7 +69,30 @@ bindings:
     enum: ShotVisualPlanStatus
     source: enum_registry
 
+  QCReviewSession:
+    module: services.qc_governance.domain.enums
+    enum: QCReviewSessionStatus
+    source: enum_registry
 exemptions:
+  # --- 质量治理域（QC 复查）---
+  #
+  # 这两个枚举是**取值枚举**，不是对象生命周期状态：enum_registry 只登记对象
+  # 状态集（QCReviewSession 行登记的是会话状态），没有登记 QCIssue 的 severity /
+  # human_decision 取值。补登记需走契约修订流程，在此之前取值一致性由
+  # 迁移 CHECK 字面量与 tests/unit/test_qc_review_parity.py 守住（与 GateKey 同口径）。
+  - module: services.qc_governance.domain.enums
+    enum: QCIssueSeverity
+    reason: >-
+      取值来自 4.3「QC 严重级别」（CRITICAL / MAJOR / MINOR / OBSERVATION）。
+      BLOCKER 只在 7.6 ReworkTask 行出现，属返工单级别，不并入缺陷级别。
+      enum_registry 未登记 QCIssue，无可机读比对源；取值由单测对照迁移字面量守住。
+  - module: services.qc_governance.domain.enums
+    enum: QCIssueHumanDecision
+    reason: >-
+      取值来自 21.1「人工结论类型至少包括 CONFIRM_DEFECT / ARTISTIC_INTENTIONAL /
+      FALSE_POSITIVE / NEEDS_MORE_EVIDENCE / WAIVE_WITH_AUTHORITY」，PENDING 来自
+      8.9 QCReport 示例（缺陷结论未作出前的初值）。enum_registry 未登记 QCIssue，
+      无可机读比对源；取值由单测对照字面量守住。
   - module: services.asset_service.domain.enums
     enum: DeviationClass
     reason: >-

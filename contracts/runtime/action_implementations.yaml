@@ -49,6 +49,13 @@ implemented:
   QC.REPORT.CREATE:
     route: "POST /assets/{asset_version_id}/qc-reports"
     module: services/asset_service/api/asset_routes.py
+  # --- 质量治理域（QC 复查，V205-R14-A10）---
+  QC.REVIEW.OPEN:
+    route: "POST /qc-review-sessions"
+    module: services/qc_governance/api/qc_review_routes.py
+  QC.REVIEW.DECIDE:
+    route: "POST /qc-review-sessions/{session_id}/decisions"
+    module: services/qc_governance/api/qc_review_routes.py
   ASSET.VERSION.APPROVE:
     route: "POST /assets/{asset_version_id}/approve"
     module: services/asset_service/api/asset_routes.py

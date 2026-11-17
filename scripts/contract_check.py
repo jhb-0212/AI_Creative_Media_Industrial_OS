@@ -144,6 +144,10 @@ _STATE_MACHINE_SOURCES: dict[str, tuple[str, str]] = {
         "services.generation_execution.domain.state_machine",
         "GENERATION_TASK_ALLOWED_TRANSITIONS",
     ),
+    "QCReviewSession": (
+        "services.qc_governance.domain.state_machine",
+        "QC_REVIEW_SESSION_ALLOWED_TRANSITIONS",
+    ),
     "Project": ("services.project_planning.domain.state_machine", "ALLOWED_TRANSITIONS"),
     "ScriptRevision": (
         "services.project_planning.domain.state_machine",
@@ -782,7 +786,50 @@ _RESOURCE_SERIALIZERS: dict[str, tuple[str, str]] = {
         "services.generation_execution.domain.shot_route_selection",
         "ShotRouteSelection",
     ),
+    "QCReviewSession": (
+        "services.qc_governance.domain.qc_review_session",
+        "QCReviewSession",
+    ),
 }
+
+
+def _qc_review_session_probe(tenant_id: object) -> object:
+    """QCReviewSession 的最小合法探针（OPEN、无结论、一条缺陷）。
+
+    为什么不用空会话：空会话在领域层就被拒绝（没有缺陷就没有复查对象），
+    探针必须构造"真实可存在"的对象，否则它证明的是"某个非法对象能序列化"。
+    """
+    from services.qc_governance.domain.enums import (
+        QCIssueHumanDecision,
+        QCIssueSeverity,
+    )
+    from services.qc_governance.domain.qc_issue import QCIssue
+    from services.qc_governance.domain.qc_review_session import QCReviewSession
+
+    return QCReviewSession(
+        entity_id="probe-session",
+        project_id="probe-project",
+        asset_version_id="probe-asset",
+        qc_report_ref="probe-report",
+        reviewers=["probe-reviewer"],
+        findings=[
+            QCIssue(
+                issue_id="probe-issue",
+                shot_id="probe-shot",
+                asset_version=1,
+                timecode="00:00:01:00",
+                frame_range="24-48",
+                qc_dimension="VISUAL",
+                severity=QCIssueSeverity.MAJOR,
+                evidence="probe-evidence",
+                detector_version=1,
+                human_decision=QCIssueHumanDecision.PENDING,
+                disposition="PENDING",
+            )
+        ],
+        tenant_id=tenant_id,  # type: ignore[arg-type]
+        created_by="probe",
+    )
 
 
 def _serializer_factories() -> dict[str, object]:
@@ -798,12 +845,16 @@ def _serializer_factories() -> dict[str, object]:
     from services.project_planning.domain.episode import Episode
     from services.project_planning.domain.project import Project
     from services.project_planning.domain.script import ScriptRevision
-    from services.qc_governance.domain.enums import GateDecisionValue, GateKey
+    from services.qc_governance.domain.enums import (
+        GateDecisionValue,
+        GateKey,
+    )
     from services.qc_governance.domain.gate_decision import GateDecision
     from services.workflow.domain.approval import ApprovalTicket
 
     tenant_id = uuid4()
     return {
+        "QCReviewSession": _qc_review_session_probe(tenant_id),
         "ShotRouteSelection": ShotRouteSelection(
             entity_id="probe-selection",
             project_id="probe-project",

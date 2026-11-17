@@ -26,6 +26,7 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text
 
 from apps.api.resource_ownership import (
+    AssetQCReportRefAdapter,
     CompositeResourceOwnershipPort,
     GenerationRefOwnershipAdapter,
 )
@@ -87,6 +88,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             app.state.generation_ref_ownership_port = GenerationRefOwnershipAdapter(
                 ownership_port
             )
+            # QC 复查的跨域只读端口：以资产域身份解析 QC 报告归属（ADR-R28）。
+            app.state.qc_report_ref_port = AssetQCReportRefAdapter(app.state.pools)
             yield
     finally:
         if jwks_refresh_task is not None:
@@ -157,6 +160,9 @@ from services.project_planning.api.episode_routes import router as episode_route
 from services.project_planning.api.project_routes import router as project_router  # noqa: E402
 from services.project_planning.api.script_routes import router as script_router  # noqa: E402
 from services.qc_governance.api.gate_routes import router as gate_router  # noqa: E402
+from services.qc_governance.api.qc_review_routes import (  # noqa: E402
+    router as qc_review_router,
+)
 from services.shot_planning.api.constraint_pack_routes import (  # noqa: E402
     router as constraint_pack_router,
 )
@@ -175,6 +181,7 @@ app.include_router(generation_route_router)
 app.include_router(generation_task_router)
 app.include_router(delivery_router)
 app.include_router(gate_router)
+app.include_router(qc_review_router)
 app.include_router(workflow_router)
 
 

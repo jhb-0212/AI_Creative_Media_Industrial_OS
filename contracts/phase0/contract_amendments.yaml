@@ -377,5 +377,49 @@ amendments:
       - '路线变更（同一镜头从路线 A 换到路线 B）没有治理动作：基线第 106/2215 行的「路线切换」属于白模/控制信号解耦语境，动作矩阵未给对应 action，且切换会触发既有资产的 STALE 传播（ADR-028）与审批——本修订只登记「拒绝静默改路」，切换流程随调度治理域落地时另立动作与状态边，届时须同时决定旧选择记录的处置（当前不可改写）'
       - 'ShotRouteSelection 的 owner 矩阵行沿用 14.2 的 Generation Execution 行（A7 已入正文），未新增行——对象归属同域，不引入新的所有权边界'
 
+  - id: 'V205-R14-A10'
+    title: '核心 QC 复查：QCIssue 必填字段补齐 + QC.REVIEW.OPEN / QC.REVIEW.DECIDE 两个状态变更入口'
+    retroactive: false
+    recorded_at: '2026-11-17'
+    discovered_by: 'Phase 1 验收清单 C5（核心 QC 含缺陷全流程）取证时发现三处缺口：① QCIssue 的 schema 只有 21.1 九项中的七项（缺 shot_id 与 QC dimension）；② QCReviewSession 有 C.7 状态机却没有任何 action 能触发转移——转移入口债务的教科书形态；③ QCReviewSession 缺 project_id，无法被项目级授权与 RLS 覆盖'
+    reason: >-
+      基线 21.1 明写「每条问题必须绑定 shot_id、asset_version、timecode/frame_range、
+      QC dimension、severity、evidence、detector_version、human_decision 和 disposition」，
+      7.6 又以 issue_id 引用 QCIssue，而冻结 schema 缺 issue_id / shot_id / qc_dimension——
+      派生文件相对正文少三项，属基线遗漏而非扩展。C.7 与 31.5 裁决 ④ 给出的
+      OPEN→IN_REVIEW→DECISION_PENDING→RESOLVED→GATE_ELIGIBLE→CLOSED 状态链，在 action
+      registry 里没有任何入口（只有 QC.REPORT.CREATE，而它「只写检测结果与证据，不改变
+      Gate」，不推进会话）：状态机存在、运行时却永远停在 OPEN，属「绿着但不可执行」。
+      本修订补齐两件必需品：① QCIssue 三个字段进 required（并补 QCReviewSession 的
+      project_id，与 A2 给 QCReport 补归属链同一理由）；② 新增两个动作——
+      QC.REVIEW.OPEN（登记会话与缺陷快照）与 QC.REVIEW.DECIDE（记录人工结论并推进会话）。
+      刻意不把会话创建塞进 QC.REPORT.CREATE：QC 报告属资产域（检测证据），会话属质量
+      治理域（人工裁决），跨域写会让「谁改的信封」失去单一所有者（ADR-R27 范式）。
+      也不给 WAIVE_WITH_AUTHORITY 造状态边：21.1 把它列为人工结论类型，C.7 状态链无此边，
+      按「不猜契约」只把它作为取值保留（与 GateDecisionValue.OVERRIDDEN 同口径）。
+    adr: 'docs/adr/ADR-R36-qc-review-session.md'
+    approved_by: '项目所有者（Phase 1 验收 C5 推进指令）'
+    approved_at: '2026-11-17'
+    source_commits: []
+    additions:
+      actions:
+        - action_key: 'QC.REVIEW.OPEN'
+          why: '会话登记入口：同一 QC 报告对应一次复查（唯一约束），只登记缺陷快照与参与人，不作结论'
+        - action_key: 'QC.REVIEW.DECIDE'
+          why: 'C.7 状态链的唯一推进入口：未登记转移（含 RESOLVED→CLOSED 跳关）一律拒绝'
+      schema_objects: []
+      state_machines: []
+    counts_after:
+      actions: 85
+      openapi_operations: 85
+      schema_objects: 85
+      state_machines: 42
+    residual_risks:
+      - 'QCIssue 未单独建表：缺陷作为会话 findings 的 JSONB 快照落库（写入前逐条校验 21.1 九项）。独立表与「已确认缺陷派生 ReworkTask」（21.2）随返工域落地，届时要决定缺陷主键与返工单的双向引用'
+      - 'reviewers 目前是参与人记录，不构成多人会签证据；多人意见冲突时的裁决流程（C.7「多人冲突触发裁决」）未实现——与 GateDecision 的会签缺口同一口径'
+      - 'WAIVE_WITH_AUTHORITY 在 enum_registry 被登记为状态值，但 C.7 状态链与 21.1 都把它当人工结论类型：本修订按结论类型实现（无来源边），差异登记于 ADR-R36 §3，待契约裁决'
+      - 'severity 取 4.3 的 CRITICAL / MAJOR / MINOR / OBSERVATION；7.6 的 BLOCKER 属 ReworkTask 级别，本修订不接受其作为缺陷级别（避免把返工口径混进缺陷口径）'
+
+
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

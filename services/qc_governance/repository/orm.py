@@ -38,6 +38,18 @@ SCHEMA_NAME = "qc_governance"
 #: 不能 import 代码——包 C4 已确立这条口径）。
 DECISION_VALUES: tuple[str, ...] = ("APPROVED", "REJECTED", "RETURNED", "OVERRIDDEN")
 
+#: QCReviewSession 的状态取值（C.7 状态链 + enum_registry 登记值，含
+#: WAIVE_WITH_AUTHORITY——它是人工结论类型被登记为状态，保留取值、不建边）。
+SESSION_STATUS_VALUES: tuple[str, ...] = (
+    "OPEN",
+    "IN_REVIEW",
+    "DECISION_PENDING",
+    "RESOLVED",
+    "GATE_ELIGIBLE",
+    "CLOSED",
+    "WAIVE_WITH_AUTHORITY",
+)
+
 
 class GateDecisionModel(EntityMixin, Base):
     """`gate_decisions` 表模型（Gate 裁决事实，append-only）。
@@ -108,4 +120,77 @@ class GateDecisionModel(EntityMixin, Base):
     )
 
 
-__all__ = ["DECISION_VALUES", "SCHEMA_NAME", "GateDecisionModel"]
+class QCReviewSessionModel(EntityMixin, Base):
+    """`qc_review_sessions` 表模型（QC 复查会话：可推进，但内容列不可改写）。
+
+    为什么它**可以** UPDATE 而 GateDecision 不行：会话是有生命周期的
+    （OPEN→…→CLOSED），状态必须能推进；而裁决是不可变事实。二者的边界由
+    守卫触发器写死：``status`` / ``decisions`` / ``reviewers`` 可变，
+    ``findings`` / ``reference_set`` / 报告与资产版本引用等**内容列**一律不可变
+    （复查的输入不能事后被换掉，否则"复核了什么"无法回答）。
+
+    ``uq_..._report``：一份 QC 报告只对应一次复查。重复开启会让同一份证据
+    出现两条互不相干的裁决链，Gate 侧无法判断该信哪一条。
+    """
+
+    __tablename__ = "qc_review_sessions"
+    __table_args__ = (
+        Index("ix_qc_governance_qc_review_sessions_project", "project_id"),
+        Index(
+            "ix_qc_governance_qc_review_sessions_asset_version",
+            "asset_version_id",
+        ),
+        Index(
+            "uq_qc_governance_qc_review_sessions_report",
+            "tenant_id",
+            "project_id",
+            "qc_report_ref",
+            unique=True,
+        ),
+        CheckConstraint(
+            f"status IN ({', '.join(repr(v) for v in SESSION_STATUS_VALUES)})",
+            name="ck_qc_governance_qc_review_sessions_status_registered",
+        ),
+        # 空会话不得存在：没有缺陷就没有复查对象（21.1）。
+        CheckConstraint(
+            "jsonb_array_length(findings) > 0",
+            name="ck_qc_governance_qc_review_sessions_findings_not_empty",
+        ),
+        CheckConstraint(
+            "jsonb_array_length(reviewers) > 0",
+            name="ck_qc_governance_qc_review_sessions_reviewers_not_empty",
+        ),
+        {"schema": SCHEMA_NAME},
+    )
+
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    asset_version_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    qc_report_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    reference_set: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    reviewers: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
+    findings: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
+    decisions: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
+
+
+class QCReviewSessionStatusTransitionModel(Base):
+    """`qc_review_session_status_transitions` 表模型（只读参考数据，ADR-R20）。
+
+    qc_governance 自有的一行一类型——与质检裁决同域，因此不需要跨域桥接表：
+    它只是"哪些边被登记过"的机读镜像，应用角色只有 SELECT，写入只发生在迁移里。
+    """
+
+    __tablename__ = "qc_review_session_status_transitions"
+    __table_args__ = {"schema": SCHEMA_NAME}
+
+    from_status: Mapped[str] = mapped_column(String(32), primary_key=True)
+    to_status: Mapped[str] = mapped_column(String(32), primary_key=True)
+
+
+__all__ = [
+    "DECISION_VALUES",
+    "SCHEMA_NAME",
+    "SESSION_STATUS_VALUES",
+    "GateDecisionModel",
+    "QCReviewSessionModel",
+    "QCReviewSessionStatusTransitionModel",
+]

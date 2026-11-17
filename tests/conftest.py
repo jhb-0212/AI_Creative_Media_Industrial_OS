@@ -199,6 +199,7 @@ async def db_pools() -> AsyncIterator[DomainPools]:
     # 镜像生产 lifespan 的组合根装配：池就绪即挂跨域归属解析端口，
     # 审批发起的目标资源归属校验（R4-2 收口）在测试里走同一实现。
     from apps.api.resource_ownership import (
+        AssetQCReportRefAdapter,
         CompositeResourceOwnershipPort,
         GenerationRefOwnershipAdapter,
     )
@@ -210,6 +211,8 @@ async def db_pools() -> AsyncIterator[DomainPools]:
     app.state.generation_ref_ownership_port = GenerationRefOwnershipAdapter(
         ownership_port
     )
+    # QC 复查的 QC 报告引用端口（同上：镜像生产 lifespan 的装配）。
+    app.state.qc_report_ref_port = AssetQCReportRefAdapter(pools)
     try:
         yield pools
     finally:
