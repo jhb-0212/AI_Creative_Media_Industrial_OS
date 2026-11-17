@@ -72,7 +72,9 @@ class ProjectService:
         if entity_id is not None:
             existing = await self._repository.get_by_id(entity_id)
             if existing is not None:
-                _assert_same_request(existing, project_name, project_tier)
+                _assert_same_request(
+                    existing, project_name, project_tier, organization_id
+                )
                 return existing
 
         project = Project(
@@ -96,7 +98,9 @@ class ProjectService:
                 ) from exc
             existing = await self._repository.get_by_id(entity_id)
             if existing is not None:
-                _assert_same_request(existing, project_name, project_tier)
+                _assert_same_request(
+                    existing, project_name, project_tier, organization_id
+                )
                 return existing
             raise DomainError(
                 ErrorRegistry.INTERNAL_ERROR, detail="项目写入冲突"
@@ -194,14 +198,29 @@ class ProjectService:
 
 
 def _assert_same_request(
-    existing: Project, project_name: str, project_tier: ProjectTier
+    existing: Project,
+    project_name: str,
+    project_tier: ProjectTier,
+    organization_id: UUID | None,
 ) -> None:
-    """幂等键复用必须是同一请求：内容不一致一律 409。"""
-    if existing.project_name != project_name or existing.project_tier != project_tier:
+    """幂等键复用必须是同一请求：内容不一致一律 409。
+
+    比较字段必须覆盖「决定这条记录归属与语义」的全部输入，而不只是名字与
+    等级。organization_id 是 F04 引入的归属键（非空=组织项目、空=个人租户），
+    同一 entity_id 换一个组织再提交，是**另一个请求**——若不在幂等比较里，
+    会被误判为「重复提交」而静默返回旧记录，调用方以为归属已变更（审查
+    P2-01）。（tenant_id 由 RLS + 主键所在租户固定，不在请求差异面内。）
+    """
+    if (
+        existing.project_name != project_name
+        or existing.project_tier != project_tier
+        or existing.organization_id != organization_id
+    ):
         raise DomainError(
             ErrorRegistry.IDEMPOTENCY_CONFLICT,
             detail=(
                 "同一 entity_id 已存在且内容不同：幂等键不能复用于另一个请求"
-                f"（existing={existing.project_name}/{existing.project_tier.value}）"
+                f"（existing={existing.project_name}/{existing.project_tier.value}"
+                f"/organization_id={existing.organization_id}）"
             ),
         )
