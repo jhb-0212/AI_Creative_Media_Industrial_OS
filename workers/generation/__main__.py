@@ -12,6 +12,9 @@
 两个域连接池（ADR-R33）：执行环本体走 generation_execution 角色；产出登记
 必须走 asset_service 角色（跨域写不许借别人的连接）。两者在进程退出时都要
 释放——只关一个是资源泄漏，而且泄漏的正是被高频使用的那个池。
+
+worker 身份（ADR-R34）：``hostname:pid``。租约归属按它区分，因此同一台机器
+上第二个进程必须得到不同的 pid——用固定字符串会让「谁在执行」失去意义。
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import socket
 import uuid
 
 from packages.shared.config import get_settings
@@ -42,7 +46,16 @@ def _parse_project_scope(raw: str) -> frozenset[str]:
     return frozenset(parts)
 
 
-def _contexts() -> tuple[GenerationExecutorContext, ...]:
+def _worker_id() -> str:
+    """进程内唯一的 worker 标识（租约归属与终态栅栏的依据）。
+
+    不用主机名单独做标识：同一台机器跑两个 worker 是常态，两者共用一个
+    标识会让接管后的旧进程绕过栅栏。pid 让它们可区分。
+    """
+    return f"{socket.gethostname()}:{os.getpid()}"
+
+
+def _contexts(worker_id: str) -> tuple[GenerationExecutorContext, ...]:
     """从环境变量解析受信的执行上下文（解析失败宁可启动失败不静默空转）。"""
     raw = os.environ.get("GENERATION_EXECUTOR_CONTEXTS", "").strip()
     if not raw:
@@ -68,13 +81,15 @@ def _contexts() -> tuple[GenerationExecutorContext, ...]:
                 tenant_id=uuid.UUID(tenant_raw),
                 organization_id=uuid.UUID(org_raw),
                 project_ids=project_ids,
+                worker_id=worker_id,
             )
         )
     return tuple(contexts)
 
 
 async def _main_async(*, once: bool) -> None:
-    contexts = _contexts()
+    settings = get_settings()
+    contexts = _contexts(_worker_id())
     if not contexts:
         logger.warning(
             "generation_executor_no_contexts",
@@ -87,24 +102,32 @@ async def _main_async(*, once: bool) -> None:
     asset_sessionmaker = create_sessionmaker(asset_engine)
     adapter = DeterministicGenerationAdapter()
     registrar = AssetVersionRegistrar(asset_sessionmaker=asset_sessionmaker)
+    lease_seconds = settings.generation_lease_seconds
     try:
         while True:
             total = GenerationRoundStats()
             for context in contexts:
                 stats = await execute_round(
-                    sessionmaker, context, adapter, total, registrar=registrar
+                    sessionmaker,
+                    context,
+                    adapter,
+                    total,
+                    registrar=registrar,
+                    lease_seconds=lease_seconds,
                 )
                 logger.info(
                     "generation_executor_round",
                     tenant_id=str(context.tenant_id),
+                    worker_id=context.worker_id,
                     claimed=stats.claimed,
+                    reclaimed=stats.reclaimed,
                     succeeded=stats.succeeded,
                     failed=stats.failed,
                     skipped=stats.skipped,
                 )
             if once:
                 break
-            await asyncio.sleep(get_settings().outbox_relay_interval_seconds)
+            await asyncio.sleep(settings.outbox_relay_interval_seconds)
     finally:
         await asset_engine.dispose()
         await engine.dispose()

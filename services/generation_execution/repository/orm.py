@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, String
+from sqlalchemy import DateTime, Index, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -62,15 +62,26 @@ class ProductionRouteStatusTransitionModel(Base):
 class GenerationTaskModel(EntityMixin, Base):
     """generation_tasks 表模型（生成任务，A6 冻结字段集）。
 
-    retry_of / result_ref / rights_manifest_ref 是实现扩展列（契约
+    retry_of / result_ref / rights_manifest_ref / 租约列是实现扩展列（契约
     additionalProperties 允许）：
     - retry_of：重试链锚点（重试以新任务承载，9.4）；
     - result_ref：产出对象引用（登记成功时指向 AssetVersion，ADR-R33）；
-    - rights_manifest_ref：产出权利凭据引用（资产批准链的前置，ADR-R33）。
+    - rights_manifest_ref：产出权利凭据引用（资产批准链的前置，ADR-R33）；
+    - lease_owner / lease_expires_at：执行租约（崩溃恢复的唯一事实，ADR-R34）。
     """
 
     __tablename__ = "generation_tasks"
-    __table_args__ = {"schema": SCHEMA_NAME}
+    __table_args__ = (
+        # 过期租约扫描的部分索引：回收只看"在跑"的任务，把已终态的历史行
+        # 排除在索引之外（ADR-R34）。声明在模型里，alembic check 才能校验
+        # 它与迁移一致——只写在迁移里的索引会被当成"待删除"。
+        Index(
+            "ix_generation_tasks_lease_expiry",
+            "lease_expires_at",
+            postgresql_where=text("status = 'RUNNING'"),
+        ),
+        {"schema": SCHEMA_NAME},
+    )
 
     # 业务字段（契约字段集：A6 冻结定义；生成任务是项目级资源，带 project_id）。
     project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
@@ -94,6 +105,11 @@ class GenerationTaskModel(EntityMixin, Base):
         DateTime(timezone=True), nullable=True
     )
     completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # 执行租约（ADR-R34）：运行态元数据，接管/续租改写；不出契约响应。
+    lease_owner: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 

@@ -39,6 +39,12 @@ Phase 1 主链"单一路线生成"中，PRODUCTION.ROUTE.SELECT（段 2）解决
 
 ### 2.3 执行环（workers/generation）
 
+**状态更新（2026-11-17，ADR-R34）**：本节最初的领取语义只有 PENDING 扫描
++ 乐观锁，**缺少契约 9.4 / 12.6 要求的租约**——领取后进程崩溃，任务会永久
+停在 RUNNING。ADR-R34 已补齐租约（`lease_owner` / `lease_expires_at`）、
+过期接管（谓词 CAS）、终态租约栅栏，并把领取改为 `FOR UPDATE SKIP LOCKED`
+批量原子领取。下面保留原始描述作为历史记录。
+
 - worker 用受信编排上下文（GenerationExecutorContext，与 delivery consumer
   同纪律：范围是授权，来自配置，不从任务行自称）；
 - 领取（PENDING→RUNNING）以**乐观版本控制**裁决（复用共享

@@ -71,3 +71,6 @@ dist/
 
 # 根目录临时抓取输出（curl/日志落盘），禁止入库
 /_*.txt
+
+# 韧性取证产物（scripts/resilience_check.py 的临时度量，不入库）
+/artifacts/

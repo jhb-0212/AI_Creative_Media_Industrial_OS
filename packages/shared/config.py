@@ -74,6 +74,14 @@ class Settings(BaseSettings):
     outbox_webhook_circuit_failure_threshold: int = 5
     outbox_webhook_circuit_recovery_seconds: float = 30.0
 
+    # 生成任务执行租约（workers/generation，ADR-R34）。
+    # 契约 9.4「Worker 崩溃 → 租约到期后重新领取」，12.6 的目标是「租约到期后
+    # 5 分钟内重新调度」——租约时长直接决定这个目标的上界：崩溃到恢复最长
+    # 约等于 lease + 一个轮询间隔。默认 300 秒与 12.6 的建议值一致；调大它
+    # 等于调大崩溃恢复延迟，调小则会让「真实供应商调用」在执行中被误判为
+    # 崩溃（长任务必须续租，见 ADR-R34）。
+    generation_lease_seconds: float = 300.0
+
     # 错误码目录（GET /errors/{code}）。它是内部调试面，不是公共 API：
     # - 默认关闭（false），关闭时一律返回 NOT_FOUND，与未知错误码不可区分；
     # - 关闭状态下要访问需配置 ERRORS_CATALOG_TOKEN 并带 X-Internal-Token 头；

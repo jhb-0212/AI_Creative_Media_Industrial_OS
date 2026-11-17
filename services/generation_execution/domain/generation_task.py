@@ -12,6 +12,12 @@
 实现扩展列（additionalProperties 允许，不出现在契约 required）：
 - retry_of：被重试的失败任务 id（可空）。attempt 链的可追溯锚点——
   重试不是原任务复活，是引用终态失败任务的新任务。
+- lease_owner / lease_expires_at：执行租约（可空，ADR-R34）。9.4 要求
+  「Worker 崩溃 → 租约到期后重新领取」，租约是这一条规则的**载体**：
+  没有租约，「进程挂了」与「正在慢跑」在数据上不可区分，只能永久卡在
+  RUNNING。租约是运行态元数据，不是业务内容——不出契约响应，也不参与
+  不可变内容列（它天然要被接管与续租改写）。接入字段的栅栏语义见
+  ``GenerationTaskLifecycle``：终态只能由当前租约持有者写入。
 - rights_manifest_ref：本次生成产出的权利凭据引用（可空，ADR-R33）。
   为什么必须随受理声明：资产域的批准硬约束要求 ``rights_manifest_ref``
   非空（无权利证据不得批准），而生成产出是机器产出的资产——权利凭据若
@@ -27,6 +33,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
@@ -62,6 +69,13 @@ class GenerationTask(Entity):
     status: GenerationTaskStatus = GenerationTaskStatus.PENDING
     # 执行产出引用（worker 写入；实现扩展列，不出契约 required）。
     result_ref: str | None = None
+    # 执行租约（ADR-R34）：领取/接管时写入，续租延长；不出契约响应。
+    lease_owner: str | None = None
+    lease_expires_at: datetime | None = None
+    # 转移伴随元数据（守卫可变白名单列）：领取开始时刻 / 终态完成时刻。
+    # 接管**不**改写 started_at——首次开始执行是事实，不是当前尝试的序号。
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
     def __post_init__(self) -> None:
         """防御性校验：信封公共字段 + 业务字段（对齐 ORM 列定义）。"""

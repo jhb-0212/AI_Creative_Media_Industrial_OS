@@ -13,9 +13,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import update
+from sqlalchemy import ColumnElement, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapper
 
@@ -64,15 +65,46 @@ async def conditional_update(
     无法在 ``type[Base]`` 上表达，故配合 ``# type: ignore[attr-defined]``
     收窄 mypy 误报；列存在性由模型定义与迁移契约保证。
     """
-    model = update(model_cls)
-    result = await session.execute(
-        model.where(
+    affected = await conditional_update_where(
+        session,
+        model_cls,
+        [
             model_cls.entity_id == entity_id,  # type: ignore[attr-defined]
             model_cls.entity_version == expected_version,  # type: ignore[attr-defined]
-        ).values(**values, entity_version=expected_version + 1)
+        ],
+        values,
     )
-    if result.rowcount == 0:  # type: ignore[attr-defined]
+    if affected == 0:
         raise ConcurrentModificationError(entity_id, expected_version)
+
+
+async def conditional_update_where(
+    session: AsyncSession,
+    model_cls: type[Base],
+    conditions: Sequence[ColumnElement[bool]],
+    values: dict[str, object],
+) -> int:
+    """按**业务谓词**原子更新一行并推进版本号，返回命中行数。
+
+    与 ``conditional_update`` 的分工：
+    - 那个用「读到的版本号」当谓词，适用于调用方已经持有一个聚合快照
+      的场景；
+    - 这个用「当前数据必须满足的业务条件」当谓词，适用于**抢占用**场景
+      （如租约接管：条件是"租约已过期"，而不是"我读到的版本号"）。
+      在不知道当前版本的并发抢占中，版本号谓词根本写不出来——必须先读、
+      再写，那就退化成 check-then-act。
+
+    并发安全由数据库行锁保证：谓词与写入在同一条 UPDATE 里求值，多个实例
+    同时提交时只有一个命中；版本号照常 +1，让所有持有旧快照的写者
+    （zombie worker）在下一次条件写入时被栅栏挡住。
+    """
+    stmt = (
+        update(model_cls)
+        .where(*conditions)
+        .values(**values, entity_version=model_cls.entity_version + 1)  # type: ignore[attr-defined]
+    )
+    result = await session.execute(stmt)
+    return int(result.rowcount)  # type: ignore[attr-defined]
 
 
 def _orm_update_values(instance: Base) -> dict[str, object]:

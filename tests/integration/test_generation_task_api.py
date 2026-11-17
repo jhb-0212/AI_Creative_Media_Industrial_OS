@@ -28,15 +28,18 @@ from services.generation_execution.domain.enums import (
     GenerationTaskStatus,
     ProductionRouteStatus,
 )
-from services.generation_execution.domain.generation_task import GenerationTask
-from services.generation_execution.domain.production_route import ProductionRoute
 from services.generation_execution.repository.generation_task_sqlalchemy_repo import (
     SqlAlchemyGenerationTaskRepository,
 )
-from services.generation_execution.repository.production_route_sqlalchemy_repo import (
-    SqlAlchemyProductionRouteRepository,
-)
 from tests.conftest import TEST_TENANT_ID, apply_db_context, make_test_headers, set_raw_rls_context
+from tests.support.generation_seed import (
+    DEFAULT_TEST_PROJECT,
+    new_route_id,
+    request_body,
+    seed_route,
+    seed_shot_refs,
+    seed_task,
+)
 from workers.generation.adapter import DeterministicGenerationAdapter
 from workers.generation.asset_registrar import (
     AssetVersionRegistrar,
@@ -50,15 +53,17 @@ from workers.generation.executor import (
 
 pytestmark = pytest.mark.asyncio
 
-_PROJECT = "proj_gentask_001"
+_PROJECT = DEFAULT_TEST_PROJECT
+
+#: worker 租约时长（正常路径不涉及回收；回收语义见 test_generation_lease.py）。
+_LEASE_SECONDS = 300.0
 
 
 def _auth_headers(subject_id: str = "director_001") -> dict[str, str]:
     return make_test_headers(subject_id=subject_id, roles=["导演"])
 
 
-def _new_route_id() -> str:
-    return f"route_{uuid.uuid4().hex[:8]}"
+_new_route_id = new_route_id
 
 
 @pytest.fixture
@@ -72,142 +77,6 @@ def route_unv_id() -> str:
     return _new_route_id()
 
 
-async def _seed_route(
-    gen_sm: async_sessionmaker[AsyncSession],
-    *,
-    route_id: str,
-    status: ProductionRouteStatus = ProductionRouteStatus.VERIFIED,
-) -> None:
-    """以 generation 域角色 + RLS 上下文经仓储端口登记路线（运维播种口径）。"""
-    route = ProductionRoute(
-        entity_id=route_id,
-        route_type="blender_scripted",
-        supported_control_signals=["camera_path"],
-        required_appearance_refs=[],
-        qc_dimensions=["geometry_validity"],
-        capability_refs=(
-            ["evidence_pkg_001"] if status is ProductionRouteStatus.VERIFIED else []
-        ),
-        status=status,
-        created_by="ops_seed",
-        tenant_id=TEST_TENANT_ID,
-    )
-    async with gen_sm() as session:
-        await set_raw_rls_context(
-            session, tenant_id=str(TEST_TENANT_ID)
-        )
-        await SqlAlchemyProductionRouteRepository(session).add(route)
-        await session.commit()
-
-
-async def _seed_shot_refs(
-    shot_sm: async_sessionmaker[AsyncSession],
-    *,
-    project_id: str,
-) -> tuple[str, str]:
-    """在 shot_planning 域种子 ShotSpec + ShotVisualPlan（真实跨域解析目标）。"""
-    from services.shot_planning.domain.shot_spec import ShotSpec
-    from services.shot_planning.domain.shot_visual_plan import ShotVisualPlan
-    from services.shot_planning.repository.shot_spec_sqlalchemy_repo import (
-        SqlAlchemyShotSpecRepository,
-    )
-    from services.shot_planning.repository.shot_visual_plan_sqlalchemy_repo import (
-        SqlAlchemyShotVisualPlanRepository,
-    )
-
-    spec = ShotSpec(
-        entity_id=f"spec_{uuid.uuid4().hex[:8]}",
-        shot_revision_id=uuid.uuid4().hex,
-        shot_id="SHOT_001",
-        project_id=project_id,
-        duration_ms=4200,
-        aspect_ratio="16:9",
-        fps="24/1",
-        coordinate_system="RIGHT_HANDED/Y/METER",
-        camera_path={"type": "DOLLY", "keyframes": []},
-        created_by="director_001",
-        tenant_id=TEST_TENANT_ID,
-    )
-    vplan = ShotVisualPlan(
-        entity_id=f"vplan_{uuid.uuid4().hex[:8]}",
-        shot_id="SHOT_001",
-        project_id=project_id,
-        intent_summary="夜戏追车，高对比",
-        camera_language="手持跟拍",
-        shot_size="中景",
-        lens_range="35mm",
-        motion_intent="横移",
-        lighting_intent="低照度",
-        open_fields=["lens_range"],
-        created_by="director_001",
-        tenant_id=TEST_TENANT_ID,
-    )
-    async with shot_sm() as session:
-        await apply_db_context(session, project_ids=(project_id,))
-        await SqlAlchemyShotSpecRepository(session).add(spec)
-        await SqlAlchemyShotVisualPlanRepository(session).add(vplan)
-        await session.commit()
-    return spec.entity_id, vplan.entity_id
-
-
-async def _seed_task(
-    gen_sm: async_sessionmaker[AsyncSession],
-    *,
-    entity_id: str,
-    route_id: str,
-    project_id: str = _PROJECT,
-    status: GenerationTaskStatus = GenerationTaskStatus.FAILED,
-    attempt: int = 1,
-) -> GenerationTask:
-    """直接以仓储端口落一个指定状态的任务（重试链/守卫测试基线）。"""
-    task = GenerationTask(
-        entity_id=entity_id,
-        project_id=project_id,
-        shot_id="SHOT_001",
-        route_id=route_id,
-        shot_spec_ref="spec_x",
-        visual_plan_ref="vplan_x",
-        constraint_snapshot_ref="NOT_APPLICABLE",
-        budget_reservation_ref="budget_res_x",
-        quota_reservation_ref="quota_res_x",
-        dependency_refs=[],
-        attempt=attempt,
-        created_by="director_001",
-        tenant_id=TEST_TENANT_ID,
-        status=status,
-    )
-    async with gen_sm() as session:
-        await apply_db_context(session, project_ids=(project_id,))
-        await SqlAlchemyGenerationTaskRepository(session).add(task)
-        await session.commit()
-    return task
-
-
-def _request_body(
-    *,
-    route_id: str,
-    project_id: str = _PROJECT,
-    spec_ref: str = "spec_x",
-    vplan_ref: str = "vplan_x",
-    constraint_ref: str = "NOT_APPLICABLE",
-    retry_of: str | None = None,
-) -> dict[str, object]:
-    body: dict[str, object] = {
-        "project_id": project_id,
-        "shot_id": "SHOT_001",
-        "route_id": route_id,
-        "shot_spec_ref": spec_ref,
-        "visual_plan_ref": vplan_ref,
-        "constraint_snapshot_ref": constraint_ref,
-        "budget_reservation_ref": "budget_res_001",
-        "quota_reservation_ref": "quota_res_001",
-        "dependency_refs": [],
-    }
-    if retry_of is not None:
-        body["retry_of"] = retry_of
-    return body
-
-
 async def test_generation_request_admitted(
     auth_client: AsyncClient,
     gen_sm: async_sessionmaker[AsyncSession],
@@ -215,13 +84,13 @@ async def test_generation_request_admitted(
     route_id: str,
 ) -> None:
     """受理成功：任务落 PENDING，审计事件进 outbox，引用真实跨域解析。"""
-    await _seed_route(gen_sm, route_id=route_id)
-    spec_id, vplan_id = await _seed_shot_refs(shot_sm, project_id=_PROJECT)
+    await seed_route(gen_sm, route_id=route_id)
+    spec_id, vplan_id = await seed_shot_refs(shot_sm, project_id=_PROJECT)
 
     resp = await auth_client.post(
         "/actions/generation.request",
         headers=_auth_headers(),
-        json=_request_body(route_id=route_id, spec_ref=spec_id, vplan_ref=vplan_id),
+        json=request_body(route_id=route_id, spec_ref=spec_id, vplan_ref=vplan_id),
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -253,12 +122,12 @@ async def test_unverified_route_rejected(
     shot_sm: async_sessionmaker[AsyncSession],
     route_unv_id: str,
 ) -> None:
-    await _seed_route(gen_sm, route_id=route_unv_id, status=ProductionRouteStatus.UNVERIFIED)
-    spec_id, vplan_id = await _seed_shot_refs(shot_sm, project_id=_PROJECT)
+    await seed_route(gen_sm, route_id=route_unv_id, status=ProductionRouteStatus.UNVERIFIED)
+    spec_id, vplan_id = await seed_shot_refs(shot_sm, project_id=_PROJECT)
     resp = await auth_client.post(
         "/actions/generation.request",
         headers=_auth_headers(),
-        json=_request_body(
+        json=request_body(
             route_id=route_unv_id, spec_ref=spec_id, vplan_ref=vplan_id
         ),
     )
@@ -270,7 +139,7 @@ async def test_ghost_route_not_found(auth_client: AsyncClient) -> None:
     resp = await auth_client.post(
         "/actions/generation.request",
         headers=_auth_headers(),
-        json=_request_body(route_id="route_missing"),
+        json=request_body(route_id="route_missing"),
     )
     assert resp.status_code == 404
     assert resp.json()["error_code"] == "NOT_FOUND"
@@ -283,13 +152,13 @@ async def test_cross_project_spec_ref_rejected(
     route_id: str,
 ) -> None:
     """ACT-GEN-NEG-001：spec 属于别的项目 → 422（引用归属校验经跨域只读端口）。"""
-    await _seed_route(gen_sm, route_id=route_id)
+    await seed_route(gen_sm, route_id=route_id)
     other_project = "proj_other_gentask"
-    spec_id, vplan_id = await _seed_shot_refs(shot_sm, project_id=other_project)
+    spec_id, vplan_id = await seed_shot_refs(shot_sm, project_id=other_project)
     resp = await auth_client.post(
         "/actions/generation.request",
         headers=_auth_headers(),
-        json=_request_body(route_id=route_id, spec_ref=spec_id, vplan_ref=vplan_id),
+        json=request_body(route_id=route_id, spec_ref=spec_id, vplan_ref=vplan_id),
     )
     assert resp.status_code == 422
     assert resp.json()["error_code"] == "VALIDATION_ERROR"
@@ -303,16 +172,16 @@ async def test_retry_of_failed_task_increments_attempt(
     route_id: str,
 ) -> None:
     """重试以新任务承载：FAILED 任务可被引用，新任务 attempt+1。"""
-    await _seed_route(gen_sm, route_id=route_id)
-    spec_id, vplan_id = await _seed_shot_refs(shot_sm, project_id=_PROJECT)
-    failed = await _seed_task(
+    await seed_route(gen_sm, route_id=route_id)
+    spec_id, vplan_id = await seed_shot_refs(shot_sm, project_id=_PROJECT)
+    failed = await seed_task(
         gen_sm, entity_id=f"gen_fail_{uuid.uuid4().hex[:8]}", route_id=route_id
     )
 
     resp = await auth_client.post(
         "/actions/generation.request",
         headers=_auth_headers(),
-        json=_request_body(
+        json=request_body(
             route_id=route_id,
             spec_ref=spec_id,
             vplan_ref=vplan_id,
@@ -328,7 +197,7 @@ async def test_db_guard_blocks_terminal_resurrection(
     route_id: str,
 ) -> None:
     """ADR-R20：FAILED→RUNNING（终态复活）直连 SQL 在数据库层被拒。"""
-    task = await _seed_task(
+    task = await seed_task(
         gen_sm,
         entity_id=f"gen_term_{uuid.uuid4().hex[:8]}",
         route_id=route_id,
@@ -364,7 +233,7 @@ async def test_db_guard_blocks_content_rewrite(
     forged_value: str,
 ) -> None:
     """受理时定型的准入事实不可事后改写（白名单之外一律不可变）。"""
-    task = await _seed_task(
+    task = await seed_task(
         gen_sm, entity_id=f"gen_mut_{uuid.uuid4().hex[:8]}", route_id=route_id
     )
     with pytest.raises(DBAPIError) as exc_info:
@@ -380,11 +249,14 @@ async def test_db_guard_blocks_content_rewrite(
     assert "不可变内容列" in str(exc_info.value)
 
 
-def _executor_context(project_ids: frozenset[str]) -> GenerationExecutorContext:
+def _executor_context(
+    project_ids: frozenset[str], worker_id: str = "test-worker-1"
+) -> GenerationExecutorContext:
     return GenerationExecutorContext(
         tenant_id=TEST_TENANT_ID,
         organization_id=TEST_TENANT_ID,
         project_ids=project_ids,
+        worker_id=worker_id,
     )
 
 
@@ -400,7 +272,7 @@ async def test_worker_completes_task_lifecycle(
     """
     # 每测试唯一项目：worker 轮询按项目范围（RLS）过滤，不受库中残留任务干扰。
     project = f"proj_{uuid.uuid4().hex[:8]}"
-    task = await _seed_task(
+    task = await seed_task(
         gen_sm,
         entity_id=f"gen_run_{uuid.uuid4().hex[:8]}",
         route_id=route_id,
@@ -413,6 +285,7 @@ async def test_worker_completes_task_lifecycle(
         DeterministicGenerationAdapter(),
         GenerationRoundStats(),
         registrar=AssetVersionRegistrar(asset_sessionmaker=asset_sm),
+        lease_seconds=_LEASE_SECONDS,
     )
     assert stats.claimed == 1
     assert stats.succeeded == 1
@@ -466,7 +339,7 @@ async def test_worker_marks_failed_when_output_registration_fails(
     资产的 result_ref，主链在无告警的情况下断开——这是本用例要挡住的状态。
     """
     project = f"proj_{uuid.uuid4().hex[:8]}"
-    task = await _seed_task(
+    task = await seed_task(
         gen_sm,
         entity_id=f"gen_noreg_{uuid.uuid4().hex[:8]}",
         route_id=route_id,
@@ -479,6 +352,7 @@ async def test_worker_marks_failed_when_output_registration_fails(
         DeterministicGenerationAdapter(),
         GenerationRoundStats(),
         registrar=_FailingRegistrar(),
+        lease_seconds=_LEASE_SECONDS,
     )
     assert (stats.claimed, stats.succeeded, stats.failed) == (1, 0, 1)
 
@@ -512,7 +386,7 @@ async def test_worker_failure_path_is_terminal_and_retryable_via_new_task(
 ) -> None:
     """适配器失败 → FAILED 终态；重试经 API 以新任务承载（attempt+1）。"""
     project = f"proj_{uuid.uuid4().hex[:8]}"
-    task = await _seed_task(
+    task = await seed_task(
         gen_sm,
         entity_id=f"gen_bad_{uuid.uuid4().hex[:8]}",
         route_id=route_id,
@@ -525,6 +399,7 @@ async def test_worker_failure_path_is_terminal_and_retryable_via_new_task(
         DeterministicGenerationAdapter(fail_task_ids=frozenset({task.entity_id})),
         GenerationRoundStats(),
         registrar=AssetVersionRegistrar(asset_sessionmaker=asset_sm),
+        lease_seconds=_LEASE_SECONDS,
     )
     assert stats.failed == 1
 
@@ -546,12 +421,12 @@ async def test_worker_failure_path_is_terminal_and_retryable_via_new_task(
     assert leftover is None
 
     # 失败任务不复活：经 API 重试 → 新任务 attempt+1。
-    await _seed_route(gen_sm, route_id=route_id)
-    spec_id, vplan_id = await _seed_shot_refs(shot_sm, project_id=project)
+    await seed_route(gen_sm, route_id=route_id)
+    spec_id, vplan_id = await seed_shot_refs(shot_sm, project_id=project)
     resp = await auth_client.post(
         "/actions/generation.request",
         headers=_auth_headers(),
-        json=_request_body(
+        json=request_body(
             route_id=route_id,
             project_id=project,
             spec_ref=spec_id,

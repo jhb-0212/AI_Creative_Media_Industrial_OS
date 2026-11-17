@@ -77,10 +77,30 @@ class _FakeTaskRepository(GenerationTaskRepository):
         self._store[task.entity_id] = task
         return task
 
-    async def list_pending(self, limit: int) -> list[GenerationTask]:
-        return [
-            t for t in self._store.values() if t.status is GenerationTaskStatus.PENDING
-        ][:limit]
+    async def claim_pending(
+        self,
+        *,
+        actor: str,
+        worker_id: str,
+        lease_expires_at: object,
+        now: object,
+        limit: int,
+    ) -> list[str]:
+        """受理用例不涉及 worker 领取（领取语义见 test_generation_lease.py）。"""
+        return []
+
+    async def list_expired_leases(self, limit: int, *, now: object) -> list[GenerationTask]:
+        return []
+
+    async def take_over(
+        self,
+        task_id: str,
+        *,
+        worker_id: str,
+        expires_at: object,
+        now: object,
+    ) -> bool:
+        return False
 
 
 class _FakeRouteRepository(ProductionRouteRepository):

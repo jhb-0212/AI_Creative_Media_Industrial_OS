@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from datetime import datetime
+
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.persistence import translate_integrity_errors
-from packages.shared.versioning import conditional_update
+from packages.shared.versioning import conditional_update, conditional_update_where
 from services.generation_execution.domain.enums import GenerationTaskStatus
 from services.generation_execution.domain.generation_task import GenerationTask
 from services.generation_execution.repository.generation_task_repo import (
@@ -41,6 +43,10 @@ def _to_domain(model: GenerationTaskModel) -> GenerationTask:
         rights_manifest_ref=model.rights_manifest_ref,
         status=status,
         result_ref=model.result_ref,
+        lease_owner=model.lease_owner,
+        lease_expires_at=model.lease_expires_at,
+        started_at=model.started_at,
+        completed_at=model.completed_at,
         created_by=model.created_by,
         tenant_id=model.tenant_id,
         organization_id=model.organization_id,
@@ -81,6 +87,10 @@ def _to_orm(task: GenerationTask) -> GenerationTaskModel:
         retry_of=task.retry_of,
         rights_manifest_ref=task.rights_manifest_ref,
         result_ref=task.result_ref,
+        lease_owner=task.lease_owner,
+        lease_expires_at=task.lease_expires_at,
+        started_at=task.started_at,
+        completed_at=task.completed_at,
     )
 
 
@@ -124,16 +134,108 @@ class SqlAlchemyGenerationTaskRepository(GenerationTaskRepository):
                 "updated_at": task.updated_at,
                 "audit_ref": task.audit_ref,
                 "result_ref": task.result_ref,
+                # 租约与转移伴随元数据：领取/续租/终态的唯一写入口。
+                "lease_owner": task.lease_owner,
+                "lease_expires_at": task.lease_expires_at,
+                "started_at": task.started_at,
+                "completed_at": task.completed_at,
             },
         )
         return task
 
-    async def list_pending(self, limit: int) -> list[GenerationTask]:
+    async def claim_pending(
+        self,
+        *,
+        actor: str,
+        worker_id: str,
+        lease_expires_at: datetime,
+        now: datetime,
+        limit: int,
+    ) -> list[str]:
+        """一条语句完成"挑选 + 占有"（``FOR UPDATE SKIP LOCKED``，R06 同范式）。
+
+        子查询锁住候选行并跳过已被其它事务锁住的行，UPDATE 直接把它们改成
+        RUNNING 并写上本次租约。并发实例因此天然分到不同批次，不会出现
+        "六个 worker 抢同一批 16 条、只有一个成功"的空转。
+
+        RLS 同时作用于子查询与 UPDATE：项目范围之外的 PENDING 任务既不会被
+        选中，也不会被改写。
+        """
+        stmt = text(
+            """
+            WITH candidates AS (
+                SELECT entity_id
+                FROM generation_execution.generation_tasks
+                WHERE status = 'PENDING'
+                ORDER BY created_at, entity_id
+                LIMIT :batch
+                FOR UPDATE SKIP LOCKED
+            )
+            UPDATE generation_execution.generation_tasks AS t
+            SET status = 'RUNNING',
+                lease_owner = :worker_id,
+                lease_expires_at = :expires_at,
+                started_at = :now,
+                entity_version = t.entity_version + 1,
+                updated_at = :now,
+                audit_ref = :audit_ref
+            FROM candidates AS c
+            WHERE t.entity_id = c.entity_id
+            RETURNING t.entity_id
+            """
+        )
+        rows = await self._session.execute(
+            stmt,
+            {
+                "batch": limit,
+                "worker_id": worker_id,
+                "expires_at": lease_expires_at,
+                "now": now,
+                "audit_ref": f"claim:{actor}@{worker_id}",
+            },
+        )
+        return [str(row[0]) for row in rows]
+
+    async def list_expired_leases(
+        self, limit: int, *, now: datetime
+    ) -> list[GenerationTask]:
         stmt = (
             select(GenerationTaskModel)
-            .where(GenerationTaskModel.status == GenerationTaskStatus.PENDING.value)
-            .order_by(GenerationTaskModel.created_at)
+            .where(
+                GenerationTaskModel.status == GenerationTaskStatus.RUNNING.value,
+                GenerationTaskModel.lease_expires_at.is_not(None),
+                GenerationTaskModel.lease_expires_at < now,
+            )
+            # 先到期先回收：崩溃最久的任务优先回到执行轨道。
+            .order_by(GenerationTaskModel.lease_expires_at)
             .limit(limit)
         )
         result = await self._session.execute(stmt)
         return [_to_domain(model) for model in result.scalars()]
+
+    async def take_over(
+        self,
+        task_id: str,
+        *,
+        worker_id: str,
+        expires_at: datetime,
+        now: datetime,
+    ) -> bool:
+        """谓词 CAS 接管：状态 RUNNING + 租约已过期，一次 UPDATE 内判定。"""
+        affected = await conditional_update_where(
+            self._session,
+            GenerationTaskModel,
+            [
+                GenerationTaskModel.entity_id == task_id,
+                GenerationTaskModel.status == GenerationTaskStatus.RUNNING.value,
+                GenerationTaskModel.lease_expires_at.is_not(None),
+                GenerationTaskModel.lease_expires_at < now,
+            ],
+            {
+                "lease_owner": worker_id,
+                "lease_expires_at": expires_at,
+                "updated_at": now,
+                "audit_ref": f"takeover:{worker_id}",
+            },
+        )
+        return affected == 1

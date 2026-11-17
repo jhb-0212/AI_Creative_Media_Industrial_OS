@@ -95,7 +95,14 @@ warn_redundant_casts = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-ra -q"
+addopts = "-ra -q -m 'not resilience'"
+# 韧性证据（压测 / 崩溃恢复 / 崩溃重投）刻意不进默认闸门：它们按规模耗时，
+# 塞进每次提交只会逼人把规模调小到测不出问题。默认排除，用
+# `pytest -m resilience`（或 scripts/resilience_check.py）单独跑，
+# 并在交付前跑（见 docs/evidence/phase1-resilience.md）。
+markers = [
+    "resilience: 压测与故障恢复证据（慢；需真实 PostgreSQL；默认不跑）",
+]
 # 显式将项目根目录加入 sys.path，确保 services/apps 等顶层包在任意
 # 工作目录（含 CI 的 pip install -e 环境）下都能被 pytest 正确 import，
 # 不依赖 editable 安装的路径映射是否完整。

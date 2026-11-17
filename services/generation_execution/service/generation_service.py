@@ -17,7 +17,9 @@
 - ``rights_manifest_ref``（可选，ADR-R33）：本次产出的权利凭据引用。它不影响
   受理是否成立（生成可以先做），但决定产出能否进入批准链：资产批准要求
   权利证据非空，缺失时资产照样登记却不可批准——fail-closed，不伪造权利事实。
-- ``claim`` / ``succeed`` / ``fail``：worker 生命周期转移（乐观并发控制）。
+- 生命周期转移（claim / take_over / renew / succeed / fail）**只在**
+  ``GenerationTaskLifecycle``：受理服务不暴露状态推进入口。保留两套推进路径
+  等于保留一条绕过租约栅栏的写口（ADR-R34）。
 
 **诚实边界（预算/配额数值校验）**：budget_reservation_ref /
 quota_reservation_ref 的结构性准入（非空 + 引用归属）在这里强制；**数值级**
@@ -30,6 +32,7 @@ quota_reservation_ref 的结构性准入（非空 + 引用归属）在这里强�
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
@@ -43,6 +46,7 @@ from services.generation_execution.domain.generation_task import (
     CONSTRAINT_NOT_APPLICABLE,
     GenerationTask,
 )
+from services.generation_execution.domain.lease import lease_deadline
 from services.generation_execution.domain.ports import RefOwnershipPort
 from services.generation_execution.domain.state_machine import (
     assert_transition_generation_task,
@@ -284,38 +288,7 @@ class GenerationService:
                 detail=f"{ref_field} 指向的 {resource_type} 不可用：{reason}",
             )
 
-    # ------------------------------------------------------------------
-    # worker 生命周期（PENDING→RUNNING→SUCCEEDED/FAILED）
-    # ------------------------------------------------------------------
-
-    async def claim(self, task: GenerationTask, *, principal: Principal) -> None:
-        """领取任务（PENDING→RUNNING；并发领取由乐观版本控制裁决）。"""
-        expected = task.entity_version
-        assert_transition_generation_task(task.status, GenerationTaskStatus.RUNNING)
-        task.status = GenerationTaskStatus.RUNNING
-        task._advance_version(audit_ref=f"claim:{principal.subject_id}")
-        await self._task_repository.save(task, expected_version=expected)
-
-    async def succeed(
-        self, task: GenerationTask, *, result_ref: str, principal: Principal
-    ) -> None:
-        """执行成功（RUNNING→SUCCEEDED，登记产出引用）。"""
-        expected = task.entity_version
-        assert_transition_generation_task(task.status, GenerationTaskStatus.SUCCEEDED)
-        task.status = GenerationTaskStatus.SUCCEEDED
-        task.result_ref = result_ref
-        task._advance_version(audit_ref=f"succeed:{principal.subject_id}")
-        await self._task_repository.save(task, expected_version=expected)
-
-    async def fail(
-        self, task: GenerationTask, *, reason: str, principal: Principal
-    ) -> None:
-        """执行失败（RUNNING→FAILED，终态；重试以新任务承载）。"""
-        expected = task.entity_version
-        assert_transition_generation_task(task.status, GenerationTaskStatus.FAILED)
-        task.status = GenerationTaskStatus.FAILED
-        task._advance_version(audit_ref=f"fail:{principal.subject_id}:{reason[:64]}")
-        await self._task_repository.save(task, expected_version=expected)
+    # 状态推进不在这里：见 GenerationTaskLifecycle（ADR-R34 单一写路径）。
 
 
 class GenerationTaskLifecycle:
@@ -323,36 +296,150 @@ class GenerationTaskLifecycle:
 
     与 ``GenerationService``（受理用例）分离的原因：worker 执行环不需要
     路线仓储、引用归属端口和 outbox 写入端——把受理依赖强塞给 worker 会
-    逼出 fail-closed 空实现（依赖即负担）。生命周期只做三件事：领取、
-    成功终态、失败终态，全部经 ``assert_transition_generation_task`` 校验。
+    逼出 fail-closed 空实现（依赖即负担）。状态推进**只有这一条路径**。
+
+    租约语义（ADR-R34，契约 9.4 / 12.6）：
+    - ``claim``：PENDING→RUNNING，同时登记租约（谁在执行、租到什么时候）；
+    - ``take_over``：**状态不变**的接管——只允许对「租约已过期」的任务做，
+      原子谓词 CAS 在仓储层；接管不是状态转移，所以状态机不该为此新增边
+      （租约与状态是正交事实，硬塞进状态机会把「租期」说成「任务阶段」）；
+    - ``renew``：持有者续租；长耗时执行（真实供应商调用）必须周期性续租，
+      否则会被当成崩溃接管（Phase 1 确定性适配器亚秒级，执行环未接续租，
+      债务见 ADR-R34 §4）；
+    - ``succeed`` / ``fail``：终态写入前校验租约持有者。这是**栅栏**：
+      被接管的僵尸 worker 即使还活着，也不能把终态写回它那一版结果——
+      否则"旧执行的结果覆盖新执行"会以看似合法的状态转移发生。
     """
 
     def __init__(self, task_repository: GenerationTaskRepository) -> None:
         self._task_repository = task_repository
 
-    async def claim(self, task: GenerationTask, *, actor: str) -> None:
-        """领取任务（PENDING→RUNNING；并发领取由乐观版本控制裁决）。"""
+    async def claim(
+        self,
+        task: GenerationTask,
+        *,
+        actor: str,
+        lease_owner: str,
+        lease_seconds: float,
+        now: datetime | None = None,
+    ) -> None:
+        """领取任务（PENDING→RUNNING，登记租约；并发领取由乐观锁裁决）。"""
+        claimed_at = now or datetime.now(UTC)
         expected = task.entity_version
         assert_transition_generation_task(task.status, GenerationTaskStatus.RUNNING)
         task.status = GenerationTaskStatus.RUNNING
-        task._advance_version(audit_ref=f"claim:{actor}")
+        task.lease_owner = lease_owner
+        task.lease_expires_at = lease_deadline(lease_seconds, claimed_at)
+        task.started_at = claimed_at
+        task._advance_version(audit_ref=f"claim:{actor}@{lease_owner}")
+        await self._task_repository.save(task, expected_version=expected)
+
+    async def take_over(
+        self,
+        task: GenerationTask,
+        *,
+        actor: str,
+        lease_owner: str,
+        lease_seconds: float,
+        now: datetime | None = None,
+    ) -> None:
+        """接管过期租约（状态保持 RUNNING；CAS 未命中即并发冲突）。
+
+        ``started_at`` 刻意不改写：首次开始执行是既成事实；接管次数若需要
+        度量化，应从审计事件统计，而不是覆盖时间戳。
+
+        本方法**不改写传入的任务快照**：快照是夺取前的状态，改写它会让调用方
+        误以为"本地对象即事实"。实际归属以数据库行为准，调用方必须重读。
+        """
+        taken_at = now or datetime.now(UTC)
+        if task.status is not GenerationTaskStatus.RUNNING:
+            raise DomainError(
+                ErrorRegistry.CONCURRENT_MODIFICATION,
+                detail=(
+                    f"任务 {task.entity_id} 状态为 {task.status.value}，"
+                    "只有 RUNNING 任务存在可接管的租约"
+                ),
+            )
+        taken = await self._task_repository.take_over(
+            task.entity_id,
+            worker_id=lease_owner,
+            expires_at=lease_deadline(lease_seconds, taken_at),
+            now=taken_at,
+        )
+        if not taken:
+            # 租约未到期，或另一个 worker 抢先接管：都是幂等跳过，不是失败。
+            raise DomainError(
+                ErrorRegistry.CONCURRENT_MODIFICATION,
+                detail=(
+                    f"任务 {task.entity_id} 的租约未被 {lease_owner} 接管"
+                    "（未到期或已被并发接管）"
+                ),
+            )
+
+    async def renew(
+        self,
+        task: GenerationTask,
+        *,
+        lease_owner: str,
+        lease_seconds: float,
+        now: datetime | None = None,
+    ) -> None:
+        """持有者续租（延长 ``lease_expires_at``；非持有者一律拒绝）。"""
+        renewed_at = now or datetime.now(UTC)
+        self._assert_holder(task, lease_owner)
+        expected = task.entity_version
+        task.lease_expires_at = lease_deadline(lease_seconds, renewed_at)
+        task._advance_version(audit_ref=f"renew:{lease_owner}")
         await self._task_repository.save(task, expected_version=expected)
 
     async def succeed(
-        self, task: GenerationTask, *, result_ref: str, actor: str
+        self,
+        task: GenerationTask,
+        *,
+        result_ref: str,
+        actor: str,
+        lease_owner: str,
+        now: datetime | None = None,
     ) -> None:
-        """执行成功（RUNNING→SUCCEEDED，登记产出引用）。"""
+        """执行成功（RUNNING→SUCCEEDED，登记产出引用；须持有租约）。"""
+        completed_at = now or datetime.now(UTC)
+        self._assert_holder(task, lease_owner)
         expected = task.entity_version
         assert_transition_generation_task(task.status, GenerationTaskStatus.SUCCEEDED)
         task.status = GenerationTaskStatus.SUCCEEDED
         task.result_ref = result_ref
-        task._advance_version(audit_ref=f"succeed:{actor}")
+        task.completed_at = completed_at
+        task._advance_version(audit_ref=f"succeed:{actor}@{lease_owner}")
         await self._task_repository.save(task, expected_version=expected)
 
-    async def fail(self, task: GenerationTask, *, reason: str, actor: str) -> None:
+    async def fail(
+        self,
+        task: GenerationTask,
+        *,
+        reason: str,
+        actor: str,
+        lease_owner: str,
+        now: datetime | None = None,
+    ) -> None:
         """执行失败（RUNNING→FAILED，终态；重试以新任务承载）。"""
+        completed_at = now or datetime.now(UTC)
+        self._assert_holder(task, lease_owner)
         expected = task.entity_version
         assert_transition_generation_task(task.status, GenerationTaskStatus.FAILED)
         task.status = GenerationTaskStatus.FAILED
-        task._advance_version(audit_ref=f"fail:{actor}:{reason[:64]}")
+        task.completed_at = completed_at
+        task._advance_version(audit_ref=f"fail:{actor}@{lease_owner}:{reason[:64]}")
         await self._task_repository.save(task, expected_version=expected)
+
+    @staticmethod
+    def _assert_holder(task: GenerationTask, lease_owner: str) -> None:
+        """栅栏：只有当前租约持有者能推进终态。"""
+        if task.lease_owner != lease_owner:
+            raise DomainError(
+                ErrorRegistry.CONCURRENT_MODIFICATION,
+                detail=(
+                    f"任务 {task.entity_id} 的租约持有者为 "
+                    f"{task.lease_owner!r}，拒绝 {lease_owner!r} 写入终态"
+                    "（租约已被接管，ADR-R34 栅栏）"
+                ),
+            )

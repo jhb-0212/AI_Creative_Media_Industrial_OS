@@ -397,10 +397,12 @@ async def test_phase1_main_chain_end_to_end(
                 tenant_id=_TENANT,
                 organization_id=_TENANT,
                 project_ids=frozenset({project_id}),
+                worker_id="e2e-worker",
             ),
             DeterministicGenerationAdapter(),
             GenerationRoundStats(),
             registrar=AssetVersionRegistrar(asset_sessionmaker=asset_sm),
+            lease_seconds=300.0,
         )
         assert (stats.claimed, stats.succeeded, stats.failed) == (1, 1, 0)
 
