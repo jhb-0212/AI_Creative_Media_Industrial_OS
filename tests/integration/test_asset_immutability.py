@@ -11,12 +11,19 @@
 
 from __future__ import annotations
 
+import uuid
+from datetime import UTC, datetime
+
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from packages.shared.database import build_migration_url
+
+# 测试自造的样本主键（确定性，避免与真实数据冲突）。
+_SAMPLE_ASSET_ID = "immut-sample-0001"
+_SAMPLE_QC_ID = "immut-qc-0001"
 
 
 @pytest.fixture(scope="module")
@@ -29,18 +36,64 @@ async def admin_engine() -> AsyncEngine:
         await engine.dispose()
 
 
+@pytest.fixture(scope="module", autouse=True)
+async def _seed_samples(admin_engine: AsyncEngine) -> None:
+    """自造样本：触发器只拦 UPDATE/DELETE，合法 INSERT 可写入。
+
+    不依赖外部手动造数——容器重建后测试仍能自证。样本用确定性主键，
+    幂等（ON CONFLICT DO NOTHING），跑多轮不重复。
+    """
+    now = datetime.now(UTC)
+    async with admin_engine.begin() as conn:
+        await conn.execute(
+            sa.text(
+                "INSERT INTO asset_service.asset_versions "
+                "(entity_id, entity_type, schema_version, entity_version, status, "
+                " owner_module, tenant_id, created_at, created_by, updated_at, "
+                " asset_type, sha256, storage_ref, source_asset_version_ids, version) "
+                "VALUES (:id, 'AssetVersion', 1, 1, 'APPROVED', 'asset_service', "
+                " :tid, :now, 'test-seeder', :now, 'image', :sha, "
+                " '{}'::jsonb, '[]'::jsonb, 'v1') "
+                "ON CONFLICT (entity_id) DO NOTHING"
+            ),
+            {
+                "id": _SAMPLE_ASSET_ID,
+                "tid": uuid.UUID("00000000-0000-0000-0000-000000000001"),
+                "now": now,
+                "sha": "a" * 64,
+            },
+        )
+        await conn.execute(
+            sa.text(
+                "INSERT INTO asset_service.qc_reports "
+                "(qc_report_id, asset_version_id, tenant_id, "
+                " quality_profile_version, detector_versions, findings, "
+                " created_by, created_at, updated_at) "
+                "VALUES (:id, :aid, :tid, 'qp-v1', '{}'::jsonb, '[]'::jsonb, "
+                " 'test-seeder', :now, :now) "
+                "ON CONFLICT (qc_report_id) DO NOTHING"
+            ),
+            {
+                "id": _SAMPLE_QC_ID,
+                "aid": _SAMPLE_ASSET_ID,
+                "tid": uuid.UUID("00000000-0000-0000-0000-000000000001"),
+                "now": now,
+            },
+        )
+
+
 async def _one_asset(admin_engine: AsyncEngine) -> tuple[str, str]:
     async with admin_engine.connect() as conn:
         row = (
             await conn.execute(
                 sa.text(
                     "SELECT entity_id, sha256 FROM asset_service.asset_versions "
-                    "ORDER BY created_at DESC LIMIT 1"
-                )
+                    "WHERE entity_id = :id"
+                ),
+                {"id": _SAMPLE_ASSET_ID},
             )
         ).first()
-    if row is None:
-        pytest.skip("库中没有 asset_versions 样本，跳过不可变验证")
+    assert row is not None, "样本 fixture 未生效：asset_versions 无样本"
     return str(row[0]), str(row[1])
 
 
@@ -50,12 +103,12 @@ async def _one_qc_report(admin_engine: AsyncEngine) -> tuple[str, str]:
             await conn.execute(
                 sa.text(
                     "SELECT qc_report_id, asset_version_id "
-                    "FROM asset_service.qc_reports ORDER BY created_at DESC LIMIT 1"
-                )
+                    "FROM asset_service.qc_reports WHERE qc_report_id = :id"
+                ),
+                {"id": _SAMPLE_QC_ID},
             )
         ).first()
-    if row is None:
-        pytest.skip("库中没有 qc_reports 样本，跳过不可变验证")
+    assert row is not None, "样本 fixture 未生效：qc_reports 无样本"
     return str(row[0]), str(row[1])
 
 
