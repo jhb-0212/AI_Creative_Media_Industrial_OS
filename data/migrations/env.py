@@ -35,8 +35,13 @@ from services.project_planning.repository.orm import (  # noqa: F401
 )
 from services.qc_governance.repository.orm import GateDecisionModel  # noqa: F401
 from services.shot_planning.repository.orm import (  # noqa: F401
+    ConstraintPackModel,
+    ConstraintPackStatusTransitionModel,
     ShotDraftModel,
     ShotRevisionModel,
+    ShotSpecModel,
+    ShotVisualPlanModel,
+    ShotVisualPlanStatusTransitionModel,
 )
 from services.workflow.repository.orm import (  # noqa: F401
     ApprovalFlowModel,

@@ -108,6 +108,10 @@ def parse_state_chain(text: str) -> set[tuple[str, str]]:
     解析为：
         {(DRAFT,ACTIVE),(ACTIVE,ON_HOLD),(ACTIVE,COMPLETED),
          (DRAFT,ARCHIVED),(ON_HOLD,ARCHIVED),(COMPLETED,ARCHIVED)}
+
+    目标侧的 ``/`` 分组同样展开（源侧对称语义）：
+        "ACTIVE→STALE/SUPERSEDED/REVOKED" => (ACTIVE,STALE),(ACTIVE,SUPERSEDED),
+        (ACTIVE,REVOKED)
     """
     transitions: set[tuple[str, str]] = set()
     for chunk in _split_tokens(text):
@@ -115,13 +119,12 @@ def parse_state_chain(text: str) -> set[tuple[str, str]]:
         states = [s.strip() for s in re.split(r"→|->", chunk) if s.strip()]
         if len(states) < 2:
             continue
-        # 展开连续箭头：A→B→C => (A,B),(B,C)
+        # 展开连续箭头：A→B→C => (A,B),(B,C)；两侧的 A/B/C 均可为 / 分组。
         for i in range(len(states) - 1):
-            src_group = states[i].split("/")
-            dst = states[i + 1].strip()
+            src_group = [s.strip() for s in states[i].split("/") if s.strip()]
+            dst_group = [s.strip() for s in states[i + 1].split("/") if s.strip()]
             for src in src_group:
-                src = src.strip()
-                if src:
+                for dst in dst_group:
                     transitions.add((src, dst))
     return transitions
 
@@ -153,6 +156,14 @@ _STATE_MACHINE_SOURCES: dict[str, tuple[str, str]] = {
     "ApprovalTicket": (
         "services.workflow.domain.state_machine",
         "TICKET_ALLOWED_TRANSITIONS",
+    ),
+    # ADR-R27 镜头域：ConstraintPack（7.9 权威状态机）。
+    # ShotVisualPlan 不登记：其 states 文本无法机读解析锁定/拒绝补充边
+    # （见 services/shot_planning/domain/state_machine.py docstring），
+    # 一致性由 tests/unit/test_enum_parity.py 对迁移字面量双向守住。
+    "ConstraintPack": (
+        "services.shot_planning.domain.state_machine",
+        "CONSTRAINT_PACK_ALLOWED_TRANSITIONS",
     ),
 }
 

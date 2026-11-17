@@ -87,13 +87,19 @@ from services.project_planning.api.episode_routes import router as episode_route
 from services.project_planning.api.project_routes import router as project_router  # noqa: E402
 from services.project_planning.api.script_routes import router as script_router  # noqa: E402
 from services.qc_governance.api.gate_routes import router as gate_router  # noqa: E402
+from services.shot_planning.api.constraint_pack_routes import (  # noqa: E402
+    router as constraint_pack_router,
+)
 from services.shot_planning.api.shot_routes import router as shot_router  # noqa: E402
+from services.shot_planning.api.spec_routes import router as spec_router  # noqa: E402
 from services.workflow.api.approval_routes import router as workflow_router  # noqa: E402
 
 app.include_router(project_router)
 app.include_router(script_router)
 app.include_router(episode_router)
 app.include_router(shot_router)
+app.include_router(spec_router)
+app.include_router(constraint_pack_router)
 app.include_router(asset_router)
 app.include_router(delivery_router)
 app.include_router(gate_router)

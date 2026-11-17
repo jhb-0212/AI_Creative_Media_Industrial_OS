@@ -296,3 +296,46 @@ events:
       - tenant_id
       - status
     contract_ref: contracts/schemas/object_schemas.schema.json#ShotRevision
+  - event_type: SHOTSPEC_LOCKED
+    aggregate_type: ShotSpec
+    emitted_by: services/shot_planning/service/spec_service.py
+    payload_required:
+      - shot_spec_id
+      - shot_revision_id
+      - shot_id
+      - project_id
+      - locked_dimensions
+      - locked_by
+      - lock_rationale
+      - locked_version
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#ShotSpec
+  - event_type: CONSTRAINT_PACK_CREATED
+    aggregate_type: ConstraintPack
+    emitted_by: services/shot_planning/service/constraint_pack_service.py
+    payload_required:
+      - constraint_pack_id
+      - project_id
+      - shot_ids
+      - applicability
+      - version
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#ConstraintPack
+  - event_type: CONSTRAINT_PACK_LOCKED
+    aggregate_type: ConstraintPack
+    emitted_by: services/shot_planning/service/constraint_pack_service.py
+    payload_required:
+      - constraint_pack_id
+      - project_id
+      - applicability
+      - locked_dimensions
+      - version
+      - approved_by
+      - approved_at
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#ConstraintPack

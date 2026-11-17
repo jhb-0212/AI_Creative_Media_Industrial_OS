@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import uuid
 
+import json
+
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tests.conftest import make_test_headers
 
@@ -214,3 +217,221 @@ async def test_confirm_revision_increments_version(auth_client: AsyncClient) -> 
     finally:
         await engine.dispose()
     assert rev1_revision == 1
+
+
+# --------------------------------------------------------------------------- #
+# ADR-R27 阶段 1C：ShotSpec 锁定 / ConstraintPack 创建与激活
+# --------------------------------------------------------------------------- #
+
+
+async def _seed_shot_spec(
+    shot_sm: async_sessionmaker[AsyncSession],
+) -> tuple[str, str]:
+    """种子路径：直接经 shot_planning 域仓储建立一条规格（无冻结创建动作）。"""
+    from services.shot_planning.domain.shot_spec import ShotSpec
+    from services.shot_planning.repository.shot_spec_sqlalchemy_repo import (
+        SqlAlchemyShotSpecRepository,
+    )
+    from tests.conftest import TEST_TENANT_ID, apply_db_context
+
+    spec = ShotSpec(
+        entity_id=uuid.uuid4().hex,
+        shot_revision_id=uuid.uuid4().hex,
+        shot_id=f"shot_{uuid.uuid4().hex[:8]}",
+        project_id=f"proj_{uuid.uuid4().hex[:8]}",
+        duration_ms=4200,
+        aspect_ratio="16:9",
+        fps="24/1",
+        coordinate_system="RIGHT_HANDED/Y/METER",
+        camera_path={"type": "DOLLY", "keyframes": []},
+        created_by="director_001",
+        tenant_id=TEST_TENANT_ID,
+    )
+    async with shot_sm() as session:
+        await apply_db_context(session, project_ids=(spec.project_id,))
+        await SqlAlchemyShotSpecRepository(session).add(spec)
+        await session.commit()
+    return spec.entity_id, spec.project_id
+
+
+async def test_director_locks_shot_spec(
+    auth_client: AsyncClient,
+    shot_sm: async_sessionmaker[AsyncSession],
+) -> None:
+    """导演锁定规格维度：锁定维度/依据/版本齐备，返回锁定后的规格。"""
+    spec_id, project_id = await _seed_shot_spec(shot_sm)
+    headers = _auth_headers("director_001", subject_type="human", roles=["导演"])
+    resp = await auth_client.post(
+        f"/shots/specs/{spec_id}/lock",
+        headers=headers,
+        json={
+            "project_id": project_id,
+            "locked_dimensions": ["camera_path", "cut_points"],
+            "rationale": "运镜与切点经导演确认",
+            "version": 1,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["entity_type"] == "ShotSpec"
+    assert body["shot_spec_id"] == body["entity_id"]
+    # 契约口径：ShotSpec 结构化字段以 JSON 文本序列化。
+    assert json.loads(body["locked_dimensions"]) == ["camera_path", "cut_points"]
+    assert body["duration_ms"] == "4200"
+    assert body["entity_version"] == 2
+
+
+async def test_agent_cannot_lock_shot_spec(
+    auth_client: AsyncClient,
+    shot_sm: async_sessionmaker[AsyncSession],
+) -> None:
+    """Agent 锁定规格 → 403（仅导演/授权 TD）。"""
+    spec_id, project_id = await _seed_shot_spec(shot_sm)
+    headers = _auth_headers("agent_001", subject_type="agent", roles=["导演"])
+    resp = await auth_client.post(
+        f"/shots/specs/{spec_id}/lock",
+        headers=headers,
+        json={
+            "project_id": project_id,
+            "locked_dimensions": ["camera_path"],
+            "rationale": "越权锁定",
+            "version": 1,
+        },
+    )
+    assert resp.status_code == 403
+    assert resp.json()["error_code"] == "AUTH_SCOPE_DENIED"
+
+
+async def test_lock_shot_spec_unknown_dimension_denied(
+    auth_client: AsyncClient,
+    shot_sm: async_sessionmaker[AsyncSession],
+) -> None:
+    """锁定 7.9 维度词典之外的维度 → 422（结构化 VALIDATION_ERROR）。"""
+    spec_id, project_id = await _seed_shot_spec(shot_sm)
+    headers = _auth_headers("director_001", subject_type="human", roles=["导演"])
+    resp = await auth_client.post(
+        f"/shots/specs/{spec_id}/lock",
+        headers=headers,
+        json={
+            "project_id": project_id,
+            "locked_dimensions": ["makeup"],
+            "rationale": "未登记维度",
+            "version": 1,
+        },
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error_code"] == "VALIDATION_ERROR"
+
+
+async def test_agent_creates_and_director_locks_constraint_pack(
+    auth_client: AsyncClient,
+) -> None:
+    """C3：Agent 创建草案 → 导演激活（DRAFT→ACTIVE，审批人固化）。"""
+    project_id = f"proj_{uuid.uuid4().hex[:8]}"
+    await auth_client.post(
+        "/projects",
+        json={"project_name": f"项目_{project_id}", "project_tier": "B", "entity_id": project_id},
+    )
+    agent_headers = _auth_headers("agent_001", subject_type="agent", roles=["TD"])
+    create_resp = await auth_client.post(
+        "/shots/constraint-packs",
+        headers=agent_headers,
+        json={
+            "project_id": project_id,
+            "shot_ids": [f"shot_{uuid.uuid4().hex[:8]}"],
+            "applicability": "APPLICABLE",
+            "locked_dimensions": ["camera_path"],
+            "constraints": [
+                {
+                    "constraint_id": "c_001",
+                    "target": "char_001",
+                    "shot_scope": "SHOT_001..SHOT_003",
+                    "rule": "服装状态连续",
+                    "source": "SCRIPT",
+                    "authority_level": "HARD",
+                    "valid_at": "2026-11-17T00:00:00Z",
+                    "approval_ref": "approval_001",
+                }
+            ],
+        },
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    body = create_resp.json()
+    assert body["entity_type"] == "ConstraintPack"
+    assert body["status"] == "DRAFT"
+    # 契约必填 string：未审批的 DRAFT 以空串表达「尚未发生」。
+    assert body["approved_by"] == ""
+    assert body["approved_at"] == ""
+
+    pack_id = body["entity_id"]
+    director_headers = _auth_headers("director_001", subject_type="human", roles=["导演"])
+    lock_resp = await auth_client.post(
+        f"/shots/constraint-packs/{pack_id}/lock",
+        headers=director_headers,
+        json={"project_id": project_id},
+    )
+    assert lock_resp.status_code == 200, lock_resp.text
+    locked = lock_resp.json()
+    assert locked["status"] == "ACTIVE"
+    assert locked["approved_by"] == "director_001"
+    assert locked["approved_at"]
+
+
+async def test_agent_cannot_lock_constraint_pack(auth_client: AsyncClient) -> None:
+    """Agent 激活约束包 → 403（不得自批自用）。"""
+    project_id = f"proj_{uuid.uuid4().hex[:8]}"
+    await auth_client.post(
+        "/projects",
+        json={"project_name": f"项目_{project_id}", "project_tier": "B", "entity_id": project_id},
+    )
+    agent_headers = _auth_headers("agent_001", subject_type="agent", roles=["TD"])
+    create_resp = await auth_client.post(
+        "/shots/constraint-packs",
+        headers=agent_headers,
+        json={
+            "project_id": project_id,
+            "shot_ids": [f"shot_{uuid.uuid4().hex[:8]}"],
+            "applicability": "NOT_APPLICABLE",
+        },
+    )
+    assert create_resp.status_code == 201
+    pack_id = create_resp.json()["entity_id"]
+
+    lock_resp = await auth_client.post(
+        f"/shots/constraint-packs/{pack_id}/lock",
+        headers=agent_headers,
+        json={"project_id": project_id},
+    )
+    assert lock_resp.status_code == 403
+    assert lock_resp.json()["error_code"] == "AUTH_SCOPE_DENIED"
+
+
+async def test_constraint_pack_not_applicable_flow(auth_client: AsyncClient) -> None:
+    """C3：NOT_APPLICABLE 包同样须经 ACTIVE（不得作为默认值绕过）。"""
+    project_id = f"proj_{uuid.uuid4().hex[:8]}"
+    await auth_client.post(
+        "/projects",
+        json={"project_name": f"项目_{project_id}", "project_tier": "B", "entity_id": project_id},
+    )
+    director_headers = _auth_headers("director_001", subject_type="human", roles=["导演"])
+    create_resp = await auth_client.post(
+        "/shots/constraint-packs",
+        headers=director_headers,
+        json={
+            "project_id": project_id,
+            "shot_ids": [f"shot_{uuid.uuid4().hex[:8]}"],
+            "applicability": "NOT_APPLICABLE",
+        },
+    )
+    assert create_resp.status_code == 201
+    body = create_resp.json()
+    assert body["applicability"] == "NOT_APPLICABLE"
+    assert body["locked_dimensions"] == []
+
+    lock_resp = await auth_client.post(
+        f"/shots/constraint-packs/{body['entity_id']}/lock",
+        headers=director_headers,
+        json={"project_id": project_id},
+    )
+    assert lock_resp.status_code == 200
+    assert lock_resp.json()["status"] == "ACTIVE"

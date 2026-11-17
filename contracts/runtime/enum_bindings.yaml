@@ -48,6 +48,14 @@ bindings:
     module: services.asset_service.domain.enums
     enum: DeliveryManifestStatus
     source: state_machines
+  ConstraintPack:
+    module: services.shot_planning.domain.enums
+    enum: ConstraintPackStatus
+    source: enum_registry
+  ShotVisualPlan:
+    module: services.shot_planning.domain.enums
+    enum: ShotVisualPlanStatus
+    source: enum_registry
 
 exemptions:
   - module: services.asset_service.domain.enums
@@ -140,3 +148,18 @@ exemptions:
       职责分离边界），不是对象生命周期状态，契约 enum_registry 未登记该概念。
       取值一致性由迁移 CHECK ck_shot_planning_shot_drafts_source_registered 与
       领域单测守住。
+  - module: services.shot_planning.domain.enums
+    enum: ShotSpecStatus
+    reason: >-
+      ShotSpec（8.12）未在 enum_registry / state_machines 登记生命周期状态机——
+      规格不是状态驱动对象，锁定语义由 locked_dimensions 字段 + 审批事件
+      （SHOTSPEC_LOCKED）表达，status 恒为 ACTIVE。取值一致性由迁移 CHECK
+      ck_shot_planning_shot_specs_status_registered 与领域单测守住；
+      契约补登记后必须转入 bindings。
+  - module: services.shot_planning.domain.enums
+    enum: ConstraintPackApplicability
+    reason: >-
+      APPLICABLE / NOT_APPLICABLE 是 7.9 字段契约的适用性枚举，不是对象
+      生命周期状态；NOT_APPLICABLE 包同样须经 ACTIVE（ADR-088），由
+      ConstraintPackStatus 状态机表达。取值一致性由迁移 CHECK
+      ck_shot_planning_constraint_packs_applicability_registered 与领域单测守住。
