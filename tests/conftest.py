@@ -20,14 +20,26 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from apps.api.main import app
-from packages.shared.database import (
+# --------------------------------------------------------------------------- #
+# 测试密钥引导（必须在任何 app/deps 导入之前执行，KEYS-1）
+# --------------------------------------------------------------------------- #
+# 验签方 get_public_key_store() 只从 IDENTITY_PUBLIC_KEY_PEM 取公钥（不再从签发
+# 私钥派生）。测试进程内「签发 token」与「API 验签」必须同源——此处引导一对
+# 显式注入的密钥，让签发方（identity 角色读 IDENTITY_PRIVATE_KEY_PEM +
+# IDENTITY_PUBLIC_KEY_PEM）与验签方（读 IDENTITY_PUBLIC_KEY_PEM）共享同一对密钥。
+from packages.identity.bootstrap import bootstrap_signing_key_if_missing
+
+bootstrap_signing_key_if_missing()
+
+# 以下 import 必须在密钥引导之后（否则验签方缺公钥拒绝启动），故 E402 豁免。
+from apps.api.main import app  # noqa: E402
+from packages.shared.database import (  # noqa: E402
     build_relay_database_url,
     create_asset_service_engine,
     create_project_planning_engine,
     create_sessionmaker,
 )
-from services.identity_access import issue_token
+from services.identity_issuance import issue_token  # noqa: E402
 
 # 测试固定租户（历史数据已回填到此默认租户；新测试数据也用此租户，
 # 保证 RLS 上下文一致，避免跨租户隔离误伤）。

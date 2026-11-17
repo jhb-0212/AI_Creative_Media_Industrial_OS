@@ -317,6 +317,11 @@ _HTTP_METHODS = ("get", "post", "put", "patch", "delete")
 
 def _runtime_endpoints() -> set[str]:
     """加载真实 FastAPI 应用的 OpenAPI，返回 "METHOD /path" 集合。"""
+    # KEYS-1：验签方只认显式注入的公钥，加载运行时 app 前须引导开发/测试密钥，
+    # 否则 apps.api.main 的导入链（deps → get_public_key_store）会因缺公钥拒绝启动。
+    from packages.identity.bootstrap import bootstrap_signing_key_if_missing
+
+    bootstrap_signing_key_if_missing()
     from apps.api.main import app
 
     schema = app.openapi()

@@ -15,8 +15,8 @@ lint: ## 代码风格检查
 format: ## 代码格式化
 	ruff format .
 
-typecheck: ## 类型检查
-	mypy packages services apps
+typecheck: ## 类型检查（与 CI 保持一致，含 workers）
+	mypy packages services apps workers
 
 freeze-check: ## 契约冻结校验（基线未变 / 十一类产物哈希 / 演进有据）
 	python scripts/freeze_manifest.py --check

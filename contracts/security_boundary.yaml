@@ -187,7 +187,7 @@ process_keys:
       fact_source: packages/shared/config.py（_PRODUCTION_REQUIRED_SECRETS_BY_PROCESS）
       verification: tests/unit/test_config_secrets.py（按进程断言必需密钥集合）
       status: satisfied
-      residual_risk: "身份签发服务仍以进程内组件（services/identity_access.issue_token/get_key_store）而非独立部署单元存在；私钥边界已按 process_role 收口，但签发方进程尚未物理拆出（与 DATA-1 同源，随模块化单体演进）。"
+      residual_risk: "身份签发能力已迁至 services/identity_issuance（KEYS-1 S1），验签方 services/identity_access 与之结构上零依赖（架构检查 R4 强制 apps 不得 import 签发模块）；但签发方仍以进程内库形式存在、尚未以独立部署单元（workers/identity 进程 + JWKS 端点）运行，物理进程拆分与 JWKS 分发留待 KEYS-1 S3。"
 
     - id: KEYS-2
       name: 生产启动密钥检查按进程分列

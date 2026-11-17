@@ -377,6 +377,47 @@ def check_stale_platform_dependencies(imports: list[ImportRecord]) -> list[Viola
 
 
 # --------------------------------------------------------------------------- #
+# R4 进程边界硬隔离（KEYS-1）
+# --------------------------------------------------------------------------- #
+# apps 层（薄装配/验签方）结构上不得 import 签发模块 services.identity_issuance。
+# 理由（KEYS-1 决策 2）：私钥签发能力（get_key_store/issue_token/get_signing_key）
+# 是身份服务专属，API 进程只持公钥验签。若 apps 能 import 签发模块，仅靠「进程
+# 清单不含私钥」的约定挡，等于把密钥边界交给自觉——结构上就必须封死。
+FORBIDDEN_IMPORTS: dict[str, tuple[str, ...]] = {
+    # 来源层 → 禁止 import 的目标模块前缀（点分，前缀匹配）。
+    "apps": ("services.identity_issuance",),
+}
+
+
+def check_process_isolation(imports: list[ImportRecord]) -> list[Violation]:
+    """apps 层 import 签发模块 → 违规（含惰性导入与动态导入，与 R1 一致）。"""
+    violations: list[Violation] = []
+    for record in imports:
+        forbidden = FORBIDDEN_IMPORTS.get(record.source_layer)
+        if forbidden is None:
+            continue
+        for target in forbidden:
+            if record.target_module == target or record.target_module.startswith(
+                target + "."
+            ):
+                violations.append(
+                    Violation(
+                        rule="R4 进程边界隔离",
+                        file=record.source_file,
+                        line=record.line,
+                        message=(
+                            f"{record.source_layer} 不得 import 签发模块 "
+                            f"{record.target_module}（持私钥）：apps 是验签方，"
+                            "结构上只能依赖 services.identity_access（纯公钥）；"
+                            "签发能力仅 identity 进程（workers/identity）可 import，"
+                            "见 KEYS-1 提案（身份签发进程物理分离）"
+                        ),
+                    )
+                )
+    return violations
+
+
+# --------------------------------------------------------------------------- #
 # R3 模块导入期循环
 # --------------------------------------------------------------------------- #
 def _module_graph(root: Path, imports: list[ImportRecord]) -> dict[str, set[str]]:
@@ -519,6 +560,7 @@ def run_all(root: Path = ROOT) -> dict[str, list[Violation]]:
         "R1 层间依赖方向": check_layer_direction(imports),
         "R2 服务间直连": check_cross_service(imports) + check_stale_platform_dependencies(imports),
         "R3 导入期循环": check_import_cycles(root, imports),
+        "R4 进程边界隔离": check_process_isolation(imports),
     }
 
 
@@ -544,7 +586,7 @@ def main() -> int:
     print(
         f"[PASS] 分层依赖：{len(LAYER_RULES)} 层规则 / R1 方向 0 违规 / "
         f"R2 跨服务 0 违规（平台能力 {len(PLATFORM_SERVICE_DEPENDENCIES)} 项）/ "
-        "R3 导入期循环 0 处"
+        f"R3 导入期循环 0 处 / R4 进程边界隔离 0 违规"
     )
     return 0
 
