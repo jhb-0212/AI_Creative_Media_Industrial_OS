@@ -599,16 +599,25 @@ def scope_asset_ownership_chain() -> AssertionResult:
 # --------------------------------------------------------------------------- #
 @assertion("data.domain_role_split")
 def data_domain_role_split() -> AssertionResult:
-    """每个业务域独立数据库角色 + 独立连接池（缺任一项即未隔离）。"""
+    """每个业务域独立数据库角色 + 独立连接池（缺任一项即未隔离）。
+
+    查的是「角色名从配置解析」而不是「文件里出现某个角色名」：后者在文档字符串
+    里就能满足（本断言此前正是如此），而角色名写死成字面量恰恰是要防的缺陷——
+    自定义角色名的部署会建出没人用的角色、再 GRANT 到不存在的角色（评审 T5）。
+    """
     migration = "data/migrations/versions/8f3b2c1d4e5a_split_domain_roles.py"
     text = _read(migration)
-    missing = [
-        name
-        for name in ("project_planning_role", "asset_service_role")
-        if name not in text
+    missing_fields = [
+        field
+        for field in ("postgres_project_planning_user", "postgres_asset_service_user")
+        if field not in text
     ]
-    if missing:
-        return (False, f"迁移未定义域角色: {missing}")
+    if missing_fields:
+        return (
+            False,
+            f"迁移未从配置解析域角色名（缺 {missing_fields}）："
+            "写死角色名会在自定义角色名的部署里建错角色 / GRANT 失败",
+        )
     database = _read("packages/shared/database.py")
     pools = [
         name
@@ -618,6 +627,88 @@ def data_domain_role_split() -> AssertionResult:
     if pools:
         return (False, f"database.py 未提供独立域会话工厂: {pools}（拆角色但共池等于没拆）")
     return (True, "")
+
+
+# 角色名的默认值只允许出现在 config.py（那是「默认值」的唯一定义处）。
+# 其余任何位置写死角色名，都会让「按配置建的角色」与「被授权的角色」不是同一个。
+_ROLE_NAME_LITERAL_ALLOWED_FILES = frozenset({"packages/shared/config.py"})
+_ROLE_NAME_SCAN_ROOTS = ("services", "packages", "apps", "workers", "data/migrations")
+_DEFAULT_ROLE_NAMES = frozenset(
+    {
+        "app_role",
+        "outbox_relay_role",
+        "project_planning_role",
+        "asset_service_role",
+    }
+)
+
+# 按 SQL 标识符边界匹配：``"GRANT ... TO app_role"`` 要拦，
+# ``"app_role_name"``（读取函数名）不能误伤。
+_ROLE_NAME_TOKEN = {
+    role: re.compile(rf"(?<![A-Za-z0-9_]){role}(?![A-Za-z0-9_])")
+    for role in _DEFAULT_ROLE_NAMES
+}
+
+
+@assertion("db.role_names_from_config")
+def db_role_names_from_config() -> AssertionResult:
+    """数据库角色名不得写成字面量（配置是唯一来源）。
+
+    codex 评审 T5 的事实：D2 迁移把 ``project_planning_role`` /
+    ``asset_service_role`` 写成了字面量，而其他迁移是从 ``Settings`` 取的。
+    两类迁移混在一起时，自定义角色名的部署会在升级路径上失败——这类失效读代码
+    看不出来（代码看起来完全正常），只能在闸门里按「字面量」这个形态去拦。
+
+    判据：``services`` / ``packages`` / ``apps`` / ``workers`` / ``data/migrations``
+    下的 Python 源码里，**非文档字符串**的字符串常量不得等于任一默认角色名。
+    文档字符串允许（讲清「谁是谁」必须能直呼其名），代码里的字符串不允许
+    （那里应当调用 ``packages/shared/db_roles.py``）。
+    """
+    problems = evaluate_role_name_literals(ROOT)
+    return _require(not problems, "；".join(problems))
+
+
+def evaluate_role_name_literals(root: Path) -> list[str]:
+    """纯判定：返回把默认角色名写进代码（非文档字符串）的位置。"""
+    problems: list[str] = []
+    scanned = 0
+    for root_name in _ROLE_NAME_SCAN_ROOTS:
+        for path in sorted((root / root_name).rglob("*.py")):
+            rel = path.relative_to(root).as_posix()
+            if rel in _ROLE_NAME_LITERAL_ALLOWED_FILES:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            scanned += 1
+            docstrings = _docstring_node_ids(tree)
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+                    continue
+                if id(node) in docstrings:
+                    continue
+                for role in _DEFAULT_ROLE_NAMES:
+                    if not _ROLE_NAME_TOKEN.get(role).search(node.value):
+                        continue
+                    problems.append(f"{rel}: 字符串字面量含默认角色名 {role!r}")
+    if scanned == 0:
+        problems.append("未扫描到任何源码：断言等价于通过")
+    return problems
+
+
+def _docstring_node_ids(tree: ast.AST) -> set[int]:
+    """收集模块/类/函数文档字符串的节点 id（这些位置的字符串不参与判定）。"""
+    ids: set[int] = set()
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if not isinstance(body, list) or not body:
+            continue
+        first = body[0]
+        if (
+            isinstance(first, ast.Expr)
+            and isinstance(first.value, ast.Constant)
+            and isinstance(first.value.value, str)
+        ):
+            ids.add(id(first.value))
+    return ids
 
 
 @assertion("data.cross_domain_via_outbox")
@@ -933,44 +1024,135 @@ _TRANSITION_ENTRY_WHITELIST: dict[tuple[str, str], str] = {
     ("services/project_planning/service/transition.py", "advance_status"): "项目域唯一推进点",
 }
 
+# 状态字段名。改状态有两种写法（调用领域方法 / 直接赋值 self.status），
+# 断言必须覆盖两种，否则「方法名」被覆盖而「状态被改写」没被覆盖（评审 T1）。
+STATUS_ATTR = "status"
+
+# 领域层「改状态」的唯一方法名。新增一个方法名不该让断言失效——所以真正的
+# 兜底是下面的落库规则：改状态想生效就必须落库，落库点只有审计入口。
+_STATUS_MUTATORS = frozenset({"transition_to"})
+
+# 落库调用：状态变更要产生效果必须经过它。把落库点钉在审计入口，等于把
+# 「改了但没留痕」这条路的物理入口封死（评审 T1 之后的加固）。
+_PERSIST_METHOD = "save"
+
+# 事实行的唯一写入口。
+_FACT_ENTRY = "advance_status"
+
 
 @assertion("data.transition_single_entry")
 def data_transition_single_entry() -> AssertionResult:
     """状态推进只能从每域唯一的入口发生（ADR-R23 §D2-b，不变量 DATA-4）。
 
+    判据与理由见 ``evaluate_transition_entries``（纯函数，供测试喂构造目录，
+    证明规则真的会拒绝，而不是「碰巧现在没问题」）。
+    """
+    problems = evaluate_transition_entries(ROOT)
+    return _require(not problems, "；".join(problems))
+
+
+def evaluate_transition_entries(root: Path) -> list[str]:
+    """纯判定：扫描 ``root`` 下的业务代码，返回违反「唯一推进入口」的位置。
+
     为什么查**调用点**而不是查函数是否存在：事实表的完整性依赖「有推进 ⇒ 有事实行」。
     只要有人新增第 N 条路径、在服务方法里直接 ``transition_to``，事实行就静默缺失——
     状态改了、事件发了、审计查不到，而没有任何闸门会红。
-    白名单能指出越界的是谁；统计调用次数只会说「多了一个」。
+
+    判据有三条，从三个物理入口封堵「改了状态却没写事实」：
+
+    1. **改状态**：``transition_to`` 只允许出现在 ``/domain/`` 内（聚合自己的
+       委托）或 ``_TRANSITION_ENTRY_WHITELIST``（每域唯一推进点）。
+    2. **直接赋值**：``self.status = ...`` / ``setattr(self, "status", ...)`` 只允许
+       出现在 ``/domain/`` 下名为 ``transition_to`` 的函数里。剧本的
+       ``request_lock`` / ``approve_lock`` 原本就是在这里直接赋值——审批语义最
+       关键的两条转移反而没有事实行，而旧断言只查方法名，看不见。
+    3. **落库**：``.save(...)`` 只允许出现在白名单入口里（实测全仓服务层只有
+       两处，都在入口内）。状态变了但不落库等于没变；这条把「先改状态、再自己
+       save」这条绕行路封死，而且不依赖记住哪个方法名会改状态。
+
+    为什么不用「白名单逐步添加领域方法」：那会把断言变成一张越写越长的审批名单。
+    第 1、3 条按**位置**判定，新增领域方法无需改断言，绕过入口才会红。
     """
-    violations: list[str] = []
+    calls_outside: list[str] = []
+    assigns_outside: list[str] = []
+    saves_outside: list[str] = []
     scanned = 0
     for root_name in ("services", "packages", "apps"):
-        for path in sorted((ROOT / root_name).rglob("*.py")):
+        for path in sorted((root / root_name).rglob("*.py")):
             rel = path.relative_to(ROOT).as_posix()
             tree = ast.parse(path.read_text(encoding="utf-8"))
             scanned += 1
+            in_domain = "/domain/" in rel
             for node in ast.walk(tree):
                 if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     continue
-                for call in ast.walk(node):
-                    if not isinstance(call, ast.Call):
-                        continue
-                    func = call.func
-                    if not (isinstance(func, ast.Attribute) and func.attr == "transition_to"):
-                        continue
-                    if (rel, node.name) not in _TRANSITION_ENTRY_WHITELIST:
-                        violations.append(f"{rel}::{node.name}")
+                audited_entry = (rel, node.name) in _TRANSITION_ENTRY_WHITELIST
+                for sub in ast.walk(node):
+                    if isinstance(sub, ast.Call):
+                        func = sub.func
+                        if not isinstance(func, ast.Attribute):
+                            if _is_self_status_setattr(sub):
+                                assigns_outside.append(f"{rel}::{node.name}（setattr）")
+                            continue
+                        if in_domain or audited_entry:
+                            continue
+                        if func.attr in _STATUS_MUTATORS:
+                            calls_outside.append(f"{rel}::{node.name}")
+                        elif func.attr == _PERSIST_METHOD:
+                            saves_outside.append(f"{rel}::{node.name}")
+                    elif isinstance(sub, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                        targets = (
+                            sub.targets
+                            if isinstance(sub, ast.Assign)
+                            else [sub.target]
+                        )
+                        if not any(_is_self_status_attr(t) for t in targets):
+                            continue
+                        if node.name != "transition_to" or not in_domain:
+                            assigns_outside.append(f"{rel}::{node.name}")
 
-    if violations:
-        return (
-            False,
-            "以下位置绕过唯一推进入口调用了 transition_to（事实行会静默缺失）："
-            + "、".join(sorted(set(violations))),
+    problems: list[str] = []
+    if calls_outside:
+        problems.append(
+            "在唯一推进入口之外调用 transition_to：" + "、".join(sorted(set(calls_outside)))
+        )
+    if assigns_outside:
+        problems.append(
+            "在领域 transition_to 之外直接改写 self.status（事实行会静默缺失）："
+            + "、".join(sorted(set(assigns_outside)))
+        )
+    if saves_outside:
+        problems.append(
+            f"在唯一推进入口之外落库（改状态即可绕过事实行与 {_FACT_ENTRY}）："
+            + "、".join(sorted(set(saves_outside)))
         )
     if not _TRANSITION_ENTRY_WHITELIST:
-        return (False, "推进入口白名单为空：断言会无条件通过，等于没有")
-    return (True, "")
+        problems.append("推进入口白名单为空：断言会无条件通过，等于没有")
+    if scanned == 0:
+        problems.append("未扫描到任何源码：断言等价于通过")
+    return problems
+
+
+def _is_self_status_attr(node: ast.expr) -> bool:
+    """是否为 ``self.status`` 这个赋值目标。"""
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr == STATUS_ATTR
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "self"
+    )
+
+
+def _is_self_status_setattr(call: ast.Call) -> bool:
+    """``setattr(self, "status", ...)``：同一件事的另一种写法，必须同罪。"""
+    return (
+        isinstance(call.func, ast.Name)
+        and call.func.id == "setattr"
+        and len(call.args) >= 2
+        and _is_self_status_attr(call.args[0])
+        and isinstance(call.args[1], ast.Constant)
+        and call.args[1].value == STATUS_ATTR
+    )
 
 
 class _SqlCollector:

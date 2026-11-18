@@ -45,9 +45,6 @@ down_revision: str | Sequence[str] | None = "7a8b9c0d1e2f"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-PROJECT_PLANNING_ROLE = "project_planning_role"
-ASSET_SERVICE_ROLE = "asset_service_role"
-APP_ROLE = "app_role"
 
 OUTBOX_SCHEMA = "outbox"
 AUTH_SCHEMA = "auth"

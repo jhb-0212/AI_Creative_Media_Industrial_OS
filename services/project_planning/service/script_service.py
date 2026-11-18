@@ -202,23 +202,27 @@ class ScriptService:
         # 归属验证（申请前要求归属合法）。
         await self._assert_episode_ownership(script.project_id, script.episode_ref)
 
-        expected_version = script.entity_version
-        script.request_lock(requested_by)
-        await self._repository.save(script, expected_version)
-
-        self._outbox_writer.record(
+        # 唯一推进路径（ADR-R23 §D2-b）：状态、申请人、事实行、事件同一序列。
+        # domain_operation 承载「顺便写申请人」——领域方法内部仍经 transition_to
+        # 改状态，聚合上没有第二条改状态的路径。
+        await advance_status(
+            script,
+            ScriptStatus.LOCK_PENDING,
+            repository=self._repository,
+            outbox_writer=self._outbox_writer,
             aggregate_type="ScriptRevision",
-            aggregate_id=script.entity_id,
             event_type="SCRIPT_LOCK_REQUESTED",
             tenant_id=principal.tenant_id,
             payload={
                 "project_id": script.project_id,
                 "episode_ref": script.episode_ref,
                 "requested_by": requested_by,
-                "tenant_id": str(principal.tenant_id),
-                "from_status": ScriptStatus.DRAFT.value,
-                "to_status": ScriptStatus.LOCK_PENDING.value,
             },
+            resource_type="ScriptRevision",
+            owner_action="SCRIPT.LOCK.REQUEST",
+            conflict_detail="剧本锁定申请并发冲突，请基于最新状态重试",
+            actor=requested_by,
+            domain_operation=lambda ref: script.request_lock(requested_by, ref),
         )
         return script
 
@@ -260,15 +264,15 @@ class ScriptService:
             counterpart_label="申请人",
         )
 
-        expected_version = script.entity_version
-        script.approve_lock(approved_by)
-        await self._repository.save(script, expected_version)
-
-        # 审计事件（决策 3）：锁定批准与状态变更同事务原子记录，含职责分离
-        # 证据（申请人与批准人），可追溯审批当时的完整上下文（R7）。
-        self._outbox_writer.record(
+        # 唯一推进路径（ADR-R23 §D2-b）。批准人落在两处第一类事实里：事件的
+        # approved_by 与状态迁移事实的 actor_subject——「批准」这个词必须能
+        # 回答「谁批的」，且不依赖 outbox 保留期。
+        await advance_status(
+            script,
+            ScriptStatus.LOCKED,
+            repository=self._repository,
+            outbox_writer=self._outbox_writer,
             aggregate_type="ScriptRevision",
-            aggregate_id=script.entity_id,
             event_type="SCRIPT_LOCK_APPROVED",
             tenant_id=principal.tenant_id,
             payload={
@@ -276,10 +280,12 @@ class ScriptService:
                 "episode_ref": script.episode_ref,
                 "requested_by": script.requested_by,
                 "approved_by": approved_by,
-                "tenant_id": str(principal.tenant_id),
-                "from_status": ScriptStatus.LOCK_PENDING.value,
-                "to_status": ScriptStatus.LOCKED.value,
             },
+            resource_type="ScriptRevision",
+            owner_action="SCRIPT.LOCK.APPROVE",
+            conflict_detail="剧本锁定批准并发冲突，请基于最新状态重试",
+            actor=approved_by,
+            domain_operation=lambda ref: script.approve_lock(approved_by, ref),
         )
         return script
 

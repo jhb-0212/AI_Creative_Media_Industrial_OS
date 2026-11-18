@@ -33,8 +33,8 @@ from packages.shared.database import (
     build_database_url,
     build_migration_url,
 )
+from packages.shared.db_roles import app_role_name
 from packages.shared.partition_guard import (
-    APP_ROLE,
     OUTBOX_PARENT,
     OUTBOX_SCHEMA,
     PARTITION_POLICY,
@@ -116,7 +116,7 @@ async def _direct_privileges(session: AsyncSession, table: str) -> set[str]:
             WHERE grantee = :role AND table_schema = :schema AND table_name = :table
             """
         ),
-        {"role": APP_ROLE, "schema": OUTBOX_SCHEMA, "table": table},
+        {"role": app_role_name(), "schema": OUTBOX_SCHEMA, "table": table},
     )
     return {str(privilege) for privilege in rows.scalars()}
 
@@ -158,7 +158,7 @@ async def test_every_outbox_partition_is_protected(
         for partition in partitions:
             privileges = await _direct_privileges(session, partition)
             assert privileges == set(), (
-                f"分区 {partition} 仍对 {APP_ROLE} 直连授权: {sorted(privileges)}"
+                f"分区 {partition} 仍对 {app_role_name()} 直连授权: {sorted(privileges)}"
             )
 
 

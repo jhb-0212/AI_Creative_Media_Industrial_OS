@@ -405,3 +405,22 @@ credential_scope:
       runtime_evidence:
         - tests/unit/test_config_secrets.py::test_duplicate_domain_role_names_rejected
         - tests/unit/test_config_secrets.py::test_distinct_domain_role_names_accepted
+
+    - id: CRED-3
+      name: 角色名唯一来源是配置（代码不得写死）
+      statement: >-
+        数据库角色名是配置事实，默认值只允许出现在 packages/shared/config.py；
+        迁移与 DDL 构造器必须经 packages/shared/db_roles.py 按配置取值。
+        写死角色名会造成两种都不会被读代码发现的失效：自定义角色名的部署里
+        迁移建出没人用的角色（业务进程连库无权限），或 GRANT 到不存在的角色
+        使升级路径中断。判断按「代码字符串里是否出现默认角色名」的形态来定
+        （文档字符串除外），不按「是否调用了某个读取函数」来定——后者换个写法
+        即可绕过。
+      fact_source: packages/shared/db_roles.py；packages/shared/config.py（默认值定义处）
+      verification: 断言 db.role_names_from_config（AST 扫描非文档字符串常量，按标识符边界匹配）
+      assertion: db.role_names_from_config
+      runtime_evidence:
+        - tests/unit/test_db_role_names.py::test_repository_has_no_hardcoded_role_names
+        - tests/unit/test_db_role_names.py::test_literal_role_name_in_migration_is_rejected
+        - tests/unit/test_db_role_names.py::test_literal_role_name_in_sql_string_is_rejected
+        - tests/unit/test_db_role_names.py::test_role_name_in_docstring_is_allowed

@@ -23,6 +23,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 #   identity           —— 身份签发服务：持私钥（+公钥）签发令牌。
 ProcessRole = Literal["api", "relay", "outbox_maintenance", "identity"]
 
+# 数据库角色配置项：环境变量名 → Settings 字段名（单一事实源）。
+# 启动校验与迁移取角色名都从这张表/对应属性取，任何地方都不得写字面量
+# 角色名——角色名可被环境变量改，字面量在「改过名字」的部署里要么 GRANT 到
+# 不存在的角色使迁移中断，要么建出与配置不符的第二个角色（codex 评审 T5）。
+_ROLE_FIELD_BY_ENV: dict[str, str] = {
+    "POSTGRES_PROJECT_PLANNING_USER": "postgres_project_planning_user",
+    "POSTGRES_ASSET_SERVICE_USER": "postgres_asset_service_user",
+    "POSTGRES_RELAY_USER": "postgres_relay_user",
+    "POSTGRES_APP_USER": "postgres_app_user",
+}
+
 
 class Settings(BaseSettings):
     """全局应用配置。字段名对应 .env 中的大写变量名。"""
@@ -250,10 +261,8 @@ class Settings(BaseSettings):
         与进程身份无关（任何读配置的地方都该看到同一个约束），故放在构造期。
         """
         roles = {
-            "POSTGRES_PROJECT_PLANNING_USER": self.postgres_project_planning_user,
-            "POSTGRES_ASSET_SERVICE_USER": self.postgres_asset_service_user,
-            "POSTGRES_RELAY_USER": self.postgres_relay_user,
-            "POSTGRES_APP_USER": self.postgres_app_user,
+            env_name: getattr(self, field_name)
+            for env_name, field_name in _ROLE_FIELD_BY_ENV.items()
         }
         seen: dict[str, str] = {}
         for env_name, role in roles.items():

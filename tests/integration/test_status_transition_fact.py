@@ -355,3 +355,68 @@ def test_audit_ref_pointer_roundtrip_and_legacy_classification() -> None:
     broken = "tr:not-a-uuid"
     assert classify_audit_ref(broken) is AuditRefKind.POINTER
     assert parse_audit_ref(broken) is None  # 前缀对、内容坏：这才是真异常
+
+
+async def test_event_link_must_be_same_tenant(
+    domain_engine: AsyncEngine,
+    owner_engine: AsyncEngine,
+) -> None:
+    """事实指向的事件必须同租户：SECURITY DEFINER 校验不能只看 event_id。
+
+    评审 T2：校验函数以 ``SECURITY DEFINER`` 运行（要读调用方不可见的 outbox），
+    于是它**绕过了调用方的 RLS**。只比 ``event_id`` 时，租户 A 的事实行可以指向
+    租户 B 的事件——两条记录都在、提交也成功，但两个租户的审计链被缝在一起。
+    函数里每一条谓词都要按「我现在没有任何 RLS 保护」来写。
+    """
+    tenant_a = uuid.uuid4()
+    tenant_b = uuid.uuid4()
+    foreign_event = uuid.uuid4()
+
+    # 租户 B 的事件（所有者身份写入，绕过 RLS）。
+    async with owner_engine.begin() as conn:
+        await _insert_event(conn, tenant_b, foreign_event)
+
+    with pytest.raises(DBAPIError) as excinfo:
+        async with domain_engine.begin() as conn:
+            await conn.execute(
+                text("SELECT set_config('app.current_tenant_id', :t, true)"),
+                {"t": str(tenant_a)},
+            )
+            await _insert_fact(
+                conn,
+                tenant=tenant_a,
+                transition_id=uuid.uuid4(),
+                event_id=foreign_event,
+                version=51,
+                resource_id="p_probe_xtenant",
+            )
+    assert "不存在于租户" in str(excinfo.value)
+
+
+async def test_non_positive_entity_version_is_rejected(
+    domain_engine: AsyncEngine,
+) -> None:
+    """版本号 0 描述不了任何实体版本：CHECK 拒绝，NOT NULL 挡不住它。
+
+    评审 T4：对象 Schema 对 entity_version 的下界是 1，而表上只有 NOT NULL。
+    有 INSERT 权限的调用方可以写 0 或负数，造出一条「不可能是真迁移」的事实。
+    """
+    tenant = uuid.uuid4()
+    event_id = uuid.uuid4()
+
+    with pytest.raises(IntegrityError) as excinfo:
+        async with domain_engine.begin() as conn:
+            await conn.execute(
+                text("SELECT set_config('app.current_tenant_id', :t, true)"),
+                {"t": str(tenant)},
+            )
+            await _insert_event(conn, tenant, event_id)
+            await _insert_fact(
+                conn,
+                tenant=tenant,
+                transition_id=uuid.uuid4(),
+                event_id=event_id,
+                version=0,
+                resource_id="p_probe_zero",
+            )
+    assert "ck_status_transition_version_positive" in str(excinfo.value)

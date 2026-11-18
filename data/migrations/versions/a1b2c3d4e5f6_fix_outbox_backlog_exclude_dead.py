@@ -27,12 +27,12 @@ from collections.abc import Sequence
 
 from alembic import op
 
+from packages.shared.db_roles import app_role_name
+
 revision: str = "a1b2c3d4e5f6"
 down_revision: str | Sequence[str] | None = "c6d7e8f9a0b1"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
-
-APP_ROLE = "app_role"
 OUTBOX_SCHEMA = "outbox"
 
 # 与 worker relay 的 _CLAIM 领取口径保持一致：只有「可领取」的事件才计入
@@ -90,7 +90,7 @@ def upgrade() -> None:
     )
     op.execute(
         f"GRANT EXECUTE ON FUNCTION {OUTBOX_SCHEMA}.list_active_tenants() "
-        f"TO {APP_ROLE}"
+        f"TO {app_role_name()}"
     )
 
 
@@ -122,5 +122,5 @@ def downgrade() -> None:
     )
     op.execute(
         f"GRANT EXECUTE ON FUNCTION {OUTBOX_SCHEMA}.list_active_tenants() "
-        f"TO {APP_ROLE}"
+        f"TO {app_role_name()}"
     )

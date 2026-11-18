@@ -27,13 +27,13 @@ from collections.abc import Sequence
 
 from alembic import op
 
+from packages.shared.db_roles import app_role_name
+
 # revision identifiers, used by Alembic.
 revision: str = "9e3b4c5d6e7f"
 down_revision: str | Sequence[str] | None = "8f2a1b3c4d5e"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
-
-APP_ROLE = "app_role"
 
 _SCHEMAS = ("project_planning", "outbox")
 
@@ -76,11 +76,11 @@ def upgrade() -> None:
         f"""
         DO $$
         BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{APP_ROLE}') THEN
-                CREATE ROLE {APP_ROLE} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{app_role_name()}') THEN
+                CREATE ROLE {app_role_name()} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
                     NOBYPASSRLS PASSWORD '{password}';
             ELSE
-                ALTER ROLE {APP_ROLE} WITH LOGIN NOSUPERUSER NOCREATEDB
+                ALTER ROLE {app_role_name()} WITH LOGIN NOSUPERUSER NOCREATEDB
                     NOCREATEROLE NOBYPASSRLS PASSWORD '{password}';
             END IF;
         END
@@ -90,26 +90,26 @@ def upgrade() -> None:
 
     # 2. 授权 schema USAGE + 表/序列权限（最小权限）。
     for schema in _SCHEMAS:
-        op.execute(f"GRANT USAGE ON SCHEMA {schema} TO {APP_ROLE}")
-        op.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {schema} TO {APP_ROLE}")
-        op.execute(f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO {APP_ROLE}")
+        op.execute(f"GRANT USAGE ON SCHEMA {schema} TO {app_role_name()}")
+        op.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {schema} TO {app_role_name()}")
+        op.execute(f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO {app_role_name()}")
 
     # 3. 授权未来新建对象（默认权限，使后续迁移的表自动可访问）。
     for schema in _SCHEMAS:
         op.execute(
             f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
-            f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {APP_ROLE}"
+            f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {app_role_name()}"
         )
         op.execute(
             f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
-            f"GRANT USAGE, SELECT ON SEQUENCES TO {APP_ROLE}"
+            f"GRANT USAGE, SELECT ON SEQUENCES TO {app_role_name()}"
         )
 
 
 def downgrade() -> None:
     """回滚：回收权限 + 删除应用角色。"""
     for schema in _SCHEMAS:
-        op.execute(f"REVOKE ALL ON ALL TABLES IN SCHEMA {schema} FROM {APP_ROLE}")
-        op.execute(f"REVOKE ALL ON ALL SEQUENCES IN SCHEMA {schema} FROM {APP_ROLE}")
-        op.execute(f"REVOKE USAGE ON SCHEMA {schema} FROM {APP_ROLE}")
-    op.execute(f"DROP ROLE IF EXISTS {APP_ROLE}")
+        op.execute(f"REVOKE ALL ON ALL TABLES IN SCHEMA {schema} FROM {app_role_name()}")
+        op.execute(f"REVOKE ALL ON ALL SEQUENCES IN SCHEMA {schema} FROM {app_role_name()}")
+        op.execute(f"REVOKE USAGE ON SCHEMA {schema} FROM {app_role_name()}")
+    op.execute(f"DROP ROLE IF EXISTS {app_role_name()}")

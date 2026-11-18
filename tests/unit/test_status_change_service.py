@@ -298,3 +298,54 @@ async def test_episode_change_status_concurrent_conflict() -> None:
             tenant_id=_TENANT,
         )
     assert exc_info.value.error_code.code == "CONCURRENT_MODIFICATION"
+
+
+# --------------------------------------------------------------------------- #
+# 迁移事实的归属字段（评审 T3）
+# --------------------------------------------------------------------------- #
+async def test_project_transition_fact_carries_organization() -> None:
+    """组织项目的迁移事实必须带组织归属，**调用方不传也要带**。
+
+    评审 T3 的事实：``advance_status`` 把 organization_id 完全交给调用方传，
+    项目服务漏传一次，组织项目的历史就被记成了「无组织」——因为事实表里
+    NULL 的语义是「该资源没有组织归属」，不是「忘了填」。这类错误在数据里
+    看不出来（行是完整的），只在按组织查历史时才暴露，所以必须由实体自身
+    派生，并用用例锁住「不传也对」。
+    """
+    organization = uuid4()
+    project = Project(
+        entity_id="proj_org",
+        project_name="组织项目",
+        project_tier=ProjectTier.B,
+        created_by="user_001",
+        tenant_id=_TENANT,
+        status=ProjectStatus.DRAFT,
+        organization_id=organization,
+    )
+    outbox = _RecordingOutboxWriter()
+    service = ProjectService(_FakeProjectRepository(seed=project), outbox)
+
+    await service.change_status(
+        entity_id="proj_org",
+        target_status=ProjectStatus.ACTIVE,
+        changed_by="user_002",
+        tenant_id=_TENANT,
+    )
+
+    assert len(outbox.transitions) == 1
+    assert outbox.transitions[0].organization_id == organization
+
+
+async def test_personal_project_transition_fact_has_no_organization() -> None:
+    """个人租户项目：事实里组织为空，与「无组织归属」语义一致（不是漏填）。"""
+    outbox = _RecordingOutboxWriter()
+    service = ProjectService(_FakeProjectRepository(seed=_project()), outbox)
+
+    await service.change_status(
+        entity_id="proj_001",
+        target_status=ProjectStatus.ACTIVE,
+        changed_by="user_002",
+        tenant_id=_TENANT,
+    )
+
+    assert outbox.transitions[0].organization_id is None

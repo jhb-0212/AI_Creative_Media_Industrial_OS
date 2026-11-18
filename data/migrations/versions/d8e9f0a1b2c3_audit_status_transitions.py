@@ -11,7 +11,9 @@
 
 1. **同一版本只推进一次**：``UNIQUE (tenant_id, resource_type, resource_id,
    entity_version)``。乐观锁已经在 ``save(entity, expected)`` 里保证这点，抬到事实表
-   后，并发双写不依赖任何应用层 ``if``。
+   后，并发双写不依赖任何应用层 ``if``。同时 ``CHECK (entity_version >= 1)``：
+   版本号 0 或负数描述不了任何真实实体版本（对象 Schema 的下界就是 1），
+   NOT NULL 只挡住了「没写」，挡不住「写了个不可能的版本」（codex 评审 T4）。
 2. **有迁移必有事件**：``event_id NOT NULL`` + 提交时约束触发器。外键在分区表上
    建不出来（``outbox_events`` 主键为 ``(event_id, occurred_at)``，分区键是
    ``occurred_at``，``event_id`` 单独不唯一），所以用
@@ -54,7 +56,17 @@ _EXISTING_APPEND_ONLY: tuple[tuple[str, str], ...] = (
     ("asset_service", "asset_versions"),
 )
 
-_TENANT_ROLES = ("project_planning_role", "asset_service_role")
+
+def _tenant_roles() -> tuple[str, ...]:
+    """业务域角色名（来自配置，不写字面量）。
+
+    角色名可被 ``POSTGRES_PROJECT_PLANNING_USER`` /
+    ``POSTGRES_ASSET_SERVICE_USER`` 改；写成字面量时，自定义角色名的部署会在
+    本迁移的 GRANT 处失败（角色不存在），把部署堵在升级路径上（codex 评审 T5）。
+    """
+    from packages.shared.db_roles import domain_role_names
+
+    return domain_role_names()
 
 
 def _tenant_predicate(column: str = "tenant_id") -> str:
@@ -93,7 +105,9 @@ def upgrade() -> None:
             CONSTRAINT uq_status_transition_version
                 UNIQUE (tenant_id, resource_type, resource_id, entity_version),
             CONSTRAINT ck_status_transition_advances
-                CHECK (from_status <> to_status)
+                CHECK (from_status <> to_status),
+            CONSTRAINT ck_status_transition_version_positive
+                CHECK (entity_version >= 1)
         )
         """
     )
@@ -161,6 +175,11 @@ def upgrade() -> None:
     # 1. 校验函数要读 outbox；调用方是业务角色，在 outbox 上的 RLS 可见性会让
     #    「事件确实存在」被误判为不存在，把正确写入拒掉。
     # 2. 函数属 audit schema（证据域），不应要求业务角色持有 outbox 之外的任何权限。
+    # 代价：函数绕过调用方的 RLS，所以判定条件必须自己和调用方的可见性口径同宽，
+    # 即**同时比 event_id 与 tenant_id**。只比 event_id 时，租户 A 的事实行可以
+    # 指向租户 B 的事件——事实与事件都在、提交也成功，但两个租户的审计链被缝在
+    # 一起（codex 评审 T2）。SECURITY DEFINER 函数里的每一条谓词都要按「我现在
+    # 没有任何 RLS 保护」来写。
     op.execute(
         f"""
         CREATE FUNCTION {SCHEMA}.assert_transition_event_exists() RETURNS trigger
@@ -173,12 +192,13 @@ def upgrade() -> None:
         BEGIN
             SELECT event_id INTO found_event
             FROM {OUTBOX_SCHEMA}.{OUTBOX_TABLE}
-            WHERE event_id = NEW.event_id;
+            WHERE event_id = NEW.event_id
+              AND tenant_id = NEW.tenant_id;
 
             IF found_event IS NULL THEN
                 RAISE EXCEPTION
-                    '状态迁移事实 % 指向的事件 % 不存在：迁移与事件必须同事务写入',
-                    NEW.transition_id, NEW.event_id
+                    '状态迁移事实 % 指向的事件 % 不存在于租户 %：迁移与事件必须同事务写入同一租户',
+                    NEW.transition_id, NEW.event_id, NEW.tenant_id
                     USING ERRCODE = 'foreign_key_violation';
             END IF;
             RETURN NULL;
@@ -196,7 +216,7 @@ def upgrade() -> None:
     )
 
     # ---------------- 权限与 RLS ----------------
-    roles = ", ".join(_TENANT_ROLES)
+    roles = ", ".join(_tenant_roles())
     op.execute(f"GRANT USAGE ON SCHEMA {SCHEMA} TO {roles}")
     op.execute(f"GRANT INSERT, SELECT ON {SCHEMA}.{TABLE} TO {roles}")
     # 显式收回变更权：即使将来有人误加默认权限，也不至于静默获得改历史的能力。

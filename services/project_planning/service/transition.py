@@ -20,7 +20,7 @@ D2 引入了第一个这样的步骤：写状态迁移事实行（`audit.status_
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, Literal, Protocol
 from uuid import UUID, uuid4
 
@@ -82,6 +82,7 @@ async def advance_status(
     authority_ref: str | None = None,
     evidence_refs: tuple[str, ...] = (),
     on_conflict: ConflictPolicy = "raise",
+    domain_operation: Callable[[str], object] | None = None,
 ) -> bool:
     """执行一次状态推进并原子写入事件，返回是否真的推进了。
 
@@ -97,16 +98,50 @@ async def advance_status(
     ``on_conflict="skip"`` 时并发冲突返回 ``False``（调用方据此幂等跳过），
     其余异常照常上抛——幂等跳过只对「终态已达成」这一种冲突成立。
 
+    ``domain_operation`` 用于「状态变更同时要写审批链字段」的领域操作
+    （剧本锁定的申请人/批准人）。为什么允许它存在：剧本的 ``request_lock`` /
+    ``approve_lock`` 此前各自把 ``self.status`` 直接赋值，等于在同一聚合上开了
+    第二条改状态的路径——恰是审批语义最需要留痕的两条转移反而没有事实行
+    （codex 评审 T1）。把领域操作作为参数传进来，而不是让它自己落库，能让
+    「状态 + 附属字段 + 事实 + 事件」仍是同一序列。约束：``domain_operation``
+    内部必须经 ``transition_to`` 改状态（闸门 ``data.transition_single_entry``
+    同时检查服务层不许直接赋值 ``.status``）。
+
     ``resource_type`` / ``owner_action`` 是迁移事实的必填构件：前者标识被推进的
     对象（Schema 键名），后者是拥有该转移边的 action_key。二者都由调用方给——
     本函数不做映射推断，推断出来的归属是猜的，不是事实。
+
+    ``organization_id`` 的取法（codex 评审 T3）：能从不传，就从实体自身取
+    （``entity.organization_id``）。让调用方「记得传」是把不变量交给记忆——项目
+    服务确实漏传过，事实里留下 NULL，而 NULL 的语义是「该资源无组织归属」，
+    于是一条组织项目的历史被记成了个人资产的历史。显式传参仍保留，供实体自身
+    不携带组织键的资源（集数/剧本/资产版本，其组织经 project 派生）在归属解析
+    就位后补齐；这些资源当前落 NULL，属已登记债务（ADR-R23 §4），不是正确终态。
     """
     previous_status = entity.status
     expected_version = entity.entity_version
     # 事实 id 必须先于迁移生成：audit_ref 已降级为「指向本次事实的指针」，
     # 若等写完事实再回填，迁移那一刻就只有自由串可写（ADR-R23 §D2-c）。
     transition_id = uuid4()
-    entity.transition_to(target_status, transition_audit_ref(transition_id))
+    audit_ref = transition_audit_ref(transition_id)
+    if domain_operation is None:
+        entity.transition_to(target_status, audit_ref)
+    else:
+        # 领域操作自己经 transition_to 改状态，同时写审批链字段（申请人/批准人）。
+        # 传 audit_ref 而不是 ID：领域层不解释指针格式（ADR-R23 §D2-c）。
+        domain_operation(audit_ref)
+
+    # 事实里的 to_status 取聚合的真实结果，并当场核对调用方声明的目标一致。
+    # 若两者不一致，写进事实的就是一条谎——审计表里最不该有的东西。
+    if entity.status != target_status:
+        raise DomainError(
+            ErrorRegistry.INTERNAL_ERROR,
+            detail=(
+                f"状态推进结果与声明目标不一致：{resource_type}/{entity.entity_id} "
+                f"期望 {_status_value(target_status)}，实际 {_status_value(entity.status)}"
+            ),
+        )
+
     try:
         await repository.save(entity, expected_version)
     except ConcurrentModificationError as exc:
@@ -120,12 +155,12 @@ async def advance_status(
         fact=TransitionFact(
             transition_id=transition_id,
             tenant_id=tenant_id,
-            organization_id=organization_id,
+            organization_id=_effective_organization_id(entity, organization_id),
             resource_type=resource_type,
             resource_id=entity.entity_id,
             entity_version=entity.entity_version,
             from_status=_status_value(previous_status),
-            to_status=_status_value(target_status),
+            to_status=_status_value(entity.status),
             owner_action=owner_action,
             actor_subject=actor or _SYSTEM_ACTOR,
             authority_ref=authority_ref,
@@ -140,12 +175,25 @@ async def advance_status(
                 **payload,
                 **({actor_field: actor} if actor_field else {}),
                 "from_status": _status_value(previous_status),
-                "to_status": _status_value(target_status),
+                "to_status": _status_value(entity.status),
                 "tenant_id": str(tenant_id),
             },
         ),
     )
     return True
+
+
+def _effective_organization_id(
+    entity: VersionedStatusEntity, explicit: UUID | None
+) -> UUID | None:
+    """事实里的组织归属：显式参数优先，否则取实体自身的组织键。
+
+    实体没有 ``organization_id`` 属性（集数/剧本/资产版本）时返回 None——
+    它们的组织只能经 project 派生，当前落 NULL 属已登记债务。
+    """
+    if explicit is not None:
+        return explicit
+    return getattr(entity, "organization_id", None)
 
 
 def _status_value(status: Any) -> Any:
