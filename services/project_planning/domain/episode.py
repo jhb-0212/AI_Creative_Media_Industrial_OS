@@ -22,7 +22,7 @@ from typing import Any
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from services.project_planning.domain.entity import OWNER_MODULE, Entity
 from services.project_planning.domain.enums import EpisodeStatus
-from services.project_planning.domain.state_machine import assert_transition_episode
+from services.project_planning.domain.state_machine import EPISODE_LIFECYCLE
 
 
 @dataclass
@@ -62,9 +62,16 @@ class Episode(Entity):
                     detail=f"{name} 长度超过上限 {max_len}",
                 )
 
-    def transition_to(self, target: EpisodeStatus, audit_ref: str) -> Episode:
-        """执行状态迁移，未登记转移拒绝（31.5）。"""
-        assert_transition_episode(self.status, target)
+    def transition_to(
+        self, target: EpisodeStatus, audit_ref: str, action: str
+    ) -> Episode:
+        """执行状态迁移：结构合法性 + 边所有权（31.5 / N-07）。
+
+        ``action`` 是准入凭据而非标签，判定见 ``EPISODE_LIFECYCLE``；
+        本项目当前由 EPISODE.STATUS.CHANGE 独占全部边，但所有权判定照常执行——
+        规则的价值在于「未来新增专属动作时无需记得来加检查」。
+        """
+        EPISODE_LIFECYCLE.edge_owned_by(self.status, target, action)
         self.status = target
         self._advance_version(audit_ref)
         return self

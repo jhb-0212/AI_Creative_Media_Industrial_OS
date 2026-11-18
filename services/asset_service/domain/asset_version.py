@@ -25,7 +25,7 @@ from typing import Any
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.entity import Entity
 from services.asset_service.domain.enums import AssetStatus
-from services.asset_service.domain.state_machine import assert_transition_asset
+from services.asset_service.domain.state_machine import ASSET_LIFECYCLE
 
 # SHA-256 十六进制摘要（64 位，大小写不敏感；入库统一小写）。
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -106,9 +106,18 @@ class AssetVersion(Entity):
                     detail="source_asset_version_ids 含空值",
                 )
 
-    def transition_to(self, target: AssetStatus, audit_ref: str) -> AssetVersion:
-        """执行状态迁移，未登记转移拒绝（31.5）。"""
-        assert_transition_asset(self.status, target)
+    def transition_to(
+        self, target: AssetStatus, audit_ref: str, action: str
+    ) -> AssetVersion:
+        """执行状态迁移：结构合法性 + 边所有权（31.5 / N-07）。
+
+        所有权在这里**再判一次**，与 ``asset_service`` 服务层的前置 ``edge_owned_by``
+        不是重复：服务层那一步是为了拿到边对象取 ``guards``，这一步是聚合自身的
+        不变量——任何持有本对象的人（测试、未来的新用例、脚本）都无法绕过。
+        两道判定读的是同一张边表，因此不会出现「服务层放行、领域层拦截」以外的
+        第三种结果；若发生不一致，说明有人绕过了唯一推进入口，本该失败。
+        """
+        ASSET_LIFECYCLE.edge_owned_by(self.status, target, action)
         self.status = target
         self._advance_version(audit_ref)
         return self

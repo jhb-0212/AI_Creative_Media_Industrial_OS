@@ -23,7 +23,7 @@ from typing import Any
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from services.project_planning.domain.entity import OWNER_MODULE, Entity
 from services.project_planning.domain.enums import ScriptStatus
-from services.project_planning.domain.state_machine import assert_transition_script
+from services.project_planning.domain.state_machine import SCRIPT_LIFECYCLE
 
 
 @dataclass
@@ -69,7 +69,9 @@ class ScriptRevision(Entity):
                     detail=f"{name} 长度超过上限 {max_len}",
                 )
 
-    def request_lock(self, requested_by: str, audit_ref: str) -> ScriptRevision:
+    def request_lock(
+        self, requested_by: str, audit_ref: str, action: str
+    ) -> ScriptRevision:
         """提交锁定申请（DRAFT→LOCK_PENDING），登记申请人真实主体。
 
         职责分离（红线）的前半：申请人 = 调用本动作的主体，写入 requested_by，
@@ -78,12 +80,17 @@ class ScriptRevision(Entity):
         状态改经 ``transition_to``（而不是 ``self.status = ...``）：本聚合只允许
         一条改状态的路径，否则审计事实行会在这条转移上静默缺失——而「谁申请锁定」
         恰恰是最需要留痕的一条（ADR-R23 §D2-b）。
+
+        ``action`` 透传给 ``transition_to`` 做边所有权判定：DRAFT→LOCK_PENDING
+        归 ``SCRIPT.LOCK.REQUEST``，由 ``SCRIPT.IMPORT`` 请求这条边会被拒。
         """
-        self.transition_to(ScriptStatus.LOCK_PENDING, audit_ref)
+        self.transition_to(ScriptStatus.LOCK_PENDING, audit_ref, action)
         self.requested_by = requested_by
         return self
 
-    def approve_lock(self, approved_by: str, audit_ref: str) -> ScriptRevision:
+    def approve_lock(
+        self, approved_by: str, audit_ref: str, action: str
+    ) -> ScriptRevision:
         """批准锁定（LOCK_PENDING→LOCKED），登记批准人真实主体。
 
         职责分离（红线）的后半：``approved_by`` 与申请人（``requested_by``）的
@@ -92,13 +99,24 @@ class ScriptRevision(Entity):
         批准人**不落实体字段**（本聚合没有 approved_by 列），而是落在两处第一类
         事实里：`SCRIPT_LOCK_APPROVED` 事件的 payload 与状态迁移事实的
         ``actor_subject``。此处只负责状态与版本号推进。
+
+        ``action`` 透传给 ``transition_to``：LOCK_PENDING→LOCKED 归
+        ``SCRIPT.LOCK.APPROVE``。这条边是审批链的关键一跳，所有权判定把它与
+        「导入新版本」彻底分开。
         """
-        self.transition_to(ScriptStatus.LOCKED, audit_ref)
+        self.transition_to(ScriptStatus.LOCKED, audit_ref, action)
         return self
 
-    def transition_to(self, target: ScriptStatus, audit_ref: str) -> ScriptRevision:
-        """执行状态迁移，未登记转移拒绝（31.5）。"""
-        assert_transition_script(self.status, target)
+    def transition_to(
+        self, target: ScriptStatus, audit_ref: str, action: str
+    ) -> ScriptRevision:
+        """执行状态迁移：结构合法性 + 边所有权（31.5 / N-07）。
+
+        本对象的三类动作分领五条边（申请/批准/取代），因此所有权判定在这里
+        有实际后果：``SCRIPT.IMPORT`` 不能把剧本推成 ``LOCKED``，
+        ``SCRIPT.LOCK.APPROVE`` 也不能把剧本推成 ``SUPERSEDED``。
+        """
+        SCRIPT_LIFECYCLE.edge_owned_by(self.status, target, action)
         self.status = target
         self._advance_version(audit_ref)
         return self

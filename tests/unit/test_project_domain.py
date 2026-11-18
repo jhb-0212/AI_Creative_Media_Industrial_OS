@@ -9,6 +9,11 @@ import pytest
 from packages.errors.error_codes import DomainError
 from services.project_planning.domain.enums import ProjectStatus, ProjectTier
 from services.project_planning.domain.project import Project
+from services.project_planning.domain.state_machine import (
+    EPISODE_STATUS_CHANGE_ACTION,
+    PROJECT_STATUS_CHANGE_ACTION,
+    PROJECT_TRANSITIONS,
+)
 
 _TENANT = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
@@ -34,7 +39,7 @@ def test_project_defaults_to_draft() -> None:
 
 def test_valid_transition_draft_to_active() -> None:
     p = _make_project()
-    p.transition_to(ProjectStatus.ACTIVE, audit_ref="audit_001")
+    p.transition_to(ProjectStatus.ACTIVE, audit_ref="audit_001", action=PROJECT_STATUS_CHANGE_ACTION)
     assert p.status == ProjectStatus.ACTIVE
     assert p.entity_version == 2
 
@@ -44,18 +49,58 @@ def test_invalid_transition_is_rejected() -> None:
     p = _make_project()
     # DRAFT 不能直接跳 COMPLETED（未登记）
     with pytest.raises(DomainError, match="非法状态转移"):
-        p.transition_to(ProjectStatus.COMPLETED, audit_ref="audit_002")
+        p.transition_to(ProjectStatus.COMPLETED, audit_ref="audit_002", action=PROJECT_STATUS_CHANGE_ACTION)
 
 
 def test_terminal_state_cannot_be_revived() -> None:
     """终态不可原地复活（红线）。"""
     p = _make_project()
-    p.transition_to(ProjectStatus.ACTIVE, audit_ref="a1")
-    p.transition_to(ProjectStatus.COMPLETED, audit_ref="a2")
-    p.transition_to(ProjectStatus.ARCHIVED, audit_ref="a3")
+    p.transition_to(
+        ProjectStatus.ACTIVE, audit_ref="a1", action=PROJECT_STATUS_CHANGE_ACTION
+    )
+    p.transition_to(
+        ProjectStatus.COMPLETED, audit_ref="a2", action=PROJECT_STATUS_CHANGE_ACTION
+    )
+    p.transition_to(
+        ProjectStatus.ARCHIVED, audit_ref="a3", action=PROJECT_STATUS_CHANGE_ACTION
+    )
     assert p.status == ProjectStatus.ARCHIVED
     with pytest.raises(DomainError, match="非法状态转移"):
-        p.transition_to(ProjectStatus.ACTIVE, audit_ref="a4")
+        p.transition_to(
+            ProjectStatus.ACTIVE, audit_ref="a4", action=PROJECT_STATUS_CHANGE_ACTION
+        )
+
+
+@pytest.mark.parametrize(
+    ("source", "target"),
+    [(edge.source, edge.target) for edge in PROJECT_TRANSITIONS],
+    ids=[edge.label for edge in PROJECT_TRANSITIONS],
+)
+def test_edge_ownership_is_enforced_by_aggregate(
+    source: ProjectStatus, target: ProjectStatus
+) -> None:
+    """每条边只对它自己的动作可达（N-07 在项目域的落点）。
+
+    整改前，本域的推进路径只校验「这条边是否已登记」；``owner_action`` 是
+    ``advance_status`` 的一个字符串参数，只写进事实、不参与判定。于是任意调用方
+    带着 ``PROJECT.STATUS.CHANGE`` 就能走任意已登记的边，审计表记下的「谁走的」
+    是自称而非判定。
+
+    现在聚合根自己判所有权。本测试故意用一个**未登记为该边所有者**的动作推进，
+    必须被拒——若实现退回到「只判结构」，这个用例立刻变绿，因此它能防退化。
+    """
+    project = Project(
+        entity_id="proj_edge",
+        project_name="边所有权",
+        project_tier=ProjectTier.B,
+        created_by="user_001",
+        tenant_id=_TENANT,
+        status=source,
+    )
+    with pytest.raises(DomainError, match="独占"):
+        project.transition_to(target, "ref", EPISODE_STATUS_CHANGE_ACTION)
+    assert project.status is source
+    assert project.entity_version == 1
 
 
 def test_to_dict_returns_contract_envelope() -> None:

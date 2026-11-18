@@ -23,6 +23,9 @@ from packages.shared.outbox_writer import OutboxWriter
 from packages.shared.port_errors import DuplicateEntityError, ReferentialIntegrityError
 from services.project_planning.domain.enums import EpisodeStatus
 from services.project_planning.domain.episode import Episode
+from services.project_planning.domain.state_machine import (
+    EPISODE_STATUS_CHANGE_ACTION,
+)
 from services.project_planning.repository.episode_repo import EpisodeRepository
 from services.project_planning.repository.project_repo import ProjectRepository
 from services.project_planning.service.transition import advance_status
@@ -197,7 +200,7 @@ class EpisodeService:
                 "project_id": episode.project_id,
             },
             resource_type="Episode",
-            owner_action="EPISODE.STATUS.CHANGE",
+            owner_action=EPISODE_STATUS_CHANGE_ACTION,
             conflict_detail="集数状态并发冲突，请基于最新状态重试",
             actor_field="changed_by",
             actor=changed_by,
