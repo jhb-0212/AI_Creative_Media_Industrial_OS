@@ -334,6 +334,32 @@ data_ownership:
         ``audit_ref`` 按 ADR-R23 §D2-c 标记 legacy 而非反推——缺历史是可见的，
         假历史才是不可见的。
 
+    - id: DATA-6
+      name: 授权面等于动作面（域角色的表级最小权限）
+      statement: >-
+        每个业务域角色的**表级权限**必须逐表等于 ``packages/shared/db_grants.py``
+        的声明，且声明项必须给出真实写入路径；声明之外不得有任何权限，也不得
+        在业务 schema 留有默认权限（``ALTER DEFAULT PRIVILEGES``），否则「未来
+        新建的表」天生带权限而验证时看不见。授权只能由矩阵生成——
+        迁移里出现手写 ``GRANT``（含默认权限授予）即视为绕过唯一声明处。
+        判据口径：契约里没有 ``*.DELETE`` 动作时，任何 DELETE 授权都是越权；
+        ``organizations`` 在 ``ORGANIZATION.*`` 动作落地前只读。
+      fact_source: packages/shared/db_grants.py（矩阵唯一声明处）；data/migrations/versions/c1a2b3d4e5f6_least_privilege_business_schema.py（执行器）
+      verification: 断言 data.role_grants_least_privilege（矩阵自洽 + ORM 覆盖 + 迁移语句 == 矩阵 + 此后迁移无手写 GRANT）
+      assertion: data.role_grants_least_privilege
+      runtime_evidence:
+        - tests/integration/test_least_privilege_grants.py::test_domain_role_privileges_match_matrix
+        - tests/integration/test_least_privilege_grants.py::test_no_default_privileges_on_business_schemas
+        - tests/integration/test_least_privilege_grants.py::test_project_role_cannot_delete
+        - tests/integration/test_least_privilege_grants.py::test_organizations_are_read_only
+        - tests/integration/test_least_privilege_grants.py::test_cross_domain_read_is_column_scoped
+      residual_risk: >-
+        表所有者仍是超级用户（D3b：转独立 NOSUPERUSER owner），因此 owner 路径
+        不受本不变量约束；``information_schema`` 的可见性会掩盖他角色的授权，
+        实测一律读 ``pg_class.relacl``/``pg_attribute.attacl``。删除路径的 RLS
+        过滤已无角色可走（无 DELETE 权限），若将来落地删除动作，需在该动作的
+        ADR 里补测「RLS 对 DELETE 的过滤」。
+
 # --------------------------------------------------------------------------- #
 # 4. 进程密钥边界（process_keys）
 # --------------------------------------------------------------------------- #

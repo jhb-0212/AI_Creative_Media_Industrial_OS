@@ -145,51 +145,82 @@ async def test_episode_must_reference_existing_project(
         await session.rollback()
 
 
-async def test_project_with_valid_organization_succeeds(db_sessionmaker) -> None:
+_ORGANIZATION_INSERT = """
+    INSERT INTO project_planning.organizations
+        (organization_id, tenant_id, name, created_at, created_by, updated_at)
+    VALUES (:org, :tid, :name, :now, 'tester', :now)
+"""
+
+
+async def _insert_organization(admin_sessionmaker, *, org_id, tenant, name="测试组织") -> None:
+    """用**管理连接**播种组织行（DATA-6 之后的唯一可行方式）。
+
+    业务域角色对 ``organizations`` 只有 SELECT：契约里没有任何 ``ORGANIZATION.*``
+    动作，组织是平台级归属根，由管理面/运维创建。播种走管理连接不是「绕过被测
+    边界」，而是如实对应「管理面建组织」这条尚未实现的路径——若改用放宽授权
+    让播种成功，就是用测试需求反过来削弱生产的最小权限（方向反了）。
+    """
+    async with admin_sessionmaker() as session:
+        await session.execute(
+            text(_ORGANIZATION_INSERT),
+            {"org": org_id, "tid": tenant, "now": _now(), "name": name},
+        )
+        await session.commit()
+
+
+async def _drop_organization(admin_sessionmaker, org_id) -> None:
+    """清理播种的组织行（管理连接；业务角色既无 DELETE 也无须有）。"""
+    async with admin_sessionmaker() as session:
+        await session.execute(
+            text(
+                "DELETE FROM project_planning.organizations "
+                "WHERE organization_id = :org"
+            ),
+            {"org": org_id},
+        )
+        await session.commit()
+
+
+async def test_project_with_valid_organization_succeeds(
+    db_sessionmaker, admin_sessionmaker
+) -> None:
     """正向：先建组织再建归属项目 → 外键约束放行（SCOPE-1 不误伤合法路径）。"""
     sm = db_sessionmaker
     tenant = uuid.uuid4()
     org_id = uuid.uuid4()
 
-    async with sm() as session:
-        await set_test_scope(session, org_id, tenant_id=tenant)
-        # 1. 建组织。
-        await session.execute(
-            text(
-                """
-                INSERT INTO project_planning.organizations
-                    (organization_id, tenant_id, name, created_at, created_by, updated_at)
-                VALUES (:org, :tid, '测试组织', :now, 'tester', :now)
-                """
-            ),
-            {"org": org_id, "tid": tenant, "now": _now()},
-        )
-        # 2. 建归属该组织的项目（不抛异常即通过）。
-        await session.execute(
-            text(
-                """
-                INSERT INTO project_planning.projects
-                    (entity_id, entity_type, schema_version, entity_version,
-                     status, owner_module, tenant_id, created_at, created_by,
-                     updated_at, project_name, project_tier, organization_id)
-                VALUES
-                    (:eid, 'Project', 205, 1, 'DRAFT', 'project_planning',
-                     :tid, :now, 'tester', :now, :name, 'B', :org)
-                """
-            ),
-            {
-                "eid": uuid.uuid4().hex,
-                "tid": tenant,
-                "now": _now(),
-                "name": "合法归属项目",
-                "org": org_id,
-            },
-        )
-        await session.rollback()
+    await _insert_organization(admin_sessionmaker, org_id=org_id, tenant=tenant)
+    try:
+        async with sm() as session:
+            await set_test_scope(session, org_id, tenant_id=tenant)
+            # 归属该组织的项目（不抛异常即通过）。
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO project_planning.projects
+                        (entity_id, entity_type, schema_version, entity_version,
+                         status, owner_module, tenant_id, created_at, created_by,
+                         updated_at, project_name, project_tier, organization_id)
+                    VALUES
+                        (:eid, 'Project', 205, 1, 'DRAFT', 'project_planning',
+                         :tid, :now, 'tester', :now, :name, 'B', :org)
+                    """
+                ),
+                {
+                    "eid": uuid.uuid4().hex,
+                    "tid": tenant,
+                    "now": _now(),
+                    "name": "合法归属项目",
+                    "org": org_id,
+                },
+            )
+            await session.rollback()
+    finally:
+        await _drop_organization(admin_sessionmaker, org_id)
 
 
 async def test_project_cannot_reference_cross_tenant_organization(
-    db_sessionmaker,
+    db_sessionmaker, admin_sessionmaker
 ) -> None:
     """项目引用**另一租户**的组织 → 复合外键拒绝（审查 P1-03）。
 
@@ -205,45 +236,39 @@ async def test_project_cannot_reference_cross_tenant_organization(
     tenant_b = uuid.uuid4()
     org_in_a = uuid.uuid4()
 
-    async with sm() as session:
-        # 1. 在租户 A 建组织（A 的上下文内）。
-        await set_test_scope(session, org_in_a, tenant_id=tenant_a)
-        await session.execute(
-            text(
-                """
-                INSERT INTO project_planning.organizations
-                    (organization_id, tenant_id, name, created_at, created_by, updated_at)
-                VALUES (:org, :tid, 'A 租户组织', :now, 'tester', :now)
-                """
-            ),
-            {"org": org_in_a, "tid": tenant_a, "now": _now()},
-        )
-
-        # 2. 切到租户 B，写入引用 A 组织的项目 → 必须被复合外键拒绝。
-        await set_test_scope(session, org_in_a, tenant_id=tenant_b)
-        with pytest.raises(IntegrityError) as exc_info:
-            await session.execute(
-                text(
-                    """
-                    INSERT INTO project_planning.projects
-                        (entity_id, entity_type, schema_version, entity_version,
-                         status, owner_module, tenant_id, created_at, created_by,
-                         updated_at, project_name, project_tier, organization_id)
-                    VALUES
-                        (:eid, 'Project', 205, 1, 'DRAFT', 'project_planning',
-                         :tid, :now, 'tester', :now, :name, 'B', :org)
-                    """
-                ),
-                {
-                    "eid": uuid.uuid4().hex,
-                    "tid": tenant_b,
-                    "now": _now(),
-                    "name": "跨租户归属项目",
-                    "org": org_in_a,
-                },
-            )
-        assert _sqlstate(exc_info.value) == FK_VIOLATION
-        await session.rollback()
+    # 1. 在租户 A 建组织（管理连接，见 _insert_organization 的说明）。
+    await _insert_organization(
+        admin_sessionmaker, org_id=org_in_a, tenant=tenant_a, name="A 租户组织"
+    )
+    try:
+        async with sm() as session:
+            # 2. 切到租户 B，写入引用 A 组织的项目 → 必须被复合外键拒绝。
+            await set_test_scope(session, org_in_a, tenant_id=tenant_b)
+            with pytest.raises(IntegrityError) as exc_info:
+                await session.execute(
+                    text(
+                        """
+                        INSERT INTO project_planning.projects
+                            (entity_id, entity_type, schema_version, entity_version,
+                             status, owner_module, tenant_id, created_at, created_by,
+                             updated_at, project_name, project_tier, organization_id)
+                        VALUES
+                            (:eid, 'Project', 205, 1, 'DRAFT', 'project_planning',
+                             :tid, :now, 'tester', :now, :name, 'B', :org)
+                        """
+                    ),
+                    {
+                        "eid": uuid.uuid4().hex,
+                        "tid": tenant_b,
+                        "now": _now(),
+                        "name": "跨租户归属项目",
+                        "org": org_in_a,
+                    },
+                )
+            assert _sqlstate(exc_info.value) == FK_VIOLATION
+            await session.rollback()
+    finally:
+        await _drop_organization(admin_sessionmaker, org_in_a)
 
 
 _ASSET_INSERT = """
@@ -367,49 +392,49 @@ async def test_asset_with_same_tenant_project_succeeds(
         await session.rollback()
 
 
-async def test_organizations_are_tenant_isolated(db_sessionmaker) -> None:
+async def test_organizations_are_tenant_isolated(
+    db_sessionmaker, admin_sessionmaker
+) -> None:
     """organizations 表纳入租户 RLS：别的租户看不到本租户的组织（审查 R8）。
 
     组织上下文**两次都注入同一个组织**，让组织维度恒定成立——这样"不可见"
     只可能来自租户维度。若这里把组织上下文清空，用例会因为组织谓词而通过，
     测到的就不是租户隔离（D3 之后这是最容易写出假阳性的地方）。
+
+    播种走管理连接（业务角色对 organizations 只有 SELECT，DATA-6）；**读取仍走
+    业务角色**——被测的是 RLS 的可见性，不是播种路径。
     """
     sm = db_sessionmaker
     tenant_a = uuid.uuid4()
     tenant_b = uuid.uuid4()
     org_in_a = uuid.uuid4()
 
-    async with sm() as session:
-        await set_test_scope(session, org_in_a, tenant_id=tenant_a)
-        await session.execute(
-            text(
-                """
-                INSERT INTO project_planning.organizations
-                    (organization_id, tenant_id, name, created_at, created_by, updated_at)
-                VALUES (:org, :tid, 'A 租户组织', :now, 'tester', :now)
-                """
-            ),
-            {"org": org_in_a, "tid": tenant_a, "now": _now()},
-        )
+    await _insert_organization(
+        admin_sessionmaker, org_id=org_in_a, tenant=tenant_a, name="A 租户组织"
+    )
+    try:
+        async with sm() as session:
+            # A 上下文可见。
+            await set_test_scope(session, org_in_a, tenant_id=tenant_a)
+            visible_a = await session.scalar(
+                text(
+                    "SELECT count(*) FROM project_planning.organizations "
+                    "WHERE organization_id = :org"
+                ),
+                {"org": org_in_a},
+            )
+            assert visible_a == 1
 
-        # A 上下文可见。
-        visible_a = await session.scalar(
-            text(
-                "SELECT count(*) FROM project_planning.organizations "
-                "WHERE organization_id = :org"
-            ),
-            {"org": org_in_a},
-        )
-        assert visible_a == 1
-
-        # B 上下文不可见（租户维度过滤；组织维度此处仍然匹配）。
-        await set_test_scope(session, org_in_a, tenant_id=tenant_b)
-        visible_b = await session.scalar(
-            text(
-                "SELECT count(*) FROM project_planning.organizations "
-                "WHERE organization_id = :org"
-            ),
-            {"org": org_in_a},
-        )
-        assert visible_b == 0
-        await session.rollback()
+            # B 上下文不可见（租户维度过滤；组织维度此处仍然匹配）。
+            await set_test_scope(session, org_in_a, tenant_id=tenant_b)
+            visible_b = await session.scalar(
+                text(
+                    "SELECT count(*) FROM project_planning.organizations "
+                    "WHERE organization_id = :org"
+                ),
+                {"org": org_in_a},
+            )
+            assert visible_b == 0
+            await session.rollback()
+    finally:
+        await _drop_organization(admin_sessionmaker, org_in_a)
