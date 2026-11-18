@@ -77,10 +77,8 @@ def _enum_entry(name: str) -> dict[str, Any]:
 
 
 def _edges(name: str) -> set[tuple[str, str]]:
-    edges: set[tuple[str, str]] = cc.parse_state_chain(
-        str(_sm_entry(name).get("states", ""))
-    )
-    return edges
+    """已授权的转移边（v2 结构化：直接读 transitions，不再解析文本）。"""
+    return cc.contract_edges(_sm_entry(name))
 
 
 # --------------------------------------------------------------------------- #
@@ -151,7 +149,8 @@ def test_scene_code_cannot_be_blank() -> None:
 # 2. 状态集三处一致
 # --------------------------------------------------------------------------- #
 def test_status_enum_matches_state_machine() -> None:
-    states = {a for a, _ in _edges(OBJECT)} | {b for _, b in _edges(OBJECT)}
+    """允许状态集合与转移边是两件事：这里断言的是前者（三个状态全部合法）。"""
+    states = set(_sm_entry(OBJECT)["allowed_states"])
     assert set(PROPS["status"]["enum"]) == states == SCENE_STATES
 
 
@@ -259,16 +258,25 @@ def test_empty_reference_map_is_rejected() -> None:
 # 4. 枚举覆盖闸门
 # --------------------------------------------------------------------------- #
 def test_enum_registry_covers_every_state_machine() -> None:
-    assert cc.enum_registry_coverage_problems(
-        STATE_MACHINES["objects"], ENUMS["objects"]
-    ) == []
+    """注册表必须是状态机的等值投影：对象集与每对象状态集都相等（v2 收紧）。"""
+    sm_states = cc.state_machine_states(STATE_MACHINES["objects"])
+    assert cc.enum_registry_problems(ENUMS["objects"], sm_states) == []
 
 
 def test_enum_coverage_detects_missing_object() -> None:
-    problems = cc.enum_registry_coverage_problems(
-        [{"object": "Scene"}, {"object": "Ghost"}], [{"object": "Scene"}]
+    problems = cc.enum_registry_problems(
+        [{"object": "Scene", "states": ["DRAFT"]}],
+        {"Scene": {"DRAFT"}, "Ghost": {"DRAFT"}},
     )
     assert any("Ghost" in p for p in problems), problems
+
+
+def test_enum_coverage_detects_extra_state() -> None:
+    """注册表多出一个权威集合里没有的值（历史上的 PG0 / PMS 就是这一类）。"""
+    problems = cc.enum_registry_problems(
+        [{"object": "Scene", "states": ["DRAFT", "PG0"]}], {"Scene": {"DRAFT"}}
+    )
+    assert any("PG0" in p for p in problems), problems
 
 
 def test_registry_counts_match_their_lists() -> None:

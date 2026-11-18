@@ -1,0 +1,131 @@
+# 状态值的非生命周期层（手工维护，唯一权威）
+#
+# 为什么要从 enum_registry 里拆出来
+# -------------------------------
+# enum_registry 的头部自称「由 state_machines.yaml 派生」，但它同时装着三类东西：
+# 权威状态值、展示投影别名、跨域 STALE 标记。前者是派生的，后两者是**手工裁定**的
+# 语义。派生与手写混在一个文件里，结果是两边都不能自动化：改了 state_machines 不敢
+# 重新生成（会冲掉手写部分），于是只能手改派生部分——「派生文件」名存实亡，实测已经
+# 漂出 PG0 / PG3 / PMS / PASS 这类根本不是状态的值。
+#
+# 现在职责切开：
+#   contracts/enums/enum_registry.yaml      —— 纯派生（scripts/gen_status_contracts.py 生成）
+#   contracts/enums/status_layers.yaml      —— 本文件，纯手工，装非生命周期语义
+#
+# 三层分离规则（CI 强制）
+# ---------------------
+# 1. 权威状态值（authoritative）只存在于 state_machines.yaml 的 allowed_states，
+#    用于 API 契约、审计字段、状态机测试与权限判定；
+# 2. 展示投影别名（display_projection）只用于前端展示与观测，**不得写入权威字段**；
+# 3. 跨域标记（cross_domain_mark）表示过期/阻断提示，不是对象状态，不参与状态机校验。
+#
+# 本文件里的任何 alias 都不得与任一对象的 allowed_states 重名（CI 校验）。
+
+schema_version: '1'
+rule: >-
+  权威状态值（state_machines.allowed_states）用于 API 契约、审计字段、状态机测试与权限判定；
+  展示投影别名仅用于前端展示与观测标记，不得写入权威字段；跨域 STALE 标记只表示过期/阻断提示，
+  不是对象状态，不参与状态机校验。
+
+# 展示投影别名：给前端/观测看的名字，映射到某个对象的权威状态。
+state_projection_aliases:
+  - alias: SHOWCASE_OUTDATED
+    maps_to_state: OUTDATED
+    object: ShowcaseSnapshot
+    source: 24.12 运行态标记口径 + 31.5 权威状态
+    note: 展示域给 OUTDATED 起的展示名；不得作为 ShowcaseSnapshot.status 的取值写入。
+  - alias: REVOKED_BLOCKED
+    maps_to_state: REVOKED
+    object: ShowcaseSnapshot
+    source: 24.12 运行态标记口径 + 31.5 权威状态
+    note: 展示域的同名投影映射到权威状态 REVOKED；反推域另有同名阻断标记（见下），两处按所属域分别解释。
+
+# 跨域标记：不是状态，只是「这份数据还能不能用」的提示位。
+cross_domain_marks:
+  - mark: STALE_NEW_VERSION_AVAILABLE
+    domain: 展示域
+    related_object: ShowcaseSnapshot
+    note: 源版本更新但旧快照仍可按授权展示；展示域投影为 OUTDATED / SHOWCASE_OUTDATED。
+    source: 24.12 运行态标记口径
+  - mark: REVERSE_STALE
+    domain: 反推域
+    related_object: ReverseAnalysisReport
+    note: >-
+      反推报告绑定的源视频版本或分析依赖已变化。标记失效不改写 status，也不静默替换
+      既有分析结果——它不是生命周期状态，混进 allowed_states 会让「过期提示」变成
+      「一种合法业务状态」，进而被 Gate 或权限判定当成真实进度。
+    source: 25.3 反推结果边界与版权治理：源视频版本变化或被替换时标记
+  - mark: REVOKED_BLOCKED
+    domain: 反推域
+    related_object: ReverseAnalysisReport
+    note: 权利撤销时停止展示/导出；属阻断标记，不是生命周期状态。
+    source: 25.3 反推结果边界与版权治理：权利撤销时停止展示/导出
+  - mark: DELIVERY_STALE
+    domain: 交付域
+    related_object: DeliveryManifest
+    note: 交付规格、PictureLock、源资产或权利证据变化导致原 Manifest 需重新核验。
+    source: 33.3 状态机、编辑与 STALE 传播
+
+# 非状态维度：同一个对象上「不是生命周期」的那一类取值。
+# 它们曾经被塞进 status（BudgetLedgerTransaction 的 REFUND / ADJUST / REVERSAL），
+# 或被误当成状态值登记（PG0 / PG3 / PMS / PASS）。此处显式登记归属维度，
+# 防止下一次又被塞回 status。
+non_lifecycle_dimensions:
+  - object: BudgetLedgerTransaction
+    dimension: transaction_kind
+    values: [ADJUST, REFUND, REVERSAL]
+    note: >-
+      C.7 原文「APPENDED；后续通过新流水 REFUND / ADJUST / REVERSAL」——APPENDED 是
+      记录生命周期（追加即不可变，无出边、无后续状态），后三者是**后续流水的类型**。
+      把两类语义塞进一个 status 枚举，等于让「这笔流水是退款」和「这条记录已追加」
+      共用一个字段：既无法表达「一条 REVERSAL 流水同样处于 APPENDED」，也无法阻止
+      有人把 status 从 APPENDED 改成 REFUND（那是改类型，不是改状态）。
+      故 status 只允许 APPENDED，流水类型归 transaction_kind 维度。
+    status_field: status
+  - object: CreatorPublicationCheck
+    dimension: publication_gate_reference
+    values: [PG0, PG1, PG2, PG3]
+    note: >-
+      登记只为一件事：PG0—PG3 是 Publication Gate 的**检查项编号**，不是状态值。
+      enum_registry 曾因正文出现「PG0—PG3」把 PG0、PG3 抓成 CommunityPost 与
+      CreatorPublicationCheck 的状态值——两个对象各自凭空多出两个永不出现的状态。
+      该对象的真实状态集是 PENDING / PASSED / BLOCKED / NEEDS_HUMAN_REVIEW（34.8）。
+    status_field: status
+    informational: true
+
+# 历史上被误当成状态值的记号：CI 禁止对应对象的 allowed_states 出现它们。
+# 每条都写明「当初怎么混进来的」与「对谁禁用」——同一个词在另一个对象上可能是合法状态
+# （PASS 是 CreatorGate 的合法终态），所以禁令必须按对象收窄，不能一刀切。
+prohibited_state_values:
+  - value: PG0
+    applies_to: all
+    source_artifact: 正文「PG0—PG3 全部通过」
+    reason: Publication Gate 检查项编号，不是状态。
+  - value: PG3
+    applies_to: all
+    source_artifact: 正文「PG0—PG3 全部通过」
+    reason: 同上。曾同时污染 CommunityPost 与 CreatorPublicationCheck 两个状态集。
+  - value: PMS
+    applies_to: all
+    source_artifact: 26.2 / C.3 的 note「PMS / Pattern Library」
+    reason: 系统缩写（Pattern Management System），来自备注文字，不是状态值。
+  - value: REJECTED_PROPOSAL
+    applies_to: all
+    source_artifact: 26.2
+    reason: 与 REJECTED 同义（31.5 已裁决按 C.3 记 REJECTED），不得作为第二个状态值。
+  - value: PASS
+    applies_to: [CreatorDeliveryManifest, DeliveryManifest]
+    source_artifact: note「不声明 Gate4 PASS」
+    reason: >-
+      Gate 结论词的通用说法，被从备注里抓成状态。注意 CreatorGate 的 PASS 是合法状态
+      （34.5 明确 PENDING→PASS），禁令因此只覆盖这两个交付清单对象。
+  - value: PUBLISHED
+    applies_to: [CreatorDeliveryManifest]
+    source_artifact: CreatorDeliveryManifest 的 note
+    reason: >-
+      发布状态属 CreatorRelease，该对象明确「不包含 PUBLISHED」。它出现在这里，是
+      「把别处的合法状态搬到本对象」的典型越界——正是本轮要拦的第二类漂移。
+
+prohibited_variants: >-
+  同一状态不得再引入同义变体；新增别名必须先在本表登记，并在 CI 中校验别名有落点
+  （maps_to_state 必须真的存在于目标对象的 allowed_states）。

@@ -1,0 +1,377 @@
+"""状态契约派生器：从 state_machines.yaml 生成枚举注册表与 Schema 的 status.enum。
+
+为什么需要它
+-----------
+状态集合此前有三份手写副本：`state_machines.yaml` 的文本状态链、`enum_registry.yaml`
+的状态列表、`object_schemas.schema.json` 的 `status.enum`。三份各自手改，于是：
+
+- `enum_registry.yaml` 头部写着「由 state_machines 派生」，实测却多出 PG0 / PG3 /
+  PMS / PASS / PUBLISHED 这类根本不是状态的值——它们是正文备注里的关键词被机械
+  抓取的结果，说明这份「派生文件」其实一直是手写的；
+- 76 个带 `status` 的对象里只有 6 个收了 `enum`，其余是裸 `string`：任何字符串都能
+  通过校验，C.3.1「未知枚举值必须拒绝」形同虚设；
+- 没有人能回答「改一个状态集要改几处」，因此也没有人敢改。
+
+本脚本把「一处权威、两处派生」变成可执行的规则：
+
+    contracts/state_machines/state_machines.yaml   (allowed_states，唯一权威)
+            │
+            ├─► contracts/enums/enum_registry.yaml          (整份生成)
+            └─► object_schemas.schema.json 的 status.enum   (逐块生成)
+
+用法
+----
+    python scripts/gen_status_contracts.py --check   # CI 与本地闸门（只读）
+    python scripts/gen_status_contracts.py --write   # 契约变更后重算派生结果
+
+`--write` 只做「把权威源的改动同步到派生处」，不是「让闸门变绿」的工具：
+它不会、也不能凭空造出状态值——那些只能写进 state_machines.yaml。
+
+设计要点
+--------
+- **Schema 按块改写，不整份重排**：`object_schemas.schema.json` 是手工排版的，
+  整份 `json.dumps` 会产出近八千行无意义 diff，评审时真正的改动会被淹没。
+  这里只重写每个定义的 `status` 属性块，其余字节原样保留。
+- **派生集合按字母序**：状态是集合不是序列，顺序不承载语义。字母序让两份派生结果
+  可逐字节比对，也让「只是顺序不同」永远不会被误判成契约漂移。
+- **幂等**：`--check` 的实现就是「算一遍，和磁盘上的比字节」。因此任何手工改派生
+  文件的行为都会立刻暴露，不存在「改了但恰好一致」的灰色地带。
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+ROOT = Path(__file__).resolve().parent.parent
+STATE_MACHINES = ROOT / "contracts" / "state_machines" / "state_machines.yaml"
+ENUM_REGISTRY = ROOT / "contracts" / "enums" / "enum_registry.yaml"
+SCHEMA = ROOT / "contracts" / "schemas" / "object_schemas.schema.json"
+TAXONOMY = ROOT / "contracts" / "enums" / "status_field_taxonomy.yaml"
+
+_LIFECYCLE = "lifecycle"
+_ENVELOPE_ONLY = "envelope_only"
+_LIFECYCLE_GAP = "lifecycle_gap"
+_CLASSES = (_LIFECYCLE, _ENVELOPE_ONLY, _LIFECYCLE_GAP)
+
+
+# --------------------------------------------------------------------------- #
+# 权威源读取
+# --------------------------------------------------------------------------- #
+def load_yaml_mapping(path: Path) -> dict[str, Any]:
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} 解析结果不是映射（可能为空文件）")
+    return data
+
+
+def lifecycle_states(data: dict[str, Any] | None = None) -> dict[str, list[str]]:
+    """返回 ``{对象: 允许状态（字母序）}``，唯一的派生入口。
+
+    只收 ``objects`` 分区：``projections`` 是 UI 投影，没有可写入的 status；
+    ``text_authority_only`` 的对象还没建模，给它们造 enum 就是给不存在的对象
+    造契约。
+    """
+    if data is None:
+        data = load_yaml_mapping(STATE_MACHINES)
+    states: dict[str, list[str]] = {}
+    for entry in data.get("objects") or []:
+        name = str(entry.get("object", "")).strip()
+        allowed = entry.get("allowed_states")
+        if not name or not isinstance(allowed, list) or not allowed:
+            raise ValueError(f"state_machines 条目 {name!r} 缺 allowed_states")
+        values = [str(v) for v in allowed]
+        if len(set(values)) != len(values):
+            raise ValueError(f"{name}.allowed_states 有重复值")
+        states[name] = sorted(values)
+    return states
+
+
+def taxonomy_classes(path: Path | None = None) -> dict[str, str]:
+    """返回 ``{对象: 分类}``。分类非法直接抛错（契约损坏，不可静默）。"""
+    data = load_yaml_mapping(path or TAXONOMY)
+    result: dict[str, str] = {}
+    for entry in data.get("objects") or []:
+        name = str(entry.get("object", "")).strip()
+        cls = str(entry.get("class", "")).strip()
+        if not name:
+            raise ValueError("status_field_taxonomy 有条目缺 object")
+        if cls not in _CLASSES:
+            raise ValueError(f"{name} 的分类非法: {cls!r}（允许 {_CLASSES}）")
+        if name in result:
+            raise ValueError(f"{name} 在 status_field_taxonomy 里重复登记")
+        result[name] = cls
+    return result
+
+
+def enum_required(states: dict[str, list[str]], classes: dict[str, str]) -> dict[str, list[str]]:
+    """需要收 enum 的对象：分类为 lifecycle，且状态机里真有状态集。"""
+    return {
+        name: values
+        for name, values in states.items()
+        if classes.get(name) == _LIFECYCLE
+    }
+
+
+# --------------------------------------------------------------------------- #
+# enum_registry.yaml 生成
+# --------------------------------------------------------------------------- #
+_ENUM_HEADER = """\
+# 枚举注册表（派生文件，禁止手改）
+#
+# 本文件由 scripts/gen_status_contracts.py 从
+# contracts/state_machines/state_machines.yaml 的 allowed_states 生成。
+# 手改会在 `python scripts/gen_status_contracts.py --check` 下立刻报漂移，
+# 因为那条检查的实现就是「重新生成一遍，逐字节比对」。
+#
+# 为什么还要留这份「可以随时重算」的文件：
+# - phase0 冻结包（phase0_manifest.md 第 ⑨ 项）按字节登记它，删除会破坏冻结链；
+# - 人类评审时需要一份「只有对象与状态值」的清单，不必在千行状态机文件里翻。
+# 但它不承载任何独立信息：想改状态只能改 state_machines.yaml。
+#
+# 权威状态值的三层分离（权威 / 展示投影别名 / 跨域标记）已移到
+# contracts/enums/status_layers.yaml —— 那两层是手工裁定的语义，与派生文件混放
+# 正是上一版出现 PG0 / PMS / PASS 这类假状态的原因。
+
+generated_by: scripts/gen_status_contracts.py
+source: contracts/state_machines/state_machines.yaml
+object_count: {count}
+objects:
+"""
+
+
+def render_enum_registry(states: dict[str, list[str]]) -> str:
+    lines = [_ENUM_HEADER.format(count=len(states))]
+    for name in sorted(states):
+        values = ", ".join(states[name])
+        lines.append(f"- object: {name}\n  states: [{values}]\n")
+    return "".join(lines)
+
+
+# --------------------------------------------------------------------------- #
+# object_schemas.schema.json 的 status.enum 生成
+# --------------------------------------------------------------------------- #
+_DEF_OPEN = re.compile(r'^(\s*)"(?P<name>[^"]+)": \{\s*$')
+_STATUS_OPEN = re.compile(r'^(?P<indent>\s*)"status": \{\s*$')
+
+
+def _read_text(path: Path) -> tuple[str, str]:
+    """读取文本并保留原换行风格（contracts/ 是 -text，字节即契约）。"""
+    raw = path.read_bytes().decode("utf-8")
+    return raw, ("\r\n" if "\r\n" in raw else "\n")
+
+
+def _lines(raw: str, nl: str) -> list[str]:
+    return [line + nl for line in raw.split(nl)[:-1]] if raw.endswith(nl) else raw.split(nl)
+
+
+def _definitions_span(lines: list[str]) -> list[tuple[str, int, int]]:
+    """返回每个定义块的 ``(名字, 起始行, 结束行)``（闭合行含在内）。"""
+    spans: list[tuple[str, int, int]] = []
+    i = 0
+    while i < len(lines):
+        match = _DEF_OPEN.match(lines[i].rstrip("\r\n"))
+        if match and len(match.group(1)) == 4:
+            depth = 0
+            for j in range(i, len(lines)):
+                text = lines[j].rstrip("\r\n")
+                depth += text.count("{") - text.count("}")
+                if depth == 0:
+                    spans.append((match.group("name"), i, j))
+                    i = j
+                    break
+        i += 1
+    return spans
+
+
+def _normalize_def_indent(lines: list[str], start: int, end: int) -> None:
+    """把定义体缩进不足 6 空格的块右移 2 格（幂等）。
+
+    存在的理由：手工往 JSON 里插块时容易少一级缩进（Scene 就曾整块少两级），
+    语法合法、评审难看出，但会让后续按缩进定位的改写错位。这里按「第一行子键的
+    缩进」判断，发现不足就整块右移，保证同一份文件里定位规则始终成立。
+    """
+    if start + 1 > end:
+        return
+    first = lines[start + 1].rstrip("\r\n")
+    actual = len(first) - len(first.lstrip(" "))
+    if actual >= 6:
+        return
+    shift = " " * (6 - actual)
+    for idx in range(start + 1, end + 1):
+        body = lines[idx].rstrip("\r\n")
+        if body:
+            lines[idx] = shift + body + lines[idx][len(body) :]
+
+
+def _status_block(lines: list[str], start: int, end: int) -> tuple[int, int, int] | None:
+    """在定义块内定位信封 status 对象，返回 ``(起始行, 结束行, 键缩进)``。"""
+    for idx in range(start + 1, end + 1):
+        match = _STATUS_OPEN.match(lines[idx].rstrip("\r\n"))
+        if not match:
+            continue
+        indent = len(match.group("indent"))
+        if indent != 8:  # 只认信封层（定义 4 → properties 6 → 属性 8）
+            continue
+        depth = 0
+        for j in range(idx, end + 1):
+            text = lines[j].rstrip("\r\n")
+            depth += text.count("{") - text.count("}")
+            if depth == 0:
+                return idx, j, indent
+    return None
+
+
+def _render_status_block(
+    key_indent: str, nl: str, properties: dict[str, Any], had_comma: bool
+) -> list[str]:
+    """按原文件的排版风格重建 status 属性块（键 2 空格递进）。"""
+    inner = " " * (len(key_indent) + 2)
+    render: dict[str, Any] = {"type": properties.get("type", "string")}
+    if "enum" in properties:
+        render["enum"] = list(properties["enum"])
+    if "description" in properties:
+        render["description"] = properties["description"]
+    unknown = set(properties) - {"type", "enum", "description"}
+    if unknown:
+        raise ValueError(f"status 属性含未预期键，拒绝静默丢弃: {sorted(unknown)}")
+
+    # json.dumps 的首尾两行是外层的 { 与 }，由本函数自行输出（带原文件的缩进与逗号）。
+    body = json.dumps(render, ensure_ascii=False, indent=2).split("\n")[1:-1]
+    out = [f'{key_indent}"status": {{{nl}']
+    for line in body:
+        # 去掉 json.dumps 的一级基准缩进（2 空格），保留条目的相对层级。
+        out.append(inner + line[2:] + nl)
+    out.append(f"{key_indent}}}{',' if had_comma else ''}{nl}")
+    return out
+
+
+def patch_schema(raw: str, nl: str, required: dict[str, list[str]]) -> str:
+    """把每个 lifecycle 对象的 status.enum 设成权威状态集，其余对象清掉 enum。"""
+    lines = _lines(raw, nl)
+    data = json.loads(raw)
+    definitions = data.get("definitions") or data.get("$defs") or {}
+
+    for _name, start, end in _definitions_span(lines):
+        _normalize_def_indent(lines, start, end)
+
+    # 先把所有改写算好，再从后往前落盘：splice 会改变后面的行号，
+    # 一边遍历一边改会让后续定义的定位整体错位（改着改着写到邻居对象里）。
+    patches: list[tuple[int, int, list[str]]] = []
+    for name, start, end in _definitions_span(lines):
+        spec = definitions.get(name)
+        if not isinstance(spec, dict):
+            continue
+        found = _status_block(lines, start, end)
+        if found is None:
+            continue
+        block_start, block_end, indent = found
+        props = dict(spec.get("properties", {}).get("status") or {})
+        want = required.get(name)
+        if want:
+            props["enum"] = list(want)
+        else:
+            props.pop("enum", None)
+        had_comma = lines[block_end].rstrip("\r\n").endswith(",")
+        patches.append(
+            (
+                block_start,
+                block_end,
+                _render_status_block(" " * indent, nl, props, had_comma),
+            )
+        )
+
+    for block_start, block_end, replacement in reversed(patches):
+        lines[block_start : block_end + 1] = replacement
+
+    patched = "".join(lines)
+    # 自证：改写只允许改变 enum，其他语义必须逐键相等。
+    _assert_only_enum_changed(data, json.loads(patched))
+    return patched
+
+
+def _assert_only_enum_changed(before: dict[str, Any], after: dict[str, Any]) -> None:
+    def strip(node: Any) -> Any:
+        if isinstance(node, dict):
+            return {k: strip(v) for k, v in node.items() if k != "enum"}
+        if isinstance(node, list):
+            return [strip(v) for v in node]
+        return node
+
+    if strip(before) != strip(after):
+        raise SystemExit("[FAIL] schema 改写越界：除 enum 外还有字段被改动")
+
+
+# --------------------------------------------------------------------------- #
+# 漂移检测与落盘
+# --------------------------------------------------------------------------- #
+def drift_problems() -> list[str]:
+    """返回派生结果与磁盘文件的差异（空列表 = 一致）。"""
+    states = lifecycle_states()
+    classes = taxonomy_classes()
+    required = enum_required(states, classes)
+    problems: list[str] = []
+
+    expected_registry = render_enum_registry(states)
+    actual_registry = ENUM_REGISTRY.read_text(encoding="utf-8")
+    if expected_registry != actual_registry:
+        problems.append(
+            "enum_registry.yaml 与 state_machines.allowed_states 不一致"
+            "（跑 --write 重算，不要手改派生文件）"
+        )
+
+    raw, nl = _read_text(SCHEMA)
+    expected_schema = patch_schema(raw, nl, required)
+    if expected_schema != raw:
+        problems.append(
+            "object_schemas.schema.json 的 status.enum 与 allowed_states 不一致"
+            "（跑 --write 重算）"
+        )
+    return problems
+
+
+def write_all() -> None:
+    states = lifecycle_states()
+    classes = taxonomy_classes()
+    required = enum_required(states, classes)
+
+    ENUM_REGISTRY.write_bytes(render_enum_registry(states).encode("utf-8"))
+
+    raw, nl = _read_text(SCHEMA)
+    SCHEMA.write_bytes(patch_schema(raw, nl, required).encode("utf-8"))
+
+    print(
+        f"[WRITE] enum_registry: {len(states)} 个对象；"
+        f"schema status.enum: {len(required)} 个对象收 enum，"
+        f"{len(states) - len(required)} 个状态机对象按台账分类保留裸 string"
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="状态契约派生器")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--check", action="store_true", help="只读校验派生结果")
+    group.add_argument("--write", action="store_true", help="重算并写入派生文件")
+    args = parser.parse_args()
+
+    if args.write:
+        write_all()
+        return 0
+
+    problems = drift_problems()
+    for problem in problems:
+        print(f"[FAIL] {problem}")
+    if problems:
+        return 1
+    print("[PASS] 状态派生一致：enum_registry 与 schema status.enum 均由 allowed_states 重算得到")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

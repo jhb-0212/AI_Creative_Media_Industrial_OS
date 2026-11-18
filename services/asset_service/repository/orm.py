@@ -35,6 +35,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from packages.shared.database import Base
 from packages.shared.orm import EntityMixin
+from packages.shared.status_constraint import status_check
+from services.asset_service.domain.enums import AssetStatus
 
 SCHEMA_NAME = "asset_service"
 # 归属目标（跨 schema 只引用，不拥有）。
@@ -59,6 +61,9 @@ class AssetVersionModel(EntityMixin, Base):
             ],
             name="fk_asset_versions_project_tenant",
         ),
+        # status 收口（十态）：资产版本是唯一允许「GOLD / QUARANTINED」等旁支的
+        # 对象，库里若只认有入边的五态，真实数据一出现旁支就会被 CHECK 打回。
+        status_check((s.value for s in AssetStatus), table="asset_versions"),
         {"schema": SCHEMA_NAME},
     )
 

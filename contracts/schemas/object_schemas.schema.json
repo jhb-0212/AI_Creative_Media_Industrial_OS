@@ -756,7 +756,15 @@
           "type": "string"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "ANALYZED",
+            "ARCHIVED",
+            "CONFIRMED",
+            "DRAFT",
+            "NEEDS_HUMAN_CONFIRM",
+            "REJECTED"
+          ]
         },
         "timebase": {
           "type": "string"
@@ -1129,7 +1137,16 @@
           "type": "string"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "APPROVED",
+            "CHANGES_REQUESTED",
+            "CLOSED",
+            "COMMENTED",
+            "DRAFT",
+            "IN_REVIEW",
+            "SENT"
+          ]
         },
         "watermark_policy": {
           "type": "string"
@@ -1381,7 +1398,17 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "DRAFT",
+            "INVALID",
+            "RELEASED",
+            "REVOKED",
+            "STALE",
+            "SUPERSEDED",
+            "VALIDATED",
+            "VALIDATING"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -1520,7 +1547,14 @@
           "type": "object"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "DRAFT",
+            "REVOKED",
+            "SUSPENDED",
+            "VALIDATING"
+          ]
         },
         "tenant_id": {
           "type": "string"
@@ -1680,7 +1714,16 @@
           "type": "string"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "AUTHORIZED",
+            "COMPLETED",
+            "EXPORTED",
+            "IMPORT_PENDING",
+            "IN_PROGRESS",
+            "REQUESTED",
+            "VALIDATING"
+          ]
         },
         "tool_version": {
           "type": "integer"
@@ -1950,7 +1993,19 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "APPROVED",
+            "ARCHIVED",
+            "GENERATED",
+            "GOLD",
+            "HUMAN_REVIEW",
+            "QUARANTINED",
+            "REJECTED",
+            "REWORK",
+            "SUPERSEDED",
+            "TECHNICAL_QC"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -2027,7 +2082,17 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "APPROVED",
+            "DRAFT",
+            "IN_REVIEW",
+            "QUARANTINED",
+            "REJECTED",
+            "REVOKED",
+            "SUPERSEDED"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -2112,7 +2177,15 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "APPROVED",
+            "CONFLICT_REVIEW",
+            "DRAFT",
+            "IN_REVIEW",
+            "SUPERSEDED"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -2193,7 +2266,17 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "APPROVED",
+            "DRAFT",
+            "IN_REVIEW",
+            "QUARANTINED",
+            "REJECTED",
+            "REVOKED",
+            "SUPERSEDED"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -2436,7 +2519,15 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "APPROVED",
+            "DRAFT",
+            "LOCKED",
+            "PARTIALLY_LOCKED",
+            "REJECTED",
+            "REVIEW"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -2525,7 +2616,14 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "DEPRECATED",
+            "DRAFT",
+            "PUBLISHED",
+            "REVOKED",
+            "VALIDATED"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -2606,7 +2704,16 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "DEPRECATED",
+            "EXPERIMENT_RECORD",
+            "FAILURE_CASE",
+            "IN_REVIEW",
+            "REJECTED",
+            "RETIRED",
+            "REUSABLE_PATTERN"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -2687,7 +2794,18 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "CANDIDATES_READY",
+            "DRAFT",
+            "EXPIRED",
+            "FAILED",
+            "PROMOTED",
+            "REJECTED",
+            "REVIEW",
+            "RUNNING",
+            "STOPPED"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -2768,7 +2886,16 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "CLOSED",
+            "DECISION_PENDING",
+            "GATE_ELIGIBLE",
+            "IN_REVIEW",
+            "OPEN",
+            "RESOLVED",
+            "WAIVE_WITH_AUTHORITY"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -2849,7 +2976,15 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "COMMITTED",
+            "EXPIRED",
+            "FAILED",
+            "RELEASED",
+            "REQUESTED",
+            "RESERVED"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -2934,7 +3069,10 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "APPENDED"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -3767,7 +3905,15 @@
           "type": "string"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "CLOSED",
+            "DONE",
+            "IN_PROGRESS",
+            "OPEN",
+            "REJECTED",
+            "VERIFYING"
+          ]
         },
         "target_ref": {
           "type": "string"
@@ -3862,7 +4008,14 @@
           "type": "string"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "DRAFT",
+            "REVOKED",
+            "STALE",
+            "SUPERSEDED"
+          ]
         },
         "version": {
           "type": "integer"
@@ -4223,7 +4376,16 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "EXPIRED",
+            "OUTDATED",
+            "PREPARING",
+            "READY",
+            "REFERENCED",
+            "REVOKED",
+            "TAKEN_DOWN"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -4322,7 +4484,17 @@
           "type": "string"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "APPROVED",
+            "ARCHIVED",
+            "DRAFT",
+            "PENDING_REVIEW",
+            "PUBLISHED",
+            "SUBMITTED",
+            "TAKEN_DOWN",
+            "UNLISTED"
+          ]
         },
         "tags": {
           "type": "string"
@@ -4430,7 +4602,12 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "EXPIRED",
+            "REVOKED"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -4531,7 +4708,18 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "APPROVED",
+            "CREATED",
+            "ELIGIBILITY_CHECK",
+            "EXECUTING",
+            "FAILED",
+            "REJECTED",
+            "REQUESTED",
+            "RIGHTS_CHECK",
+            "ROLLED_BACK"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -4924,7 +5112,14 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "CLOSED",
+            "DECISION_OVERTURNED",
+            "DECISION_UPHELD",
+            "IN_REVIEW",
+            "SUBMITTED"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -5360,7 +5555,14 @@
           "description": "序列或条目起点帧（闭）。与 end_frame 构成左闭右开区间 [start_frame, end_frame)，长度即 end_frame − start_frame"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "ARCHIVED",
+            "DRAFT",
+            "STALE",
+            "SUPERSEDED",
+            "VALIDATED"
+          ]
         },
         "style_profile_ref": {
           "type": "string"
@@ -5524,7 +5726,16 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "DRAFT",
+            "EXPIRED",
+            "EXPORTED",
+            "REJECTED",
+            "REVOKED",
+            "VALIDATED",
+            "VALIDATING"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -5591,7 +5802,12 @@
           "type": "string"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "ARCHIVED",
+            "SUSPENDED"
+          ]
         },
         "tenant_id": {
           "type": "string"
@@ -5700,7 +5916,13 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "BLOCKED",
+            "NEEDS_USER_INPUT",
+            "PASS",
+            "PENDING"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -5777,7 +5999,15 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "DRAFT",
+            "REVOKED",
+            "STALE",
+            "SUPERSEDED",
+            "VALIDATED",
+            "VALIDATING"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -5871,7 +6101,13 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "BLOCKED",
+            "NEEDS_HUMAN_REVIEW",
+            "PASSED",
+            "PENDING"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -5947,7 +6183,19 @@
           "type": "string"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "ARCHIVED",
+            "AUTO_CHECKING",
+            "BLOCKED",
+            "DRAFT",
+            "HELD_FOR_REVIEW",
+            "PUBLISHED",
+            "PUBLISH_REQUESTED",
+            "REVOKED",
+            "TAKEN_DOWN",
+            "UNLISTED"
+          ]
         },
         "user_intent_id": {
           "type": "string"
@@ -6209,19 +6457,19 @@
           "type": "string",
           "enum": [
             "BLOCKED",
-            "READY",
-            "QUEUED",
-            "RUNNING",
-            "SUCCEEDED",
-            "FAILED",
             "CANCELLED",
             "CANCEL_REQUESTED",
-            "RETRY_WAIT",
+            "FAILED",
             "NEEDS_REPLAN",
+            "QUEUED",
+            "READY",
+            "RETRY_WAIT",
+            "RUNNING",
+            "SUBMISSION_UNKNOWN",
+            "SUCCEEDED",
             "WAITING_FOR_HUMAN",
-            "WAITING_FOR_RESOURCE",
             "WAITING_FOR_PROVIDER",
-            "SUBMISSION_UNKNOWN"
+            "WAITING_FOR_RESOURCE"
           ]
         },
         "priority": {
@@ -6508,14 +6756,14 @@
         "status": {
           "type": "string",
           "enum": [
-            "DRAFT",
-            "SUBMITTED",
-            "IN_REVIEW",
             "APPROVED",
-            "EXECUTING",
+            "DRAFT",
             "EXECUTED",
+            "EXECUTING",
+            "FAILED",
+            "IN_REVIEW",
             "REJECTED",
-            "FAILED"
+            "SUBMITTED"
           ]
         },
         "created_at": {
@@ -6822,7 +7070,14 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "ARCHIVED",
+            "COMPLETED",
+            "DRAFT",
+            "ON_HOLD"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -6884,7 +7139,12 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "ARCHIVED",
+            "DRAFT"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -6918,97 +7178,9 @@
       "x-afs-required-basis": "required = C.3.1 通用信封 + 业务字段（project_id/episode_ref/title，由 Episode.to_dict 实现确定）"
     },
     "Scene": {
-    "type": "object",
-    "description": "场次聚合根（8.1 核心实体：项目层级为 Project→Episode→Scene→Shot，项目包含集、集包含场景、场景包含镜头）；归属 Episode，作用域收敛到 Project。稳定实体只承载身份、业务编号与生命周期——场次描述性内容（场次名/地点/日夜/目标/进出状态）当前由 ShotBreakdownDraft 的场次层承载，不在本对象重复。本对象的存在前提是归属完整性：数据库需以 FOREIGN KEY (project_id, scene_id) REFERENCES scene(project_id, scene_id) 锁死 Shot 的跨场次乱挂载，该外键的被引用对象必须是已建模对象。",
-    "required": [
-      "entity_id",
-      "entity_type",
-      "schema_version",
-      "entity_version",
-      "status",
-      "owner_module",
-      "created_at",
-      "created_by",
-      "updated_at",
-      "audit_ref",
-      "scene_id",
-      "scene_code",
-      "project_id",
-      "episode_id"
-    ],
-    "properties": {
-      "entity_id": {
-        "type": "string",
-        "description": "通用信封主键（C.3.1）。必须与 scene_id 同值，不得各自生成两套标识"
-      },
-      "entity_type": {
-        "type": "string"
-      },
-      "schema_version": {
-        "type": "integer"
-      },
-      "entity_version": {
-        "type": "integer"
-      },
-      "status": {
-        "type": "string",
-        "enum": [
-          "DRAFT",
-          "ACTIVE",
-          "ARCHIVED"
-        ],
-        "description": "场次生命周期（C.3.1：status 必填；未知枚举值必须拒绝，不得静默映射）。DRAFT 已建立待启用；ACTIVE 可挂载镜头；ARCHIVED 终态，无出边、不可原地复活。状态集非正文原文，见 state_machines.yaml 与 ADR-R19"
-      },
-      "owner_module": {
-        "type": "string"
-      },
-      "created_at": {
-        "type": "string"
-      },
-      "created_by": {
-        "type": "string"
-      },
-      "updated_at": {
-        "type": "string"
-      },
-      "audit_ref": {
-        "type": [
-          "string",
-          "null"
-        ]
-      },
-      "scene_id": {
-        "type": "string",
-        "description": "场次稳定主键（8.2：scene_id 不得复用）。它同时是 Shot.scene_id 与 ShotRevision.scene_id 的引用目标，以及复合外键 (project_id, scene_id) 的被引用列——这就是本对象必须先于镜头域运行时建模的原因"
-      },
-      "scene_code": {
-        "type": "string",
-        "minLength": 1,
-        "description": "业务短编号（8.2：业务短编号仅用于展示）。8.3 的 shot_code EP001-SC003-SH012 中 SC003 即场次编号，建议形态 EP001-SC003；项目内唯一但不作为关联主键。改编号属展示层变更，不产生新对象、不重建 Shot"
-      },
-      "project_id": {
-        "type": "string",
-        "description": "作用域与 RLS 过滤键，同时是复合外键 (project_id, scene_id) 的成员列。不是第二套归属事实：必须与 episode_id 所属集的 project_id 一致，由复合外键 (project_id, episode_id) → episodes(project_id, entity_id) 保证"
-      },
-      "episode_id": {
-        "type": "string",
-        "description": "所属集（8.1：集包含场景）。这是本对象唯一的归属锚点，向上经 Episode 收敛到 Project，不由本对象自行推导"
-      }
-    },
-    "x-afs-sources": [
-      "8.1 核心实体（项目层级 Project / Episode / Scene / Shot：项目包含集，集包含场景，场景包含镜头）",
-      "8.2 标识与版本规则（scene_id 不得复用；业务短编号仅用于展示）",
-      "8.3 Shot 契约示例（shot_code = EP001-SC003-SH012，SC003 是 shot_code 中的场次编号）",
-      "C.3.1 通用 Schema 信封（权威对象必须具备 10 项信封字段，status 必填且未知枚举值拒绝）",
-      "项目所有者 2026-11-18 裁决：数据库须以 UNIQUE (project_id, shot_code) 与 FOREIGN KEY (project_id, scene_id) REFERENCES scene(project_id, scene_id) 保证归属完整性",
-      "docs/adr/ADR-R19-scene-entity-contract.md"
-    ],
-    "additionalProperties": false,
-    "x-afs-required-basis": [
-      "required = C.3.1 通用信封（10 项）+ 8.1 层级所必需的归属字段（scene_id / project_id / episode_id）+ 8.2 与 8.3 支持的业务短编号（scene_code）。标题、概要、地点、日夜等描述性字段一律不进 required，也不进 properties——正文没有场次字段表，按「不猜契约」原则不发明字段（见 x-afs-exclusions）。"
-    ],
-    "x-afs-field-groups": {
-      "envelope": [
+      "type": "object",
+      "description": "场次聚合根（8.1 核心实体：项目层级为 Project→Episode→Scene→Shot，项目包含集、集包含场景、场景包含镜头）；归属 Episode，作用域收敛到 Project。稳定实体只承载身份、业务编号与生命周期——场次描述性内容（场次名/地点/日夜/目标/进出状态）当前由 ShotBreakdownDraft 的场次层承载，不在本对象重复。本对象的存在前提是归属完整性：数据库需以 FOREIGN KEY (project_id, scene_id) REFERENCES scene(project_id, scene_id) 锁死 Shot 的跨场次乱挂载，该外键的被引用对象必须是已建模对象。",
+      "required": [
         "entity_id",
         "entity_type",
         "schema_version",
@@ -7018,79 +7190,167 @@
         "created_at",
         "created_by",
         "updated_at",
-        "audit_ref"
-      ],
-      "identity": [
-        "scene_id"
-      ],
-      "ownership": [
+        "audit_ref",
+        "scene_id",
+        "scene_code",
         "project_id",
         "episode_id"
       ],
-      "display": [
-        "scene_code"
+      "properties": {
+        "entity_id": {
+          "type": "string",
+          "description": "通用信封主键（C.3.1）。必须与 scene_id 同值，不得各自生成两套标识"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "ARCHIVED",
+            "DRAFT"
+          ],
+          "description": "场次生命周期（C.3.1：status 必填；未知枚举值必须拒绝，不得静默映射）。DRAFT 已建立待启用；ACTIVE 可挂载镜头；ARCHIVED 终态，无出边、不可原地复活。状态集非正文原文，见 state_machines.yaml 与 ADR-R19"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scene_id": {
+          "type": "string",
+          "description": "场次稳定主键（8.2：scene_id 不得复用）。它同时是 Shot.scene_id 与 ShotRevision.scene_id 的引用目标，以及复合外键 (project_id, scene_id) 的被引用列——这就是本对象必须先于镜头域运行时建模的原因"
+        },
+        "scene_code": {
+          "type": "string",
+          "minLength": 1,
+          "description": "业务短编号（8.2：业务短编号仅用于展示）。8.3 的 shot_code EP001-SC003-SH012 中 SC003 即场次编号，建议形态 EP001-SC003；项目内唯一但不作为关联主键。改编号属展示层变更，不产生新对象、不重建 Shot"
+        },
+        "project_id": {
+          "type": "string",
+          "description": "作用域与 RLS 过滤键，同时是复合外键 (project_id, scene_id) 的成员列。不是第二套归属事实：必须与 episode_id 所属集的 project_id 一致，由复合外键 (project_id, episode_id) → episodes(project_id, entity_id) 保证"
+        },
+        "episode_id": {
+          "type": "string",
+          "description": "所属集（8.1：集包含场景）。这是本对象唯一的归属锚点，向上经 Episode 收敛到 Project，不由本对象自行推导"
+        }
+      },
+      "x-afs-sources": [
+        "8.1 核心实体（项目层级 Project / Episode / Scene / Shot：项目包含集，集包含场景，场景包含镜头）",
+        "8.2 标识与版本规则（scene_id 不得复用；业务短编号仅用于展示）",
+        "8.3 Shot 契约示例（shot_code = EP001-SC003-SH012，SC003 是 shot_code 中的场次编号）",
+        "C.3.1 通用 Schema 信封（权威对象必须具备 10 项信封字段，status 必填且未知枚举值拒绝）",
+        "项目所有者 2026-11-18 裁决：数据库须以 UNIQUE (project_id, shot_code) 与 FOREIGN KEY (project_id, scene_id) REFERENCES scene(project_id, scene_id) 保证归属完整性",
+        "docs/adr/ADR-R19-scene-entity-contract.md"
+      ],
+      "additionalProperties": false,
+      "x-afs-required-basis": [
+        "required = C.3.1 通用信封（10 项）+ 8.1 层级所必需的归属字段（scene_id / project_id / episode_id）+ 8.2 与 8.3 支持的业务短编号（scene_code）。标题、概要、地点、日夜等描述性字段一律不进 required，也不进 properties——正文没有场次字段表，按「不猜契约」原则不发明字段（见 x-afs-exclusions）。"
+      ],
+      "x-afs-field-groups": {
+        "envelope": [
+          "entity_id",
+          "entity_type",
+          "schema_version",
+          "entity_version",
+          "status",
+          "owner_module",
+          "created_at",
+          "created_by",
+          "updated_at",
+          "audit_ref"
+        ],
+        "identity": [
+          "scene_id"
+        ],
+        "ownership": [
+          "project_id",
+          "episode_id"
+        ],
+        "display": [
+          "scene_code"
+        ]
+      },
+      "x-afs-reference-targets": {
+        "scene_id": "Scene",
+        "project_id": "Project",
+        "episode_id": "Episode"
+      },
+      "x-afs-exclusions": [
+        {
+          "field": "scene_name / location / time_of_day / scene_goal / core_event / characters / entry_state / exit_state",
+          "why": "场次描述性内容当前由 ShotBreakdownDraft.scene_breakdowns[] 承载（草案事实，字段表见 ADR-R16）。把同一批字段复制到稳定 Scene 上就是第二个事实源；稳定场次是否应持有内容、是否需要 SceneRevision，正文未定义，属待裁定项"
+        },
+        {
+          "field": "shots[] / shot_ids[]",
+          "why": "镜头归属由 Shot.scene_id 反向查询；在 Scene 上存镜头数组就是第二份归属事实"
+        },
+        {
+          "field": "scene_order",
+          "why": "场次顺序当前由剧本场次序列与 scene_code 表达。正文未给场次排序规则，新增独立排序字段会与 scene_code 形成两个顺序事实，待正文明确后再补"
+        },
+        {
+          "field": "constraint_pack_id",
+          "why": "8.1 已规定 ConstraintPack 自己记录作用域（绑定项目/场景/镜头）；Scene 只被约束，不持有约束"
+        },
+        {
+          "field": "gate_result / delivery_result / shot_count / total_duration_ms",
+          "why": "审核与交付结论归 GateInstance（scope=scene 时绑定精确对象版本），时长归 ShotSpec 之和与时间线；写进场次状态会出现「声称通过却没有 Gate 证据」"
+        }
+      ],
+      "x-afs-invariants": [
+        {
+          "id": "SC-1",
+          "statement": "身份单一：entity_id 必须等于 scene_id，不得各自生成两套标识。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SC-2",
+          "statement": "归属不漂移：episode_id 必须属于同一 project_id，由复合外键 (project_id, episode_id) → episodes(project_id, entity_id) 保证；scene_id 全局唯一不复用；任何镜头不得跨场次改挂（复合外键 (project_id, scene_id) 是唯一裁决点）。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SC-3",
+          "statement": "业务编号唯一：scene_code 在项目内唯一且非空，不得作为关联主键；改编号属展示层变更，不产生新对象、不重建其下镜头。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SC-4",
+          "statement": "状态受限：status 只允许 DRAFT / ACTIVE / ARCHIVED，未知值由 schema 直接拒绝；未登记转移一律拒绝（31.5）。",
+          "enforced_by": "SCHEMA"
+        },
+        {
+          "id": "SC-5",
+          "statement": "终态不复活：ARCHIVED 无出边，恢复场次必须新建对象并重新授权；归档前必须确认其下不存在 IN_PRODUCTION 的 Shot。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SC-6",
+          "statement": "内容不越权：本对象不得承载场次描述性内容、镜头集合、约束与 Gate 结论；additionalProperties=false 使「多塞一个字段」在契约层即被拒绝。",
+          "enforced_by": "SCHEMA"
+        }
       ]
-    },
-    "x-afs-reference-targets": {
-      "scene_id": "Scene",
-      "project_id": "Project",
-      "episode_id": "Episode"
-    },
-    "x-afs-exclusions": [
-      {
-        "field": "scene_name / location / time_of_day / scene_goal / core_event / characters / entry_state / exit_state",
-        "why": "场次描述性内容当前由 ShotBreakdownDraft.scene_breakdowns[] 承载（草案事实，字段表见 ADR-R16）。把同一批字段复制到稳定 Scene 上就是第二个事实源；稳定场次是否应持有内容、是否需要 SceneRevision，正文未定义，属待裁定项"
       },
-      {
-        "field": "shots[] / shot_ids[]",
-        "why": "镜头归属由 Shot.scene_id 反向查询；在 Scene 上存镜头数组就是第二份归属事实"
-      },
-      {
-        "field": "scene_order",
-        "why": "场次顺序当前由剧本场次序列与 scene_code 表达。正文未给场次排序规则，新增独立排序字段会与 scene_code 形成两个顺序事实，待正文明确后再补"
-      },
-      {
-        "field": "constraint_pack_id",
-        "why": "8.1 已规定 ConstraintPack 自己记录作用域（绑定项目/场景/镜头）；Scene 只被约束，不持有约束"
-      },
-      {
-        "field": "gate_result / delivery_result / shot_count / total_duration_ms",
-        "why": "审核与交付结论归 GateInstance（scope=scene 时绑定精确对象版本），时长归 ShotSpec 之和与时间线；写进场次状态会出现「声称通过却没有 Gate 证据」"
-      }
-    ],
-    "x-afs-invariants": [
-      {
-        "id": "SC-1",
-        "statement": "身份单一：entity_id 必须等于 scene_id，不得各自生成两套标识。",
-        "enforced_by": "RUNTIME_PENDING"
-      },
-      {
-        "id": "SC-2",
-        "statement": "归属不漂移：episode_id 必须属于同一 project_id，由复合外键 (project_id, episode_id) → episodes(project_id, entity_id) 保证；scene_id 全局唯一不复用；任何镜头不得跨场次改挂（复合外键 (project_id, scene_id) 是唯一裁决点）。",
-        "enforced_by": "RUNTIME_PENDING"
-      },
-      {
-        "id": "SC-3",
-        "statement": "业务编号唯一：scene_code 在项目内唯一且非空，不得作为关联主键；改编号属展示层变更，不产生新对象、不重建其下镜头。",
-        "enforced_by": "RUNTIME_PENDING"
-      },
-      {
-        "id": "SC-4",
-        "statement": "状态受限：status 只允许 DRAFT / ACTIVE / ARCHIVED，未知值由 schema 直接拒绝；未登记转移一律拒绝（31.5）。",
-        "enforced_by": "SCHEMA"
-      },
-      {
-        "id": "SC-5",
-        "statement": "终态不复活：ARCHIVED 无出边，恢复场次必须新建对象并重新授权；归档前必须确认其下不存在 IN_PRODUCTION 的 Shot。",
-        "enforced_by": "RUNTIME_PENDING"
-      },
-      {
-        "id": "SC-6",
-        "statement": "内容不越权：本对象不得承载场次描述性内容、镜头集合、约束与 Gate 结论；additionalProperties=false 使「多塞一个字段」在契约层即被拒绝。",
-        "enforced_by": "SCHEMA"
-      }
-    ]
-    },
     "ScriptRevision": {
       "type": "object",
       "description": "剧本版本聚合根（Phase 1 主链新增建模，31.6 Action Registry）；锁定状态由 requested_by 承担职责分离。",
@@ -7123,7 +7383,13 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "DRAFT",
+            "LOCKED",
+            "LOCK_PENDING",
+            "SUPERSEDED"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -7243,11 +7509,11 @@
         "status": {
           "type": "string",
           "enum": [
-            "NOT_STARTED",
-            "IN_PRODUCTION",
             "BLOCKED",
-            "PRODUCTION_COMPLETE",
-            "CANCELLED"
+            "CANCELLED",
+            "IN_PRODUCTION",
+            "NOT_STARTED",
+            "PRODUCTION_COMPLETE"
           ],
           "description": "粗粒度生产进度：NOT_STARTED 已正式建立但生产任务未开始；IN_PRODUCTION 正在执行生产（含获准启动的返工）；BLOCKED 存在明确阻塞且原因可追溯；PRODUCTION_COMPLETE 要求的生产产物已完成，但不代表 Gate 3 / Gate 4 已通过；CANCELLED 已被授权移出本次生产范围，终态不原地恢复。不设 IN_REVIEW（审核结论归 GateInstance）、不设 REWORK（返工归 ReworkTask）、不设 DELIVERED（交付结论归 Gate 4 / DeliveryPackage）"
         },
@@ -8158,11 +8424,11 @@
         "status": {
           "type": "string",
           "enum": [
-            "PENDING_CONFIRM",
-            "IN_REVIEW",
             "CONFIRMED",
-            "RETURNED",
-            "DISCARDED"
+            "DISCARDED",
+            "IN_REVIEW",
+            "PENDING_CONFIRM",
+            "RETURNED"
           ],
           "description": "草案状态：待确认/确认中/已确认/已退回/已废弃。CONFIRMED、RETURNED、DISCARDED 为版本终态，恢复一律新建版本"
         },

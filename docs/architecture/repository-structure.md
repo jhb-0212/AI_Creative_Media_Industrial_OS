@@ -79,7 +79,7 @@ AI_Creative_Media_Industrial_OS/         # GitHub 仓库根（monorepo，与仓�
 │   ├── permission/                     #   permission_matrix.yaml
 │   ├── budget/                         #   budget_caliber.yaml
 │   ├── metrics/                        #   metric_dictionary.yaml
-│   ├── enums/                          #   enum_registry.yaml
+│   ├── enums/                          #   enum_registry.yaml（派生）/ status_layers.yaml + status_field_taxonomy.yaml（手工）
 │   └── phases/                         #   phase_map.yaml
 │
 ├── packages/                           # 横切共享能力（库，被上层层依赖）

@@ -109,7 +109,7 @@ def _entry(entries, key: str):
 
 SM_ENTRY = _entry(STATE_MACHINES["objects"], "object")
 ENUM_ENTRY = _entry(ENUMS["objects"], "object")
-EDGES = cc.parse_state_chain(SM_ENTRY["states"])
+EDGES = cc.contract_edges(SM_ENTRY)
 
 
 # --------------------------------------------------------------------------- #
@@ -189,9 +189,13 @@ def _shot(**overrides):
     return payload
 
 
-def _guard(transition: str) -> dict:
+def _guard(transition: tuple[str, str]) -> dict:
     guards = SM_ENTRY.get("guards") or []
-    return next(g for g in guards if g["transition"] == transition)
+    return next(
+        g
+        for g in guards
+        if (g["transition"]["from"], g["transition"]["to"]) == transition
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -216,8 +220,7 @@ def test_status_is_declared_once_and_required() -> None:
 
 def test_three_contract_sources_agree_on_state_set() -> None:
     """schema / 状态机 / 枚举注册表三处必须给同一套状态。"""
-    sm_states = {state for edge in EDGES for state in edge}
-    assert sm_states == OWNER_STATES
+    assert set(SM_ENTRY["allowed_states"]) == OWNER_STATES
     assert set(ENUM_ENTRY["states"]) == OWNER_STATES
 
 
@@ -258,7 +261,7 @@ def test_progress_cannot_skip_production() -> None:
 
 def test_rework_edge_exists_and_carries_basis_guard() -> None:
     assert ("PRODUCTION_COMPLETE", "IN_PRODUCTION") in EDGES
-    guard = _guard("PRODUCTION_COMPLETE→IN_PRODUCTION")
+    guard = _guard(("PRODUCTION_COMPLETE", "IN_PRODUCTION"))
     assert guard["fields"] == ["rework_basis_ref"], (
         "无返工依据的回退必须被守卫拦住，否则等于绕过验收"
     )
@@ -266,14 +269,17 @@ def test_rework_edge_exists_and_carries_basis_guard() -> None:
 
 def test_every_blocked_and_cancelled_edge_has_a_guard() -> None:
     """所有进入 BLOCKED / CANCELLED 的边都必须要求证据。"""
-    declared = {(g["transition"]) for g in SM_ENTRY["guards"]}
+    declared = {
+        (g["transition"]["from"], g["transition"]["to"])
+        for g in SM_ENTRY["guards"]
+    }
     expected = {
-        "NOT_STARTED→BLOCKED",
-        "IN_PRODUCTION→BLOCKED",
-        "NOT_STARTED→CANCELLED",
-        "IN_PRODUCTION→CANCELLED",
-        "BLOCKED→CANCELLED",
-        "PRODUCTION_COMPLETE→IN_PRODUCTION",
+        ("NOT_STARTED", "BLOCKED"),
+        ("IN_PRODUCTION", "BLOCKED"),
+        ("NOT_STARTED", "CANCELLED"),
+        ("IN_PRODUCTION", "CANCELLED"),
+        ("BLOCKED", "CANCELLED"),
+        ("PRODUCTION_COMPLETE", "IN_PRODUCTION"),
     }
     assert declared == expected
 
@@ -294,10 +300,10 @@ def test_guard_problems_accepts_current_contract() -> None:
 
 def test_guard_problems_rejects_unknown_field() -> None:
     broken = {
-        "states": SM_ENTRY["states"],
+        "transitions": SM_ENTRY["transitions"],
         "guards": [
             {
-                "transition": "NOT_STARTED→BLOCKED",
+                "transition": {"from": "NOT_STARTED", "to": "BLOCKED"},
                 "fields": ["block_reason"],  # 少一个 c
                 "rule": "拼错字段名",
             }
@@ -309,10 +315,10 @@ def test_guard_problems_rejects_unknown_field() -> None:
 
 def test_guard_problems_rejects_illegal_transition() -> None:
     broken = {
-        "states": SM_ENTRY["states"],
+        "transitions": SM_ENTRY["transitions"],
         "guards": [
             {
-                "transition": "CANCELLED→IN_PRODUCTION",
+                "transition": {"from": "CANCELLED", "to": "IN_PRODUCTION"},
                 "fields": ["rework_basis_ref"],
                 "rule": "给终态造一条出边",
             }
@@ -322,11 +328,30 @@ def test_guard_problems_rejects_illegal_transition() -> None:
     assert any("未登记的转移" in p for p in problems), problems
 
 
+def test_guard_problems_rejects_text_transition() -> None:
+    """v1 的「A→B」字符串必须被拒绝：状态值不允许再从文本里解析。"""
+    broken = {
+        "transitions": SM_ENTRY["transitions"],
+        "guards": [
+            {
+                "transition": "NOT_STARTED→BLOCKED",
+                "fields": ["blocked_reason"],
+                "rule": "旧格式 fiat lux",
+            }
+        ],
+    }
+    problems = cc.guard_problems(OBJECT, broken, DEF)
+    assert any("结构化边" in p and "字符串解析" in p for p in problems), problems
+
+
 def test_guard_problems_rejects_missing_rule() -> None:
     broken = {
-        "states": SM_ENTRY["states"],
+        "transitions": SM_ENTRY["transitions"],
         "guards": [
-            {"transition": "NOT_STARTED→BLOCKED", "fields": ["blocked_reason"]}
+            {
+                "transition": {"from": "NOT_STARTED", "to": "BLOCKED"},
+                "fields": ["blocked_reason"],
+            }
         ],
     }
     problems = cc.guard_problems(OBJECT, broken, DEF)

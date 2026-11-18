@@ -29,6 +29,12 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from packages.shared.database import Base
 from packages.shared.orm import EntityMixin
+from packages.shared.status_constraint import status_check
+from services.project_planning.domain.enums import (
+    EpisodeStatus,
+    ProjectStatus,
+    ScriptStatus,
+)
 
 # 独立 schema 名称（数据所有权边界）。
 SCHEMA_NAME = "project_planning"
@@ -102,6 +108,11 @@ class ProjectModel(EntityMixin, Base):
             "tenant_id",
             name="uq_projects_entity_tenant",
         ),
+        # status 收口到契约状态集：契约把 status 收成枚举之后，库里若仍接受任意
+        # 字符串，「未知枚举值必须拒绝」（C.3.1）就只在你记得走 Service 时成立。
+        # 值列表由 packages.shared.status_constraint 从 ProjectStatus 生成，
+        # 与契约同一出处，闸门会逐字比对。
+        status_check((s.value for s in ProjectStatus), table="projects"),
         {"schema": SCHEMA_NAME},
     )
 
@@ -147,6 +158,8 @@ class ScriptModel(EntityMixin, Base):
             [f"{SCHEMA_NAME}.episodes.project_id", f"{SCHEMA_NAME}.episodes.episode_ref"],
             name="fk_script_revisions_episode",
         ),
+        # status 收口（DRAFT / LOCK_PENDING / LOCKED / SUPERSEDED）。
+        status_check((s.value for s in ScriptStatus), table="script_revisions"),
         {"schema": SCHEMA_NAME},
     )
 
@@ -175,6 +188,8 @@ class EpisodeModel(EntityMixin, Base):
             [f"{SCHEMA_NAME}.projects.entity_id"],
             name="fk_episodes_project",
         ),
+        # status 收口（DRAFT / ACTIVE / ARCHIVED）。
+        status_check((s.value for s in EpisodeStatus), table="episodes"),
         {"schema": SCHEMA_NAME},
     )
 
