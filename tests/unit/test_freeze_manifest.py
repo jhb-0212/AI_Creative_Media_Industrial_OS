@@ -421,6 +421,17 @@ def test_stray_copy_with_identical_content_still_detected(pack: FrozenPack) -> N
     assert len(fm.check_stray_baseline_copies()) == 1
 
 
+def test_stray_copy_with_different_case_detected(pack: FrozenPack) -> None:
+    """大小写变体也是副本。
+
+    Windows 上 `…V2.0.5.MD` 与 `…V2.0.5.md` 本就是同一个文件；而 Linux CI 大小写敏感，
+    精确匹配会让它以「另一个文件名」的身份逃过闸门。判定按 casefold 比对。
+    """
+    stray = pack.root / pack.doc.name.upper()
+    stray.write_text("# 大小写变体\n", encoding="utf-8")
+    assert len(fm.check_stray_baseline_copies()) == 1
+
+
 def test_stray_copy_in_dependency_dir_ignored(pack: FrozenPack) -> None:
     """依赖/缓存目录里的同名文件不算游离副本（扫描边界的正向说明）。"""
     buried = pack.root / ".venv" / "lib" / pack.doc.name

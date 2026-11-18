@@ -240,15 +240,18 @@ def check_stray_baseline_copies() -> list[str]:
         # 缺失由 check_baseline_document 报，这里不重复报同一件事。
         return []
     name = BASELINE_DOC.name
+    folded = name.casefold()
     authoritative = BASELINE_DOC.resolve()
     stray: list[Path] = []
     for current, dirs, files in os.walk(ROOT):
         dirs[:] = [d for d in dirs if d not in _SCAN_EXCLUDED_DIRS]
-        if name not in files:
-            continue
-        candidate = Path(current) / name
-        if candidate.resolve() != authoritative:
-            stray.append(candidate)
+        # 按 casefold 比对：Windows 上同名不同大小写本就是同一个文件，而 Linux CI
+        # 大小写敏感，`…V2.0.5.MD` 会以「不同文件名」逃过精确匹配。
+        matches = [f for f in files if f.casefold() == folded]
+        for filename in matches:
+            candidate = Path(current) / filename
+            if candidate.resolve() != authoritative:
+                stray.append(candidate)
     return [
         f"发现基线正文的游离副本：{_rel(path)}；基线唯一权威路径是 {_rel(BASELINE_DOC)}"
         "——正文修订只能改权威路径并在修改后重新派生、重签清单，副本必须删除"

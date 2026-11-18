@@ -63,7 +63,9 @@ CRLF，SHA-256 `d71d71e8…`），与受校验的 `docs/baseline/` 那份（5095
 `scripts/freeze_manifest.py` 新增 `check_stray_baseline_copies()`，随 `--check` 执行：
 
 - 从 `ROOT` 递归扫描（用 `os.walk`，跳过 `.git` / `.venv` / `node_modules` / 各类缓存目录）；
-- 命中与 `BASELINE_DOC.name` **同名**的文件，且不是权威路径本身 → 报红；
+- 文件名按 **casefold 比对**：Windows 上 `…V2.0.5.MD` 与 `…V2.0.5.md` 本就是同一个文件，
+  而 Linux CI 大小写敏感，精确匹配会让它以「另一个文件名」的身份逃过闸门；
+- 命中与 `BASELINE_DOC.name` 同名的文件，且不是权威路径本身 → 报红；
 - 报错文案直接给出「要么删除副本，要么改权威路径后重签」的二选一。
 
 **为什么按文件名判而不按内容判**：内容相同也照样有问题——下一个人改的可能是没受校验的那一份，
@@ -110,7 +112,7 @@ CRLF，SHA-256 `d71d71e8…`），与受校验的 `docs/baseline/` 那份（5095
 | 文件 | 改动 |
 | --- | --- |
 | `scripts/freeze_manifest.py` | 新增 `check_stray_baseline_copies()`、`check_baseline_self_reported_counts()`，接入 `check_all()` |
-| `tests/unit/test_freeze_manifest.py` | 新增 6 条用例：游离副本检出、内容相同仍检、依赖目录不误报、权威路径不误报、自述数量不符报红、自述数量一致放行 |
+| `tests/unit/test_freeze_manifest.py` | 新增 7 条用例：游离副本检出、内容相同仍检、大小写变体仍检、依赖目录不误报、权威路径不误报、自述数量不符报红、自述数量一致放行 |
 | `README.md:5` | 改为权威路径 + 声明「仓库内只有这一份，受哈希校验」 |
 | `docs/architecture/repository-structure.md:5` | 同上 |
 | `AI影视工业化生产平台V2.0.5.md`（根） | 删除（内容已归档） |
@@ -126,7 +128,7 @@ CRLF，SHA-256 `d71d71e8…`），与受校验的 `docs/baseline/` 那份（5095
   ```
 
 - `find . -name "AI影视工业化生产平台V2.0.5.md"` 只剩 `docs/baseline/` 一处；
-- 27 条冻结包测试全绿（含 6 条新增）。
+- 28 条冻结包测试全绿（含 7 条新增）。
 
 ## 8. 残余风险
 
@@ -135,9 +137,9 @@ CRLF，SHA-256 `d71d71e8…`），与受校验的 `docs/baseline/` 那份（5095
    正文自含完整动作表，需要一次正式的正文修订（走 ADR-R15 流程），届时「正文与注册表的一致性」
    就该由派生脚本保证，而不是人。
 2. **扫描边界是可配置的**：`_SCAN_EXCLUDED_DIRS` 目前排除了 `.git/.venv/node_modules/缓存`。
-   如果将来有人把正文放进别的大型目录，仍会被扫到（这是期望行为）；但若有人把副本改名
-   （如 `AI影视工业化生产平台V2.0.5(1).md`），本断言不会命中——**改名副本由文档评审兜底**，
-   不为它再加一层模糊匹配（模糊匹配会误伤 `2026-11-16-review-round3-response.md` 这类
-   引用正文标题的合法文档）。
+   如果将来有人把正文放进别的大型目录，仍会被扫到（这是期望行为）；但若有人把副本**改名**
+   （如 `AI影视工业化生产平台V2.0.5(1).md`、加后缀 `.bak`），本断言不会命中——**改名副本由文档
+   评审兜底**，不为它再加一层模糊匹配（模糊匹配会误伤 `2026-11-16-review-round3-response.md`
+   这类引用正文标题的合法文档）。大小写变体属同一名字，已由 casefold 比对覆盖。
 3. **`docs/proposals/shot-domain-contract-closure.md` 仍有「本机未找到基线正文」的历史陈述**：
    那是提案写作时的真实状态记录，不改写历史；权威路径以本 ADR 与 README 为准。
