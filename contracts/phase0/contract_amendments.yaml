@@ -165,5 +165,150 @@ amendments:
       - 'APPROVED→GOLD 之外，GENERATED→TECHNICAL_QC 仍由 QC.REPORT.CREATE 副作用推进（语义正确：登记首份 QC 报告即进入技术 QC），不属缺口，本修订不强行改为独立动作'
       - '状态变更入口的 DB 迁移（若涉及新列）与真实 PG 环境验证未执行'
 
+  - id: 'V205-R14-A4'
+    title: '拆镜草案对象契约——ShotBreakdownDraft（含五态状态机）'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: 'docs/adr/ADR-R07-shot-draft-contract-gap.md（镜头域契约缺口）；2026-11-18 主链核对确认拆镜段整段无对象契约'
+    reason: >-
+      Phase 1 主链「剧本导入 → AI 拆镜草案 → 人工确认 → ShotSpec」在拆镜处整段断开，根因是
+      草案对象从来没有契约：SHOT.DRAFT.CREATE 声明 resource_type=ShotDraft，而 object_schemas
+      里从未定义该对象（ADR-R07 已钉死，resource_schema_gaps 也登记了债务）。ADR-R07 当初拒绝
+      补契约的理由是「正文没有字段表，猜就是返工」，该理由成立，所以缺口一直挂着。现在项目
+      所有者直接给出了《拆镜草案字段设计》，权威来源问题解除，可按所有者口径落地。
+      落地形态与 ADR-R07 草案不同：由「一行一个镜头」改为文档级聚合根 ShotBreakdownDraft，
+      理由是逐行模型无法表达人工的合并/拆分，也无法承载版本快照（详见 ADR-R16）。
+      同时把该对象的五个状态值登记进状态机与枚举注册表，避免实现时自创第六个状态。
+    adr: 'docs/adr/ADR-R16-shot-breakdown-draft-contract.md'
+    approved_by: '项目所有者（本次拆镜契约应答）'
+    approved_at: '2026-11-18'
+    source_commits: []
+    additions:
+      schema_objects:
+        - object: 'ShotBreakdownDraft'
+          why: '拆镜草案聚合根；三层结构（场次→剧情节拍→镜头草案）+ 版本链，是 SHOT.DRAFT.CREATE 的资源类型与人工确认的载体'
+      state_machines:
+        - object: 'ShotBreakdownDraft'
+          why: '五态 PENDING_CONFIRM / IN_REVIEW / CONFIRMED / RETURNED / DISCARDED；终态不原地复活，恢复走新建版本'
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 80
+      state_machines: 39
+    residual_risks:
+      - '字段口径来自项目所有者设计（2026-11-18），非基线正文原文：正文 8.x 尚未给出拆镜条款，下一版正文须吸收本契约，否则「正文缺失、契约先行」的差异会长期存在'
+      - '正文 31.6 主表的 SHOT.DRAFT.CREATE 行仍写 resource_type=ShotDraft，与派生契约的 ShotBreakdownDraft 不一致；本次不改基线正文（改正文等于改所有者文档指纹），差异在此登记，下一版正文修订时一并改正'
+      - 'SHOT.DRAFT.CREATE 的 resource_type 由 ShotDraft 改名为 ShotBreakdownDraft：冻结闸门按名称集合判定增删，识别不了「同名 action 指向不同对象」，此处显式记录'
+      - 'SHOT.DRAFT.CONFIRM / SHOT.DRAFT.RETURN / SHOT.DRAFT.DISCARD 三个状态推进动作尚未登记，五态状态机目前无运行时入口（与 A2/A3 同类缺口，按「先开入口、再写守卫」另行处理）'
+      - 'ShotRevision 仍无 object schema；草案确认产出的 confirmed_shot_revision_refs 指向一个尚未建模的对象'
+      - '九条对象不变量中七条为 RUNTIME_PENDING，只有 SBD-2（草案不越权定约束）与 SBD-8（节拍单一方向）可由 schema 表达，不得视为已落地'
+
+  - id: 'V205-R14-A5'
+    title: '镜头内容修订对象契约——ShotRevision（含两态状态机）'
+    reason: >-
+      ADR-R16 留下的断点：草案确认要产出 confirmed_shot_revision_refs，而 ShotRevision 从未建模，
+      链路是「一头有契约、一头是引用字符串」；ShotSpec 的 required.shot_revision_id 同样指向一个不存在的对象。
+      本轮按正文 8.1/8.2/8.3/8.8 + 2.3/4.1 + 19.3 + 31.6 + Gate 1-A 推导字段，把这一环补齐。
+      状态集只登记两态（ACTIVE / SUPERSEDED）：正文未为 ShotRevision 单列状态机，虚构审核或生产进度状态
+      会与 Shot 生命周期混为一谈，故只保留「不可变版本被取代」这一最小必要集，并显式标注为派生而非原文。
+    adr: 'docs/adr/ADR-R17-shot-revision-contract.md'
+    approved_by: '项目所有者（会话内授权「按你的来」：按正文推导，不猜）'
+    approved_at: '2026-11-18'
+    recorded_at: '2026-11-18'
+    discovered_by: 'docs/adr/ADR-R16-shot-breakdown-draft-contract.md 残余风险第 3 条；contracts/runtime/resource_schema_gaps.yaml 的 ShotRevision 条目'
+    retroactive: false
+    source_commits: []
+    additions:
+      schema_objects:
+        - object: 'ShotRevision'
+          why: '不可变的镜头内容版本快照；SHOT.REVISION.CONFIRM 的资源类型，也是 ShotSpec / PrevizVersion / 生成任务的固定输入版本'
+      state_machines:
+        - object: 'ShotRevision'
+          why: 'ACTIVE→SUPERSEDED；确认即产生正式版本（无 DRAFT 态），被更高 revision_no 取代后终态不复活'
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 81
+      state_machines: 40
+    residual_risks:
+      - '关闭 A4 残余风险「ShotRevision 仍无 object schema」：本修订补上该对象，草案确认产出的引用不再悬空'
+      - 'Shot 本身仍未建模：8.3 是 Shot 与 ShotRevision 的合并示例，正文没有给 Shot 的状态集，字段拆分归属需所有者裁定；当前以 shot_id 为稳定身份键 + 父级不漂移（SR-5）保证一致性，不依赖一张不存在的表'
+      - '契约把 shot_code（业务短编号）与 IN_PRODUCTION（生产进度）划归 Shot 而非修订，与正文 8.3 合并示例不一致；不改基线正文，差异在此登记，待下一版正文明确字段边界'
+      - 'SHOT.REVISION.CONFIRM 未实现：修订表、revision_no 分配、版本冲突拒绝、ACTIVE→SUPERSEDED 推进均无运行时落点，两态状态机目前只是钉住的契约'
+      - '十条不变量中仅 SR-4（版本链闭合）与 SR-6（不越权定约束）可由 schema 表达，其余八条标 RUNTIME_PENDING，不得视为已落地'
+      - '确认事实由 confirmed_by/confirmed_at + 信封 audit_ref 承载，审批仍无独立对象；与 AUTH-3 累积式会签同源（缺审批事实契约），刻意不在此另造审批子对象，避免第三份审批事实源'
+      - 'quality_profile 收窄为单值 UNIFIED_HIGH_QUALITY（4.1 统一基线、ADR-023 支撑资产质量分离）；若将来引入镜头级质量档需走契约修订扩展枚举'
+
+  - id: 'V205-R14-A6'
+    title: '稳定逻辑镜头对象契约——Shot（含五态状态机与转移守卫）'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: 'docs/adr/ADR-R17-shot-revision-contract.md 残余风险第 1 条（Shot 未建模）；contracts/phase0/contract_amendments.yaml 的 V205-R14-A5 残余风险第 2 条'
+    reason: >-
+      A5 把 Shot 留成显式缺口，理由是「8.3 是合并示例、正文没给状态集、字段归属需裁定」。
+      项目所有者 2026-11-18 给出正式口径：Shot 独立建模，负责镜头身份、业务编号与粗粒度生产进度；
+      ShotRevision 负责内容与版本历史；首次人工确认 ShotDraft 时在同一事务创建 Shot 与首个 ShotRevision。
+      前置条件解除，按「不猜契约」落地。一次落四处：对象 schema、五态状态机（含 6 条转移守卫）、
+      枚举登记、动作资源类型。不能只补一个 JSON Schema 就宣布镜头域闭合——那只补了壳。
+      同时把 SHOT.REVISION.CONFIRM 的 resource_type 由 ShotRevision 改为 Shot/ShotRevision：
+      首次确认原子创建两个对象，只声明修订会让新建的 Shot 逃过 schema 校验。
+    adr: 'docs/adr/ADR-R18-shot-entity-contract.md'
+    approved_by: '项目所有者（会话内正式裁定「选方案 1：Shot 必须独立建模」）'
+    approved_at: '2026-11-18'
+    source_commits: []
+    additions:
+      schema_objects:
+        - object: 'Shot'
+          why: '稳定逻辑镜头实体；承载 shot_id / shot_code / status / 当前版本指针与状态证据，是 ShotRevision 的归属锚点'
+      state_machines:
+        - object: 'Shot'
+          why: '五态 NOT_STARTED / IN_PRODUCTION / BLOCKED / PRODUCTION_COMPLETE / CANCELLED，10 条转移，CANCELLED 终态；6 条转移守卫钉在 schema 字段上'
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 82
+      state_machines: 41
+    residual_risks:
+      - 'Scene 仍未建模：Shot.scene_id 指向一个没有 object schema 的对象（与 ShotRevision.scene_id 同一既有缺口），scene_id→Project 的归属一致性只能靠运行时复合外键，属 SH-2 的 RUNTIME_PENDING'
+      - 'Shot 无运行时、无镜头表：原子创建、版本指针前移、状态推进、shot_code 项目内唯一约束均无落点；八条不变量只有 SH-5 与 SH-8 可由 schema 表达'
+      - 'shot_code 未加 pattern：不同项目编号习惯不同（EP001-SC003-SH012 仅是示例），强行正则属于过约束；唯一性依靠数据库 (project_id, shot_code) 唯一索引'
+      - 'duration_ms / timecode 归属冲突：所有者本轮口径为「时长与时间码归 ShotSpec」，但 ADR-R17 已把两者放进 ShotRevision 并冻结；本轮不改已冻结契约，差异与两条迁移路径见 ADR-R18「待裁定差异」'
+      - '五态是所有者设计决策、非正文原文：下一版正文若给出不同状态集，须走契约修订对齐，不得让实现与契约各自解释'
+      - '冻结闸门按名称集合判定增删，识别不了「同名 action 指向不同对象」：SHOT.REVISION.CONFIRM 的 resource_type 由 ShotRevision 改为 Shot/ShotRevision 属同名改写，登记在案而非靠闸门发现'
+      - '审批事实仍无独立对象：cancellation_ref / rework_basis_ref 指向授权记录，但「谁在什么授权下批准了什么」无专用对象，与 AUTH-3 累积式会签同源；刻意不另造审批子对象，避免第三份审批事实源'
+
+  - id: 'V205-R14-A7'
+    title: '镜头字段归属裁决——时长归 ShotSpec、时间线位置归 TimelineDraft（ShotRevision 退役两字段）'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: 'V205-R14-A6 残余风险第 4 条（duration_ms / timecode 归属冲突）；docs/adr/ADR-R18-shot-entity-contract.md「待裁定差异」'
+    reason: >-
+      项目所有者 2026-11-18 正式裁决：duration_ms 归 ShotSpec，timecode 归 TimelineDraft 的镜头时间线条目，
+      两者都不再属于 ShotRevision；A、B 两条路径均不采用。决定性依据是 8.12「ShotSpec 是镜头结构化描述的
+      单一数据源，不应分别维护冲突的镜头时长或切点」与 33.2 的入出点字段组（clip_in_frame / clip_out_frame）。
+      落点有一处修正：timecode 迁入 clip_in_frame / clip_out_frame，而非新增 start_frame / end_frame
+      作为镜头条目字段——后者与 33.2 的入出点构成同型重复，等于把刚消除的双事实源换个字段名再建一遍。
+      同时把承接方（ShotSpec / TimelineDraft）的空壳字段做实：迁入无约束的 type: string 是质量暗降，
+      双事实源会退化为单一无约束事实。帧区间统一左闭右开，避免 end 是否含末帧在剪辑、字幕、音频、
+      导出四处各有解释。
+    adr: 'docs/adr/ADR-R18-shot-entity-contract.md'
+    approved_by: '项目所有者（会话内正式裁决「duration_ms → ShotSpec，timecode → TimelineDraft」）'
+    approved_at: '2026-11-18'
+    source_commits: []
+    additions: {}
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 82
+      state_machines: 41
+    residual_risks:
+      - '本修订无名称级增删（对象/动作/状态机数量不变），只做字段级收敛：冻结闸门按名称集合判定，识别不了字段退役，须靠 schema_field_signatures 的字段级 diff 配合本条目'
+      - '跨对象时长换算未定取整与容差口径：8.12 示例自身不严格（4200 ms @ 24/1 = 100.8 帧，切点末点为 100），实现方不得用严格相等校验，SS-3 与 TL-3 暂只校验对象内部一致性'
+      - 'ShotSpec 与 TimelineDraft 仍为部分空壳：本轮只做实与裁决直接相关的字段；TimelineDraft 的 required 混入子条目字段与 duration_per_shot_frames{} 这类带花括号键名，属既有结构缺陷，独立整改'
+      - '基线 8.3 示例把 duration_ms / timecode 与 Shot 身份字段混在一段 JSON 里，应分对象呈现；基线文档已冻结哈希（489607 字节 / 9a9940c5…），本轮不私改，登记为基线待修订项'
+      - 'Scene 仍未建模：Shot.scene_id 与 ShotRevision.scene_id 同指一个无 schema 的对象，归属一致性只能靠运行时复合外键 (project_id, scene_id) 与 (project_id, shot_code) 唯一索引'
+      - '批注类对象的 timecode 仍是字符串：ReverseKeyframeRef / ClientAnnotation / ReviewAnnotation / QCIssue 用它做单点定位，不构成区间事实，但与正文 3836 行「不得只用字符串时间码」的要求相抵；属独立质量问题，本轮不动'
+      - '本修订解除 A6 残余风险第 4 条（归属冲突）与 ADR-R18「待裁定差异」，其它残余风险不变'
+
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

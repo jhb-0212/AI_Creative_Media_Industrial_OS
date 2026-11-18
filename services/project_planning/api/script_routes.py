@@ -25,8 +25,10 @@ from packages.shared.contract_models import contract_model
 from packages.shared.unit_of_work import UnitOfWork
 from services.identity_access.deps import (
     Principal,
+    authorize_on_parent,
     get_project_tenant_uow,
     get_read_project_tenant_uow,
+    require_resource_role,
     require_role,
 )
 from services.project_planning.repository.episode_sqlalchemy_repo import (
@@ -94,7 +96,18 @@ async def import_script(
     uow: UnitOfWork = Depends(get_project_tenant_uow),
     service: ScriptService = Depends(_get_service),
 ) -> dict[str, Any]:
-    """导入剧本版本（幂等，产出 DRAFT 态）。created_by / tenant_id 来自 Principal。"""
+    """导入剧本版本（幂等，产出 DRAFT 态）。created_by / tenant_id 来自 Principal。
+
+    归属判定：剧本版本尚不存在，判定对象是父项目——避免先往别人的项目里写
+    剧本版本再借后续读路径访问（写入即越权）。
+    """
+    await authorize_on_parent(
+        "SCRIPT.IMPORT",
+        principal,
+        uow.session,
+        parent_type="Project",
+        parent_id=body.project_id,
+    )
     script = await service.import_script(
         project_id=body.project_id,
         episode_ref=body.episode_ref,
@@ -110,7 +123,14 @@ async def import_script(
 @router.post("/{entity_id}/lock/request", response_model=_ScriptRevisionResponse)
 async def request_lock(
     entity_id: str,
-    principal: Principal = Depends(require_role("SCRIPT.LOCK.REQUEST")),
+    principal: Principal = Depends(
+        require_resource_role(
+            "SCRIPT.LOCK.REQUEST",
+            resource_type="ScriptRevision",
+            param_name="entity_id",
+            uow_dep=get_project_tenant_uow,
+        )
+    ),
     uow: UnitOfWork = Depends(get_project_tenant_uow),
     service: ScriptService = Depends(_get_service),
 ) -> dict[str, Any]:
@@ -126,7 +146,14 @@ async def request_lock(
 @router.post("/{entity_id}/lock/approve", response_model=_ScriptRevisionResponse)
 async def approve_lock(
     entity_id: str,
-    principal: Principal = Depends(require_role("SCRIPT.LOCK.APPROVE")),
+    principal: Principal = Depends(
+        require_resource_role(
+            "SCRIPT.LOCK.APPROVE",
+            resource_type="ScriptRevision",
+            param_name="entity_id",
+            uow_dep=get_project_tenant_uow,
+        )
+    ),
     uow: UnitOfWork = Depends(get_project_tenant_uow),
     service: ScriptService = Depends(_get_service),
 ) -> dict[str, Any]:
@@ -142,7 +169,14 @@ async def approve_lock(
 @router.get("/{entity_id}", response_model=_ScriptRevisionResponse)
 async def get_script(
     entity_id: str,
-    _principal: Principal = Depends(require_role("SCRIPT.READ")),
+    _principal: Principal = Depends(
+        require_resource_role(
+            "SCRIPT.READ",
+            resource_type="ScriptRevision",
+            param_name="entity_id",
+            uow_dep=get_read_project_tenant_uow,
+        )
+    ),
     service: ScriptService = Depends(_get_read_service),
 ) -> dict[str, Any]:
     """按 id 查询剧本版本（需 SCRIPT.READ 授权；租户边界由 RLS 保证）。"""

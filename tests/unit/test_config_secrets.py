@@ -351,3 +351,89 @@ def test_migration_guard_allows_injected_production_password(
     reject_development_default_password(
         settings, "postgres_relay_password", "POSTGRES_RELAY_PASSWORD"
     )
+
+
+def test_duplicate_domain_role_names_rejected() -> None:
+    """两个域角色配成同名 → 启动期拒绝（P2-02）。
+
+    角色名可配置，若配置成同一个，DATA-1 的模块级隔离会被一个环境变量抹掉，
+    而运行期看不出异常（权限看起来都通）。因此必须在配置构造期拒绝。
+    """
+    from packages.shared.config import Settings
+
+    with pytest.raises(ValueError) as exc:
+        Settings(
+            postgres_project_planning_user="same_role",
+            postgres_asset_service_user="same_role",
+        )
+    assert "角色名重复" in str(exc.value)
+
+
+def test_distinct_domain_role_names_accepted() -> None:
+    """默认角色名互不相同 → 正常构造（不误伤）。"""
+    from packages.shared.config import Settings
+
+    settings = Settings()
+    assert (
+        len(
+            {
+                settings.postgres_project_planning_user,
+                settings.postgres_asset_service_user,
+                settings.postgres_relay_user,
+                settings.postgres_app_user,
+            }
+        )
+        == 4
+    )
+
+
+# --------------------------------------------------------------------------- #
+# 熔断与探针参数校验（保护设施不得静默失效）
+# --------------------------------------------------------------------------- #
+def test_negative_circuit_threshold_rejected() -> None:
+    """负阈值拒绝：-1 既不表示开启也不表示关闭，是明确的配置错误。"""
+    from packages.shared.config import Settings
+
+    with pytest.raises(ValueError) as exc:
+        Settings(rate_limit_circuit_failure_threshold=-1)
+    assert "熔断阈值不能为负" in str(exc.value)
+
+
+def test_enabled_circuit_with_zero_recovery_rejected() -> None:
+    """开了熔断却没有冷却期 → 拒绝启动。
+
+    这种组合会让熔断器一打开就永不半开（冷却期 =0 时行为依赖实现细节），
+    结果与「永久熔断」等价，比不开更糟。
+    """
+    from packages.shared.config import Settings
+
+    with pytest.raises(ValueError) as exc:
+        Settings(
+            rate_limit_circuit_failure_threshold=3,
+            rate_limit_circuit_recovery_seconds=0,
+        )
+    assert "冷却期" in str(exc.value)
+
+
+def test_zero_threshold_means_disabled_and_skips_recovery_check() -> None:
+    """阈值 0 = 关闭熔断（与 webhook 同一口径），此时冷却期不参与判定。"""
+    from packages.shared.config import Settings
+
+    settings = Settings(
+        rate_limit_circuit_failure_threshold=0,
+        rate_limit_circuit_recovery_seconds=0,
+    )
+    assert settings.rate_limit_circuit_failure_threshold == 0
+
+
+def test_invalid_readiness_bounds_rejected() -> None:
+    """探针参数越界 → 拒绝启动（TTL 为负会让缓存永不过期）。"""
+    from packages.shared.config import Settings
+
+    with pytest.raises(ValueError) as exc:
+        Settings(readiness_cache_ttl_seconds=-1)
+    assert "READINESS_CACHE_TTL_SECONDS" in str(exc.value)
+
+    with pytest.raises(ValueError) as exc:
+        Settings(readiness_timeout_seconds=0)
+    assert "READINESS_TIMEOUT_SECONDS" in str(exc.value)

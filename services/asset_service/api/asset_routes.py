@@ -40,8 +40,10 @@ from services.asset_service.repository.sqlalchemy_qc_repo import (
 from services.asset_service.service.asset_service import AssetService
 from services.identity_access.deps import (
     Principal,
+    authorize_on_parent,
     get_asset_tenant_uow,
     get_read_asset_tenant_uow,
+    require_resource_role,
     require_role,
 )
 
@@ -59,8 +61,13 @@ _QCCreationResponse = create_model(
 
 
 class CreateAssetVersionRequest(BaseModel):
-    """资产版本登记请求体（ASSET.VERSION.CREATE）。"""
+    """资产版本登记请求体（ASSET.VERSION.CREATE）。
 
+    project_id 是必填归属键：资产必须挂到项目上，否则无法判定项目/组织级授权
+    （契约 scope: project/shot/asset）。它不进响应（与 tenant_id 同待遇）。
+    """
+
+    project_id: str = Field(..., min_length=1, max_length=64)
     asset_type: str = Field(..., min_length=1, max_length=32)
     sha256: str = Field(..., min_length=64, max_length=64)
     storage_ref: dict[str, Any] = Field(..., min_length=1)
@@ -124,8 +131,20 @@ async def create_asset_version(
     uow: UnitOfWork = Depends(get_asset_tenant_uow),
     service: AssetService = Depends(_get_service),
 ) -> dict[str, Any]:
-    """登记资产版本（GENERATED，幂等；禁止覆盖既有版本内容）。"""
+    """登记资产版本（GENERATED，幂等；禁止覆盖既有版本内容）。
+
+    归属判定：资产尚不存在，判定对象是目标项目——否则可以先往别人的项目里
+    写资产再借读路径取回（写入即越权）。
+    """
+    await authorize_on_parent(
+        "ASSET.VERSION.CREATE",
+        principal,
+        uow.session,
+        parent_type="Project",
+        parent_id=body.project_id,
+    )
     asset = await service.create_version(
+        project_id=body.project_id,
         asset_type=body.asset_type,
         sha256=body.sha256,
         storage_ref=body.storage_ref,
@@ -151,6 +170,13 @@ async def create_qc_report(
     service: AssetService = Depends(_get_service),
 ) -> dict[str, Any]:
     """登记 QC 证据（首个报告把资产推入 TECHNICAL_QC，不改变 Gate）。"""
+    await authorize_on_parent(
+        "QC.REPORT.CREATE",
+        principal,
+        uow.session,
+        parent_type="AssetVersion",
+        parent_id=asset_version_id,
+    )
     asset, report = await service.create_qc_report(
         asset_version_id=asset_version_id,
         quality_profile_version=body.quality_profile_version,
@@ -176,6 +202,13 @@ async def approve_asset_version(
     service: AssetService = Depends(_get_service),
 ) -> dict[str, Any]:
     """批准资产版本（职责分离 + 权利/QC 证据齐备；TECHNICAL_QC 先过 HUMAN_REVIEW）。"""
+    await authorize_on_parent(
+        "ASSET.VERSION.APPROVE",
+        principal,
+        uow.session,
+        parent_type="AssetVersion",
+        parent_id=asset_version_id,
+    )
     asset = await service.approve(
         asset_version_id=asset_version_id, principal=principal
     )
@@ -187,7 +220,14 @@ async def approve_asset_version(
 async def change_asset_status(
     asset_version_id: str,
     body: ChangeAssetStatusRequest,
-    principal: Principal = Depends(require_role("ASSET.STATUS.CHANGE")),
+    principal: Principal = Depends(
+        require_resource_role(
+            "ASSET.STATUS.CHANGE",
+            resource_type="AssetVersion",
+            param_name="asset_version_id",
+            uow_dep=get_asset_tenant_uow,
+        )
+    ),
     uow: UnitOfWork = Depends(get_asset_tenant_uow),
     service: AssetService = Depends(_get_service),
 ) -> dict[str, Any]:
@@ -209,7 +249,14 @@ async def change_asset_status(
 @router.get("/{asset_version_id}", response_model=_AssetVersionResponse)
 async def read_asset_version(
     asset_version_id: str,
-    _principal: Principal = Depends(require_role("ASSET.VERSION.READ")),
+    _principal: Principal = Depends(
+        require_resource_role(
+            "ASSET.VERSION.READ",
+            resource_type="AssetVersion",
+            param_name="asset_version_id",
+            uow_dep=get_read_asset_tenant_uow,
+        )
+    ),
     service: AssetService = Depends(_get_read_service),
 ) -> dict[str, Any]:
     """读取资产版本信封（只读；租户可见性由 RLS 保证，不可见即 NOT_FOUND）。"""

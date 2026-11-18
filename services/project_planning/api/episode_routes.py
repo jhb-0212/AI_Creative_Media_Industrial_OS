@@ -20,8 +20,10 @@ from packages.shared.contract_models import contract_model
 from packages.shared.unit_of_work import UnitOfWork
 from services.identity_access.deps import (
     Principal,
+    authorize_on_parent,
     get_project_tenant_uow,
     get_read_project_tenant_uow,
+    require_resource_role,
     require_role,
 )
 from services.project_planning.domain.enums import EpisodeStatus
@@ -88,7 +90,18 @@ async def create_episode(
     uow: UnitOfWork = Depends(get_project_tenant_uow),
     service: EpisodeService = Depends(_get_service),
 ) -> dict[str, Any]:
-    """登记集数（幂等，归属 Project）。created_by / tenant_id 来自 Principal。"""
+    """登记集数（幂等，归属 Project）。created_by / tenant_id 来自 Principal。
+
+    归属判定：集数尚不存在，判定对象是父项目——否则可以先在别人的项目里造
+    集数，再借后续读路径访问（写入即越权）。
+    """
+    await authorize_on_parent(
+        "EPISODE.CREATE",
+        principal,
+        uow.session,
+        parent_type="Project",
+        parent_id=body.project_id,
+    )
     episode = await service.create_episode(
         project_id=body.project_id,
         episode_ref=body.episode_ref,
@@ -104,10 +117,17 @@ async def create_episode(
 @router.get("/{entity_id}", response_model=_EpisodeResponse)
 async def get_episode(
     entity_id: str,
-    _principal: Principal = Depends(require_role("EPISODE.READ")),
+    _principal: Principal = Depends(
+        require_resource_role(
+            "EPISODE.READ",
+            resource_type="Episode",
+            param_name="entity_id",
+            uow_dep=get_read_project_tenant_uow,
+        )
+    ),
     service: EpisodeService = Depends(_get_read_service),
 ) -> dict[str, Any]:
-    """按 id 查询集数（需 EPISODE.READ 授权；租户边界由 RLS 保证）。"""
+    """按 id 查询集数（租户边界由 RLS 保证，组织边界由统一授权入口判定）。"""
     episode = await service.get_episode(entity_id)
     return episode.to_dict()
 
@@ -116,7 +136,14 @@ async def get_episode(
 async def change_episode_status(
     entity_id: str,
     body: ChangeEpisodeStatusRequest,
-    principal: Principal = Depends(require_role("EPISODE.STATUS.CHANGE")),
+    principal: Principal = Depends(
+        require_resource_role(
+            "EPISODE.STATUS.CHANGE",
+            resource_type="Episode",
+            param_name="entity_id",
+            uow_dep=get_project_tenant_uow,
+        )
+    ),
     uow: UnitOfWork = Depends(get_project_tenant_uow),
     service: EpisodeService = Depends(_get_service),
 ) -> dict[str, Any]:

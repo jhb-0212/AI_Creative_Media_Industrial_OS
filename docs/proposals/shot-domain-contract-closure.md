@@ -1,6 +1,28 @@
+---
+doc_type: proposal
+status: in_progress
+updated_at: 2026-11-18
+authoritative_sources:
+  - contracts/runtime/resource_schema_gaps.yaml
+  - contracts/runtime/action_implementations.yaml
+open_items:
+  - item: >-
+      镜头域两个对象契约已落地（ShotBreakdownDraft 见 ADR-R16；ShotRevision 见 ADR-R17）；
+      其余 7 个资源类型仍无 schema 定义，须依据正文或所有者口径补齐，不得猜契约
+    source: "contracts/runtime/resource_schema_gaps.yaml#gaps"
+  - item: >-
+      Shot 稳定实体本身仍未建模：8.3 是 Shot 与 ShotRevision 的合并示例，正文没有给 Shot 的
+      状态集，字段拆分归属需所有者裁定；当前以 shot_id 为稳定身份键 + 父级不漂移（SR-5）
+      保证一致性，但 shot_code 与生产进度尚无归属对象
+    source: "contracts/phase0/contract_amendments.yaml#amendments"
+  - item: >-
+      镜头域动作（SHOT.DRAFT.CREATE / SHOT.REVISION.CONFIRM 等）无运行时入口，属 Phase 2 范围
+    source: "contracts/runtime/action_implementations.yaml#not_implemented"
+---
+
 # 镜头域契约闭合提案（Shot domain contract closure）
 
-状态：第一步已实施（2026-11-14，闸门口径已扩到 ACTIVE 并用显式债务承接；第 2~4 步阻塞于正文）
+状态：以文首 front-matter 为准（`status: in_progress`，未完成项见 `open_items`）。
 关联：ADR-032（AI 拆镜输出默认草案）、ADR-R07（ShotDraft 缺对象契约）
 适用范围：仅契约层与闸门口径；不含运行时实现代码
 
@@ -11,8 +33,8 @@ ADR-R07 记录的是「ShotDraft 无对象 schema」这**一个**缺口。本轮
 
 | 资源类型 | 引用它的 ACTIVE 动作 |
 |---|---|
-| `ShotDraft` | `SHOT.DRAFT.CREATE` |
-| `ShotRevision` | `SHOT.REVISION.CONFIRM` |
+| `ShotDraft`（已闭：→ `ShotBreakdownDraft`，ADR-R16） | `SHOT.DRAFT.CREATE` |
+| `ShotRevision`（已闭：ADR-R17） | `SHOT.REVISION.CONFIRM` |
 | `ShotBudgetRequest` | `BUDGET.SHOT.REQUEST`、`BUDGET.SHOT.APPROVE` |
 | `BudgetLedger` | `BUDGET.SHOT.APPROVE` |
 | `GenerationTask` | `GENERATION.REQUEST` |
@@ -22,6 +44,11 @@ ADR-R07 记录的是「ShotDraft 无对象 schema」这**一个**缺口。本轮
 | `RightsManifest` | `RIGHTS.STATUS.CHANGE` |
 
 已豁免的 4 个是核心信封对象：`Project`、`Episode`、`ScriptRevision`、`ScriptLock`。
+
+> **2026-11-18 进展**：前两行已闭合——`ShotDraft` 由 `ShotBreakdownDraft` 取代（ADR-R16），
+> `ShotRevision` 按正文 8.1/8.2/8.3/8.8 + 19.3 + 31.6 补齐（ADR-R17）。当前真实缺口 7 项
+> （上表后 7 行，`resource_schema_gaps.yaml` 已同步）。另发现一条新的显式缺口：`Shot` 本身仍未建模，
+> 因为它与 `ShotRevision` 的字段边界需要所有者裁定（8.3 是合并示例，正文未给 Shot 状态集）。
 
 ## 二、根因
 
@@ -40,13 +67,19 @@ ADR-R07 已指出「这条缺口能通过 CI，但它不是契约自洽，只是
    - 已实现动作的资源类型必须落在 schema（豁免仅限核心信封对象）；
    - 豁免条目若不被任何已实现动作引用即视为过期并报红（沿用现有规则）。
    改完后 CI 会立刻报出上述 9 条，缺口由静默变为显性。
-2. **主链必需的两个对象补 schema**：`ShotDraft`、`ShotRevision`（见第四节）。
+2. **主链必需的两个对象补 schema**：`ShotDraft`（→ `ShotBreakdownDraft`，已完成，ADR-R16）、
+   `ShotRevision`（已完成，ADR-R17）。
 3. **补两个动作**，否则状态机没有入口（见第五节）。
 4. **其余 7 个按域批量处理**，不得一次性全塞豁免：业务对象（`GenerationTask`、
    `ProductionRoute`、`ShotBudgetRequest`、`BudgetLedger`、`CanonRevision`、`RightsCase`、
    `RightsManifest`）都是可校验的业务对象，应补 schema；豁免只留给核心信封对象这一既有先例。
 
 ## 四、ShotDraft 字段契约（draft-07 片段）
+
+> **已被 ADR-R16 取代（2026-11-18）。** 下文保留原始草案作历史记录，不再是权威口径。
+> 实际落地的对象是文档级聚合根 `ShotBreakdownDraft`（三层结构：场次 → 剧情节拍 → 镜头草案，
+> 含版本链与人工审阅事实），字段定义见 `contracts/schemas/object_schemas.schema.json`。
+> 改动理由：逐行模型无法表达人工的合并/拆分，也承载不了「每次修改形成新版本、不覆盖历史」。
 
 命名遵循现有 schema 惯例：业务标识用 `<对象>_id`，引用用 `<对象>_ref` / `_refs`，
 通用信封为 10 项（`entity_id`、`entity_type`、`schema_version`、`entity_version`、`status`、
@@ -115,6 +148,10 @@ DRAFT ──CONFIRM──> CONFIRMED ──SUPERSEDE──> SUPERSEDED(终态)
    `ConstraintPack`，草案只能提出候选，不能自带约束。
 
 ## 五、缺失的确认动作（比字段更硬的缺口）
+
+> 动作名以 ADR-R16 的五态为准：`SHOT.DRAFT.CONFIRM`（→CONFIRMED）、`SHOT.DRAFT.RETURN`
+> （→RETURNED）、`SHOT.DRAFT.DISCARD`（→DISCARDED），不再使用 `REJECT`——
+> 「退回修改」与「废弃」是两种不同处置，合成一个动作会让退回的草案无处可去。
 
 `SHOT.DRAFT.CREATE` 只产生 `DRAFT`。按 31.5「未登记转移一律拒绝」，
 `DRAFT → CONFIRMED / REJECTED` 若没有对应 action，运行时根本无路可走——

@@ -181,3 +181,56 @@ def test_threshold_zero_means_disabled_and_is_constructible() -> None:
     assert breaker.state is CircuitState.CLOSED
     # 归一化后阈值不低于 1：关闭态也不会把非法值带进后续比较。
     assert breaker._failure_threshold >= 1
+
+
+# --------------------------------------------------------------------------- #
+# 状态观察者（指标注入）与在途探测释放
+# --------------------------------------------------------------------------- #
+def test_state_observer_receives_transitions_with_previous() -> None:
+    """观察者收到 (新态, 旧态)，首次发布 previous 为 None。
+
+    这个签名是有意的：只有真发生迁移时才需要「清旧置新」，metrics 层因此
+    不必自己维护一份状态名清单（那是第二个事实源，新增状态时必定漏改）。
+    """
+    seen: list[tuple[CircuitState, CircuitState | None]] = []
+    breaker = CircuitBreaker(
+        failure_threshold=1, state_observer=lambda s, p: seen.append((s, p))
+    )
+
+    assert seen == [(CircuitState.CLOSED, None)]
+    assert breaker.allow() is True
+    breaker.record_failure()
+    assert seen[-1] == (CircuitState.OPEN, CircuitState.CLOSED)
+
+
+def test_breaker_works_without_observer() -> None:
+    """不注入观察者也能正常工作：熔断器不假设存在指标系统。"""
+    breaker = CircuitBreaker(failure_threshold=1)
+    assert breaker.allow() is True
+    breaker.record_failure()
+    assert breaker.state is CircuitState.OPEN
+    assert breaker.allow() is False
+
+
+def test_release_probe_frees_wedged_half_open() -> None:
+    """半开探测被取消后必须释放在途标志，否则熔断器永久卡死。
+
+    真实触发路径：请求处理到一半被取消（服务关闭、调用方断开），
+    ``record_success`` 与 ``record_failure`` 都不会被调用。若在途标志不释放，
+    此后所有请求都被判为「半开期已有探测在途」而快速失败——下游早已恢复，
+    系统却再也不会尝试。
+    """
+    clock = _FakeClock()
+    breaker = CircuitBreaker(
+        failure_threshold=1, recovery_timeout_seconds=5.0, clock=clock
+    )
+    assert breaker.allow() is True
+    breaker.record_failure()
+    clock.advance(6)
+
+    assert breaker.allow() is True  # 冷却期满，放行一个探测
+    assert breaker.allow() is False  # 探测在途，其余快速失败
+
+    breaker.release_probe()  # 探测被取消：既非成功也非失败
+    assert breaker.state is CircuitState.HALF_OPEN
+    assert breaker.allow() is True  # 下一个请求可以重新探测

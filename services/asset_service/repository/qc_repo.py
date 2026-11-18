@@ -12,7 +12,11 @@ class QCReportRepository(ABC):
 
     @abstractmethod
     async def add(self, report: QCReport) -> None:
-        """新增报告（不 commit）；同 id 重复由主键约束兜底。"""
+        """新增报告（不 commit）。
+
+        失败契约：同 id 重复 → ``DuplicateEntityError``（服务层回读后幂等返回）；
+        引用的资产版本不成立 → ``ReferentialIntegrityError``（必须上抛）。
+        """
         raise NotImplementedError
 
     @abstractmethod

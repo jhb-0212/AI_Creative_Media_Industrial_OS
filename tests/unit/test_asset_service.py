@@ -13,6 +13,7 @@ import pytest
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.identity.principal import Principal
+from packages.shared.port_errors import DuplicateEntityError
 from packages.shared.versioning import ConcurrentModificationError
 from services.asset_service.domain.asset_version import AssetVersion
 from services.asset_service.domain.enums import AssetStatus
@@ -104,6 +105,7 @@ def service() -> tuple[AssetService, FakeAssetRepository, FakeQCRepository, Fake
 
 async def _create(service: AssetService, **overrides: object) -> AssetVersion:
     params: dict[str, object] = {
+        "project_id": "project-1",
         "asset_type": "IMAGE",
         "sha256": _SHA,
         "storage_ref": {"uri": "s3://bucket/key.png"},
@@ -375,9 +377,11 @@ async def test_read_version_missing_is_not_found(
 
 
 class _ConcurrentAssetRepository(FakeAssetRepository):
-    """模拟并发主键冲突的仓储：add 首次抛 IntegrityError，回查返回既有对象。
+    """模拟并发主键冲突的仓储：add 首次抛端口契约异常，回查返回既有对象。
 
     用于验证「并发回查路径」与「快速路径」共用同一幂等判定——复核 R5。
+    注意抛的是 ``DuplicateEntityError``（端口契约），不是
+    ``sqlalchemy.exc.IntegrityError``：fake 不该假装自己是 ORM（P2-03）。
     """
 
     def __init__(self, pre_existing: AssetVersion) -> None:
@@ -388,10 +392,8 @@ class _ConcurrentAssetRepository(FakeAssetRepository):
     async def add(self, asset: AssetVersion) -> None:
         if not self._add_failed_once:
             self._add_failed_once = True
-            from sqlalchemy.exc import IntegrityError
-
-            raise IntegrityError(
-                "INSERT", {}, Exception("duplicate key value violates unique constraint")
+            raise DuplicateEntityError(
+                asset.entity_id, constraint="pk_asset_service_asset_versions"
             )
         await super().add(asset)
 
@@ -411,6 +413,7 @@ async def test_concurrent_same_content_is_idempotent() -> None:
         entity_id="concurrent-id",
         created_by="worker-1",
         tenant_id=_TENANT,
+        project_id="project-1",
         asset_type="IMAGE",
         sha256=_SHA,
         storage_ref={"uri": "s3://bucket/key.png"},
@@ -418,6 +421,7 @@ async def test_concurrent_same_content_is_idempotent() -> None:
     svc, _, _, outbox = _concurrent_service(pre)
 
     result = await svc.create_version(
+        project_id="project-1",
         asset_type="IMAGE",
         sha256=_SHA,
         storage_ref={"uri": "s3://bucket/key.png"},
@@ -445,6 +449,7 @@ async def test_concurrent_same_sha_different_type_is_rejected() -> None:
         entity_id="concurrent-id",
         created_by="worker-1",
         tenant_id=_TENANT,
+        project_id="project-1",
         asset_type="VIDEO",
         sha256=_SHA,
         storage_ref={"uri": "s3://bucket/key.mp4"},
@@ -453,6 +458,7 @@ async def test_concurrent_same_sha_different_type_is_rejected() -> None:
 
     with pytest.raises(DomainError) as exc:
         await svc.create_version(
+            project_id="project-1",
             asset_type="AUDIO",  # 同 sha、不同 asset_type
             sha256=_SHA,
             storage_ref={"uri": "s3://bucket/key.mp4"},
@@ -466,3 +472,120 @@ async def test_concurrent_same_sha_different_type_is_rejected() -> None:
             entity_id="concurrent-id",
         )
     assert exc.value.error_code is ErrorRegistry.IDEMPOTENCY_CONFLICT
+
+
+async def test_same_id_across_projects_is_rejected(
+    service: tuple[AssetService, FakeAssetRepository, FakeQCRepository, FakeOutboxWriter],
+) -> None:
+    """同一 entity_id 被另一个项目复用 → 409，不得静默返回别的项目的资产。
+
+    若「查到即返回」，调用方会拿到其他项目的资产信封：既是跨项目信息泄漏，
+    也让覆盖请求被默许。归属键必须参与幂等判定（SCOPE-3）。
+    """
+    svc, _, _, _ = service
+    first = await _create(svc, entity_id="shared-key", project_id="project-1")
+    assert first.project_id == "project-1"
+
+    with pytest.raises(DomainError) as exc_info:
+        await _create(svc, entity_id="shared-key", project_id="project-2")
+    assert exc_info.value.error_code is ErrorRegistry.IDEMPOTENCY_CONFLICT
+
+
+# --------------------------------------------------------------------------- #
+# 生命周期统一（S2 / 第二轮审查 P1-02）
+# --------------------------------------------------------------------------- #
+def _asset_in(status: AssetStatus, *, rights: str | None = "rights-1") -> AssetVersion:
+    """构造指定状态的资产（绕过状态机，仅作为服务层用例的前置数据）。"""
+    return AssetVersion(
+        entity_id="lifecycle-id",
+        created_by="worker-1",
+        tenant_id=_TENANT,
+        project_id="project-1",
+        asset_type="IMAGE",
+        sha256=_SHA,
+        storage_ref={"uri": "s3://bucket/key.png"},
+        rights_manifest_ref=rights,
+        status=status,
+    )
+
+
+def _report(asset_version_id: str = "lifecycle-id") -> QCReport:
+    return QCReport(
+        qc_report_id="qc-1",
+        asset_version_id=asset_version_id,
+        tenant_id=_TENANT,
+        quality_profile_version="qp-1",
+        detector_versions={"blur": "1.0"},
+        findings=[{"code": "BLUR"}],
+        created_by="qc-worker",
+    )
+
+
+async def test_change_status_cannot_reach_approved() -> None:
+    """通用状态接口无法到达 APPROVED（边归审批动作独占，P1-02 原案）。
+
+    注意这**不是**靠证据校验拦住的：这里刻意给了权利证据与 QC 报告，
+    仍然拒绝——因为 APPROVED 那条边不在 STATUS.CHANGE 的可达集里。
+    """
+    pre = _asset_in(AssetStatus.HUMAN_REVIEW)
+    svc, _, qc, outbox = _concurrent_service(pre)
+    await qc.add(_report())
+
+    with pytest.raises(DomainError) as exc:
+        await svc.change_status(
+            asset_version_id="lifecycle-id",
+            target_status=AssetStatus.APPROVED,
+            changed_by="director-1",
+            principal=_principal("director-1", "导演"),
+        )
+    assert exc.value.error_code is ErrorRegistry.STATE_TRANSITION_DENIED
+    assert "独占" in exc.value.detail
+    assert outbox.events == []
+
+
+async def test_approve_and_change_status_share_evidence_rule() -> None:
+    """缺权利证据时，审批与状态推进返回**同一错误码同一措辞**。
+
+    这是「两套规则」被消除的可执行证据：同一事实（没有 rights_manifest_ref）
+    在两条路径上得到同一个结论。
+    """
+    approve_svc, _, approve_qc, _ = _concurrent_service(
+        _asset_in(AssetStatus.HUMAN_REVIEW, rights=None)
+    )
+    await approve_qc.add(_report())
+    with pytest.raises(DomainError) as approve_exc:
+        await approve_svc.approve(
+            asset_version_id="lifecycle-id",
+            principal=_principal("director-1", "导演"),
+        )
+
+    gold_svc, _, gold_qc, _ = _concurrent_service(
+        _asset_in(AssetStatus.APPROVED, rights=None)
+    )
+    await gold_qc.add(_report())
+    with pytest.raises(DomainError) as gold_exc:
+        await gold_svc.change_status(
+            asset_version_id="lifecycle-id",
+            target_status=AssetStatus.GOLD,
+            changed_by="director-1",
+            principal=_principal("director-1", "导演"),
+        )
+
+    assert approve_exc.value.error_code is gold_exc.value.error_code
+    assert approve_exc.value.detail == gold_exc.value.detail
+    assert "rights_manifest_ref" in approve_exc.value.detail
+
+
+def test_service_layer_holds_no_evidence_rules() -> None:
+    """服务层不得出现证据判定代码（规则只在边的守卫里）。
+
+    静态断言：一旦有人再往用例方法里写 ``if not asset.rights_manifest_ref``，
+    这条会立刻变红——它防的正是 P1-02 的复发形态。
+    """
+    from pathlib import Path
+
+    source = Path(
+        "services/asset_service/service/asset_service.py"
+    ).read_text(encoding="utf-8")
+    assert "if not asset.rights_manifest_ref" not in source
+    assert "report_count == 0" not in source

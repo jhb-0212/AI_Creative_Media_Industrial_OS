@@ -12,7 +12,12 @@ class ScriptRepository(ABC):
 
     @abstractmethod
     async def add(self, script: ScriptRevision) -> None:
-        """新增剧本版本（INSERT 语义，主键冲突抛 IntegrityError）。"""
+        """新增剧本版本（INSERT 语义）。
+
+        失败契约见 ``ProjectRepository.add``：唯一冲突（含
+        ``ux_script_active_version``）抛 ``DuplicateEntityError``，外键/CHECK
+        不成立抛 ``ReferentialIntegrityError``。两者可恢复性不同，不可混为一谈。
+        """
         raise NotImplementedError
 
     @abstractmethod

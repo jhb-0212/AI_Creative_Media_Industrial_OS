@@ -1,6 +1,31 @@
+---
+doc_type: proposal
+status: in_progress
+updated_at: 2026-11-18
+authoritative_sources:
+  - contracts/security_boundary.yaml
+  - contracts/runtime/action_implementations.yaml
+open_items:
+  - item: >-
+      会签累积机制未落地：AUTH-5 已让 `/`（席内 OR）与 `+`（席位间 AND）的语义
+      可判定，并让多席位动作显式拒绝而非静默降级；但「多主体分次签署、凑齐后
+      放行」需要审批事实契约（谁签了哪个席位）与目标动作的运行时入口，两者均
+      未就位。唯一含 '+' 的 ACTIVE 动作 DELIVERY.MANIFEST.APPROVE 属交付链，
+      该链 11 个动作全无入口
+    source: "contracts/security_boundary.yaml#AUTH-5"
+  - item: >-
+      边带守卫仅 AssetVersion 落地；Project / Episode / ScriptRevision 的转移边
+      只有结构、尚无证据类准入门槛（AUTH-4 的 residual_risk）
+    source: "contracts/security_boundary.yaml#AUTH-4"
+---
+
 # F01–F05 安全与数据边界统一重构方案
 
-> 状态：**提案 / 待评审冻结**
+> 状态：**以文首 front-matter 为准**（`status: in_progress`，残余项见 `open_items`）。
+> 各阶段的完成度不再手写打勾，一律引用事实源：
+> `contracts/security_boundary.yaml`（15 条边界不变量的断言结果）、
+> `contracts/runtime/action_implementations.yaml`（动作实现台账）、
+> `scripts/architecture_check.py`（R1–R5 分层闸门）。
 > 触发来源：外部深度审查报告（2026-11-17），与仓库第三轮系统性审查结论一致。
 > 关联准则：R1（一个事实一个权威源）、R6（安全必须真实执行）、R8（不变量放最可靠层级）、
 > R10（旧机制必须清理）；用户最高准则「不要打补丁，要系统性根治」。
@@ -215,8 +240,9 @@ Tenant → Organization → Project → Episode → Scene → Shot → Asset
 - [x] `Project` 增加 `organization_id`，并补 `Tenant→Organization→Project` 外键链。
 - [x] `Project`/`Episode` 之间补数据库级外键（对齐 Script 已有的复合外键做法）。
 - [x] 迁移脚本：新增 `organization` 表 + 归属外键（迁移 `9f1a2b3c4d5e6`）。
-- [ ] 验收：跨项目访问的**负向测试**（同租户不同项目不可互访）在真实数据库上通过
-      （⚠️ 当前本地无 PG 环境，集成测试已写但未能执行，见下「待办风险」）。
+- [x] 验收：跨项目访问的**负向测试**（同租户不同项目不可互访）在真实数据库上通过。
+      证据：`tests/integration/test_ownership_fk_constraints.py`（外键负向 6 项）、
+      `tests/unit/test_resource_scope_api.py`（真实端点跨组织 8 项，404/403 口径）。
 
 **落地产物（2026-11-17）：**
 - `data/migrations/versions/9f1a2b3c4d5e6_create_organizations_and_ownership_fk.py`：
@@ -243,10 +269,12 @@ Tenant → Organization → Project → Episode → Scene → Shot → Asset
 - `organization_id` 不进 API 响应契约（与 tenant_id 一致），通过可信 Principal
   取归属，而非从响应读可猜测的归属标识。
 
-**待办风险（诚实记录）：**
-- 迁移 `9f1a2b3c4d5e6` 未在真实 PostgreSQL 执行验证（本地无 PG、Docker 不可用），
-  外键真实生效待部署时验证。已在 security_boundary.yaml 的 SCOPE-1/SCOPE-2
-  以 `residual_risk` 显式标注，不假装集成测试已通过。
+**风险已解除（2026-11-18 更新）：**
+- 旧记录「迁移未在真实 PostgreSQL 执行验证（本地无 PG）」已失效：本轮整改在干净库
+  `ai_film_verify` 上执行 `alembic upgrade head` 并跑通全量测试（含 tests/integration）。
+- 旧记录「外键真实生效待部署验证」已失效：外键负向测试现在**在真实 PG 上执行**，
+  且 SCOPE-1/SCOPE-2/SCOPE-3 已由断言 `scope.*` 在闸门里逐条核对（security_boundary
+  不再用 residual_risk 兜底）。
 
 ### 第三阶段：授权模型落地（F02）
 
@@ -269,23 +297,34 @@ Tenant → Organization → Project → Episode → Scene → Shot → Asset
 - [x] config 增加 `postgres_relay_user` / `postgres_relay_password` + 生产必需密钥清单。
 - [x] 验收：`tests/integration/test_ownership_db_roles.py`（relay 越界写业务表拒绝 +
       不可伪造/删除事件，6 项负向）；`tests/unit/test_database_dsn.py` relay 角色断言。
-- [ ] 遗留：project_planning_role / asset_service_role 的彻底拆分依赖「按域分连接池」
-      重构（当前模块化单体单连接池），已在 security_boundary.yaml DATA-1 登记为 debt；
-      跨域读正式接口（DATA-2）仍 partial。
+- [x] 遗留已收敛（2026-11-18）：project_planning_role / asset_service_role 的按域拆分
+      随「按域分连接池」落地；DATA-1/DATA-2/DATA-3 三条均已升级为断言
+      （`data.domain_role_split` / `data.cross_domain_via_outbox` / `data.relay_column_grants`），
+      由闸门执行判定，不再靠 debt 自我声明。
 
 ### 第五阶段：进程密钥拆分（F05）
 
-- [ ] 身份签发服务、API、Relay 使用独立配置与独立密钥权限。
-- [ ] `identity_private_key_pem` 从 API/Relay 必需密钥移除，生产启动检查按进程分列。
-- [ ] 验收：API/Relay 进程在生产环境启动时**不再要求**身份签发私钥。
+- [x] 身份签发服务、API、Relay 使用独立配置与独立密钥权限：
+      `Settings.process_role` + `_PRODUCTION_REQUIRED_SECRETS_BY_PROCESS` +
+      `get_process_settings(role)`，三个进程入口（identity / relay / outbox-maintenance）
+      显式声明角色（断言 `keys.process_scoped_validation`）。
+- [x] `identity_private_key_pem` 从 API/Relay 必需密钥移除；API 侧只持公钥（R4 结构封死）。
+- [x] 凭证面同时收口（第二轮审查 P1-01）：compose 的单一 `x-db-env` 拆为
+      endpoint / superuser / business / relay 四份 anchor；identity 进程零 `POSTGRES_*`；
+      relay 只持 relay 角色（断言 `cred.process_credential_surface` +
+      `tests/unit/test_credential_surface.py`）；域角色名互异由配置期校验拒绝
+      （断言 `cred.role_names_distinct`）。
 
 ### 第六阶段：状态推进入口（F01，依赖第二/三阶段完成）
 
-- [ ] 为 Project / Episode 补齐状态变更 action（`PROJECT.STATUS.CHANGE` 等），
-      走完整链路 `ActionRegistry → 权限校验 → Service → Domain Transition →
-      持久化 → Outbox Event → 审计`。
-- [ ] 更新 `action_implementations.yaml`、删除 `state_machine_gaps.yaml` 中对应债务。
-- [ ] 验收：非法状态转换、并发状态变更、重复请求（幂等）负向测试通过。
+- [x] Project / Episode 补齐状态变更 action：`PROJECT.STATUS.CHANGE`（`POST /projects/{id}/status`）
+      与 `EPISODE.STATUS.CHANGE`（`POST /episodes/{id}/status`）已登记在
+      `contracts/runtime/action_implementations.yaml`（闸门真实加载 OpenAPI 校验存在性）。
+- [x] `state_machine_gaps.yaml` 的 `transition_entry_gaps` 清零（闸门显示「显式登记 0 项」）。
+- [x] 资产域进一步把准入条件挂到转移边上（AUTH-4）：通用 `ASSET.STATUS.CHANGE`
+      结构上无法到达 APPROVED，证据规则只存在于边上（`test_change_status_cannot_reach_approved`）。
+- [ ] 其余 25 个 ACTIVE 动作（镜头 / 生成 / 交付域）仍无运行时入口——属 Phase 2 范围，
+      不在本方案内，显式登记在 `action_implementations.yaml#not_implemented`。
 
 ---
 
@@ -337,3 +376,4 @@ Tenant → Organization → Project → Episode → Scene → Shot → Asset
 | 日期 | 变更 |
 |---|---|
 | 2026-11-17 | 初稿：基于外部审查报告 F01–F05 逐条核实 + 根因收敛，形成统一边界重构方案 |
+| 2026-11-18 | 状态改为机器可读 front-matter（`status: in_progress` + `open_items` 指向契约事实源）；<br>同步第二阶段验收（真实 PG 已执行）、第四阶段遗留（DATA-1~3 升为断言）、<br>第五阶段（进程密钥/凭证面拆分）与第六阶段（Project/Episode 状态入口）实际进度；<br>删除已失效的「本地无 PG」风险记录（P2-04） |

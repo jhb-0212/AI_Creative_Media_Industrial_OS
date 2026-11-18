@@ -675,12 +675,12 @@ signatures:
     coordinate_system: string
     created_at: string
     created_by: string
-    cut_points_frames: string
-    duration_ms: string
+    cut_points_frames: array
+    duration_ms: integer
     entity_id: string
     entity_type: string
     entity_version: integer
-    fps: string
+    fps: object
     locked_dimensions: string
     owner_module: string
     previz_ref: string
@@ -1159,20 +1159,20 @@ signatures:
     audio_sample_rate: string
     audit_ref: string|null
     change_summary: string
-    clip_in_frame: string
-    clip_out_frame: string
+    clip_in_frame: integer
+    clip_out_frame: integer
     color_space: string
     created_at: string
     created_by: string
-    duration_frames: string
-    duration_per_shot_frames{}: string
-    end_frame: string
+    duration_frames: integer
+    duration_per_shot_frames{}: object
+    end_frame: integer
     entity_id: string
     entity_type: string
     entity_version: integer
     episode_id: string
-    fps_den: string
-    fps_num: string
+    fps_den: integer
+    fps_num: integer
     height: string
     intent_note: string
     language: string
@@ -1191,7 +1191,7 @@ signatures:
     source_rights_snapshot_ref: string
     source_shot_revision_ids: array
     stale_state: string
-    start_frame: string
+    start_frame: integer
     status: string
     style_profile_ref: string
     subtitle_cues: string
@@ -1547,4 +1547,98 @@ signatures:
     schema_version: integer
     status: string
     title: string
+    updated_at: string
+  Shot:
+    audit_ref: string|null
+    blocked_reason: string|null
+    cancellation_ref: string|null
+    cancelled_at: string|null
+    created_at: string
+    created_by: string
+    entity_id: string
+    entity_type: string
+    entity_version: integer
+    owner_module: string
+    project_id: string
+    rework_basis_ref: string|null
+    scene_id: string
+    schema_version: integer
+    shot_code: string
+    shot_id: string
+    shot_revision_id: string
+    source_draft_ref: object
+    status: string
+    updated_at: string
+  ShotBreakdownDraft:
+    ai_rationale: string|null
+    audit_ref: string|null
+    basis_script_revision_id: string
+    breakdown_scope: object
+    change_summary: string|null
+    confirmed_at: string|null
+    confirmed_by: string|null
+    confirmed_shot_revision_refs: array
+    created_at: string
+    created_by: string
+    discarded_reason: string|null
+    draft_version: integer
+    entity_id: string
+    entity_type: string
+    entity_version: integer
+    episode_ref: string|null
+    generation_method: string
+    open_questions: array
+    owner_module: string
+    plan_name: string
+    potential_issues: array
+    project_id: string
+    return_reason: string|null
+    returned_at: string|null
+    returned_by: string|null
+    review_records: array
+    root_draft_ref: string
+    scene_breakdowns: array
+    schema_version: integer
+    shot_breakdown_draft_id: string
+    status: string
+    supersedes_draft_ref: string|null
+    updated_at: string
+  ShotRevision:
+    audit_ref: string|null
+    basis_script_revision_id: string
+    change_origin: string
+    change_summary: string|null
+    changed_fields: array
+    character_refs: array
+    confirmed_at: string
+    confirmed_by: string
+    constraint_pack_applicability: string
+    constraint_pack_id: string|null
+    created_at: string
+    created_by: string
+    creative_autonomy: string
+    description: string
+    entity_id: string
+    entity_type: string
+    entity_version: integer
+    episode_id: string
+    intent_ref: object
+    location_ref: string
+    narrative_intent: string
+    owner_module: string
+    project_id: string
+    prop_refs: array
+    provenance: object
+    quality_profile: string
+    revision_no: integer
+    risk: object
+    scene_id: string
+    schema_version: integer
+    script_anchors: array
+    shot_id: string
+    shot_revision_id: string
+    source_candidate_refs: array
+    source_draft_ref: object
+    status: string
+    supersedes_shot_revision_id: string|null
     updated_at: string

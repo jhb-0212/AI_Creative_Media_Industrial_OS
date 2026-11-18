@@ -18,7 +18,12 @@ class EpisodeRepository(ABC):
 
     @abstractmethod
     async def add(self, episode: Episode) -> None:
-        """新增集数（INSERT 语义，主键/唯一约束冲突抛 IntegrityError）。"""
+        """新增集数（INSERT 语义）。
+
+        失败契约见 ``ProjectRepository.add``：唯一冲突抛 ``DuplicateEntityError``
+        （可幂等回读既有集数），外键/CHECK 不成立抛 ``ReferentialIntegrityError``
+        （归属项目不可用，不可幂等）。
+        """
         raise NotImplementedError
 
     @abstractmethod

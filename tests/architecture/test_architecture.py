@@ -32,7 +32,7 @@ def _write(root: Path, relative: str, source: str) -> None:
 # 仓库现状
 # --------------------------------------------------------------------------- #
 def test_repository_has_no_layering_violation() -> None:
-    """当前仓库必须 0 违规（R0/R1/R2/R3/R4 全部）。"""
+    """当前仓库必须 0 违规（R0/R1/R2/R3/R4/R5 全部）。"""
     results = arch.run_all()
     flattened = {rule: [v.message for v in violations] for rule, violations in results.items()}
     assert flattened == {
@@ -41,6 +41,7 @@ def test_repository_has_no_layering_violation() -> None:
         "R2 服务间直连": [],
         "R3 导入期循环": [],
         "R4 进程边界隔离": [],
+        "R5 内核持久化隔离": [],
     }
 
 
@@ -250,6 +251,54 @@ def test_identity_access_can_be_imported_by_apps(tmp_path: Path) -> None:
         "def get_public_key_store(): ...\n",
     )
     assert arch.check_process_isolation(arch.collect_imports(tmp_path)) == []
+
+
+# --------------------------------------------------------------------------- #
+# R5 内核持久化隔离
+# --------------------------------------------------------------------------- #
+def test_kernel_layer_cannot_import_orm(tmp_path: Path) -> None:
+    """service 层 import sqlalchemy → 违规（端口的失败契约不能是别人的库异常）。"""
+    _write(
+        tmp_path,
+        "services/thing/service/thing_service.py",
+        "from sqlalchemy.exc import IntegrityError\n\nVALUE = IntegrityError\n",
+    )
+    violations = arch.check_kernel_persistence_isolation(arch.collect_imports(tmp_path))
+    assert len(violations) == 1
+    assert violations[0].rule == "R5 内核持久化隔离"
+    assert "port_errors" in violations[0].message
+
+
+def test_kernel_lazy_import_still_counts(tmp_path: Path) -> None:
+    """把 ORM 导进函数体也算：依赖仍然是依赖，而且更难被发现。"""
+    _write(
+        tmp_path,
+        "services/thing/domain/thing.py",
+        "def f() -> None:\n    import asyncpg\n    return None\n",
+    )
+    violations = arch.check_kernel_persistence_isolation(arch.collect_imports(tmp_path))
+    assert len(violations) == 1
+    assert violations[0].line > 0
+
+
+def test_repository_subpackage_may_import_orm(tmp_path: Path) -> None:
+    """repository/ 子包就是实现，不受 R5 限制（否则适配器没法干活）。"""
+    _write(
+        tmp_path,
+        "services/thing/repository/sqlalchemy_repo.py",
+        "from sqlalchemy.ext.asyncio import AsyncSession\n\nX = AsyncSession\n",
+    )
+    assert arch.check_kernel_persistence_isolation(arch.collect_imports(tmp_path)) == []
+
+
+def test_api_subpackage_may_import_session_type(tmp_path: Path) -> None:
+    """路由层用 AsyncSession 做依赖类型标注是合法的（不是持久化决策）。"""
+    _write(
+        tmp_path,
+        "services/thing/api/routes.py",
+        "from sqlalchemy.ext.asyncio import AsyncSession\n\nX = AsyncSession\n",
+    )
+    assert arch.check_kernel_persistence_isolation(arch.collect_imports(tmp_path)) == []
 
 
 # --------------------------------------------------------------------------- #

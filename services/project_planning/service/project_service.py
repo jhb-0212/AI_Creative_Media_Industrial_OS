@@ -15,10 +15,9 @@ from __future__ import annotations
 import uuid
 from uuid import UUID
 
-from sqlalchemy.exc import IntegrityError
-
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.outbox_writer import OutboxWriter
+from packages.shared.port_errors import DuplicateEntityError, ReferentialIntegrityError
 from services.project_planning.domain.enums import ProjectStatus, ProjectTier
 from services.project_planning.domain.project import Project
 from services.project_planning.repository._versioning import ConcurrentModificationError
@@ -90,7 +89,14 @@ class ProjectService:
         # 冲突时降级为幂等返回既有记录，而非报错或重复插入。
         try:
             await self._repository.add(project)
-        except IntegrityError as exc:
+        except ReferentialIntegrityError as exc:
+            # 引用/取值不成立（不是"重复提交"）：例如组织被并发删除、值违反 CHECK。
+            # 这类失败不可幂等——降级成"返回既有记录"会把真实的一致性问题藏起来。
+            raise DomainError(
+                ErrorRegistry.CONCURRENT_MODIFICATION,
+                detail="项目写入引用的实体已变化，请基于最新数据重试",
+            ) from exc
+        except DuplicateEntityError as exc:
             if entity_id is None:
                 # 无显式 id 时 UUID 冲突概率可忽略，仍转结构化内部错误。
                 raise DomainError(

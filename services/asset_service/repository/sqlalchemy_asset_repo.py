@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.port_errors import classify_integrity_error
 from packages.shared.versioning import conditional_update
 from services.asset_service.domain.asset_version import AssetVersion
 from services.asset_service.domain.enums import AssetStatus
@@ -26,6 +28,7 @@ def _to_domain(model: AssetVersionModel) -> AssetVersion:
         entity_id=model.entity_id,
         created_by=model.created_by,
         tenant_id=model.tenant_id,
+        project_id=model.project_id,
         status=status,
         schema_version=model.schema_version,
         entity_version=model.entity_version,
@@ -55,6 +58,7 @@ def _to_orm(asset: AssetVersion) -> AssetVersionModel:
         status=asset.status.value,
         owner_module=asset.owner_module,
         tenant_id=asset.tenant_id,
+        project_id=asset.project_id,
         created_at=asset.created_at,
         created_by=asset.created_by,
         updated_at=asset.updated_at,
@@ -80,8 +84,13 @@ class SqlAlchemyAssetRepository(AssetRepository):
     async def add(self, asset: AssetVersion) -> None:
         # SAVEPOINT：主键冲突只回滚本次 INSERT，session 不进入 aborted 态，
         # 调用方仍可查询既有记录做幂等判断。
-        async with self._session.begin_nested():
-            self._session.add(_to_orm(asset))
+        # 完整性异常在此翻译成端口契约异常（唯一冲突 vs 引用失败），服务层
+        # 因此不需要认识 SQLAlchemy——P2-03。
+        try:
+            async with self._session.begin_nested():
+                self._session.add(_to_orm(asset))
+        except IntegrityError as exc:
+            raise classify_integrity_error(exc, entity_id=asset.entity_id) from exc
 
     async def save(self, asset: AssetVersion, expected_version: int) -> None:
         # 白名单更新：状态迁移只允许改「状态列」。内容列（sha256/storage_ref/

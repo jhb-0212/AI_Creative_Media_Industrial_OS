@@ -2,7 +2,7 @@
 # 未登记状态的转移一律拒绝（31.5 规则）
 source: AFS-ARCH-MASTER-V2.0.5 各章节状态机定义（由 Markdown 基线派生）
 authority_rule: 同一对象多处定义时，按 31.5 唯一权威状态机 > 32.6/C.7 > 34.x > 33.3 > C.3 取权威；24.11 为摘要不计入权威；差异不静默合并，见 conflict 字段。
-total_objects: 38
+total_objects: 41
 conflict_count: 5
 conflict_rulings:
 - object: CharacterCanon
@@ -334,3 +334,88 @@ objects:
   all_sources:
   - 8.1 核心实体
   - 31.6 Action Registry
+- object: Shot
+  authoritative_source: 项目所有者《Shot 独立建模裁定》（2026-11-18，非基线正文原文，属所有者口径）
+  states: NOT_STARTED→IN_PRODUCTION；NOT_STARTED→BLOCKED；NOT_STARTED→CANCELLED；IN_PRODUCTION→BLOCKED；IN_PRODUCTION→PRODUCTION_COMPLETE；IN_PRODUCTION→CANCELLED；BLOCKED→IN_PRODUCTION；BLOCKED→NOT_STARTED；BLOCKED→CANCELLED；PRODUCTION_COMPLETE→IN_PRODUCTION
+  note: >-
+    正文从未给出 Shot 的完整状态集，唯一出现的 status: IN_PRODUCTION 只是 8.3 的示例值，
+    不是枚举；以下五态是项目所有者 2026-11-18 明确给出的新增设计决策，不冒充正文规定。
+    三个刻意的边界：不设 IN_REVIEW（审核结论归 GateInstance，按 scope=shot 绑定精确
+    shot_revision_id，写进 Shot 就是第二份审核事实）；不设 REWORK（返工归 ReworkTask，
+    获准返工后 Shot 回到 IN_PRODUCTION 并保留 rework_basis_ref）；不设 DELIVERED
+    （PRODUCTION_COMPLETE 只表示要求的生产产物已完成，Gate 3 / Gate 4 结论归
+    GateInstance 与 PictureLock Snapshot / DeliveryPackage，避免出现「声称已交付、
+    却拿不出 Gate 4 证据」的状态）。CANCELLED 为终态，恢复必须新建 Shot 并重新授权。
+    BLOCKED→NOT_STARTED 是合法回退：阻塞解除后任务可能整体重排而未启动，这不等于
+    「取消」也不等于「已开始」。
+  guards:
+  - transition: 'NOT_STARTED→BLOCKED'
+    fields: ['blocked_reason']
+    rule: '进入 BLOCKED 必须写明可追溯的阻塞原因；无原因的阻塞等于不可诊断'
+  - transition: 'IN_PRODUCTION→BLOCKED'
+    fields: ['blocked_reason']
+    rule: '同上：生产中阻塞同样必须留下原因，否则无法判断是资源、权利还是质量阻塞'
+  - transition: 'PRODUCTION_COMPLETE→IN_PRODUCTION'
+    fields: ['rework_basis_ref']
+    rule: '必须有正式返工依据（ReworkTask 授权记录）；无依据的回退是绕过验收的暗门，一律拒绝'
+  - transition: 'NOT_STARTED→CANCELLED'
+    fields: ['cancellation_ref', 'cancelled_at']
+    rule: '移出生产范围必须携带授权记录与取消时间；只写终态等于无据取消'
+  - transition: 'IN_PRODUCTION→CANCELLED'
+    fields: ['cancellation_ref', 'cancelled_at']
+    rule: '同上：生产中取消同属授权行为，不得由执行方自行置终态'
+  - transition: 'BLOCKED→CANCELLED'
+    fields: ['cancellation_ref', 'cancelled_at']
+    rule: '同上：阻塞导致的取消仍须有授权记录，不能把「卡住了」直接变成「不做了」'
+  source_kind: owner_supplied_design
+  registration_status: PENDING_PHASE1_REVIEW
+  all_sources:
+  - 8.1 核心实体
+  - 8.2 标识与版本规则
+  - 8.3 Shot 契约示例（status 示例值 IN_PRODUCTION）
+  - 31.6 SHOT.REVISION.CONFIRM
+  - 项目所有者《Shot 独立建模裁定》（2026-11-18）
+  - docs/adr/ADR-R18-shot-entity-contract.md
+- object: ShotBreakdownDraft
+  authoritative_source: 项目所有者《拆镜草案字段设计》（2026-11-18，非基线正文原文，属所有者口径）
+  states: PENDING_CONFIRM→IN_REVIEW→CONFIRMED；IN_REVIEW→RETURNED；PENDING_CONFIRM/IN_REVIEW→DISCARDED
+  note: >-
+    拆镜草案的状态集按所有者设计固定为五态：待确认（PENDING_CONFIRM，草案生成后的初始态）、
+    确认中（IN_REVIEW，有人认领审阅，避免两名审核人同时确认）、已确认（CONFIRMED，必须携带
+    confirmed_shot_revision_refs 完成「确认即绑定」）、已退回（RETURNED，必须写明退回原因）、
+    已废弃（DISCARDED）。CONFIRMED / RETURNED / DISCARDED 都是版本终态：31.5「终态不得原地复活」
+    在这里的落地方式是新建 draft_version，而不是把终态改回 PENDING_CONFIRM——版本链由
+    root_draft_ref 与 supersedes_draft_ref 串起，历史版本不覆盖、不删除；依据剧本换版则必须新起一条链。
+    本状态机当前没有运行时入口（SHOT.DRAFT.CREATE 仍未实现，CONFIRM / RETURN / DISCARD 动作尚未登记），
+    登记它只为先把状态集钉死，避免实现时自创第六个状态；入口补齐后须按 31.11 复核固化。
+  source_kind: owner_supplied_design
+  registration_status: PENDING_PHASE1_REVIEW
+  all_sources:
+  - 项目所有者《拆镜草案字段设计》（2026-11-18）
+  - ADR-032（AI 拆镜输出默认草案，人工确认前不得写正式对象）
+  - docs/adr/ADR-R16-shot-breakdown-draft-contract.md
+- object: ShotRevision
+  authoritative_source: 8.2 标识与版本规则（Shot 是稳定逻辑镜头，ShotRevision 保存每次内容修订）
+  states: ACTIVE→SUPERSEDED
+  note: >-
+    正文没有为 ShotRevision 单列状态机，也没有给出审核/生产进度状态集；此处的两态是从不可变
+    版本语义推导的最小必要集，不是正文原文。依据：8.2 规定 ShotRevision 保存每次内容修订、
+    标识不得复用；2635 行规定任何分支合并都生成新的 ShotRevision「并保留父版本、差异摘要、
+    审批记录和来源引用；禁止覆盖式合并」；3994 行要求下游「必须引用精确不可变 ShotRevision」。
+    因此一个修订要么当前有效（ACTIVE），要么已被同一 shot_id 的更高 revision_no 取代
+    （SUPERSEDED），不存在第三种可能。31.6 的 SHOT.REVISION.CONFIRM 是唯一创建入口：人类确认、
+    版本冲突必须拒绝；确认即产生正式版本，故不存在 DRAFT 态——草案态属 ShotBreakdownDraft。
+    生产进度（8.3 示例里的 IN_PRODUCTION）属于 Shot 生命周期，不由修订承载：把它写进不可变
+    修订，会让进度推进被迫新建修订，版本链立刻失去意义。Shot 已独立建模（ADR-R18），
+    五态与转移由该对象的 status 字段承载。
+    本状态机当前无运行时入口（SHOT.REVISION.CONFIRM 未实现），登记它只为先把状态集钉死，
+    避免实现时自创第三态；入口补齐后须按 31.11 复核固化。
+  source_kind: derived_from_version_semantics
+  registration_status: PENDING_PHASE1_REVIEW
+  all_sources:
+  - 8.2 标识与版本规则
+  - 8.3 Shot 契约示例
+  - 19.3 AI 剧本拆镜 Skill
+  - 31.6 SHOT.REVISION.CONFIRM
+  - ADR-032（AI 拆镜输出默认草案，人工确认前不得写正式对象）
+  - docs/adr/ADR-R17-shot-revision-contract.md

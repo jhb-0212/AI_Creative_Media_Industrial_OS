@@ -41,6 +41,26 @@ RATE_LIMIT_BACKEND_ERRORS = Counter(
     "限流后端（Redis）故障次数；故障时按 fail-open 放行",
 )
 
+# 限流后端熔断状态。与 webhook 端点熔断分开命名：两者会同时存在，
+# 共用一个指标名会让「哪个组件在熔断」不可分辨。
+RATE_LIMIT_CIRCUIT_STATE = Gauge(
+    "rate_limit_circuit_state",
+    "限流后端熔断器当前状态（1=当前态；state=closed/open/half_open）",
+    ["state"],
+)
+
+
+def observe_circuit_state(gauge: Gauge, state: str, previous: str | None) -> None:
+    """熔断状态观察者的共用实现：清旧置新。
+
+    作为 ``CircuitBreaker(state_observer=...)`` 的适配器：熔断器只负责在迁移时
+    回调 ``(new, previous)``，具体记到哪个 Gauge 由使用方决定。
+    ``previous`` 为空表示首次发布（构造期），只需置 1。
+    """
+    if previous is not None and previous != state:
+        gauge.labels(state=previous).set(0)
+    gauge.labels(state=state).set(1)
+
 # Outbox relay（R06 消费端）。标签只放 event_type 与 result：event_type 由契约
 # 枚举约束（有限集），result 是 delivered/unrouted/failed 三值，基数可控。
 OUTBOX_RELAY_EVENTS_TOTAL = Counter(

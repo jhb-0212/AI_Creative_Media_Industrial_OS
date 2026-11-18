@@ -43,6 +43,10 @@ class AssetVersion(Entity):
     # 数据所有权：信封 owner_module 覆写为本模块。
     owner_module: str = ASSET_OWNER_MODULE
 
+    # 归属键（唯一）：资产属于哪个项目。授权判定沿 project → organization 派生，
+    # 组织归属不在本模型落库（冗余列=第二事实源）。
+    project_id: str = ""
+
     # 业务字段（信封字段由 Entity 基类提供）。
     asset_type: str = ""
     sha256: str = ""
@@ -58,6 +62,19 @@ class AssetVersion(Entity):
     def __post_init__(self) -> None:
         """校验信封 + 业务字段（对齐 ORM 列定义与契约必填语义）。"""
         super()._validate_envelope()
+
+        # 归属必填：无项目的资产无法被授权（SCOPE-3）。空串与 None 一律拒绝，
+        # 避免「有归属字段但恒为空」这种看起来合规、实际不可判定的状态。
+        if not (self.project_id or "").strip():
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail="project_id 不能为空：资产必须归属一个项目",
+            )
+        if len(self.project_id) > 64:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR, detail="project_id 长度超过上限 64"
+            )
+        self.project_id = self.project_id.strip()
 
         if not self.asset_type.strip():
             raise DomainError(
@@ -97,7 +114,12 @@ class AssetVersion(Entity):
         return self
 
     def to_dict(self) -> dict[str, Any]:
-        """序列化为契约信封结构（asset_version_id 与 entity_id 同值）。"""
+        """序列化为契约信封结构（asset_version_id 与 entity_id 同值）。
+
+        project_id 与 tenant_id 同待遇：**不进响应**。它是内部归属键，随响应下发
+        等于让调用方据此推断他人项目/组织拓扑；归属校验在服务端完成，
+        客户端只需要 asset_version_id。
+        """
         data = self._envelope_dict()
         data.update(
             {

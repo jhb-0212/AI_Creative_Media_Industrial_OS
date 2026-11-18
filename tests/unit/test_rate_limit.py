@@ -12,6 +12,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from apps.api.main import app
+from packages.shared.circuit_breaker import CircuitBreaker, CircuitState
+from packages.shared.metrics import RATE_LIMIT_BACKEND_ERRORS
 from packages.shared.rate_limit import RateLimiter
 
 
@@ -103,6 +105,9 @@ def test_metrics_endpoint_exposes_counters(client: TestClient) -> None:
     assert "http_requests_total" in text
     assert "rate_limit_decisions_total" in text
     assert "rate_limit_backend_errors_total" in text
+    # 熔断状态必须被真实发布：熔断器只在构造与迁移时回调观察者，
+    # 若这行缺失，说明观察者没接上——指标名存在但永远是空的。
+    assert 'rate_limit_circuit_state{state="closed"} 1.0' in text
 
 
 def test_token_based_buckets_are_independent(client: TestClient) -> None:
@@ -119,3 +124,162 @@ def test_token_based_buckets_are_independent(client: TestClient) -> None:
     assert client.post("/projects", json=payload, headers=headers_a).status_code == 401
     assert client.post("/projects", json=payload, headers=headers_a).status_code == 429
     assert client.post("/projects", json=payload, headers=headers_b).status_code == 401
+
+
+# --------------------------------------------------------------------------- #
+# 限流后端熔断（P0：Redis 不可达时每请求阻塞一个连接超时）
+# --------------------------------------------------------------------------- #
+class _CountingRedis:
+    """可裁剪响应脚本的 Redis 替身：精确统计调用次数与逐次行为。
+
+    熔断要证明的恰恰是「短路后不再调用」——只看决策结果看不出这一点，
+    必须数调用次数（否则「调用了但很快失败」也会被误判为达标）。
+    """
+
+    def __init__(self, *behaviours: object) -> None:
+        self._queue = list(behaviours)
+        self.calls = 0
+        self._fail = False
+
+    async def incr(self, key: str) -> int:
+        self.calls += 1
+        if self._queue:
+            item = self._queue.pop(0)
+            if isinstance(item, BaseException):
+                raise item
+            return int(item)  # type: ignore[arg-type]
+        if self._fail:
+            raise ConnectionError("redis down")
+        return 1
+
+    async def expire(self, key: str, seconds: int) -> bool:
+        return True
+
+    async def aclose(self) -> None:
+        return None
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def _counter_value(counter: object) -> float:
+    return float(counter._value.get())  # type: ignore[attr-defined]
+
+
+async def test_circuit_opens_and_stops_calling_backend() -> None:
+    """连续失败达阈值后短路：不再发网络请求。
+
+    这是「每请求固定阻塞一秒」的根治点。只断言「仍然放行」是不充分的
+    ——fail-open 一直都放行，问题在于每次都要先撞一次后端；必须断言调用次数。
+    """
+    redis = _CountingRedis()
+    redis._fail = True
+    breaker = CircuitBreaker(failure_threshold=2, recovery_timeout_seconds=30.0)
+    limiter = RateLimiter(
+        redis,  # type: ignore[arg-type]
+        limit=10,
+        window_seconds=60,
+        breaker=breaker,
+    )
+
+    for _ in range(2):
+        decision = await limiter.acquire("ip-c1")
+        assert decision.allowed is True
+        assert decision.degraded is True
+    assert breaker.state is CircuitState.OPEN
+
+    calls_before = redis.calls
+    decision = await limiter.acquire("ip-c1")
+    assert decision.allowed is True  # 仍然 fail-open
+    assert decision.degraded is True
+    assert redis.calls == calls_before  # 短路：一个网络包都没发
+
+
+async def test_circuit_open_does_not_inflate_backend_errors() -> None:
+    """熔断期不增加 backend_errors：那个指标表示「真的尝试并失败了」。
+
+    混进去会让「后端故障次数」失去意义，运维无法区分「Redis 挂了」与
+    「熔断器在正常工作」。
+    """
+    redis = _CountingRedis()
+    redis._fail = True
+    breaker = CircuitBreaker(failure_threshold=1, recovery_timeout_seconds=30.0)
+    limiter = RateLimiter(
+        redis,  # type: ignore[arg-type]
+        limit=10,
+        window_seconds=60,
+        breaker=breaker,
+    )
+
+    await limiter.acquire("ip-c2")  # 真失败一次
+    after_failure = _counter_value(RATE_LIMIT_BACKEND_ERRORS)
+    assert breaker.state is CircuitState.OPEN
+
+    await limiter.acquire("ip-c3")  # 熔断短路
+    assert _counter_value(RATE_LIMIT_BACKEND_ERRORS) == after_failure
+
+
+async def test_half_open_probe_recovers_circuit() -> None:
+    """冷却期满放行一个探测；探测成功即关闭熔断，恢复正常限流语义。"""
+    clock = _Clock()
+    redis = _CountingRedis(ConnectionError("down"))
+    breaker = CircuitBreaker(
+        failure_threshold=1, recovery_timeout_seconds=10.0, clock=clock
+    )
+    limiter = RateLimiter(
+        redis,  # type: ignore[arg-type]
+        limit=1,
+        window_seconds=60,
+        breaker=breaker,
+    )
+
+    assert (await limiter.acquire("ip-c4")).degraded is True
+    assert breaker.state is CircuitState.OPEN
+
+    clock.advance(11)
+    redis._queue.append(1)  # 后端恢复
+    decision = await limiter.acquire("ip-c4")
+    assert decision.allowed is True
+    assert decision.degraded is False
+    assert breaker.state is CircuitState.CLOSED
+
+    # 恢复后重新按阈值判定（不再是「一律放行」）。
+    redis._queue.append(2)
+    denied = await limiter.acquire("ip-c4")
+    assert denied.allowed is False
+    assert denied.retry_after_seconds == 60
+
+
+async def test_cancelled_request_releases_half_open_probe() -> None:
+    """探测请求被取消（服务关闭/调用方断开）不能让熔断器永久卡在半开。"""
+    import asyncio
+
+    clock = _Clock()
+    redis = _CountingRedis(ConnectionError("down"), asyncio.CancelledError())
+    breaker = CircuitBreaker(
+        failure_threshold=1, recovery_timeout_seconds=5.0, clock=clock
+    )
+    limiter = RateLimiter(
+        redis,  # type: ignore[arg-type]
+        limit=10,
+        window_seconds=60,
+        breaker=breaker,
+    )
+
+    await limiter.acquire("ip-c5")  # 失败 → OPEN
+    clock.advance(6)  # 冷却期满 → 下一个请求是半开探测
+
+    with pytest.raises(asyncio.CancelledError):
+        await limiter.acquire("ip-c5")
+
+    assert breaker.state is CircuitState.HALF_OPEN
+    # 在途标志已释放：下一个请求仍能探测（否则这里会是 False，永久卡死）。
+    assert breaker.allow() is True

@@ -89,10 +89,19 @@ async def test_import_script_idempotent(auth_client: AsyncClient) -> None:
 
 
 async def test_import_script_rejects_empty_title(auth_client: AsyncClient) -> None:
+    """标题空白 → 422（校验语义不变）。
+
+    授权现在先于业务校验（S1）：必须先证明项目归属，才谈请求内容是否合法，
+    否则校验错误会变成探测他人项目是否存在的通道。因此这里用真实项目。
+    """
+    project_id = f"proj_empty_{uuid.uuid4().hex[:8]}"
+    await _setup_project_and_episode(
+        auth_client, project_id=project_id, episode_refs=["EP001"]
+    )
     resp = await auth_client.post(
         "/scripts/import",
         json={
-            "project_id": "proj_x",
+            "project_id": project_id,
             "episode_ref": "EP001",
             "title": "  ",
         },

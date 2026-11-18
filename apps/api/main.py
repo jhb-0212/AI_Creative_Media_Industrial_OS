@@ -20,7 +20,6 @@ from typing import Any
 from fastapi import FastAPI, Header, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
-from sqlalchemy import text
 
 from packages.errors.error_codes import (
     DomainError,
@@ -257,50 +256,29 @@ async def health() -> dict[str, str]:
 
 @app.get("/readyz", tags=["system"])
 async def readyz() -> JSONResponse:
-    """就绪探针：真实探测数据库可达性（SELECT 1），失败即 503。
+    """就绪探针：真实探测两个域连接池可达性与迁移版本，失败即 503。
 
     失败关闭（fail-closed）：数据库不可达时宁可把实例摘出负载均衡，
     也不让流量进来变成 500。响应体固定为最小状态，不泄漏连接串、
     角色名或底层错误——这是编排面协议，不进入业务错误信封。
 
-    额外回报 ``schema_revision``（alembic 当前版本）：本机曾有两个 Postgres
-    实例共用 15432 端口的不同地址族（127.0.0.1 → 旧集群、localhost → Docker），
-    「连错库」表现为"迁移像是没跑"。把 revision 暴露在就绪面上，运维一眼可辨；
-    读不到版本表同样按 unready 处理（fail-closed，不猜）。
-
-    连接池按域拆分后（project_planning / asset_service 各自独立池与角色），
-    就绪必须**两个池都探活**：只探 project 池时，asset 凭据或角色权限损坏
-    仍会回报 ready，资产路由的流量会进来变成 500（Codex P2）。
+    探测本身由 ``packages.shared.readiness.ReadinessProbe`` 承担（TTL 缓存 +
+    单飞 + 超时）。本端点只做协议转换：探针是编排面的高频读，不该每次请求都
+    真打三次连接——那会让探测频率跟着请求频率走，并在故障时把连接池压死。
+    探测细节见 ``packages.shared.database.probe_domain_databases``。
     """
-    checks: dict[str, str] = {}
-    revision: str | None = None
-    try:
-        for name in ("project_planning_sessionmaker", "asset_service_sessionmaker"):
-            sessionmaker = getattr(app.state, name)
-            async with sessionmaker() as session:
-                await session.execute(text("SELECT 1"))
-            checks[name.removesuffix("_sessionmaker") + "_database"] = "up"
-        # schema revision 只读一次（project 池，alembic_version 全库共享）。
-        async with app.state.project_planning_sessionmaker() as session:
-            revision = (
-                await session.execute(text("SELECT version_num FROM alembic_version"))
-            ).scalar_one_or_none()
-    except Exception:
-        logger.error("readiness_check_failed", exc_info=True)
-        failed = next(
-            (n for n in ("project_planning", "asset_service") if n + "_database" not in checks),
-            "database",
-        )
+    result = await app.state.readiness_probe.probe()
+    if not result.ready:
         return JSONResponse(
             status_code=503,
-            content={"status": "unready", "checks": {failed + "_database": "down"}},
+            content={"status": "unready", "checks": result.checks},
         )
     return JSONResponse(
         status_code=200,
         content={
             "status": "ready",
-            "checks": checks,
-            "schema_revision": revision,
+            "checks": result.checks,
+            "schema_revision": result.schema_revision,
         },
     )
 

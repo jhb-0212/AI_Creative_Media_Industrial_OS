@@ -7,7 +7,7 @@ info:
   version: draft
   x-afs-source-document: AFS-ARCH-MASTER-V2.0.5
   x-afs-registry-version: V2.0.5
-  x-afs-total-actions: 80
+  x-afs-total-actions: 84
 servers:
 - url: /api/v1
 tags:
@@ -15,7 +15,8 @@ tags:
 - name: Episode
 - name: ScriptRevision
 - name: ScriptLock
-- name: ShotDraft
+- name: ShotBreakdownDraft
+- name: Shot
 - name: ShotRevision
 - name: ShotSpec
 - name: ConstraintPack
@@ -246,8 +247,8 @@ paths:
     post:
       operationId: shot.draft.create
       tags:
-      - ShotDraft
-      summary: SHOT.DRAFT.CREATE（资源 ShotDraft，风险 LOW）
+      - ShotBreakdownDraft
+      summary: SHOT.DRAFT.CREATE（资源 ShotBreakdownDraft，风险 LOW）
       description: Agent 仅生成 DRAFT，不写正式 ShotRevision。
       x-afs-action-key: SHOT.DRAFT.CREATE
       x-afs-scope: project/episode/scene
@@ -280,9 +281,10 @@ paths:
     post:
       operationId: shot.revision.confirm
       tags:
+      - Shot
       - ShotRevision
-      summary: SHOT.REVISION.CONFIRM（资源 ShotRevision，风险 HIGH）
-      description: 人类确认，版本冲突必须拒绝。
+      summary: SHOT.REVISION.CONFIRM（资源 Shot/ShotRevision，风险 HIGH）
+      description: 人类确认，版本冲突必须拒绝。首次确认在同一事务内原子创建 Shot 与首个 ShotRevision，两者须同时通过 schema 校验；后续修订只新增 ShotRevision 并前移 Shot.shot_revision_id。
       x-afs-action-key: SHOT.REVISION.CONFIRM
       x-afs-scope: project/episode/scene/shot
       x-afs-risk-level: HIGH

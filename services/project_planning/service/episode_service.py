@@ -18,10 +18,9 @@ from __future__ import annotations
 import uuid
 from uuid import UUID
 
-from sqlalchemy.exc import IntegrityError
-
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.outbox_writer import OutboxWriter
+from packages.shared.port_errors import DuplicateEntityError, ReferentialIntegrityError
 from services.project_planning.domain.enums import EpisodeStatus
 from services.project_planning.domain.episode import Episode
 from services.project_planning.repository._versioning import ConcurrentModificationError
@@ -107,7 +106,13 @@ class EpisodeService:
         # INSERT 语义新增；并发下唯一约束兜底（显式 id 与项目内唯一两条路径）。
         try:
             await self._repository.add(episode)
-        except IntegrityError as exc:
+        except ReferentialIntegrityError as exc:
+            # 归属项目在并发窗口里被删除 / 值违反 CHECK：引用不成立，不可幂等。
+            raise DomainError(
+                ErrorRegistry.CONCURRENT_MODIFICATION,
+                detail="集数归属的项目已变化，请基于最新数据重试",
+            ) from exc
+        except DuplicateEntityError as exc:
             # 显式 entity_id：冲突只可能是同一 id 并发创建，回读即幂等返回；
             # 无显式 id：冲突来自 (project_id, episode_ref) 唯一约束。
             existing = (
