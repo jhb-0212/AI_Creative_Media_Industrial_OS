@@ -465,3 +465,81 @@ def test_implemented_tables_declare_status_check() -> None:
         names = {getattr(c, "name", "") for c in table.constraints}
         assert f"ck_{table.name}_status" in names, table_name
         assert sm_states[obj_name], obj_name
+
+
+# --------------------------------------------------------------------------- #
+# ADR-R21：信封哨兵 + 双 status 字段权威裁定
+# --------------------------------------------------------------------------- #
+def _envelope_status(name: str) -> dict[str, Any]:
+    definition = json.loads(json.dumps(_definitions()[name]))
+    return definition["properties"]["status"]
+
+
+def test_envelope_only_status_uses_sentinel_not_bare_string() -> None:
+    """承认没有生命周期，就不允许继续收任意字符串。"""
+    sentinel = cc.envelope_only_sentinel(_layers())
+    assert _envelope_status("QCIssue")["enum"] == [sentinel]
+    assert _envelope_status("ModelInvocation")["enum"] == [sentinel]
+    assert _envelope_status("ExternalToolAdapterManifest")["enum"] == [sentinel]
+
+
+def test_envelope_only_bare_string_is_reported() -> None:
+    definition = json.loads(json.dumps(_definitions()["QCIssue"]))
+    definition["properties"]["status"] = {"type": "string"}
+    classes = {**_classes(), "QCIssue": cc.CLASS_ENVELOPE_ONLY}
+    problems = cc.schema_enum_problems(
+        {"QCIssue": definition}, cc.state_machine_states(_sm_objects()), classes, _layers()
+    )
+    assert any("无约束裸字符串" in p for p in problems), problems
+
+
+def test_envelope_only_extra_lifecycle_value_is_reported() -> None:
+    definition = json.loads(json.dumps(_definitions()["QCIssue"]))
+    definition["properties"]["status"]["enum"] = ["NO_LIFECYCLE", "OPEN"]
+    classes = {**_classes(), "QCIssue": cc.CLASS_ENVELOPE_ONLY}
+    problems = cc.schema_enum_problems(
+        {"QCIssue": definition}, cc.state_machine_states(_sm_objects()), classes, _layers()
+    )
+    assert any("哨兵" in p and "OPEN" in p for p in problems), problems
+
+
+def test_envelope_only_without_unblocks_when_is_reported() -> None:
+    taxonomy = []
+    for entry in _taxonomy()["objects"]:
+        if entry["object"] == "QCIssue":
+            entry = {k: v for k, v in entry.items() if k != "unblocks_when"}
+        taxonomy.append(entry)
+    problems = cc.taxonomy_problems(
+        taxonomy, cc.state_machine_states(_sm_objects()), _definitions()
+    )
+    assert any("QCIssue" in p and "unblocks_when" in p for p in problems), problems
+
+
+def test_field_authority_is_consistent_with_schema() -> None:
+    path = ROOT / "contracts" / "enums" / "field_authority.yaml"
+    assert cc.field_authority_problems(path, _definitions()) == []
+
+
+def test_field_authority_rejects_unknown_field(tmp_path: Path) -> None:
+    data = yaml.safe_load(
+        (ROOT / "contracts" / "enums" / "field_authority.yaml").read_text(encoding="utf-8")
+    )
+    data["objects"][0]["authoritative_fields"] = ["ghost_status"]
+    # 不碰仓库文件：写进 pytest 的临时目录再校验
+    tmp = tmp_path / "field_authority.yaml"
+    tmp.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    problems = cc.field_authority_problems(tmp, _definitions())
+    assert any("ghost_status" in p for p in problems), problems
+
+
+def test_previz_version_status_is_the_authoritative_lifecycle() -> None:
+    entry = next(o for o in _sm_objects() if o["object"] == "PrevizVersion")
+    assert set(entry["allowed_states"]) == set(_definitions()["PrevizVersion"]["properties"]["status"]["enum"])
+    assert "purity_check_status" not in entry["allowed_states"]
+    assert entry["transitions"] == [{"from": "APPROVED", "to": "LOCKED"}]
+
+
+def test_previz_version_transition_gap_must_be_explained() -> None:
+    entry = next(o for o in _sm_objects() if o["object"] == "PrevizVersion")
+    assert entry["transitions_gap"]["reason"]
+    assert entry["transitions_gap"]["unblocks_when"]

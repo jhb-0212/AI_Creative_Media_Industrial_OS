@@ -1626,6 +1626,7 @@ def check_reference_targets() -> bool:
 # 转移边、台账分类、别名层与运行时的双向校验；每条都能单独注入坏数据测试。
 STATUS_TAXONOMY_PATH = CONTRACTS / "enums" / "status_field_taxonomy.yaml"
 STATUS_LAYERS_PATH = CONTRACTS / "enums" / "status_layers.yaml"
+FIELD_AUTHORITY_PATH = CONTRACTS / "enums" / "field_authority.yaml"
 ENUM_REGISTRY_PATH = CONTRACTS / "enums" / "enum_registry.yaml"
 
 CLASS_LIFECYCLE = "lifecycle"
@@ -1767,6 +1768,11 @@ def taxonomy_problems(
                     f"{name} 标为 envelope_only 却没写 reason："
                     "「它没有生命周期」本身就是要论证的结论，不能只下结论"
                 )
+            if not str(entry.get("unblocks_when", "")).strip():
+                problems.append(
+                    f"{name} 标为 envelope_only 却没写 unblocks_when："
+                    "不能让「暂无生命周期」变成永久兜底，必须写清哪项领域决策才能销项"
+                )
             if name in sm_states:
                 problems.append(
                     f"{name} 标为 envelope_only，但 state_machines 登记了它的状态机"
@@ -1814,11 +1820,29 @@ def enum_registry_problems(registry_objects: Any, sm_states: dict[str, set[str]]
     return problems
 
 
+def envelope_only_sentinel(layers: dict[str, Any] | None = None) -> str:
+    """信封占位哨兵（唯一允许写入无生命周期对象的 status 的值）。"""
+    data = layers if layers is not None else load_yaml_mapping(STATUS_LAYERS_PATH)
+    sentinel = str(data.get("envelope_only_sentinel", "")).strip()
+    if not sentinel:
+        raise ValueError("status_layers 缺 envelope_only_sentinel（信封占位不能再退回裸 string）")
+    return sentinel
+
+
 def schema_enum_problems(
-    definitions: dict[str, Any], sm_states: dict[str, set[str]], classes: dict[str, str]
+    definitions: dict[str, Any],
+    sm_states: dict[str, set[str]],
+    classes: dict[str, str],
+    layers: dict[str, Any] | None = None,
 ) -> list[str]:
-    """Schema 的 status.enum 必须与权威集合逐值相等；非生命周期对象不得有 enum。"""
+    """Schema 的 status.enum 必须逐值等于权威集合或信封哨兵，不得留裸字符串。
+
+    lifecycle      → enum 等于 state_machines.allowed_states；
+    envelope_only  → enum 只允许哨兵值（没有生命周期 ≠ 可以写任意字符串）；
+    lifecycle_gap  → 保留裸 string 是显式债务，必须有完整债务字段（由台账闸门校验）。
+    """
     problems: list[str] = []
+    sentinel = envelope_only_sentinel(layers)
     for name, spec in definitions.items():
         if not isinstance(spec, dict):
             continue
@@ -1828,6 +1852,18 @@ def schema_enum_problems(
         status_spec = props["status"] if isinstance(props["status"], dict) else {}
         enum_values = status_spec.get("enum")
         cls = classes.get(name)
+        if cls == CLASS_ENVELOPE_ONLY:
+            if not enum_values:
+                problems.append(
+                    f"{name} 标为 envelope_only，status 却是无约束裸字符串"
+                    "（没有生命周期不等于允许任意值：只能写哨兵）"
+                )
+            elif {str(v) for v in enum_values} != {sentinel}:
+                problems.append(
+                    f"{name} 的 status.enum 必须只收信封哨兵 {sentinel!r}，"
+                    f"实际为 {sorted(str(v) for v in enum_values)}"
+                )
+            continue
         if cls != CLASS_LIFECYCLE:
             if enum_values is not None:
                 problems.append(
@@ -1950,6 +1986,51 @@ def schema_gap_problems(
     return problems
 
 
+def field_authority_problems(
+    path: Path, definitions: dict[str, Any]
+) -> list[str]:
+    """双 status 对象的权威写入位置必须唯一、字段必须真实存在且论证完整。"""
+    data = load_yaml_mapping(path)
+    problems: list[str] = []
+    seen: set[str] = set()
+    allowed_kinds = {"authority_elsewhere", "distinct_processes", "same_fact_on_status"}
+    for entry in data.get("objects") or []:
+        if not isinstance(entry, dict):
+            problems.append("field_authority.objects 的条目必须是映射")
+            continue
+        name = str(entry.get("object", "")).strip()
+        if not name or name in seen:
+            problems.append(f"field_authority 条目 object 缺失或重复: {name!r}")
+            continue
+        seen.add(name)
+        spec = definitions.get(name)
+        if not isinstance(spec, dict):
+            problems.append(f"field_authority 登记了 {name}，但 object_schemas 没有该对象")
+            continue
+        props = spec.get("properties") or {}
+        authoritative = [str(v).strip() for v in entry.get("authoritative_fields") or []]
+        non_authoritative = [
+            str(v).strip() for v in entry.get("non_authoritative_fields") or []
+        ]
+        if not authoritative or any(not v for v in authoritative):
+            problems.append(f"field_authority.{name} 缺 authoritative_fields")
+        if len(set(authoritative)) != len(authoritative):
+            problems.append(f"field_authority.{name} 的 authoritative_fields 有重复")
+        overlap = set(authoritative) & set(non_authoritative)
+        if overlap:
+            problems.append(f"field_authority.{name} 把同一字段既当权威又当非权威: {sorted(overlap)}")
+        for field in set(authoritative) | set(non_authoritative):
+            if field not in props:
+                problems.append(f"field_authority.{name} 引用了 schema 不存在的字段 {field}")
+        kind = str(entry.get("kind", "")).strip()
+        if kind not in allowed_kinds:
+            problems.append(f"field_authority.{name}.kind 非法: {kind!r}")
+        for key in ("ruling", "reason", "unblocks_when", "source_section"):
+            if not str(entry.get(key, "")).strip():
+                problems.append(f"field_authority.{name} 缺 {key}（裁定不能只下结论）")
+    return problems
+
+
 def governance_problems(sm_data: dict[str, Any], definitions: dict[str, Any]) -> list[str]:
     """状态机文件自身的账目必须对得上（对象数、冲突数、投影不入册）。"""
     problems: list[str] = []
@@ -1965,6 +2046,21 @@ def governance_problems(sm_data: dict[str, Any], definitions: dict[str, Any]) ->
             f"state_machines.conflict_count={sm_data.get('conflict_count')} "
             f"与实际标记 conflict 的条目数 {conflicts} 不符"
         )
+    for obj in objects:
+        if not isinstance(obj, dict):
+            continue
+        gap = obj.get("transitions_gap")
+        if gap is None:
+            continue
+        name = str(obj.get("object", "")).strip()
+        if not isinstance(gap, dict):
+            problems.append(f"{name}.transitions_gap 必须是映射")
+            continue
+        missing = [k for k in ("reason", "unblocks_when") if not str(gap.get(k, "")).strip()]
+        if missing:
+            problems.append(f"{name}.transitions_gap 缺字段: {missing}")
+        if not obj.get("transitions"):
+            problems.append(f"{name} 登记了 transitions_gap，却连一条明确边都没有")
     for projection in sm_data.get("projections") or []:
         if not isinstance(projection, dict):
             continue
@@ -2063,7 +2159,8 @@ def check_status_enum_consistency() -> bool:
     problems += transition_target_problems(sm_objects)
     problems += taxonomy_problems(taxonomy.get("objects"), sm_states, definitions)
     problems += enum_registry_problems(registry.get("objects"), sm_states)
-    problems += schema_enum_problems(definitions, sm_states, classes)
+    problems += schema_enum_problems(definitions, sm_states, classes, layers)
+    problems += field_authority_problems(FIELD_AUTHORITY_PATH, definitions)
     problems += alias_layer_problems(layers, sm_states)
     problems += schema_gap_problems(
         taxonomy.get("schema_gaps"),

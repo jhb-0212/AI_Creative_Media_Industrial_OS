@@ -16,7 +16,7 @@
 
 generated_by: scripts/gen_status_contracts.py
 source: contracts/state_machines/state_machines.yaml
-object_count: 42
+object_count: 43
 objects:
 - object: Appeal
   states: [CLOSED, DECISION_OVERTURNED, DECISION_UPHELD, IN_REVIEW, SUBMITTED]
@@ -64,6 +64,8 @@ objects:
   states: [DEPRECATED, EXPERIMENT_RECORD, FAILURE_CASE, IN_REVIEW, REJECTED, RETIRED, REUSABLE_PATTERN]
 - object: PatternRecord
   states: [DEPRECATED, EXPERIMENT_RECORD, FAILURE_CASE, IN_REVIEW, REJECTED, RETIRED, REUSABLE_PATTERN]
+- object: PrevizVersion
+  states: [APPROVED, DRAFT, GEOMETRY_VALID, LOCKED, RENDERED, SUPERSEDED]
 - object: Project
   states: [ACTIVE, ARCHIVED, COMPLETED, DRAFT, ON_HOLD]
 - object: PublicationReview

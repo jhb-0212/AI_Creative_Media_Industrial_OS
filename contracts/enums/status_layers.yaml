@@ -27,6 +27,13 @@ rule: >-
   展示投影别名仅用于前端展示与观测标记，不得写入权威字段；跨域 STALE 标记只表示过期/阻断提示，
   不是对象状态，不参与状态机校验。
 
+# 信封占位哨兵：对象没有领域生命周期时，status 唯一允许写入的值。
+# 为什么必须有它：C.3.1 要求 status 必填且不得接受未知枚举值。过去把对象标成
+# envelope_only 后却仍保留裸 string，等于「承认没有生命周期，同时允许任意字符串
+# 写入」——这正是用户点名的红线。哨兵不是新的生命周期状态，只表示「本对象的权威
+# 事实在别的字段上（或无生命周期）」，写入方必须去 field_authority.yaml 查权威位置。
+envelope_only_sentinel: NO_LIFECYCLE
+
 # 展示投影别名：给前端/观测看的名字，映射到某个对象的权威状态。
 state_projection_aliases:
   - alias: SHOWCASE_OUTDATED
@@ -92,6 +99,42 @@ non_lifecycle_dimensions:
       该对象的真实状态集是 PENDING / PASSED / BLOCKED / NEEDS_HUMAN_REVIEW（34.8）。
     status_field: status
     informational: true
+  - object: ExternalToolAdapterManifest
+    dimension: adapter_lifecycle_status
+    values: [REGISTERED, VERIFIED, REVOKED]
+    value_set_status: pending_owner_ruling
+    note: >-
+      32.4 明确 lifecycle_status 是适配器生命周期字段，支持暂停、撤销、回滚和版本退役；
+      动作事件给出 REGISTERED / VERIFIED / REVOKED 三个已授权词。这里登记的是**正文中
+      确实出现过的取值**，不是完整集合：「暂停 / 回滚 / 版本退役」没有给出字面值，
+      Phase 0 不得据此自造 SUSPENDED 之类状态。完整集合与转移图须由所有者裁定后写进
+      state_machines，届时本条删除。信封 status 不是第二个权威位置。
+    status_field: lifecycle_status
+  - object: ModelInvocation
+    dimension: provider_execution
+    values: [SUBMISSION_UNKNOWN]
+    value_set_status: pending_owner_ruling
+    note: >-
+      8.11 明确三个字段分别承载提交、结果、计费三个正交事实，SUBMISSION_UNKNOWN 是
+      唯一在正文里点名的取值。不能把三者的并集塞进一个 status，也不能用「提交未知但
+      结果已到」这种真实组合去证明单字段状态机。缺的是每个字段各自的完整值集。
+    status_field: submission_status / result_status / billing_status
+  - object: PrevizVersion
+    dimension: purity_check_result
+    values: [NOT_RUN, PASSED]
+    value_set_status: pending_owner_ruling
+    note: >-
+      8.13 给出 purity_check_status: NOT_RUN，8.4.1 的 Manifest 示例给出 PASSED；
+      正文另有「白模纯净度/版权不合格」叙述但没有给字面值，禁止自造 FAILED 之类枚举。
+      它不是 lifecycle：一个 LOCKED 版本完全可能处于 NOT_RUN 或复核中。
+    status_field: purity_check_status
+  - object: QCIssue
+    dimension: human_disposition
+    values: [CONFIRM_DEFECT, ARTISTIC_INTENTIONAL, FALSE_POSITIVE, NEEDS_MORE_EVIDENCE, WAIVE_WITH_AUTHORITY]
+    note: >-
+      21.1 明确这五种是人工结论类型，绑定 human_decision 与 disposition；这是审阅裁决，
+      不是缺陷单的生命周期链。信封 status 不得成为第二个裁决事实。
+    status_field: human_decision / disposition
 
 # 历史上被误当成状态值的记号：CI 禁止对应对象的 allowed_states 出现它们。
 # 每条都写明「当初怎么混进来的」与「对谁禁用」——同一个词在另一个对象上可能是合法状态

@@ -13,10 +13,12 @@
 #
 #   lifecycle      —— 有权威状态机（state_machines.allowed_states）；
 #                     Schema 的 status.enum 必须逐值等于 allowed_states，缺一个、
-#                     多一个都报红。共 39 个（对应 39 个已建模的状态机对象）。
+#                     多一个都报红。共 40 个（ADR-R21 把 PrevizVersion 归位：8.13
+#                     明确给出六态权威集，此前误判为 status_split）。
 #   envelope_only  —— 无独立生命周期，status 仅作信封占位；必须写 basis（依据类别）
-#                     + reason（为什么它不是生命周期）。basis 是封闭枚举，不接受
-#                     「暂不处理」这种理由。共 18 个。
+#                     + reason（为什么它不是生命周期）+ unblocks_when（哪项领域决策
+#                     才能解除该分类）。status 只允许写 status_layers 的哨兵值，
+#                     不再接受任意字符串。共 17 个。
 #   lifecycle_gap  —— 应有生命周期但状态机从未登记；必须写 reason / contract_ref /
 #                     unblocks_when 三项债务字段。这三项不是给文案看的：闸门会
 #                     双向校验（登记了却补上状态机 → 陈旧债务报红）。共 19 个。
@@ -71,6 +73,7 @@ objects:
   - {object: ExportPackage, class: lifecycle}
   - {object: ExternalToolConnection, class: lifecycle}
   - {object: PatternRecord, class: lifecycle}
+  - {object: PrevizVersion, class: lifecycle}
   - {object: Project, class: lifecycle}
   - {object: QCReviewSession, class: lifecycle}
   - {object: QuotaReservation, class: lifecycle}
@@ -90,7 +93,7 @@ objects:
   - {object: TimelineDraft, class: lifecycle}
   - {object: ToolExchangeSession, class: lifecycle}
 
-  # ---------------- envelope_only：18 个无独立生命周期的对象 ----------------
+  # ---------------- envelope_only：17 个无独立生命周期的对象 ----------------
   - object: ClientAnnotation
     class: envelope_only
     basis: child_structure
@@ -98,6 +101,8 @@ objects:
       27.2 明确「ClientAnnotation 为其下挂批注对象，不是独立领域对象」：批注锚定
       精确资产版本与时间位置，随审片门户一起处置（disposition 字段承载单条意见的
       处理结论），没有自己的一套生命周期。
+    unblocks_when: >-
+      所有者裁定批注需要脱离 ClientReviewPortal 独立处置（如跨审片门户的复核链），并给出权威状态集与转移边；否则永远随门户状态走。
   - object: Comment
     class: envelope_only
     basis: child_structure
@@ -105,38 +110,56 @@ objects:
       评论挂 CommunityPost（post_id）与父评论（parent_comment_id）。社区治理状态
       （DRAFT…TAKEN_DOWN）属 CommunityPost；给每条评论再造一套状态，会出现「帖子
       已下架、评论仍在审核中」这种无法解释的组合。
+    unblocks_when: >-
+      所有者为社区评论定义独立于 CommunityPost 的治理状态机，并证明帖子下架后评论可独立存在；否则不解除。
   - object: ReverseShotSegment
     class: envelope_only
     basis: child_structure
     reason: 25.x 反推结果的分段结构，属 ReverseAnalysisReport 的组成部分；置信度与时间码是它的内容，不是状态。
+    unblocks_when: >-
+      所有者把反推分段提升为独立聚合根并给出状态机；当前它只是 ReverseAnalysisReport 的内容分段。
   - object: ReversePromptPair
     class: envelope_only
     basis: child_structure
     reason: 反推出的「图像提示词 / 运动提示词」成对结构，依附某个 segment（source_segment_ref），无独立生命周期。
+    unblocks_when: >-
+      所有者裁定提示词对可脱离 segment 独立复用、并授予自己的生命周期；否则不解除。
   - object: ReverseKeyframeRef
     class: envelope_only
     basis: child_structure
     reason: 关键帧引用，权利状态由 rights_status 字段承载（导出前重新校验），不构成对象生命周期。
+    unblocks_when: >-
+      所有者裁定 rights_status 之外还需要引用级生命周期（如重新校验、撤销）并给出状态集；否则 rights_status 是唯一事实。
   - object: ReverseAudioDescription
     class: envelope_only
     basis: child_structure
     reason: 反推的音频/对白描述块，属报告内容；不得默认转录或公开未授权音轨是内容约束，不是状态。
+    unblocks_when: >-
+      所有者裁定音频描述块可独立发布/撤回并给出状态机；当前内容约束由报告与权利字段承载。
   - object: ReviewAnnotation
     class: envelope_only
     basis: child_structure
     reason: 内部评审批注，锚定 snapshot_id 与资产版本；处置结论在批注自身字段上，不是生命周期。
+    unblocks_when: >-
+      所有者裁定评审批注可脱离 snapshot 独立流转并给出状态机；当前处置结论在批注字段上。
   - object: PolicyResolution
     class: envelope_only
     basis: derived_projection
     reason: 字段级策略解析快照（resolved_fields + source_versions + validation_result）。它是「按某组策略版本算出来的结果」，可重算，不是有生命周期的实体。
+    unblocks_when: >-
+      该快照被证明不可由策略版本重算且需要独立审计生命周期时解除；否则派生视图永不建状态机。
   - object: ShowcaseVersionTree
     class: envelope_only
     basis: derived_projection
     reason: 版本树是 nodes / edges + active_snapshot_ref 的图结构视图，由若干 ShowcaseSnapshot 组成；树本身没有状态，状态在节点上。
+    unblocks_when: >-
+      所有者裁定版本树本身需要独立状态（而非由节点聚合）并给出状态集；否则状态只在 ShowcaseSnapshot 上。
   - object: TierChangeAudit
     class: envelope_only
     basis: immutable_record
     reason: 等级变更审计记录（before/after 快照 + actor + timestamp）。审计记录写完即定，改写状态等于篡改审计。
+    unblocks_when: >-
+      正文为等级变更审计记录引入状态机并明确不篡改审计的写法；当前改写记录即篡改事实。
   - object: GateDecision
     class: envelope_only
     basis: immutable_record
@@ -144,18 +167,26 @@ objects:
       Gate 结论记录：decided_at / decided_by / decision / evidence_refs。34.x 要求
       终态结论不得原地改写，条件变化须新建评估记录——既然不可改写，就没有「状态
       迁移」这件事。
+    unblocks_when: >-
+      正文允许终局结论按新证据原地改判并给出可审计的状态机；在此之前条件变化必须新建评估记录。
   - object: TakeDown
     class: envelope_only
     basis: immutable_record
     reason: 下架处置记录（notice_ref / authority_ref / evidence_refs / taken_down_at）。处置动作已发生，记录不再变化；恢复上架是新事实，不是改这条记录的状态。
+    unblocks_when: >-
+      所有者裁定下架记录需要「生效中/已恢复」等状态并给出状态机；当前恢复上架是另一条新记录。
   - object: ShotBudgetLedger
     class: envelope_only
     basis: immutable_record
     reason: 镜头成本流水（transaction_id + amount + approval_id），追加式记账；与 BudgetLedgerTransaction 同理，记录本身就代表「已入账」。
+    unblocks_when: >-
+      正文为镜头流水给出与 BudgetLedgerTransaction 不同的生命周期并允许追加后改写；当前追加即不可变。
   - object: MemoryRecord
     class: envelope_only
     basis: immutable_record
     reason: 记忆记录（valid_from / valid_to / supersedes）。有效期与取代关系用字段表达，不需要状态迁移；且记忆明确不自动成为硬约束。
+    unblocks_when: >-
+      所有者裁定记忆记录除 valid_from/valid_to 与 supersedes 之外还需要状态迁移并给出状态集；当前有效期字段已是唯一事实。
   - object: ExternalToolAdapterManifest
     class: envelope_only
     basis: status_split
@@ -164,6 +195,8 @@ objects:
       信封 status 是并存的第二个占位位。这正是「两个 status 事实」的样本：
       真正的不变量在 lifecycle_status 上，本轮不擅自合并（合并属契约修订），
       但必须显式记下来，避免有人以为信封 status 也是权威。
+    unblocks_when: >-
+      所有者裁定 lifecycle_status 的完整允许状态集与转移边（含暂停/回滚/退役的字面值），写入 state_machines 后重新评估分类。
   - object: ModelInvocation
     class: envelope_only
     basis: status_split
@@ -172,17 +205,14 @@ objects:
       result_status（结果是否可用）、billing_status（是否计费）——加上
       duplicate_charge_risk / idempotency_key，这套设计刻意不把它们压成一个线性状态，
       因为「提交未知但结果已到」这类组合是真实存在的。信封 status 不承载这层语义。
-  - object: PrevizVersion
-    class: envelope_only
-    basis: status_split
-    reason: >-
-      Previz 的「是否可用」由 approved_at / approved_by（锁定审批）与
-      purity_check_status（白模纯净度检查）共同表达。把两者压成一个 status 会丢失
-      「已批准但纯净度复核未过」这种必须能表达的组合。
+    unblocks_when: >-
+      所有者分别给出 submission_status / result_status / billing_status 的完整值集与交叉组合约束；信封 status 永不复活。
   - object: QCIssue
     class: envelope_only
     basis: status_split
     reason: 缺陷单的处置结论在 disposition 与 human_decision 上（谁判、判成什么），不是一条从 OPEN 到 CLOSED 的通用状态链。
+    unblocks_when: >-
+      所有者裁定 human_decision 与 disposition 是否各建 enum、以及与 ReworkTask 的联动不变量；在此之前不伪造缺陷生命周期。
 
   # ---------------- lifecycle_gap：19 个应有生命周期但未登记状态机 ----------------
   - object: BlockingAsset

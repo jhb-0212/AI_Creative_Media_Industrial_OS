@@ -414,5 +414,49 @@ amendments:
       - 'object_schemas 中既有 5 个 enum（Scene / Shot / ShotBreakdownDraft / ShotRevision / Task）的书写顺序同步为字母序：语义不变（闸门按集合比对），但评审时会看到纯顺序 diff'
       - '本修订解除 A8 残余风险第 4 条（32 个对象裸 string），并修正其 32/9 统计口径（实测 76 个 status 中 70 裸 / 6 收 enum）；其余残余风险不变'
 
+  - id: 'V205-R14-A10'
+    title: '双 status 字段权威归属与信封哨兵（ADR-R21）'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: '项目所有者 2026-11-18 评审 ADR-R20：认可 19 lifecycle_gap / 18 envelope_only 作为不同性质显式债务保留，要求先裁定四个双 status 对象的权威归属，并指出 envelope_only 不能成为永久兜底、不能一边承认无生命周期一边允许任意字符串写入'
+    reason: >-
+      A9 把 18 个 status 字段归为 envelope_only，其中 4 个是 status_split，但只登记了
+      「存在两个事实」，没有裁定哪个字段可写——实现方仍可二选一，最终出现两个互不相认的
+      事实源。同时 envelope_only 对象保留裸 string，等于允许任意字符串写入，违反 C.3.1。
+      本修订按所有者三条口径逐项裁定：ExternalToolAdapterManifest 的权威为 lifecycle_status；
+      ModelInvocation 的提交/结果/计费三个正交字段各自保留，不合并成线性链；PrevizVersion
+      的 8.13 正文已给出六态权威集，归位为 lifecycle（purity_check_status 与审批字段是证据/检查
+      维度而非第二套生命周期）；QCIssue 的权威为 human_decision + disposition。信封 status
+      对前三个对象退役为 status_layers 哨兵 NO_LIFECYCLE，17 个 envelope_only 对象全部收单值
+      enum，且每个条目新增 unblocks_when 写明销项所需的领域决策。
+    adr: 'docs/adr/ADR-R21-status-field-authority.md'
+    approved_by: '项目所有者（会话内评审指令：「允许债务存在，不允许债务隐形；允许暂时不定义状态，不允许多个事实源同时拥有状态」）'
+    approved_at: '2026-11-18'
+    source_commits: []
+    additions:
+      enums:
+        - file: 'contracts/enums/field_authority.yaml'
+          why: '四个双 status 对象的权威写入位置、裁定理由与 unblocks_when；闸门校验字段真实存在且权威/非权威集合不重叠'
+        - file: 'contracts/enums/status_layers.yaml → envelope_only_sentinel'
+          why: 'NO_LIFECYCLE 作为无生命周期对象的唯一合法 status 值，堵住裸 string'
+      state_machines:
+        - object: 'PrevizVersion'
+          why: '8.13 明确给出 DRAFT/GEOMETRY_VALID/RENDERED/APPROVED/LOCKED/SUPERSEDED 六态；此前误判为 status_split。只登记正文明确的 APPROVED→LOCKED 边，其余边写入 transitions_gap，不推定'
+    removals:
+      status_field_taxonomy:
+        - object: 'PrevizVersion（envelope_only/status_split 条目）'
+          why: '归位 lifecycle；继续留在占位分类会让正文已有的六态权威集继续隐形'
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 83
+      state_machines: 43
+    residual_risks:
+      - '19 个 lifecycle_gap 仍是带债务字段的裸 string（A9 已登记，未在本轮迁移）；本修订只把它们与 envelope_only 的边界钉清'
+      - '17 个 envelope_only 对象的权威字段值集大多仍待所有者裁定：field_authority.unblocks_when 已逐项写明销项条件'
+      - 'PrevizVersion 的 5 条未授权转移边登记在 transitions_gap，未登记前按 31.5 一律拒绝'
+      - '缺失 Schema 对象（PublicationReview / CreatorShareLink / Pattern / SharedReferenceAsset）继续单列 schema_gaps，不因不在枚举迁移范围而视为已闭合'
+      - '本修订修正评审表格的统计口径：迁移前既有 enum 是 5，当前 57 个 status.enum = 40 生命周期 + 17 哨兵；42 个状态机对象与 76 个带 status 的 schema 对象不是同一集合'
+
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

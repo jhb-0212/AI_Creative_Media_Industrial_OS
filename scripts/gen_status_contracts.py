@@ -54,6 +54,7 @@ STATE_MACHINES = ROOT / "contracts" / "state_machines" / "state_machines.yaml"
 ENUM_REGISTRY = ROOT / "contracts" / "enums" / "enum_registry.yaml"
 SCHEMA = ROOT / "contracts" / "schemas" / "object_schemas.schema.json"
 TAXONOMY = ROOT / "contracts" / "enums" / "status_field_taxonomy.yaml"
+LAYERS = ROOT / "contracts" / "enums" / "status_layers.yaml"
 
 _LIFECYCLE = "lifecycle"
 _ENVELOPE_ONLY = "envelope_only"
@@ -110,13 +111,43 @@ def taxonomy_classes(path: Path | None = None) -> dict[str, str]:
     return result
 
 
-def enum_required(states: dict[str, list[str]], classes: dict[str, str]) -> dict[str, list[str]]:
-    """需要收 enum 的对象：分类为 lifecycle，且状态机里真有状态集。"""
-    return {
-        name: values
-        for name, values in states.items()
-        if classes.get(name) == _LIFECYCLE
+def envelope_only_sentinel(layers: dict[str, Any] | None = None) -> str:
+    data = layers if layers is not None else load_yaml_mapping(LAYERS)
+    sentinel = str(data.get("envelope_only_sentinel", "")).strip()
+    if not sentinel:
+        raise ValueError("status_layers 缺 envelope_only_sentinel")
+    return sentinel
+
+
+def enum_required(
+    states: dict[str, list[str]],
+    classes: dict[str, str],
+    layers: dict[str, Any] | None = None,
+    definitions: dict[str, Any] | None = None,
+) -> dict[str, list[str]]:
+    """需要收 enum 的对象与取值集合。
+
+    lifecycle     → 权威状态集（state_machines.allowed_states）；
+    envelope_only → 单个哨兵值，禁止裸 string（没有生命周期 ≠ 任意值）；
+    lifecycle_gap → 不收 enum，保留带债务登记的裸 string。
+    """
+    required: dict[str, list[str]] = {
+        name: values for name, values in states.items() if classes.get(name) == _LIFECYCLE
     }
+    if definitions is None:
+        # 延迟加载：--check 只需要 authority + taxonomy + layers 即可算出派生结果；
+        # 传入 definitions 时按传入对象集生成，避免与磁盘上的 schema 互相依赖。
+        schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+        definitions = schema.get("definitions") or schema.get("$defs") or {}
+    sentinel = envelope_only_sentinel(layers)
+    for name, spec in definitions.items():
+        if not isinstance(spec, dict):
+            continue
+        if "status" not in (spec.get("properties") or {}):
+            continue
+        if classes.get(name) == _ENVELOPE_ONLY:
+            required[name] = [sentinel]
+    return required
 
 
 # --------------------------------------------------------------------------- #
@@ -315,7 +346,10 @@ def drift_problems() -> list[str]:
     """返回派生结果与磁盘文件的差异（空列表 = 一致）。"""
     states = lifecycle_states()
     classes = taxonomy_classes()
-    required = enum_required(states, classes)
+    layers = load_yaml_mapping(LAYERS)
+    raw, nl = _read_text(SCHEMA)
+    definitions = json.loads(raw).get("definitions") or {}
+    required = enum_required(states, classes, layers, definitions)
     problems: list[str] = []
 
     expected_registry = render_enum_registry(states)
@@ -326,7 +360,6 @@ def drift_problems() -> list[str]:
             "（跑 --write 重算，不要手改派生文件）"
         )
 
-    raw, nl = _read_text(SCHEMA)
     expected_schema = patch_schema(raw, nl, required)
     if expected_schema != raw:
         problems.append(
@@ -339,17 +372,20 @@ def drift_problems() -> list[str]:
 def write_all() -> None:
     states = lifecycle_states()
     classes = taxonomy_classes()
-    required = enum_required(states, classes)
+    layers = load_yaml_mapping(LAYERS)
+    raw, nl = _read_text(SCHEMA)
+    definitions = json.loads(raw).get("definitions") or {}
+    required = enum_required(states, classes, layers, definitions)
 
     ENUM_REGISTRY.write_bytes(render_enum_registry(states).encode("utf-8"))
-
-    raw, nl = _read_text(SCHEMA)
     SCHEMA.write_bytes(patch_schema(raw, nl, required).encode("utf-8"))
 
+    lifecycle_count = sum(1 for cls in classes.values() if cls == _LIFECYCLE)
     print(
         f"[WRITE] enum_registry: {len(states)} 个对象；"
-        f"schema status.enum: {len(required)} 个对象收 enum，"
-        f"{len(states) - len(required)} 个状态机对象按台账分类保留裸 string"
+        f"schema status.enum: {len(required)} 个对象收 enum"
+        f"（生命周期 {lifecycle_count} + 信封哨兵 {len(required) - lifecycle_count}），"
+        "lifecycle_gap 对象按台账保留裸 string 并挂债务字段"
     )
 
 

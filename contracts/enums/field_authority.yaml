@@ -1,0 +1,86 @@
+# 双 status 对象的字段权威裁定（手工维护，唯一权威）
+#
+# 为什么要单独建这份文件
+# --------------------
+# ADR-R20 把 18 个 status 字段归为 envelope_only，其中 4 个是 status_split：
+# 对象上同时存在信封 status 和更具体的状态字段。当时只登记了「有两个事实」，
+# 没有裁定「哪个才是权威写入位置」——这等于把不确定性留在契约里，实现方仍然可以
+# 二选一写，最终出现两个互不相认的事实源。
+#
+# 本文件按所有者的三条裁定口径逐个落定：
+#   1. 同一生命周期事实 → 选唯一权威字段，另一个走退役（写 sentinel）；
+#   2. 不同业务过程 → 各字段保留独立语义、独立名、独立状态集，禁止合并；
+#   3. 历史兼容或 UI 投影 → 不得作为第二个权威状态源。
+#
+# 硬规则：一个状态事实只有一个权威写入位置。非权威字段不得承载生命周期 enum；
+# envelope_only 对象的 status 只允许写 status_layers.envelope_only_sentinel。
+# CI 校验：本文件的每个对象/字段必须真实存在，裁定理由与 unblocks_when 必须完整，
+# 且不得有两个对象把同一事实指给不同权威字段（同名不同对象不算冲突）。
+
+version: 1
+source: docs/baseline/AI影视工业化生产平台V2.0.5.md + ADR-R21
+sentinel_field: status
+
+objects:
+  - object: ExternalToolAdapterManifest
+    kind: authority_elsewhere
+    authoritative_fields: [lifecycle_status]
+    non_authoritative_fields: [status]
+    ruling: >-
+      同一生命周期事实，权威字段是 lifecycle_status。32.4 明确把 lifecycle_status
+      列为「验证与生命周期」字段组，动作事件 REGISTERED / VERIFIED / REVOKED 都围绕
+      适配器自身的登记—验证—撤销链；信封 status 在正文里没有任何独立取值定义，
+      是 C.3.1 信封必填留下的占位位。按裁定口径 1，status 退役为哨兵，不得写入
+      生命周期值；lifecycle_status 的完整值集与转移边尚未由正文给出，保持显式缺口。
+    reason: 同一事实两个写入位会让「已验证适配器」在 status 与 lifecycle_status 上各说各话。
+    unblocks_when: >-
+      所有者裁定 lifecycle_status 的完整允许状态集与已授权转移边（含暂停/回滚/退役的
+      字面值），写入 state_machines 后本对象的 status_split 分类随之重新评估。
+    source_section: 32.4 ExternalToolAdapter 统一 Manifest 与 SPI 契约
+
+  - object: ModelInvocation
+    kind: distinct_processes
+    authoritative_fields: [submission_status, result_status, billing_status]
+    non_authoritative_fields: [status]
+    ruling: >-
+      三个字段表达三个正交业务过程，按裁定口径 2 保留各自语义与独立状态集：
+      submission_status 回答「是否提交给供应商」（8.11 明确 SUBMISSION_UNKNOWN），
+      result_status 回答「结果是否可用」，billing_status 回答「是否计费」。
+      「提交未知但结果已到」是真实组合，压成一条线性 status 会丢失这个事实。
+      信封 status 不是第四个事实源，退役为哨兵。
+    reason: 单一 status 无法表达三字段的正交组合，合并等于删掉真实业务状态。
+    unblocks_when: >-
+      所有者分别给出三个字段的完整允许值集与合法组合约束（尤其是 SUBMISSION_UNKNOWN
+      与结果/计费字段的交叉规则），再由各字段各自建 enum；本对象的 status 永远不复活。
+    source_section: 8.11 ModelInvocation 外部幂等映射
+
+  - object: PrevizVersion
+    kind: same_fact_on_status
+    authoritative_fields: [status]
+    non_authoritative_fields: [purity_check_status, approved_at, approved_by]
+    ruling: >-
+      8.13 直接给出 status: DRAFT，并列出 DRAFT / GEOMETRY_VALID / RENDERED /
+      APPROVED / LOCKED / SUPERSEDED 六个允许值——这是明确的领域生命周期，按裁定
+      口径 1 归位为 lifecycle，不能再当 envelope_only。purity_check_status 是白模
+      纯净度检查结果（NOT_RUN / PASSED 见于正文），approved_at/approved_by 是
+      APPROVED→LOCKED 的审批证据与责任人，二者都不是第二套生命周期状态。
+    reason: 此前把 purity_check_status 与审批字段误认成状态拆分，掩盖了正文已经给出的六态权威集。
+    unblocks_when: >-
+      六态已可入 state_machines；剩余缺口只是转移边（正文仅明确 BASELINE→LOCKED 须审批
+      事件）。所有者补登转移边后删除 transitions_gap 条目，不改变权威字段归属。
+    source_section: 8.13 PrevizVersion 契约
+
+  - object: QCIssue
+    kind: authority_elsewhere
+    authoritative_fields: [human_decision, disposition]
+    non_authoritative_fields: [status]
+    ruling: >-
+      21.1 规定每条问题绑定 human_decision 与 disposition，并给出五种人工结论类型
+      （CONFIRM_DEFECT / ARTISTIC_INTENTIONAL / FALSE_POSITIVE / NEEDS_MORE_EVIDENCE /
+      WAIVE_WITH_AUTHORITY）。这是审阅裁决事实，不是从 OPEN 到 CLOSED 的链路；
+      信封 status 退役为哨兵。缺陷流转归 ReworkTask.status，不归 QCIssue.status。
+    reason: 把裁决结论塞回信封 status 会让「误报」与「已返工」共用一个字段，混淆裁决与流转。
+    unblocks_when: >-
+      所有者裁定 human_decision 与 disposition 是否分别建 enum、以及二者与 ReworkTask
+      的联动不变量；在此之前只约束信封 status 为哨兵，不伪造缺陷生命周期。
+    source_section: 21.1 左右双屏对比工作台
