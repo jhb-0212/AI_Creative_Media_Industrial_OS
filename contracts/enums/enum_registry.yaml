@@ -2,7 +2,7 @@
 # 权威状态值 / 展示投影别名 / 跨域 STALE 标记 三层分离
 source: AFS-ARCH-MASTER-V2.0.5 状态与枚举登记（由 state_machines.yaml 与正文派生）
 rule: 三层分离：权威状态值用于 API 契约、审计字段、状态机测试与权限判定；展示投影别名仅用于前端展示与观测标记，不得写入权威字段；跨域 STALE 标记只表示过期提示，不是对象状态，不参与状态机校验。
-object_count: 38
+object_count: 42
 objects:
 - object: Appeal
   authoritative_source: 31.5 社区对象状态机最终定义
@@ -173,6 +173,13 @@ objects:
   - VALIDATED
   - VALIDATING
   note: 每个 Manifest 版本不可变；VALIDATED/RELEASED 需 Gate4 PASS、PictureLock、权利证据、终检报告、规格和校验和齐备；源或规格变化标记 STALE；权利/安全撤销标记 REVOKED。
+- object: Episode
+  authoritative_source: 8.1 核心实体（项目层级 Project→Episode→Scene→Shot，主链实现补登）
+  states:
+  - DRAFT
+  - ACTIVE
+  - ARCHIVED
+  note: 集数聚合，归属 Project。DRAFT 可直接归档（建错或撤销），ARCHIVED 为终态不可原地复活。正文未为 Episode 单列状态机，本状态集为 Phase 1 主链新增建模（PENDING_PHASE1_REVIEW），不冒充正文规定。
 - object: ExplorationBranch
   authoritative_source: C.7 关键状态机与版本不可变规则
   states:
@@ -229,6 +236,15 @@ objects:
   - RETIRED
   - REUSABLE_PATTERN
   note: PMS / Pattern Library
+- object: Project
+  authoritative_source: 8.1 核心实体（项目层级聚合根，主链实现补登）
+  states:
+  - DRAFT
+  - ACTIVE
+  - ON_HOLD
+  - COMPLETED
+  - ARCHIVED
+  note: 项目聚合根。ARCHIVED 为终态不可原地复活；未登记转移一律拒绝（31.5）。正文未为 Project 单列状态机，本状态集为 Phase 1 主链第一环所需的新增建模（PENDING_PHASE1_REVIEW）。
 - object: PublicationReview
   authoritative_source: 31.5 社区对象状态机最终定义
   states:
@@ -292,6 +308,21 @@ objects:
   - REJECTED
   - VERIFYING
   note: VERIFYING 须有复核人且不得为返工执行人本人；CLOSED 为终态。
+- object: Scene
+  authoritative_source: 8.1 核心实体（项目层级 Project→Episode→Scene→Shot，主链实现补登）
+  states:
+  - DRAFT
+  - ACTIVE
+  - ARCHIVED
+  note: 场次聚合，归属 Episode。采用与 Episode 相同的生命周期形状（同层级聚合不各造一套命名），ARCHIVED 为终态不可原地复活。刻意不设 IN_REVIEW（归 GateInstance）、不设 LOCKED（场次无锁定对象）、不设生产进度态（归 Shot）。正文只有层级关系、无状态集，本状态集属新增建模（PENDING_PHASE1_REVIEW），见 ADR-R19。
+- object: ScriptRevision
+  authoritative_source: 31.6 Action Registry（SCRIPT.IMPORT / SCRIPT.LOCK.REQUEST / SCRIPT.LOCK.APPROVE，主链实现补登）
+  states:
+  - DRAFT
+  - LOCK_PENDING
+  - LOCKED
+  - SUPERSEDED
+  note: 剧本版本。锁定为两步审批流：申请人 DRAFT→LOCK_PENDING，批准人 LOCK_PENDING→LOCKED，职责分离；新版本导入使旧版本 SUPERSEDED（终态不可原地复活）。正文未单列状态机，属 Phase 1 主链新增建模（PENDING_PHASE1_REVIEW）。
 - object: ShareLink
   authoritative_source: 31.5 社区对象状态机最终定义
   states:
