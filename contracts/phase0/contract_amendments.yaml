@@ -165,5 +165,43 @@ amendments:
       - 'APPROVED→GOLD 之外，GENERATED→TECHNICAL_QC 仍由 QC.REPORT.CREATE 副作用推进（语义正确：登记首份 QC 报告即进入技术 QC），不属缺口，本修订不强行改为独立动作'
       - '状态变更入口的 DB 迁移（若涉及新列）与真实 PG 环境验证未执行'
 
+  - id: 'V205-R14-A4'
+    title: '拆镜草案对象契约——ShotBreakdownDraft（含五态状态机）'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: 'docs/adr/ADR-R07-shot-draft-contract-gap.md（镜头域契约缺口）；2026-11-18 主链核对确认拆镜段整段无对象契约'
+    reason: >-
+      Phase 1 主链「剧本导入 → AI 拆镜草案 → 人工确认 → ShotSpec」在拆镜处整段断开，根因是
+      草案对象从来没有契约：SHOT.DRAFT.CREATE 声明 resource_type=ShotDraft，而 object_schemas
+      里从未定义该对象（ADR-R07 已钉死，resource_schema_gaps 也登记了债务）。ADR-R07 当初拒绝
+      补契约的理由是「正文没有字段表，猜就是返工」，该理由成立，所以缺口一直挂着。现在项目
+      所有者直接给出了《拆镜草案字段设计》，权威来源问题解除，可按所有者口径落地。
+      落地形态与 ADR-R07 草案不同：由「一行一个镜头」改为文档级聚合根 ShotBreakdownDraft，
+      理由是逐行模型无法表达人工的合并/拆分，也无法承载版本快照（详见 ADR-R16）。
+      同时把该对象的五个状态值登记进状态机与枚举注册表，避免实现时自创第六个状态。
+    adr: 'docs/adr/ADR-R16-shot-breakdown-draft-contract.md'
+    approved_by: '项目所有者（本次拆镜契约应答）'
+    approved_at: '2026-11-18'
+    source_commits: []
+    additions:
+      schema_objects:
+        - object: 'ShotBreakdownDraft'
+          why: '拆镜草案聚合根；三层结构（场次→剧情节拍→镜头草案）+ 版本链，是 SHOT.DRAFT.CREATE 的资源类型与人工确认的载体'
+      state_machines:
+        - object: 'ShotBreakdownDraft'
+          why: '五态 PENDING_CONFIRM / IN_REVIEW / CONFIRMED / RETURNED / DISCARDED；终态不原地复活，恢复走新建版本'
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 80
+      state_machines: 39
+    residual_risks:
+      - '字段口径来自项目所有者设计（2026-11-18），非基线正文原文：正文 8.x 尚未给出拆镜条款，下一版正文须吸收本契约，否则「正文缺失、契约先行」的差异会长期存在'
+      - '正文 31.6 主表的 SHOT.DRAFT.CREATE 行仍写 resource_type=ShotDraft，与派生契约的 ShotBreakdownDraft 不一致；本次不改基线正文（改正文等于改所有者文档指纹），差异在此登记，下一版正文修订时一并改正'
+      - 'SHOT.DRAFT.CREATE 的 resource_type 由 ShotDraft 改名为 ShotBreakdownDraft：冻结闸门按名称集合判定增删，识别不了「同名 action 指向不同对象」，此处显式记录'
+      - 'SHOT.DRAFT.CONFIRM / SHOT.DRAFT.RETURN / SHOT.DRAFT.DISCARD 三个状态推进动作尚未登记，五态状态机目前无运行时入口（与 A2/A3 同类缺口，按「先开入口、再写守卫」另行处理）'
+      - 'ShotRevision 仍无 object schema；草案确认产出的 confirmed_shot_revision_refs 指向一个尚未建模的对象'
+      - '九条对象不变量中七条为 RUNTIME_PENDING，只有 SBD-2（草案不越权定约束）与 SBD-8（节拍单一方向）可由 schema 表达，不得视为已落地'
+
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

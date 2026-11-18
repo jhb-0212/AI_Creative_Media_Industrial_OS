@@ -7,7 +7,8 @@ authoritative_sources:
   - contracts/runtime/action_implementations.yaml
 open_items:
   - item: >-
-      ShotDraft 等 9 个资源类型仍无对象 schema 定义（须依据基线正文补齐，不得猜契约）
+      拆镜草案对象契约已落地（ShotBreakdownDraft，见 ADR-R16）；其余 8 个资源类型
+      仍无 schema 定义，须依据正文或所有者口径补齐，不得猜契约
     source: "contracts/runtime/resource_schema_gaps.yaml#gaps"
   - item: >-
       镜头域动作（SHOT.DRAFT.CREATE 等）无运行时入口，属 Phase 2 范围
@@ -63,6 +64,11 @@ ADR-R07 已指出「这条缺口能通过 CI，但它不是契约自洽，只是
    `RightsManifest`）都是可校验的业务对象，应补 schema；豁免只留给核心信封对象这一既有先例。
 
 ## 四、ShotDraft 字段契约（draft-07 片段）
+
+> **已被 ADR-R16 取代（2026-11-18）。** 下文保留原始草案作历史记录，不再是权威口径。
+> 实际落地的对象是文档级聚合根 `ShotBreakdownDraft`（三层结构：场次 → 剧情节拍 → 镜头草案，
+> 含版本链与人工审阅事实），字段定义见 `contracts/schemas/object_schemas.schema.json`。
+> 改动理由：逐行模型无法表达人工的合并/拆分，也承载不了「每次修改形成新版本、不覆盖历史」。
 
 命名遵循现有 schema 惯例：业务标识用 `<对象>_id`，引用用 `<对象>_ref` / `_refs`，
 通用信封为 10 项（`entity_id`、`entity_type`、`schema_version`、`entity_version`、`status`、
@@ -131,6 +137,10 @@ DRAFT ──CONFIRM──> CONFIRMED ──SUPERSEDE──> SUPERSEDED(终态)
    `ConstraintPack`，草案只能提出候选，不能自带约束。
 
 ## 五、缺失的确认动作（比字段更硬的缺口）
+
+> 动作名以 ADR-R16 的五态为准：`SHOT.DRAFT.CONFIRM`（→CONFIRMED）、`SHOT.DRAFT.RETURN`
+> （→RETURNED）、`SHOT.DRAFT.DISCARD`（→DISCARDED），不再使用 `REJECT`——
+> 「退回修改」与「废弃」是两种不同处置，合成一个动作会让退回的草案无处可去。
 
 `SHOT.DRAFT.CREATE` 只产生 `DRAFT`。按 31.5「未登记转移一律拒绝」，
 `DRAFT → CONFIRMED / REJECTED` 若没有对应 action，运行时根本无路可走——

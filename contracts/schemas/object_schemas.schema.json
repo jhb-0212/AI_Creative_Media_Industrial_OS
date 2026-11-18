@@ -18,7 +18,7 @@
   ],
   "x-afs-p0-coverage": {
     "note": "已建模对象与显式登记为待补的对象之并集，构成 P0 契约对象全集。待补项按缺口性质分类，不把“正文有字段表但派生未覆盖”与“正文缺字段标识”混为一类。",
-    "total": 79,
+    "total": 80,
     "modeled": [
       "Appeal",
       "AssetReference",
@@ -83,6 +83,7 @@
       "ReworkTask",
       "ScriptRevision",
       "ShareLink",
+      "ShotBreakdownDraft",
       "ShotBudgetLedger",
       "ShotProductionProfile",
       "ShotResourceAllocation",
@@ -6868,6 +6869,917 @@
       ],
       "additionalProperties": true,
       "x-afs-required-basis": "required = C.3.1 通用信封 + 业务字段（project_id/episode_ref/title；requested_by 可选，由 ScriptRevision.to_dict 实现确定）"
+    },
+    "ShotBreakdownDraft": {
+      "type": "object",
+      "description": "拆镜草案聚合根：把某个剧本版本的一个范围拆成「场次 → 剧情节拍 → 镜头草案」三层，供人工确认后进入正式镜头设计。草案不是正式分镜、不是生成提示词，也不承载资产绑定、参考图与模型参数——那些属于 ShotSpec / ShotVisualPlan 阶段。",
+      "required": [
+        "shot_breakdown_draft_id",
+        "project_id",
+        "basis_script_revision_id",
+        "breakdown_scope",
+        "plan_name",
+        "generation_method",
+        "draft_version",
+        "root_draft_ref",
+        "scene_breakdowns",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "shot_breakdown_draft_id": {
+          "type": "string",
+          "description": "草案标识；创建后不可改，且不得复用为 ShotRevision / ShotSpec 标识"
+        },
+        "project_id": {
+          "type": "string",
+          "description": "所属项目"
+        },
+        "episode_ref": {
+          "type": ["string", "null"],
+          "description": "所属集数；拆解范围为全剧（PRODUCTION）时为空"
+        },
+        "basis_script_revision_id": {
+          "type": "string",
+          "description": "所依据的剧本版本。剧本换版必须新起版本链，不得在原链上追加，否则草案与原文的追溯关系断裂"
+        },
+        "breakdown_scope": {
+          "type": "object",
+          "required": ["level"],
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": [
+                "PRODUCTION",
+                "EPISODE",
+                "SCENE",
+                "SEGMENT"
+              ],
+              "description": "拆解范围层级：全剧/集/场次/指定片段"
+            },
+            "scene_refs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "层级为 SCENE/SEGMENT 时必填的场次集合"
+            },
+            "segment_note": {
+              "type": ["string", "null"],
+              "description": "层级为 SEGMENT 时的片段界定说明"
+            }
+          },
+          "additionalProperties": true
+        },
+        "plan_name": {
+          "type": "string",
+          "description": "拆解方案名称，例如「方案A」「情绪强化版」。同名同范围可并存多套方案供比较"
+        },
+        "generation_method": {
+          "type": "string",
+          "enum": [
+            "AI_GENERATED",
+            "HUMAN_CREATED",
+            "VIDEO_REVERSE"
+          ],
+          "description": "生成方式：AI 生成 / 人工创建 / 视频反推。三种来源都不改变「必须人工确认」这一前置"
+        },
+        "draft_version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "草案修订版本，链内单调递增；每次修改新建版本，不覆盖历史"
+        },
+        "root_draft_ref": {
+          "type": "string",
+          "description": "版本链首的草案标识（首版指向自身）。历史沿此链回放，不在每条记录里冗余存全量历史"
+        },
+        "supersedes_draft_ref": {
+          "type": ["string", "null"],
+          "description": "本版本取代的上一版本；首版为空"
+        },
+        "change_summary": {
+          "type": ["string", "null"],
+          "description": "相对上一版本改了什么；首版为空"
+        },
+        "ai_rationale": {
+          "type": ["string", "null"],
+          "description": "AI 为什么这样组织镜头。人工创建时为空"
+        },
+        "open_questions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "待人工判断的问题；确认前必须清空或转成明确的创作决定"
+        },
+        "potential_issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "kind",
+              "description"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "PLOT_OMISSION",
+                  "SHOT_REDUNDANCY",
+                  "SPATIAL_IMPLAUSIBILITY",
+                  "CONTINUITY_RISK",
+                  "AUTHORING_AMBIGUITY",
+                  "OTHER"
+                ],
+                "description": "潜在问题类型：剧情遗漏/镜头冗余/空间不合理/连续性风险/原文歧义/其他"
+              },
+              "description": {
+                "type": "string"
+              },
+              "severity": {
+                "type": ["string", "null"],
+                "enum": [
+                  "HIGH",
+                  "MEDIUM",
+                  "LOW",
+                  null
+                ],
+                "description": "严重度；未评估时为空"
+              }
+            },
+            "additionalProperties": true
+          },
+          "description": "系统自评的潜在问题；不替代人工判断"
+        },
+        "scene_breakdowns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "场次上下文 + 该场次的节拍与镜头草案。保留起始/结束状态，避免拆镜只盯画面而丢掉剧情状态变化。",
+            "required": [
+              "scene_ref",
+              "scene_name",
+              "location",
+              "time_of_day",
+              "characters",
+              "scene_goal",
+              "core_event",
+              "emotional_tone",
+              "entry_state",
+              "exit_state",
+              "story_beats",
+              "shot_drafts"
+            ],
+            "properties": {
+              "scene_ref": {
+                "type": "string",
+                "description": "原剧本场次标识"
+              },
+              "scene_name": {
+                "type": "string",
+                "description": "场次描述"
+              },
+              "location": {
+                "type": "string",
+                "description": "故事发生地点"
+              },
+              "time_of_day": {
+                "type": "string",
+                "description": "时间信息：日夜与具体时间"
+              },
+              "characters": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "本场涉及的人物"
+              },
+              "scene_goal": {
+                "type": "string",
+                "description": "场次目标：本场剧情要完成什么"
+              },
+              "core_event": {
+                "type": "string",
+                "description": "核心事件：本场发生的关键事件"
+              },
+              "character_relations": {
+                "type": ["string", "null"],
+                "description": "本场人物关系及变化"
+              },
+              "emotional_tone": {
+                "type": "string",
+                "description": "本场整体情绪基调"
+              },
+              "entry_state": {
+                "type": "string",
+                "description": "场次起始状态：本场开始时的剧情状态。必填，拆镜不得丢失剧情状态"
+              },
+              "exit_state": {
+                "type": "string",
+                "description": "场次结束状态：本场结束后的剧情状态。必填"
+              },
+              "production_notes": {
+                "type": ["string", "null"],
+                "description": "制作注意事项：特殊动作、特效、复杂调度"
+              },
+              "story_beats": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "description": "剧情节拍：场次与镜头之间的中间层。防止一段对白被机械拆成一镜，也防止多信息点被压成一镜。",
+                  "required": [
+                    "beat_id",
+                    "beat_index",
+                    "script_anchor",
+                    "beat_event",
+                    "participants",
+                    "character_intent",
+                    "behavior_change",
+                    "emotion_change",
+                    "information_change",
+                    "beat_outcome",
+                    "covered_shot_refs"
+                  ],
+                  "properties": {
+                    "beat_id": {
+                      "type": "string",
+                      "description": "节拍唯一标识，草案版本内有效"
+                    },
+                    "beat_index": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "当前场次内的节拍顺序"
+                    },
+                    "script_anchor": {
+                      "type": "string",
+                      "description": "对应剧本位置的定位串"
+                    },
+                    "beat_event": {
+                      "type": "string",
+                      "description": "节拍事件：发生了什么"
+                    },
+                    "participants": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "参与人物"
+                    },
+                    "character_intent": {
+                      "type": "string",
+                      "description": "人物意图：人物想做什么"
+                    },
+                    "behavior_change": {
+                      "type": "string",
+                      "description": "行为变化：人物做了什么"
+                    },
+                    "emotion_change": {
+                      "type": "string",
+                      "description": "情绪变化：情绪如何变化"
+                    },
+                    "information_change": {
+                      "type": "string",
+                      "description": "信息变化：观众获得了什么新信息"
+                    },
+                    "conflict_change": {
+                      "type": ["string", "null"],
+                      "description": "冲突变化：冲突如何发展；无冲突推进时为空"
+                    },
+                    "beat_outcome": {
+                      "type": "string",
+                      "description": "节拍结果：对后续剧情产生什么影响"
+                    },
+                    "covered_shot_refs": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "minItems": 1,
+                      "description": "本节拍覆盖的 temp_shot_id 集合。节拍→镜头是唯一定义方向，镜头侧不冗余存节拍引用"
+                    }
+                  },
+                  "additionalProperties": true
+                },
+                "minItems": 1,
+                "description": "剧情节拍序列；不得为空——没有节拍分析的拆镜等于按句号切镜头"
+              },
+              "shot_drafts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "description": "拟议镜头。一条记录 = 一个镜头方案；叙事、动作、表演、功能分列，不得压成一句提示词。",
+                  "required": [
+                    "temp_shot_id",
+                    "shot_order",
+                    "script_anchor",
+                    "narrative_content",
+                    "subject",
+                    "action",
+                    "shot_function"
+                  ],
+                  "properties": {
+                    "temp_shot_id": {
+                      "type": "string",
+                      "description": "草案内部唯一标识；仅在本次草案版本内有效，不得复用为正式 Shot 标识"
+                    },
+                    "shot_order": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "description": "当前场次内的播放顺序，从 1 连续递增"
+                    },
+                    "script_anchor": {
+                      "type": "string",
+                      "description": "对应剧本位置（段落/对白/动作的定位串），必须落在 basis_script_revision_id 的文本范围内"
+                    },
+                    "narrative_content": {
+                      "type": "string",
+                      "description": "这个镜头呈现什么（观众看到的事实）"
+                    },
+                    "subject": {
+                      "type": "string",
+                      "description": "镜头主体：主要人物、物体或环境"
+                    },
+                    "action": {
+                      "type": "string",
+                      "description": "镜头中发生的具体动作"
+                    },
+                    "performance": {
+                      "type": ["string", "null"],
+                      "description": "表情、眼神、肢体及表演变化；与动作分列"
+                    },
+                    "dialogue": {
+                      "type": ["string", "null"],
+                      "description": "对应剧本对白原文；无对白时为空"
+                    },
+                    "voice_over": {
+                      "type": ["string", "null"],
+                      "description": "旁白或画外音"
+                    },
+                    "shot_size": {
+                      "type": ["string", "null"],
+                      "enum": [
+                        "EXTREME_WIDE",
+                        "WIDE",
+                        "FULL",
+                        "MEDIUM",
+                        "MEDIUM_CLOSE",
+                        "CLOSE_UP",
+                        "EXTREME_CLOSE_UP",
+                        null
+                      ],
+                      "description": "景别建议：大远景/远景/全景/中景/中近景/近景/特写与大特写。允许为空——固定镜头与留白是合法设计，缺省不等于不合格"
+                    },
+                    "camera_angle": {
+                      "type": ["string", "null"],
+                      "enum": [
+                        "EYE_LEVEL",
+                        "HIGH_ANGLE",
+                        "LOW_ANGLE",
+                        "DUTCH_ANGLE",
+                        "OVER_SHOULDER",
+                        "POV",
+                        null
+                      ],
+                      "description": "拍摄角度建议：平视/俯视/仰视/斜角/过肩/主观视角"
+                    },
+                    "composition": {
+                      "type": ["string", "null"],
+                      "description": "构图建议：人物位置、空间关系、视觉重心"
+                    },
+                    "camera_movement": {
+                      "type": ["string", "null"],
+                      "enum": [
+                        "STATIC",
+                        "PUSH_IN",
+                        "PULL_OUT",
+                        "PAN",
+                        "TRACK",
+                        "FOLLOW",
+                        "CRANE",
+                        "HANDHELD",
+                        null
+                      ],
+                      "description": "运镜建议：固定/推/拉/摇/移/跟/升降/手持。为空表示固定，不强制补运镜"
+                    },
+                    "estimated_duration_ms": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 0,
+                      "description": "预计呈现时长（毫秒）；估计值，不是锁定值"
+                    },
+                    "shot_function": {
+                      "type": "string",
+                      "enum": [
+                        "INFORMATION",
+                        "SPATIAL_ESTABLISH",
+                        "CHARACTER_ESTABLISH",
+                        "PLOT_ADVANCE",
+                        "EMOTION",
+                        "REACTION",
+                        "TRANSITION"
+                      ],
+                      "description": "镜头功能：交代信息/建立空间/建立人物/推进剧情/情绪表达/反应/转场。必填——没有功能的镜头就是冗余镜头"
+                    },
+                    "emotion": {
+                      "type": ["string", "null"],
+                      "description": "镜头需要传达的情绪"
+                    },
+                    "transition_hint": {
+                      "type": ["string", "null"],
+                      "enum": [
+                        "CUT",
+                        "DISSOLVE",
+                        "FADE_IN",
+                        "FADE_OUT",
+                        "MATCH_CUT",
+                        "WIPE",
+                        null
+                      ],
+                      "description": "与前后镜头的连接方式建议：切/叠化/淡入/淡出/匹配剪辑/划像"
+                    },
+                    "sound_design": {
+                      "type": ["string", "null"],
+                      "description": "声音设计提示：环境音、音效、音乐"
+                    },
+                    "prev_shot_ref": {
+                      "type": ["string", "null"],
+                      "description": "前序镜头 temp_shot_id；场次首镜为空"
+                    },
+                    "next_shot_ref": {
+                      "type": ["string", "null"],
+                      "description": "后序镜头 temp_shot_id；场次末镜为空"
+                    },
+                    "spatial_relation": {
+                      "type": ["string", "null"],
+                      "description": "人物、场景及物体之间的位置关系"
+                    },
+                    "character_position": {
+                      "type": ["string", "null"],
+                      "description": "人物在画面及场景中的位置"
+                    },
+                    "action_state": {
+                      "type": ["string", "null"],
+                      "enum": [
+                        "NOT_STARTED",
+                        "IN_PROGRESS",
+                        "COMPLETED",
+                        null
+                      ],
+                      "description": "人物动作状态：开始/进行/结束。切镜时的动作阶段，衔接断点多半出在这里"
+                    },
+                    "gaze_direction": {
+                      "type": ["string", "null"],
+                      "description": "人物视线及对视关系"
+                    },
+                    "axis_relation": {
+                      "type": ["string", "null"],
+                      "enum": [
+                        "ON_AXIS",
+                        "CROSS_AXIS",
+                        "NOT_APPLICABLE",
+                        null
+                      ],
+                      "description": "轴线关系：同侧/越轴/不涉及 180 度轴线。越轴是显式创作决定，不是疏漏"
+                    },
+                    "prop_state": {
+                      "type": ["string", "null"],
+                      "description": "道具的位置、持有者及状态变化"
+                    },
+                    "costume_state": {
+                      "type": ["string", "null"],
+                      "description": "服装及外观连续性"
+                    },
+                    "story_state": {
+                      "type": ["string", "null"],
+                      "description": "当前镜头发生时的剧情状态"
+                    },
+                    "continuity_risks": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "可能产生的穿帮或衔接问题"
+                    },
+                    "creative_rationale": {
+                      "type": ["string", "null"],
+                      "description": "镜头创作理由：为什么这样组织（P3，辅助人工判断，不进正式对象）"
+                    },
+                    "alternatives": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "替代方案或创意探索方向（P3）"
+                    },
+                    "notes": {
+                      "type": ["string", "null"],
+                      "description": "其他创作说明"
+                    }
+                  },
+                  "additionalProperties": true
+                },
+                "minItems": 1,
+                "description": "该场次的镜头草案序列"
+              }
+            },
+            "additionalProperties": true
+          },
+          "minItems": 1,
+          "description": "场次拆解序列；草案至少含一个场次"
+        },
+        "review_records": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "一次人工审阅的不可变事实。审核人不得为 Agent 主体。",
+            "required": [
+              "review_id",
+              "reviewer",
+              "reviewed_at",
+              "decision"
+            ],
+            "properties": {
+              "review_id": {
+                "type": "string"
+              },
+              "reviewer": {
+                "type": "string",
+                "description": "实际审核主体标识；Agent 不得充当审核人"
+              },
+              "reviewer_role": {
+                "type": ["string", "null"],
+                "description": "审核人角色快照，便于事后判断授权范围"
+              },
+              "reviewed_at": {
+                "type": "string",
+                "description": "审核时间（ISO 8601）"
+              },
+              "decision": {
+                "type": "string",
+                "enum": [
+                  "CONFIRM",
+                  "RETURN",
+                  "DISCARD"
+                ],
+                "description": "审核结论；必须与本次状态转移一致（CONFIRM→CONFIRMED、RETURN→RETURNED、DISCARD→DISCARDED）"
+              },
+              "comments": {
+                "type": ["string", "null"],
+                "description": "人工修改意见"
+              },
+              "shot_decisions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "temp_shot_id",
+                    "decision"
+                  ],
+                  "properties": {
+                    "temp_shot_id": {
+                      "type": "string"
+                    },
+                    "decision": {
+                      "type": "string",
+                      "enum": [
+                        "KEEP",
+                        "MODIFY",
+                        "DELETE",
+                        "MERGE",
+                        "SPLIT"
+                      ],
+                      "description": "镜头处理结果：保留/修改/删除/合并/拆分"
+                    },
+                    "merged_into": {
+                      "type": ["string", "null"],
+                      "description": "MERGE 时指向吸收它的镜头"
+                    },
+                    "split_into": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "SPLIT 时产出的新镜头标识"
+                    },
+                    "note": {
+                      "type": ["string", "null"],
+                      "description": "该镜头的具体修改说明"
+                    }
+                  },
+                  "additionalProperties": true
+                },
+                "description": "逐镜头处理结果；未出现的镜头视为 KEEP"
+              }
+            },
+            "additionalProperties": true
+          },
+          "description": "人工审阅事实，只追加不修改；进入终态后不得再变更"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "PENDING_CONFIRM",
+            "IN_REVIEW",
+            "CONFIRMED",
+            "RETURNED",
+            "DISCARDED"
+          ],
+          "description": "草案状态：待确认/确认中/已确认/已退回/已废弃。CONFIRMED、RETURNED、DISCARDED 为版本终态，恢复一律新建版本"
+        },
+        "confirmed_by": {
+          "type": ["string", "null"],
+          "description": "确认人；CONFIRMED 时必填，且不得与草案生成主体相同"
+        },
+        "confirmed_at": {
+          "type": ["string", "null"],
+          "description": "确认时间；CONFIRMED 时必填"
+        },
+        "confirmed_shot_revision_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "确认时产出的 ShotRevision 集合；CONFIRMED 时必填，须与最终保留镜头逐一对应（确认即绑定）"
+        },
+        "returned_by": {
+          "type": ["string", "null"],
+          "description": "退回人；RETURNED 时必填"
+        },
+        "returned_at": {
+          "type": ["string", "null"],
+          "description": "退回时间；RETURNED 时必填"
+        },
+        "return_reason": {
+          "type": ["string", "null"],
+          "description": "退回原因；RETURNED 时必填。退回后修改必须新建版本"
+        },
+        "discarded_reason": {
+          "type": ["string", "null"],
+          "description": "废弃原因；DISCARDED 时必填"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string",
+          "description": "固定 ShotBreakdownDraft：草案对象永远不冒充 ShotRevision / ShotSpec"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": ["string", "null"]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "CONFIRMED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "confirmed_by",
+              "confirmed_at",
+              "confirmed_shot_revision_refs"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "RETURNED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "returned_by",
+              "returned_at",
+              "return_reason"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "DISCARDED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "discarded_reason"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "draft_version": {
+                "const": 1
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "supersedes_draft_ref": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "draft_version": {
+                "minimum": 2
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "supersedes_draft_ref",
+              "change_summary"
+            ]
+          }
+        }
+      ],
+      "x-afs-sources": [
+        "项目所有者《拆镜草案字段设计》（2026-11-18）：非基线正文原文，属所有者口径，待下一版正文吸收",
+        "docs/adr/ADR-R16-shot-breakdown-draft-contract.md",
+        "19.3 AI 剧本拆镜 Skill（草案优先、人工确认）",
+        "ADR-032（AI 拆镜输出默认草案，人工确认前不得写正式对象）"
+      ],
+      "x-afs-required-basis": "required = C.3.1 通用信封 + 设计文档标注「必需」的字段；建议（P1）、条件必需（P2）、可选（P3）不进 required——把创作建议设成强制字段会让 AI 拆镜退化成机械填表",
+      "x-afs-criticality": {
+        "scope": "shot_draft_entry",
+        "P0": [
+          "temp_shot_id",
+          "shot_order",
+          "script_anchor",
+          "narrative_content",
+          "subject",
+          "action",
+          "shot_function"
+        ],
+        "P1": [
+          "performance",
+          "shot_size",
+          "camera_angle",
+          "composition",
+          "camera_movement",
+          "estimated_duration_ms",
+          "emotion"
+        ],
+        "P2": [
+          "dialogue",
+          "voice_over",
+          "transition_hint",
+            "sound_design",
+            "prev_shot_ref",
+            "next_shot_ref",
+            "spatial_relation",
+          "character_position",
+          "action_state",
+          "gaze_direction",
+          "axis_relation",
+          "prop_state",
+          "costume_state",
+          "story_state",
+          "continuity_risks"
+        ],
+        "P3": [
+          "creative_rationale",
+          "alternatives",
+          "notes"
+        ],
+        "note": "P2 的「有相关内容时必须记录」依赖内容语义，JSON Schema 无法表达，由运行时在提交时校验；schema 只强制 P0。"
+      },
+      "x-afs-field-groups": {
+        "note": "设计文档按七组组织；契约取扁平字段以便按景别/时长/功能直接检索，分组只作语义归属，不额外增加嵌套层。",
+        "NarrativeDescription": [
+          "script_anchor",
+          "narrative_content"
+        ],
+        "SubjectAndAction": [
+          "subject",
+          "action",
+          "action_state"
+        ],
+        "Performance": [
+          "performance",
+          "emotion"
+        ],
+        "CameraProposal": [
+          "shot_size",
+          "camera_angle",
+          "composition",
+          "camera_movement",
+          "estimated_duration_ms"
+        ],
+        "AudioProposal": [
+          "dialogue",
+          "voice_over",
+          "sound_design"
+        ],
+        "ContinuityNotes": [
+          "prev_shot_ref",
+          "next_shot_ref",
+          "spatial_relation",
+          "character_position",
+          "gaze_direction",
+          "axis_relation",
+          "prop_state",
+          "costume_state",
+          "story_state",
+          "continuity_risks"
+        ],
+        "ProductionNotes": [
+          "transition_hint",
+          "creative_rationale",
+          "alternatives",
+          "notes"
+        ]
+      },
+      "x-afs-invariants": [
+        {
+          "id": "SBD-1",
+          "statement": "原文可追溯：每个镜头的 script_anchor 必须落在 basis_script_revision_id 的文本范围内，草案不得凭空创造剧情事实。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SBD-2",
+          "statement": "草案不越权定约束：草案字段集内不存在 locked_dimensions / constraint_pack_ref，锁定维度只能由 ConstraintPack 承载。",
+          "enforced_by": "SCHEMA"
+        },
+        {
+          "id": "SBD-3",
+          "statement": "草案与正式对象分离：草案标识与临时镜头标识不得用作 ShotRevision / ShotSpec / ShotVisualPlan 标识。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SBD-4",
+          "statement": "版本只增不改：CONFIRMED / RETURNED / DISCARDED 为版本终态，任何修改新建 draft_version=上一版+1 的记录，supersedes_draft_ref 指向前一版、root_draft_ref 指向链首，历史版本不得覆盖或删除。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SBD-5",
+          "statement": "换剧本即换链：basis_script_revision_id 变化时必须新建 root，不得在原链上追加版本。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SBD-6",
+          "statement": "确认即绑定：CONFIRMED 必须携带 confirmed_shot_revision_refs，且与本次确认实际产出的 ShotRevision 集合逐一对应；数量与最终保留镜头数不符即拒绝。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SBD-7",
+          "statement": "人工确认不可绕过：AI_GENERATED / VIDEO_REVERSE 的草案不得直接写 ShotSpec / ShotVisualPlan / ConstraintPack / Canon，必须先存在 CONFIRMED 的前置草案。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SBD-8",
+          "statement": "节拍与镜头多对多且单一定义方向：covered_shot_refs 是节拍→镜头的唯一定义，镜头侧不冗余存节拍引用。",
+          "enforced_by": "SCHEMA"
+        },
+        {
+          "id": "SBD-9",
+          "statement": "审阅事实只追加：review_records 进入终态后不得修改或删除；reviewer 不得为 Agent 主体。",
+          "enforced_by": "RUNTIME_PENDING"
+        }
+      ],
+      "additionalProperties": true
     }
   }
 }

@@ -2,7 +2,7 @@
 # 权威状态值 / 展示投影别名 / 跨域 STALE 标记 三层分离
 source: AFS-ARCH-MASTER-V2.0.5 状态与枚举登记（由 state_machines.yaml 与正文派生）
 rule: 三层分离：权威状态值用于 API 契约、审计字段、状态机测试与权限判定；展示投影别名仅用于前端展示与观测标记，不得写入权威字段；跨域 STALE 标记只表示过期提示，不是对象状态，不参与状态机校验。
-object_count: 35
+object_count: 36
 objects:
 - object: Appeal
   authoritative_source: 31.5 社区对象状态机最终定义
@@ -299,6 +299,15 @@ objects:
   - EXPIRED
   - REVOKED
   note: 只读、默认禁止下载；具有访问范围、水印、有效期、撤销和访问审计。
+- object: ShotBreakdownDraft
+  authoritative_source: 项目所有者《拆镜草案字段设计》（2026-11-18，非基线正文原文）
+  states:
+  - PENDING_CONFIRM
+  - IN_REVIEW
+  - CONFIRMED
+  - RETURNED
+  - DISCARDED
+  note: 待确认/确认中/已确认/已退回/已废弃。CONFIRMED、RETURNED、DISCARDED 为版本终态，恢复走新建 draft_version；草案标识与临时镜头标识不得写入正式 Shot 对象。
 - object: ShotVisualPlan
   authoritative_source: C.7 关键状态机与版本不可变规则
   states:

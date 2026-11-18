@@ -2,7 +2,7 @@
 # 未登记状态的转移一律拒绝（31.5 规则）
 source: AFS-ARCH-MASTER-V2.0.5 各章节状态机定义（由 Markdown 基线派生）
 authority_rule: 同一对象多处定义时，按 31.5 唯一权威状态机 > 32.6/C.7 > 34.x > 33.3 > C.3 取权威；24.11 为摘要不计入权威；差异不静默合并，见 conflict 字段。
-total_objects: 38
+total_objects: 39
 conflict_count: 5
 conflict_rulings:
 - object: CharacterCanon
@@ -334,3 +334,21 @@ objects:
   all_sources:
   - 8.1 核心实体
   - 31.6 Action Registry
+- object: ShotBreakdownDraft
+  authoritative_source: 项目所有者《拆镜草案字段设计》（2026-11-18，非基线正文原文，属所有者口径）
+  states: PENDING_CONFIRM→IN_REVIEW→CONFIRMED；IN_REVIEW→RETURNED；PENDING_CONFIRM/IN_REVIEW→DISCARDED
+  note: >-
+    拆镜草案的状态集按所有者设计固定为五态：待确认（PENDING_CONFIRM，草案生成后的初始态）、
+    确认中（IN_REVIEW，有人认领审阅，避免两名审核人同时确认）、已确认（CONFIRMED，必须携带
+    confirmed_shot_revision_refs 完成「确认即绑定」）、已退回（RETURNED，必须写明退回原因）、
+    已废弃（DISCARDED）。CONFIRMED / RETURNED / DISCARDED 都是版本终态：31.5「终态不得原地复活」
+    在这里的落地方式是新建 draft_version，而不是把终态改回 PENDING_CONFIRM——版本链由
+    root_draft_ref 与 supersedes_draft_ref 串起，历史版本不覆盖、不删除；依据剧本换版则必须新起一条链。
+    本状态机当前没有运行时入口（SHOT.DRAFT.CREATE 仍未实现，CONFIRM / RETURN / DISCARD 动作尚未登记），
+    登记它只为先把状态集钉死，避免实现时自创第六个状态；入口补齐后须按 31.11 复核固化。
+  source_kind: owner_supplied_design
+  registration_status: PENDING_PHASE1_REVIEW
+  all_sources:
+  - 项目所有者《拆镜草案字段设计》（2026-11-18）
+  - ADR-032（AI 拆镜输出默认草案，人工确认前不得写正式对象）
+  - docs/adr/ADR-R16-shot-breakdown-draft-contract.md

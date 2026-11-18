@@ -16,15 +16,15 @@
 
 | 正文类目 | 文件 | 字节 | SHA-256 | 对应章节 |
 |---|---|---|---|---|
-| ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 171999 | `4b063556bad86357232bc9ec62decf6ac10e2cc9f67a7a274868f6573b665945` | 8.x 对象契约 / C.3 数据契约 |
-| ② OpenAPI 草案 | `contracts/openapi/openapi.draft.yaml` | 113513 | `142c37ee1365a234d79af1b0fae1ccff953776fbf45d84c187c5decd2aa67a2e` | 31.6（由 Action Registry 派生） |
-| ③ 状态机 | `contracts/state_machines/state_machines.yaml` | 22253 | `3cece6636d16db18163df58080813129f37ee926efc650f75cc7ca05b5710eef` | 31.5 / 8.6 / 32.6 / 33.3 / 34.7 |
-| ④ Action Registry | `contracts/action_registry/action_registry.yaml` | 43389 | `12d16db473668e426a2f59df442717aac6dbbdb2f94ea38a3807b564aa124afd` | 31.6 唯一注册表 |
+| ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 207279 | `52fbeca60bf147fff4eed088b3ba2951c64ef24c50afa8f6d44fe7870f10ead3` | 8.x 对象契约 / C.3 数据契约 |
+| ② OpenAPI 草案 | `contracts/openapi/openapi.draft.yaml` | 113540 | `90aaff4ed065afec075d272c0f62d4ae02713f46822757c7bf0de556dc5b5c72` | 31.6（由 Action Registry 派生） |
+| ③ 状态机 | `contracts/state_machines/state_machines.yaml` | 23836 | `0f379728361640d223af57b015c4a75ba924b5a32a798b879d4845825fceeec3` | 31.5 / 8.6 / 32.6 / 33.3 / 34.7 |
+| ④ Action Registry | `contracts/action_registry/action_registry.yaml` | 43424 | `07629e3e699203c7c62b1c73e8616a9352861b34d279d90c676297af8d840e8a` | 31.6 唯一注册表 |
 | ⑤ 权限矩阵 | `contracts/permission/permission_matrix.yaml` | 4212 | `c45a96cbf790568527b6a42a06fc4e20d5228f166b2d8e98d3abce7dd5709f6c` | C.5 / 31.6 |
 | ⑥ 预算与成本口径 | `contracts/budget/budget_caliber.yaml` | 2511 | `29e1d7d470f115ff41b07daaebfb198ccea9246316a2dd4b43a28b52596a0aef` | C.2 / 34.6 |
 | ⑦ 指标字典 | `contracts/metrics/metric_dictionary.yaml` | 7567 | `fb909bccf1da14c74efaad77d77cf73d86c34126b41052def1d0185e4ea4f8cb` | 31.10 / 34.13 |
 | ⑧ 冻结包清单 | `contracts/phase0/phase0_manifest.md` | — | 自指不登记，见 `phase0_manifest.md.sha256` | 31.11 契约证据清单 |
-| ⑨ 枚举注册表 | `contracts/enums/enum_registry.yaml` | 14395 | `1d945a7e9ec10d06545c59f9150eb662922cfca2372f4107fc16b6fa6f446a55` | 31.5 / C.7 |
+| ⑨ 枚举注册表 | `contracts/enums/enum_registry.yaml` | 14829 | `ef8a5939607b0ab07e2a5b88bc47302c3366f08f6096332fe2a2631ec99f2129` | 31.5 / C.7 |
 | ⑩ ADR 主索引 | `docs/adr/adr_index.yaml` | 33011 | `24cca2103e93296eae56d8118b15d0eeb5eb6a52a9f2ec44ff50d1f49d7c27ff` | 31.12 / 32.13 / 33.15 |
 | ⑪ 阶段表 | `contracts/phases/phase_map.yaml` | 4158 | `77e88f57afd82eaa5caf9c4f73f485c33bfe8b125ca94529c05eb90c1788eeb3` | 31.2 唯一阶段总表 |
 
@@ -33,6 +33,7 @@
 - `V205-R14-A1`
 - `V205-R14-A2`
 - `V205-R14-A3`
+- `V205-R14-A4`
 
 契约名称全集必须精确等于「基线清单 ∪ 已批准修订」，由
 `scripts/freeze_manifest.py --check` 逐名称判定（不是只看数量）。

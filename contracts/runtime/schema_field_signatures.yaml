@@ -1548,3 +1548,37 @@ signatures:
     status: string
     title: string
     updated_at: string
+  ShotBreakdownDraft:
+    ai_rationale: string|null
+    audit_ref: string|null
+    basis_script_revision_id: string
+    breakdown_scope: object
+    change_summary: string|null
+    confirmed_at: string|null
+    confirmed_by: string|null
+    confirmed_shot_revision_refs: array
+    created_at: string
+    created_by: string
+    discarded_reason: string|null
+    draft_version: integer
+    entity_id: string
+    entity_type: string
+    entity_version: integer
+    episode_ref: string|null
+    generation_method: string
+    open_questions: array
+    owner_module: string
+    plan_name: string
+    potential_issues: array
+    project_id: string
+    return_reason: string|null
+    returned_at: string|null
+    returned_by: string|null
+    review_records: array
+    root_draft_ref: string
+    scene_breakdowns: array
+    schema_version: integer
+    shot_breakdown_draft_id: string
+    status: string
+    supersedes_draft_ref: string|null
+    updated_at: string

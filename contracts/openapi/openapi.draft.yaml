@@ -7,7 +7,7 @@ info:
   version: draft
   x-afs-source-document: AFS-ARCH-MASTER-V2.0.5
   x-afs-registry-version: V2.0.5
-  x-afs-total-actions: 80
+  x-afs-total-actions: 84
 servers:
 - url: /api/v1
 tags:
@@ -15,7 +15,7 @@ tags:
 - name: Episode
 - name: ScriptRevision
 - name: ScriptLock
-- name: ShotDraft
+- name: ShotBreakdownDraft
 - name: ShotRevision
 - name: ShotSpec
 - name: ConstraintPack
@@ -246,8 +246,8 @@ paths:
     post:
       operationId: shot.draft.create
       tags:
-      - ShotDraft
-      summary: SHOT.DRAFT.CREATE（资源 ShotDraft，风险 LOW）
+      - ShotBreakdownDraft
+      summary: SHOT.DRAFT.CREATE（资源 ShotBreakdownDraft，风险 LOW）
       description: Agent 仅生成 DRAFT，不写正式 ShotRevision。
       x-afs-action-key: SHOT.DRAFT.CREATE
       x-afs-scope: project/episode/scene
