@@ -43,13 +43,28 @@ def _parent_clause(schema: str, table: str) -> str:
     )
 
 
+def _clause_for(schema: str, table: str, form: str) -> str:
+    """按登记的形态生成该表的组织子句（qc_reports 走两跳链）。"""
+    if form == "column":
+        return _column_clause(schema, table)
+    if table == "qc_reports":
+        return (
+            "EXISTS (SELECT 1 FROM asset_service.asset_versions a "
+            "JOIN project_planning.projects p "
+            "ON p.entity_id = a.project_id AND p.tenant_id = a.tenant_id "
+            "WHERE a.entity_id = asset_service.qc_reports.asset_version_id "
+            "AND a.tenant_id = asset_service.qc_reports.tenant_id)"
+        )
+    return _parent_clause(schema, table)
+
+
 def _good_statements() -> list[str]:
     """一份合规的迁移语句集合（六张表 + FORCE）。"""
     statements = [
         f"CREATE POLICY tenant_isolation_{table} ON {schema}.{table} "
         f"USING (({tenant_scope_predicate()}) AND "
-        f"({_column_clause(schema, table) if form == 'column' else _parent_clause(schema, table)}))"
-        for schema, table, form in _TABLES
+        f"({_clause_for(schema, table, form)}))"
+        for schema, table, form, _correlations in _TABLES
     ]
     statements += [
         f"ALTER TABLE {schema}.{table} FORCE ROW LEVEL SECURITY"
@@ -159,6 +174,85 @@ def test_sub_table_copying_organization_column_is_reported() -> None:
     )
     problems = _evaluate(statements)
     assert any("episodes 未用父项目存在性" in p for p in problems), problems
+
+
+def test_uncorrelated_exists_is_reported() -> None:
+    """EXISTS 存在但**没与本表行关联** → 他组织的子行整片泄漏（评审 F2）。
+
+    这个形态最危险：``EXISTS (SELECT 1 FROM project_planning.projects p)`` 只要
+    租户里有任意一个可见项目就为真，于是任意子行都可见。而只查
+    「有没有 EXISTS / 有没有 project_planning.projects」的判据会照样报 PASS。
+    """
+    statements = _replace_table_policy(
+        _good_statements(),
+        "project_planning",
+        "episodes",
+        "CREATE POLICY tenant_isolation_episodes ON project_planning.episodes "
+        f"USING (({tenant_scope_predicate()}) AND "
+        "(EXISTS (SELECT 1 FROM project_planning.projects p)))",
+    )
+    problems = _evaluate(statements)
+    assert any("未与自身行关联" in p for p in problems), problems
+
+
+def test_half_correlated_exists_is_reported() -> None:
+    """只关联了 project_id、漏了 tenant_id：跨租户父子行可互相满足。
+
+    复合外键保证 (project_id, tenant_id) 一致，但策略不能依赖「另一个约束会兜住」——
+    它是在 RLS 求值、比外键更早，且不为其他约束的存废负责。
+    """
+    statements = _replace_table_policy(
+        _good_statements(),
+        "asset_service",
+        "asset_versions",
+        "CREATE POLICY tenant_isolation_asset_versions "
+        "ON asset_service.asset_versions "
+        f"USING (({tenant_scope_predicate()}) AND "
+        "(EXISTS (SELECT 1 FROM project_planning.projects p "
+        "WHERE p.entity_id = asset_service.asset_versions.project_id)))",
+    )
+    problems = _evaluate(statements)
+    assert any("p.tenant_id = asset_service.asset_versions.tenant_id" in p for p in problems), problems
+
+
+def test_two_hop_chain_missing_link_is_reported() -> None:
+    """qc_reports 两跳链丢了第二跳的关联：任一跳丢条件即整表放行。"""
+    statements = _replace_table_policy(
+        _good_statements(),
+        "asset_service",
+        "qc_reports",
+        "CREATE POLICY tenant_isolation_qc_reports ON asset_service.qc_reports "
+        f"USING (({tenant_scope_predicate()}) AND "
+        "(EXISTS (SELECT 1 FROM asset_service.asset_versions a "
+        "JOIN project_planning.projects p ON p.entity_id = a.project_id "
+        "WHERE a.entity_id = asset_service.qc_reports.asset_version_id)))",
+    )
+    problems = _evaluate(statements)
+    assert any("p.tenant_id = a.tenant_id" in p or "a.tenant_id = " in p for p in problems), problems
+
+
+def test_downgrade_does_not_weaken_upstream_forceless_audit_table() -> None:
+    """回滚不得摘掉上游迁移建立的 FORCE（评审 F1）。
+
+    ``audit.status_transitions`` 的 FORCE 由 d8e9f0a1b2c3 建立。若 D3 的回滚对它
+    ``NO FORCE``，回滚后的审计表比回滚前更弱——而正向断言只读 upgrade 的回放文本，
+    看不到这个退化。因此这里回放 **downgrade()**，断言它只撤销自己动过的表。
+    """
+    statements = ba._rendered_migration_statements(
+        ba._ORG_RLS_MIGRATION, direction="downgrade"
+    )
+    unforced = {
+        statement.removeprefix("ALTER TABLE ")
+        .removesuffix(" NO FORCE ROW LEVEL SECURITY")
+        .strip()
+        for statement in statements
+        if statement.startswith("ALTER TABLE ") and "NO FORCE" in statement
+    }
+    assert "audit.status_transitions" not in unforced, (
+        "回滚把审计表的 FORCE 摘掉了：force 来自上游迁移，D3 无权撤销"
+    )
+    # 同时确认回滚仍然撤销了自己启用的那些（否则「什么都不做」也能过这条断言）
+    assert "project_planning.projects" in unforced
 
 
 def test_policy_without_tenant_predicate_is_reported() -> None:

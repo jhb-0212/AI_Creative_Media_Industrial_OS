@@ -642,16 +642,52 @@ def scope_asset_ownership_chain() -> AssertionResult:
 _ORG_RLS_MIGRATION = (
     "data/migrations/versions/e9f0a1b2c3d4_organization_scope_rls.py"
 )
-_ORG_RLS_TABLES: tuple[tuple[str, str, str], ...] = (
-    ("project_planning", "projects", "column"),
-    ("project_planning", "organizations", "column"),
-    ("project_planning", "episodes", "parent"),
-    ("project_planning", "script_revisions", "parent"),
-    ("asset_service", "asset_versions", "parent"),
-    ("asset_service", "qc_reports", "parent"),
+_ORG_RLS_TABLES: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
+    ("project_planning", "projects", "column", ()),
+    ("project_planning", "organizations", "column", ()),
+    (
+        "project_planning",
+        "episodes",
+        "parent",
+        (
+            "p.entity_id = project_planning.episodes.project_id",
+            "p.tenant_id = project_planning.episodes.tenant_id",
+        ),
+    ),
+    (
+        "project_planning",
+        "script_revisions",
+        "parent",
+        (
+            "p.entity_id = project_planning.script_revisions.project_id",
+            "p.tenant_id = project_planning.script_revisions.tenant_id",
+        ),
+    ),
+    (
+        "asset_service",
+        "asset_versions",
+        "parent",
+        (
+            "p.entity_id = asset_service.asset_versions.project_id",
+            "p.tenant_id = asset_service.asset_versions.tenant_id",
+        ),
+    ),
+    (
+        "asset_service",
+        "qc_reports",
+        # qc_reports 没有 project_id：链是 qc_reports → asset_versions → projects，
+        # 两跳都必须带自身行的关联，否则「任一跳丢条件」就会把整表子行放出去。
+        "parent",
+        (
+            "a.entity_id = asset_service.qc_reports.asset_version_id",
+            "a.tenant_id = asset_service.qc_reports.tenant_id",
+            "p.entity_id = a.project_id",
+            "p.tenant_id = a.tenant_id",
+        ),
+    ),
 )
 _ORG_RLS_FORCED: tuple[tuple[str, str], ...] = (
-    *((schema, table) for schema, table, _ in _ORG_RLS_TABLES),
+    *((schema, table) for schema, table, _, _ in _ORG_RLS_TABLES),
     ("audit", "status_transitions"),
 )
 
@@ -690,7 +726,7 @@ def evaluate_org_rls(
         return None
 
     problems: list[str] = []
-    for schema, table, form in _ORG_RLS_TABLES:
+    for schema, table, form, correlations in _ORG_RLS_TABLES:
         policy = _policy_statement(schema, table)
         if policy is None:
             problems.append(f"{schema}.{table} 缺少策略")
@@ -709,13 +745,25 @@ def evaluate_org_rls(
                 problems.append(
                     f"{schema}.{table} 策略未读取组织上下文 {RLS_ORGANIZATION_SETTING}"
                 )
-        elif "EXISTS (SELECT 1 FROM" not in policy or (
-            "project_planning.projects" not in policy
-        ):
-            problems.append(
-                f"{schema}.{table} 未用父项目存在性表达组织规则"
-                "（子表复制组织列会成为第二事实源）"
-            )
+        else:
+            if "EXISTS (SELECT 1 FROM" not in policy or (
+                "project_planning.projects" not in policy
+            ):
+                problems.append(
+                    f"{schema}.{table} 未用父项目存在性表达组织规则"
+                    "（子表复制组织列会成为第二事实源）"
+                )
+            else:
+                # 只出现 ``EXISTS`` 还不够：谓词必须与**本表这一行**关联
+                # （``p.entity_id = <本表>.project_id``）。丢了关联的 EXISTS 是
+                # 「租户里有任意一个可见项目」即真——他组织的子行会整片泄漏，
+                # 而只查子串的判据照样报 PASS（评审 F2）。
+                missing = [fragment for fragment in correlations if fragment not in policy]
+                if missing:
+                    problems.append(
+                        f"{schema}.{table} 的父项目存在性未与自身行关联，缺 {missing}"
+                        "（未关联的 EXISTS 会把全部他组织子行放行）"
+                    )
 
     forced = {
         statement.removeprefix("ALTER TABLE ")
@@ -1370,11 +1418,16 @@ class _SqlCollector:
         self.statements.append(str(sql))
 
 
-def _rendered_migration_statements(rel_path: str) -> list[str]:
-    """回放一份迁移的 ``upgrade()``，返回它真正会执行的**语句列表**。
+def _rendered_migration_statements(
+    rel_path: str, *, direction: str = "upgrade"
+) -> list[str]:
+    """回放一份迁移的 ``upgrade()``（或 ``downgrade()``），返回语句列表。
 
     与 ``_rendered_migration_sql`` 同源（后者只是本函数的拼接结果）。需要按语句
     判定时用本函数：把多条 DDL 拼成一个字符串再按行切，会随迁移的排版变化而失效。
+
+    ``direction="downgrade"`` 用来验证「回滚只撤销自己动过的东西」——回滚把上游
+    迁移建立的安全属性一并摘掉时，正向断言看不出来（评审 F1）。
     """
     import importlib.util
 
@@ -1386,7 +1439,7 @@ def _rendered_migration_statements(rel_path: str) -> list[str]:
     spec.loader.exec_module(module)
     collector = _SqlCollector()
     module.op = collector  # type: ignore[attr-defined]
-    module.upgrade()
+    getattr(module, direction)()
     return list(collector.statements)
 
 

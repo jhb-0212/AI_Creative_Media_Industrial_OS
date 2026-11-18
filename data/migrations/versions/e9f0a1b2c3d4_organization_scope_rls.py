@@ -117,13 +117,23 @@ _SCOPED_TABLES: tuple[tuple[str, str, str], ...] = (
 # FORCE 也要覆盖证据表：它已 ENABLE，但所有者（当前是超级用户）不受策略约束。
 # 注意 FORCE 对超级用户/BYPASSRLS 无效（PG 语义），它的作用是「将来所有权转给
 # 非 BYPASSRLS 角色后 RLS 不会静默失效」；真正的防线是启动期检查（ADR-R24 §D3a-5）。
-_FORCE_TABLES: tuple[tuple[str, str], ...] = (
+#
+# 两份清单必须分开（评审 F1）：
+# - ``_FORCED_BY_THIS_MIGRATION``：本次真正「从无到有」启用 FORCE 的表，回滚时归零；
+# - ``_FORCED_STATE_REQUIRED``：最终状态必须带 FORCE 的全部表，含**上游迁移已经
+#   FORCE 的** ``audit.status_transitions``（d8e9f0a1b2c3）。
+# 若用同一份清单做 downgrade，回滚会把审计表的 FORCE 一并摘掉——那不是「回到
+# 迁移前状态」，而是把上游的安全属性改差了，且断言只读本迁移的回放文本，发现不了。
+_FORCED_BY_THIS_MIGRATION: tuple[tuple[str, str], ...] = (
     (PP, "projects"),
     (PP, "organizations"),
     (PP, "episodes"),
     (PP, "script_revisions"),
     (ASSET, "asset_versions"),
     (ASSET, "qc_reports"),
+)
+_FORCED_STATE_REQUIRED: tuple[tuple[str, str], ...] = (
+    *_FORCED_BY_THIS_MIGRATION,
     (AUDIT, "status_transitions"),
 )
 
@@ -138,13 +148,19 @@ def upgrade() -> None:
             + _combined(tenant_scope_predicate(), org_clause)
         )
 
-    for schema, table in _FORCE_TABLES:
+    for schema, table in _FORCED_STATE_REQUIRED:
+        # 幂等：audit.status_transitions 已由 d8e9f0a1b2c3 FORCE，这里重复设置无害，
+        # 但保证了「本迁移执行后」的最终状态不依赖上游是否曾经正确。
         op.execute(f"ALTER TABLE {schema}.{table} FORCE ROW LEVEL SECURITY")
 
 
 def downgrade() -> None:
-    """恢复单维（租户）策略并取消 FORCE，回到迁移前形态。"""
-    for schema, table in reversed(_FORCE_TABLES):
+    """恢复单维（租户）策略，并把**本迁移启用**的 FORCE 归零。
+
+    只回退自己动过的东西：``audit.status_transitions`` 的 FORCE 来自上游迁移，
+    在这里 NO FORCE 会让回滚后的审计表比回滚前更弱（评审 F1）。
+    """
+    for schema, table in reversed(_FORCED_BY_THIS_MIGRATION):
         op.execute(f"ALTER TABLE {schema}.{table} NO FORCE ROW LEVEL SECURITY")
 
     for schema, table, _ in reversed(_SCOPED_TABLES):

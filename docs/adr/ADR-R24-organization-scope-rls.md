@@ -254,3 +254,41 @@ tenant_id)`（迁移 `b3c4d5e6f7a8`），谓词恰好只用这三列——不需
 **顺带的陷阱**：该用例初版用 `caplog` 断言。structlog `PrintLogger` 直接写 stdout，
 不经过 stdlib logging，`caplog` 永远收不到——无论实现有没有告警这条断言都红，
 是「假阴性测试」。改用 `capfd`（fd 级捕获）后才真正验到。
+
+## 8. 评审修复轮（PR #18）
+
+codex 评审提了 2 条 P2，逐条核实**全为真**，且都不是笔误，是判据与回滚的形态缺陷。
+
+### F1 回滚把上游的 FORCE 一并摘掉
+
+**事实**：`downgrade()` 对 `_FORCE_TABLES`（含 `audit.status_transitions`）逐个
+`NO FORCE`，而该表的 FORCE 是 `d8e9f0a1b2c3` 建立的。回滚后审计表比回滚前**更弱**。
+
+**根因**：把「最终状态必须 FORCE 的表」与「本次真正启用的表」共用一份清单。
+两个集合在有上游迁移时必然不同，共用就会让 downgrade 越权撤销别人的安全属性。
+且正向断言只回放 `upgrade()`，看不到这类退化。
+
+**改法**：拆成 `_FORCED_BY_THIS_MIGRATION`（6 张业务表，回滚归零）与
+`_FORCED_STATE_REQUIRED`（+ 审计表，仅升级时幂等设置）。
+**新增回归用例回放 `downgrade()`**（`_rendered_migration_statements(direction=)`），
+断言它不碰审计表、但确实撤销了自己启用的表（否则「什么都不做」也能过）。
+
+实测（本地 PG）：`alembic downgrade -1` 后 `audit.status_transitions` 的
+`relforcerowsecurity` 仍为 `true`，业务 6 表为 `false`；`upgrade head` 后 7 张表全 `true`。
+
+### F2 子表策略只查「有没有 EXISTS」，不查关联
+
+**事实**：判据是 `"EXISTS (SELECT 1 FROM" in policy and "project_planning.projects" in policy`。
+一条 `EXISTS (SELECT 1 FROM project_planning.projects p)`（无 WHERE）能同时满足两个子串，
+而它的语义是「租户里有任意一个可见项目就为真」——**他组织的子行整片泄漏**，
+断言照样报 PASS。
+
+**根因**：子串判据只能证明「关键字出现过」，不能证明「谓词与本行关联」。这正是
+本 ADR 反复强调的同一类错误：判据要按**语义**写，不是按**字面**写。
+
+**改法**：登记每张子表必须出现的关联片段（`p.entity_id = <本表>.project_id`、
+`p.tenant_id = <本表>.tenant_id`；`qc_reports` 两跳各两条），缺一条即报红。
+新增 3 条负向用例：完全无关联、只关联 `project_id` 漏 `tenant_id`、两跳链漏第二跳。
+
+**为什么必须校验 `tenant_id` 这一段**：复合外键确实保证父子同租户，但 RLS 求值
+早于外键，且策略不该替别的约束的存废背书——外键若被未来迁移放宽，策略必须自己站得住。
