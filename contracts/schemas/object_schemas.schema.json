@@ -18,7 +18,7 @@
   ],
   "x-afs-p0-coverage": {
     "note": "已建模对象与显式登记为待补的对象之并集，构成 P0 契约对象全集。待补项按缺口性质分类，不把“正文有字段表但派生未覆盖”与“正文缺字段标识”混为一类。",
-    "total": 81,
+    "total": 82,
     "modeled": [
       "Appeal",
       "AssetReference",
@@ -83,6 +83,7 @@
       "ReworkTask",
       "ScriptRevision",
       "ShareLink",
+    "Shot",
       "ShotBreakdownDraft",
       "ShotBudgetLedger",
       "ShotProductionProfile",
@@ -6870,6 +6871,379 @@
       ],
       "additionalProperties": true,
       "x-afs-required-basis": "required = C.3.1 通用信封 + 业务字段（project_id/episode_ref/title；requested_by 可选，由 ScriptRevision.to_dict 实现确定）"
+    },
+    "Shot": {
+      "type": "object",
+      "description": "稳定逻辑镜头（8.2：「Shot 是稳定逻辑镜头」）。只承载镜头身份、业务短编号与粗粒度生产进度：内容与版本历史归 ShotRevision，硬约束归 ConstraintPack，结构化规格归 ShotSpec，Gate 3 / Gate 4 结论归 GateInstance 与对应不可变交付产物（PictureLock Snapshot / DeliveryPackage）。首次人工确认 ShotBreakdownDraft 时与首个 ShotRevision 在同一事务创建，此后内容修改只新增 ShotRevision、不重建 Shot（项目所有者 2026-11-18 裁定独立建模，见 ADR-R18）。",
+      "required": [
+        "shot_id",
+        "scene_id",
+        "project_id",
+        "shot_code",
+        "shot_revision_id",
+        "status",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "entity_id": {
+          "type": "string",
+          "description": "通用信封主键，必须等于 shot_id；两套标识各自生成即是两套身份"
+        },
+        "entity_type": {
+          "type": "string",
+          "description": "固定 Shot；不得与 ShotRevision / ShotBreakdownDraft / ShotSpec 混用"
+        },
+        "schema_version": {
+          "type": "integer",
+          "description": "本对象契约版本号"
+        },
+        "entity_version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "行级乐观锁版本。状态推进必须携带期望值，版本冲突一律拒绝而不是覆盖"
+        },
+        "owner_module": {
+          "type": "string",
+          "description": "所属领域模块（镜头域）"
+        },
+        "created_at": {
+          "type": "string",
+          "description": "创建时间（UTC，ISO 8601）"
+        },
+        "created_by": {
+          "type": "string",
+          "description": "创建主体；由草案确认创建时为确认人，不得为 Agent 主体"
+        },
+        "updated_at": {
+          "type": "string",
+          "description": "最后变更时间（UTC，ISO 8601）；状态推进与版本指针前移都会更新"
+        },
+        "audit_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "审计记录引用，承载创建与状态推进事实（专用 Approval 对象仍未建模，见 ADR-R18）"
+        },
+        "shot_id": {
+          "type": "string",
+          "description": "稳定逻辑镜头主键（8.2：「Shot 是稳定逻辑镜头」，shot_id 不得复用）。同一 shot_id 下的所有 ShotRevision 共享本归属；标识本身不随内容修订变化"
+        },
+        "shot_code": {
+          "type": "string",
+          "description": "业务短编号（8.2：业务短编号仅用于展示），形如 EP001-SC003-SH012，项目内唯一但不作为关联主键。改编号属展示层变更，不产生新修订、不重建 Shot"
+        },
+        "scene_id": {
+          "type": "string",
+          "description": "所属场次（8.1：项目包含集，集包含场景，场景包含镜头）。这是归属的唯一事实来源：scene_id → Scene → Episode → Project"
+        },
+        "project_id": {
+          "type": "string",
+          "description": "租户内作用域与 RLS 过滤键。它不是第二套归属事实：必须与 scene_id 所属场次的项目一致，由数据库复合外键（scene_id, project_id）保证。刻意不在 Shot 上再存 episode_id——多一份冗余就多一条漂移路径，集数由场景反查"
+        },
+        "shot_revision_id": {
+          "type": "string",
+          "description": "当前正式版本指针，指向 ShotRevision。首次创建时与首个修订在同一事务写入，因此不得为空；修订被取代时必须同事务前移，不得指向已被取代（SUPERSEDED）的版本"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "NOT_STARTED",
+            "IN_PRODUCTION",
+            "BLOCKED",
+            "PRODUCTION_COMPLETE",
+            "CANCELLED"
+          ],
+          "description": "粗粒度生产进度：NOT_STARTED 已正式建立但生产任务未开始；IN_PRODUCTION 正在执行生产（含获准启动的返工）；BLOCKED 存在明确阻塞且原因可追溯；PRODUCTION_COMPLETE 要求的生产产物已完成，但不代表 Gate 3 / Gate 4 已通过；CANCELLED 已被授权移出本次生产范围，终态不原地恢复。不设 IN_REVIEW（审核结论归 GateInstance）、不设 REWORK（返工归 ReworkTask）、不设 DELIVERED（交付结论归 Gate 4 / DeliveryPackage）"
+        },
+        "blocked_reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "阻塞原因。status=BLOCKED 时必填，其余状态必须为空——留空会让「为什么卡住」永久失去依据，而 BLOCKED 的诊断价值全在原因上"
+        },
+        "rework_basis_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "返工依据引用（ReworkTask 的授权记录）。从 PRODUCTION_COMPLETE 回到 IN_PRODUCTION 时必须携带；非 IN_PRODUCTION 状态必须为空。没有依据的「回退」是绕过验收的暗门，必须留痕"
+        },
+        "cancellation_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "移出生产范围的授权记录引用。CANCELLED 时必填——「已被授权移出」必须能指回授权，只写一个终态等于无据取消"
+        },
+        "cancelled_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "取消时间（UTC，ISO 8601）。CANCELLED 时必填"
+        },
+        "source_draft_ref": {
+          "type": "object",
+          "description": "创建本镜头的拆镜草案版本。由草案确认创建时填写，手工建镜为空；用于「这条镜头从哪一版草案来」的双向追溯。",
+          "required": [
+            "draft_id",
+            "draft_version"
+          ],
+          "properties": {
+            "draft_id": {
+              "type": "string",
+              "description": "ShotBreakdownDraft 标识"
+            },
+            "draft_version": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "被确认的草案版本；草案后续版本不自动改写本镜头"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "BLOCKED"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "blocked_reason"
+            ],
+            "properties": {
+              "blocked_reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "NOT_STARTED",
+                  "IN_PRODUCTION",
+                  "PRODUCTION_COMPLETE",
+                  "CANCELLED"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "blocked_reason": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "NOT_STARTED",
+                  "BLOCKED",
+                  "PRODUCTION_COMPLETE",
+                  "CANCELLED"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "rework_basis_ref": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "CANCELLED"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "cancellation_ref",
+              "cancelled_at"
+            ],
+            "properties": {
+              "cancellation_ref": {
+                "type": "string",
+                "minLength": 1
+              },
+              "cancelled_at": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "NOT_STARTED",
+                  "IN_PRODUCTION",
+                  "BLOCKED",
+                  "PRODUCTION_COMPLETE"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "cancellation_ref": {
+                "type": "null"
+              },
+              "cancelled_at": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "x-afs-sources": [
+        "8.1 核心实体（Project / Episode / Scene / Shot 为项目层级；ShotRevision 绑定镜头描述、约束、创意意图和版本）",
+        "8.2 标识与版本规则（Shot 是稳定逻辑镜头；shot_id 不得复用；业务短编号仅用于展示）",
+        "8.3 Shot 契约示例（shot_id / shot_revision_id / shot_code / status 同处一个示例，本对象按语义拆分）",
+        "31.6 Action Registry（SHOT.REVISION.CONFIRM 为镜头与首个修订的唯一人工入口）",
+        "项目所有者《Shot 独立建模裁定》（2026-11-18：Shot 负责镜头身份、业务编号和粗粒度生产进度；ShotRevision 负责内容与版本历史；首次确认原子创建两者）",
+        "docs/adr/ADR-R18-shot-entity-contract.md"
+      ],
+      "x-afs-required-basis": "required = C.3.1 通用信封 + 8.2 的稳定身份与展示编号 + 所有者裁定的五态 status 与当前版本指针。三个可选字段只承载「状态可追溯」所必需的三类证据（阻塞原因、返工依据、取消授权），Gate 3 / Gate 4 结论一律不进本对象。",
+      "x-afs-field-groups": {
+        "envelope": [
+          "entity_id",
+          "entity_type",
+          "schema_version",
+          "entity_version",
+          "status",
+          "owner_module",
+          "created_at",
+          "created_by",
+          "updated_at",
+          "audit_ref"
+        ],
+        "identity": [
+          "shot_id",
+          "scene_id",
+          "project_id"
+        ],
+        "display": [
+          "shot_code"
+        ],
+        "progress": [
+          "shot_revision_id",
+          "blocked_reason",
+          "rework_basis_ref",
+          "cancellation_ref",
+          "cancelled_at"
+        ],
+        "provenance": [
+          "source_draft_ref"
+        ]
+      },
+      "x-afs-exclusions": [
+        {
+          "field": "description / narrative_intent / character_refs / location_ref / prop_refs",
+          "why": "镜头内容属版本化事实，归 ShotRevision；放进 Shot 会让「改了描述」变成修改稳定实体，版本链失去作用对象"
+        },
+        {
+          "field": "constraint_pack_id / locked_dimensions",
+          "why": "硬约束归 ConstraintPack，Shot 只被约束而不持有约束；在 Shot 上再存一份锁定维度就是第二个事实源"
+        },
+        {
+          "field": "prompt / negative_prompt / camera_params",
+          "why": "Prompt 与相机参数是 ShotSpec 的派生输出，不是镜头事实"
+        },
+        {
+          "field": "duration_ms / timecode",
+          "why": "按所有者本轮口径，时长与时间码属镜头规格（ShotSpec）。当前 ShotRevision 已承载这两个字段（ADR-R17），与本口径存在差异，登记为 ADR-R18 的待裁定项，本轮不改已冻结的 ShotRevision 契约"
+        },
+        {
+          "field": "gate3_result / gate4_result / delivered",
+          "why": "审核与交付结论归 GateInstance（scope=shot，绑定精确 shot_revision_id）以及 PictureLock Snapshot / DeliveryPackage；写进 Shot.status 会出现「声称已交付却没有 Gate 4 证据」的状态"
+        },
+        {
+          "field": "episode_id",
+          "why": "归属链为 scene_id → Scene → Episode → Project；再存一份 episode_id 就是第三套归属事实，必然漂移"
+        },
+        {
+          "field": "revision_history[]",
+          "why": "版本历史是沿 ShotRevision.supersedes_shot_revision_id 的查询结果，不是 Shot 上的数组副本"
+        }
+      ],
+      "x-afs-invariants": [
+        {
+          "id": "SH-1",
+          "statement": "身份单一：entity_id 必须等于 shot_id，不得各自生成两套标识。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SH-2",
+          "statement": "归属不漂移：scene_id 是唯一归属锚点，project_id 必须与 scene_id 所属场次的项目一致；Shot 与同一 shot_id 的所有 ShotRevision 父级必须完全一致，镜头不得跨场次改挂。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SH-3",
+          "statement": "业务编号唯一：shot_code 在项目内唯一，且不得作为关联主键；改编号不产生新修订、不重建 Shot。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SH-4",
+          "statement": "版本指针有效：shot_revision_id 必须指向存在、status=ACTIVE 且 shot_id 相同的修订；修订被取代时指针必须同事务前移，禁止指向 SUPERSEDED 版本。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SH-5",
+          "statement": "状态证据自洽：BLOCKED 必须给出 blocked_reason 且其余状态必须为空；CANCELLED 必须给出 cancellation_ref 与 cancelled_at，其余状态两者必须为空。",
+          "enforced_by": "SCHEMA"
+        },
+        {
+          "id": "SH-6",
+          "statement": "返工有依据：PRODUCTION_COMPLETE→IN_PRODUCTION 必须携带 rework_basis_ref；schema 只能保证「非生产状态下该字段为空」，正向必填由转移守卫执行。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SH-7",
+          "statement": "终态不复活：CANCELLED 无出边，任何恢复都必须新建 Shot 并记录新的授权；不得原地改回 NOT_STARTED。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SH-8",
+          "statement": "进度不越权：Shot 不承载内容、规格与 Gate 结论，status 五个值中不含 IN_REVIEW / REWORK / DELIVERED，避免与审核、返工、交付三套事实重复。",
+          "enforced_by": "SCHEMA"
+        }
+      ],
+      "additionalProperties": true
     },
     "ShotBreakdownDraft": {
       "type": "object",

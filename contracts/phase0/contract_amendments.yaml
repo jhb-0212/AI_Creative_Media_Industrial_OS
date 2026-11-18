@@ -239,5 +239,43 @@ amendments:
       - '确认事实由 confirmed_by/confirmed_at + 信封 audit_ref 承载，审批仍无独立对象；与 AUTH-3 累积式会签同源（缺审批事实契约），刻意不在此另造审批子对象，避免第三份审批事实源'
       - 'quality_profile 收窄为单值 UNIFIED_HIGH_QUALITY（4.1 统一基线、ADR-023 支撑资产质量分离）；若将来引入镜头级质量档需走契约修订扩展枚举'
 
+  - id: 'V205-R14-A6'
+    title: '稳定逻辑镜头对象契约——Shot（含五态状态机与转移守卫）'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: 'docs/adr/ADR-R17-shot-revision-contract.md 残余风险第 1 条（Shot 未建模）；contracts/phase0/contract_amendments.yaml 的 V205-R14-A5 残余风险第 2 条'
+    reason: >-
+      A5 把 Shot 留成显式缺口，理由是「8.3 是合并示例、正文没给状态集、字段归属需裁定」。
+      项目所有者 2026-11-18 给出正式口径：Shot 独立建模，负责镜头身份、业务编号与粗粒度生产进度；
+      ShotRevision 负责内容与版本历史；首次人工确认 ShotDraft 时在同一事务创建 Shot 与首个 ShotRevision。
+      前置条件解除，按「不猜契约」落地。一次落四处：对象 schema、五态状态机（含 6 条转移守卫）、
+      枚举登记、动作资源类型。不能只补一个 JSON Schema 就宣布镜头域闭合——那只补了壳。
+      同时把 SHOT.REVISION.CONFIRM 的 resource_type 由 ShotRevision 改为 Shot/ShotRevision：
+      首次确认原子创建两个对象，只声明修订会让新建的 Shot 逃过 schema 校验。
+    adr: 'docs/adr/ADR-R18-shot-entity-contract.md'
+    approved_by: '项目所有者（会话内正式裁定「选方案 1：Shot 必须独立建模」）'
+    approved_at: '2026-11-18'
+    source_commits: []
+    additions:
+      schema_objects:
+        - object: 'Shot'
+          why: '稳定逻辑镜头实体；承载 shot_id / shot_code / status / 当前版本指针与状态证据，是 ShotRevision 的归属锚点'
+      state_machines:
+        - object: 'Shot'
+          why: '五态 NOT_STARTED / IN_PRODUCTION / BLOCKED / PRODUCTION_COMPLETE / CANCELLED，10 条转移，CANCELLED 终态；6 条转移守卫钉在 schema 字段上'
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 82
+      state_machines: 41
+    residual_risks:
+      - 'Scene 仍未建模：Shot.scene_id 指向一个没有 object schema 的对象（与 ShotRevision.scene_id 同一既有缺口），scene_id→Project 的归属一致性只能靠运行时复合外键，属 SH-2 的 RUNTIME_PENDING'
+      - 'Shot 无运行时、无镜头表：原子创建、版本指针前移、状态推进、shot_code 项目内唯一约束均无落点；八条不变量只有 SH-5 与 SH-8 可由 schema 表达'
+      - 'shot_code 未加 pattern：不同项目编号习惯不同（EP001-SC003-SH012 仅是示例），强行正则属于过约束；唯一性依靠数据库 (project_id, shot_code) 唯一索引'
+      - 'duration_ms / timecode 归属冲突：所有者本轮口径为「时长与时间码归 ShotSpec」，但 ADR-R17 已把两者放进 ShotRevision 并冻结；本轮不改已冻结契约，差异与两条迁移路径见 ADR-R18「待裁定差异」'
+      - '五态是所有者设计决策、非正文原文：下一版正文若给出不同状态集，须走契约修订对齐，不得让实现与契约各自解释'
+      - '冻结闸门按名称集合判定增删，识别不了「同名 action 指向不同对象」：SHOT.REVISION.CONFIRM 的 resource_type 由 ShotRevision 改为 Shot/ShotRevision 属同名改写，登记在案而非靠闸门发现'
+      - '审批事实仍无独立对象：cancellation_ref / rework_basis_ref 指向授权记录，但「谁在什么授权下批准了什么」无专用对象，与 AUTH-3 累积式会签同源；刻意不另造审批子对象，避免第三份审批事实源'
+
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

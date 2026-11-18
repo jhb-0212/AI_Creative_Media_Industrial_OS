@@ -16,6 +16,7 @@ tags:
 - name: ScriptRevision
 - name: ScriptLock
 - name: ShotBreakdownDraft
+- name: Shot
 - name: ShotRevision
 - name: ShotSpec
 - name: ConstraintPack
@@ -280,9 +281,10 @@ paths:
     post:
       operationId: shot.revision.confirm
       tags:
+      - Shot
       - ShotRevision
-      summary: SHOT.REVISION.CONFIRM（资源 ShotRevision，风险 HIGH）
-      description: 人类确认，版本冲突必须拒绝。
+      summary: SHOT.REVISION.CONFIRM（资源 Shot/ShotRevision，风险 HIGH）
+      description: 人类确认，版本冲突必须拒绝。首次确认在同一事务内原子创建 Shot 与首个 ShotRevision，两者须同时通过 schema 校验；后续修订只新增 ShotRevision 并前移 Shot.shot_revision_id。
       x-afs-action-key: SHOT.REVISION.CONFIRM
       x-afs-scope: project/episode/scene/shot
       x-afs-risk-level: HIGH

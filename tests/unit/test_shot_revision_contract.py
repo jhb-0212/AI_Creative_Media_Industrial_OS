@@ -264,9 +264,15 @@ def test_sources_cite_the_text_not_just_the_adr() -> None:
 # 引用面
 # --------------------------------------------------------------------------- #
 def test_action_resource_type_resolves_to_defined_object() -> None:
+    """首次确认原子创建 Shot + 首个 ShotRevision，两个对象都必须真实存在。
+
+    ADR-R18 把资源类型从单值 ShotRevision 扩为组合类型：只声明修订的话，
+    同事务新建的 Shot 即使缺必填字段也能通过闸门。
+    """
     action = next(a for a in ACTIONS["actions"] if a["action_key"] == "SHOT.REVISION.CONFIRM")
-    assert action["resource_type"] == OBJECT
-    assert action["resource_type"] in SCHEMA["definitions"]
+    parts = {part.strip() for part in action["resource_type"].split("/")}
+    assert parts == {"Shot", "ShotRevision"}
+    assert parts <= set(SCHEMA["definitions"])
 
 
 def test_shot_spec_reference_is_no_longer_dangling() -> None:

@@ -1381,6 +1381,123 @@ def check_transition_entry_gaps() -> bool:
     return ok
 
 
+_GUARD_REQUIRED = ("transition", "fields", "rule")
+
+
+def guard_problems(obj_name: str, entry: dict, definition: dict) -> list[str]:
+    """校验单个对象的 ``guards`` 区，返回问题列表（空列表 = 通过）。
+
+    抽成纯函数是为了可测试：闸门若只能对整份 state_machines.yaml 判定，坏守卫
+    就只能靠「故意改坏契约再跑 CI」来验证，等于没有回归保护。测试直接构造
+    entry + definition 调本函数即可。
+
+    四条校验（与 check_state_machine_guards 的 docstring 一致）：
+    1. ``transition`` 必须解析出转移边，且是该对象 ``states`` 已登记的边；
+    2. ``fields`` 必须是非空字符串列表；
+    3. ``fields`` 每一项都在 schema 的 properties 中；
+    4. ``transition`` / ``fields`` / ``rule`` 三项齐全。
+    """
+    problems: list[str] = []
+    guards = entry.get("guards")
+    if guards is None:
+        return problems
+    if not isinstance(guards, list):
+        return [f"{obj_name}.guards 必须是列表"]
+
+    declared_edges = parse_state_chain(str(entry.get("states", "")))
+    properties = definition.get("properties") or {}
+
+    for idx, guard in enumerate(guards):
+        if not isinstance(guard, dict):
+            problems.append(f"{obj_name}.guards[{idx}] 必须是映射")
+            continue
+        missing = [k for k in _GUARD_REQUIRED if not guard.get(k)]
+        if missing:
+            problems.append(f"{obj_name}.guards[{idx}] 缺字段: {missing}")
+            continue
+
+        edges = parse_state_chain(str(guard["transition"]))
+        if not edges:
+            problems.append(
+                f"{obj_name}.guards[{idx}] 的 transition 解析不出转移: "
+                f"{guard['transition']!r}"
+            )
+            continue
+        illegal = sorted(edges - declared_edges)
+        if illegal:
+            problems.append(
+                f"{obj_name}.guards[{idx}] 指向未登记的转移: {illegal}"
+                "（守卫不能保护一条状态机不允许的边）"
+            )
+
+        fields = guard["fields"]
+        if not isinstance(fields, list) or not all(
+            isinstance(f, str) and f.strip() for f in fields
+        ):
+            problems.append(f"{obj_name}.guards[{idx}].fields 必须是非空字符串列表")
+            continue
+        unknown = [f for f in fields if f not in properties]
+        if unknown:
+            problems.append(
+                f"{obj_name}.guards[{idx}] 引用了 schema 未声明的字段: {unknown}"
+            )
+
+    return problems
+
+
+def check_state_machine_guards() -> bool:
+    """校验状态机 ``guards`` 区声明的转移与字段是真实可校验的。
+
+    为什么需要这条闸门：``guards`` 是「某条转移必须携带哪些字段」的唯一契约
+    表达，但它本身只是「转移串 + 字段名」的自然语言。字段名写错（例如把
+    ``blocked_reason`` 写成 ``block_reason``）、或指向一条根本不存在的边，
+    YAML 依然合法——实现时照着写，就会得到一个永远不放行、或永远不触发的
+    守卫，而 CI 全绿。
+
+    本闸门把 guards 钉在可校验事实上，并额外要求：声明 guards 的对象必须有
+    object schema，否则被引用的字段无处校验，守卫会退化成注释。
+
+    刻意不要求所有对象都有 guards：只有「转移需要携带证据」的对象才需要声明，
+    无证据要求的转移不必造空守卫。
+    """
+    data = load_yaml_mapping(CONTRACTS / "state_machines" / "state_machines.yaml")
+    objects = data.get("objects", [])
+    schema = json.loads(OBJECT_SCHEMAS_PATH.read_text(encoding="utf-8"))
+    definitions = schema.get("definitions") or schema.get("$defs") or {}
+
+    ok = True
+    object_count = 0
+    guard_count = 0
+
+    for entry in objects:
+        if not isinstance(entry, dict) or not entry.get("guards"):
+            continue
+        obj_name = str(entry.get("object", ""))
+        object_count += 1
+        definition = definitions.get(obj_name)
+        if not isinstance(definition, dict):
+            print(
+                f"[FAIL] {obj_name} 声明了 guards，但没有 object schema："
+                "守卫字段无处校验（守卫会退化成注释）"
+            )
+            ok = False
+            continue
+        problems = guard_problems(obj_name, entry, definition)
+        for problem in problems:
+            print(f"[FAIL] {problem}")
+        if problems:
+            ok = False
+        else:
+            guard_count += len(entry["guards"])
+
+    if ok:
+        print(
+            f"[PASS] 状态机守卫：{object_count} 个对象 / {guard_count} 条守卫"
+            "的转移与字段全部可校验"
+        )
+    return ok
+
+
 # --------------------------------------------------------------------------- #
 # 事件契约校验（Event Catalog ↔ 代码 ↔ Action Registry）
 # --------------------------------------------------------------------------- #
@@ -1992,6 +2109,7 @@ def main() -> int:
         ok &= check_implemented_permission_wiring()
         ok &= check_state_reachability()
         ok &= check_transition_entry_gaps()
+        ok &= check_state_machine_guards()
         ok &= check_permission_matrix()
         ok &= check_schema_objects()
         ok &= check_schema_field_evolution()

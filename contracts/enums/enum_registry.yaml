@@ -2,7 +2,7 @@
 # 权威状态值 / 展示投影别名 / 跨域 STALE 标记 三层分离
 source: AFS-ARCH-MASTER-V2.0.5 状态与枚举登记（由 state_machines.yaml 与正文派生）
 rule: 三层分离：权威状态值用于 API 契约、审计字段、状态机测试与权限判定；展示投影别名仅用于前端展示与观测标记，不得写入权威字段；跨域 STALE 标记只表示过期提示，不是对象状态，不参与状态机校验。
-object_count: 37
+object_count: 38
 objects:
 - object: Appeal
   authoritative_source: 31.5 社区对象状态机最终定义
@@ -299,6 +299,15 @@ objects:
   - EXPIRED
   - REVOKED
   note: 只读、默认禁止下载；具有访问范围、水印、有效期、撤销和访问审计。
+- object: Shot
+  authoritative_source: 项目所有者《Shot 独立建模裁定》（2026-11-18，属所有者口径，非正文原文）
+  states:
+  - NOT_STARTED
+  - IN_PRODUCTION
+  - BLOCKED
+  - PRODUCTION_COMPLETE
+  - CANCELLED
+  note: 粗粒度生产进度。NOT_STARTED 已建立未开工；IN_PRODUCTION 生产中（含获准返工）；BLOCKED 有明确阻塞且原因可追溯；PRODUCTION_COMPLETE 生产产物已完成但不代表 Gate 3/4 通过；CANCELLED 已授权移出本次范围，终态。正文只出现 IN_PRODUCTION 示例值，五态为所有者设计决策；不含 IN_REVIEW（归 GateInstance）、REWORK（归 ReworkTask）、DELIVERED（归 Gate 4 / DeliveryPackage）。
 - object: ShotBreakdownDraft
   authoritative_source: 项目所有者《拆镜草案字段设计》（2026-11-18，非基线正文原文）
   states:
@@ -313,7 +322,7 @@ objects:
   states:
   - ACTIVE
   - SUPERSEDED
-  note: 镜头内容修订不可变；ACTIVE 为当前有效可被生产引用，SUPERSEDED 为被同一 shot_id 的更高 revision_no 取代。正文未单列 ShotRevision 状态机，此处只登记「不可变版本被取代」这一最小必要状态集，不虚构审核/生产进度状态（那些属 Shot 生命周期，尚未建模，见 ADR-R17）。
+  note: 镜头内容修订不可变；ACTIVE 为当前有效可被生产引用，SUPERSEDED 为被同一 shot_id 的更高 revision_no 取代。正文未单列 ShotRevision 状态机，此处只登记「不可变版本被取代」这一最小必要状态集，不虚构审核/生产进度状态（那些属 Shot 生命周期，已由 ADR-R18 建模为五态 status）。
 - object: ShotVisualPlan
   authoritative_source: C.7 关键状态机与版本不可变规则
   states:

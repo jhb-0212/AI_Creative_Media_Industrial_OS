@@ -1548,6 +1548,27 @@ signatures:
     status: string
     title: string
     updated_at: string
+  Shot:
+    audit_ref: string|null
+    blocked_reason: string|null
+    cancellation_ref: string|null
+    cancelled_at: string|null
+    created_at: string
+    created_by: string
+    entity_id: string
+    entity_type: string
+    entity_version: integer
+    owner_module: string
+    project_id: string
+    rework_basis_ref: string|null
+    scene_id: string
+    schema_version: integer
+    shot_code: string
+    shot_id: string
+    shot_revision_id: string
+    source_draft_ref: object
+    status: string
+    updated_at: string
   ShotBreakdownDraft:
     ai_rationale: string|null
     audit_ref: string|null
