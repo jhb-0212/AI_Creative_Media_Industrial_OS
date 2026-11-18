@@ -8,10 +8,11 @@ authoritative_sources:
   - scripts/architecture_check.py
 open_items:
   - item: >-
-      S5 部分执行（2026-11-18）：端到端主链已落 tests/e2e 并跑通，单实例基线
-      与写路径压测首轮实测已记录（首期阈值多数未达标）。仍未执行：压测阶段 B
-      （多实例扩展）与阶段 C（5 个故障注入场景）。25 个 ACTIVE 动作仍无运行时
-      入口，因此 Phase 1 不能宣布验收通过
+      S5 部分执行（2026-11-18）：端到端主链已落 tests/e2e 并跑通；阶段 A 单实例
+      基线两轮实测已完成（首轮暴露的三个结构性问题中，限流熔断与探针缓存已修
+      并复测，只读路径仍差 7.8%）；阶段 C 的「Redis 宕机」场景已执行并通过。
+      仍未执行：压测阶段 B（多实例扩展）、阶段 C 其余 4 个故障注入场景。
+      25 个 ACTIVE 动作仍无运行时入口，因此 Phase 1 不能宣布验收通过
     source: "contracts/runtime/action_implementations.yaml#not_implemented"
   - item: >-
       多主体共同审批（双人审批）未落地：AUTH-3 的 residual_risk 仍成立
@@ -319,7 +320,7 @@ S3 与其余三条无依赖，可并行但不应提前——它最容易做，�
 | S2 生命周期统一 | 已实施 | `services/asset_service/domain/state_machine.py`（边带 owner + guards）+ `domain/guards.py`；断言 `lifecycle.edge_ownership` |
 | S3 进程凭证面 | 已实施（机制合并，见下） | compose 四份 anchor + `PROCESS_ALLOWED_DB_ENV` 白名单 + `tests/unit/test_credential_surface.py`；断言 `cred.process_credential_surface` / `cred.role_names_distinct` |
 | S4 债清理 | 已实施 | `packages/shared/port_errors.py`（端口失败契约）+ 架构闸门 **R5**（`services/*/{service,domain}` 禁止 import 持久化库）+ 提案 front-matter 状态闸门 `check_proposal_status()` |
-| S5 Phase 1 复验 | **部分执行** | 已补：`tests/e2e/test_phase1_main_chain.py`（跨域主链 3 例，531 passed）+ `docs/perf/2026-11-18-single-instance-baseline.md`（阶段 A 单实例实测，首期阈值多数未达标）+ `load_test.py --write-path`（补齐此前与阈值表矛盾的只读约束）。未补：压测阶段 B/C（多实例、5 个故障注入）、25 个 ACTIVE 动作仍无运行时入口 |
+| S5 Phase 1 复验 | **部分执行** | 已补：`tests/e2e/test_phase1_main_chain.py`（跨域主链 3 例）+ `docs/perf/2026-11-18-single-instance-baseline.md`（阶段 A 两轮实测）+ `load_test.py --write-path`。次轮修复了首轮暴露的两个结构性问题：限流后端熔断（Redis 不可达时 1020ms → 13ms，实测见基线文档 §3.3）、探针 TTL 缓存 + 单飞（90ms → 2ms，P99 24.6ms @5 并发达标）。未补：阶段 B（多实例）、阶段 C 其余 4 场景、25 个 ACTIVE 动作仍无运行时入口 |
 
 两处与原方案不同，理由写在这里而不是"顺手做了"：
 
