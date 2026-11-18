@@ -6,8 +6,11 @@
 # - 迁移是独立一次性容器，不是 api 的入口脚本：多副本滚动发布时不会并发迁移。
 # - 口令全部走环境变量占位（默认值仅供本地开发）；生产由密钥系统注入，
 #   镜像与编排文件中不含任何真实口令。
-# - redis 暂不作为 api 的 depends_on：应用当前未使用 Redis，把未使用的依赖
-#   写进就绪链会让「Redis 抖动」误判为 API 不可用。
+# - redis 不作为 api 的 depends_on：限流后端（RateLimiter）确实依赖 Redis，
+#   但契约是 **fail-open + 熔断**——Redis 不可用时放行并置 degraded 标记，
+#   不阻塞请求。因此它属于「降级依赖」而非「启动依赖」：写进 depends_on 或
+#   就绪链，会把一次限流后端抖动升级成「API 不可用」，与降级设计相反。
+#   降级语义的权威说明见 docs/runbooks/rate-limit-degradation.md。
 # - postgres / redis 用官方镜像名（可移植）；若所在网络无法直连 Docker Hub，
 #   需在 Docker 守护进程配置 registry mirror（daemon.json 的 registry-mirrors），
 #   不要改成本地私有镜像名，否则编排文件就与 CI / 生产脱节。
