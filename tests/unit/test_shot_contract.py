@@ -517,3 +517,98 @@ def test_coverage_ledger_counts_match_definitions() -> None:
 def test_registry_counts_are_consistent() -> None:
     assert STATE_MACHINES["total_objects"] == len(STATE_MACHINES["objects"])
     assert ENUMS["object_count"] == len(ENUMS["objects"])
+
+# --------------------------------------------------------------------------- #
+# 7. 跨对象一致性：契约的可执行示例（不是运行时实现）
+# --------------------------------------------------------------------------- #
+def _collection_violations(shots: list[dict], revisions: list[dict]) -> list[str]:
+    """把 SH-2 / SH-3 / SR-5 写成可执行判定，供实现方对照。
+
+    明确边界：这是**契约的可执行示例**，只在测试里跑。运行时该落的位置是服务层
+    与数据库约束——``(project_id, shot_code)`` 唯一索引、修订表的
+    ``(shot_id, project_id, episode_id, scene_id)`` 复合外键。运行时落地后本函数
+    应当删除，改用真实服务层校验；留着它只会让「测试通过」与「系统正确」之间
+    多一层假象。
+    """
+    out: list[str] = []
+    seen: dict[tuple[str, str], str] = {}
+    for shot in shots:
+        key = (shot["project_id"], shot["shot_code"])
+        if key in seen and seen[key] != shot["shot_id"]:
+            out.append(f"项目 {key[0]} 内 shot_code 重复: {key[1]}")
+        seen[key] = shot["shot_id"]
+
+    index = {shot["shot_id"]: shot for shot in shots}
+    by_shot: dict[str, list[dict]] = {}
+    for revision in revisions:
+        by_shot.setdefault(revision["shot_id"], []).append(revision)
+
+    for shot_id, revs in by_shot.items():
+        parents = {
+            (r["project_id"], r["episode_id"], r["scene_id"]) for r in revs
+        }
+        if len(parents) > 1:
+            out.append(f"{shot_id} 的修订父级不一致: {sorted(parents)}")
+        shot = index.get(shot_id)
+        if shot is None:
+            out.append(f"{shot_id} 的修订指向不存在的 Shot")
+            continue
+        for project_id, _episode_id, scene_id in parents:
+            if project_id != shot["project_id"]:
+                out.append(f"{shot_id} 的修订挂在项目 {project_id}，Shot 在 {shot['project_id']}")
+            if scene_id != shot["scene_id"]:
+                out.append(
+                    f"{shot_id} 的修订挂在场次 {scene_id}，Shot 在 {shot['scene_id']}：跨场次改挂"
+                )
+    return out
+
+
+def _revision(shot_id: str, **overrides) -> dict:
+    payload = {
+        "shot_id": shot_id,
+        "project_id": "prj_01J",
+        "episode_id": "ep_01J",
+        "scene_id": "sc_01J",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_collection_is_consistent_for_a_clean_case() -> None:
+    shots = [BASE, _shot(shot_id="sh_02J", shot_code="EP001-SC003-SH013")]
+    revisions = [
+        _revision("sh_01J"),
+        _revision("sh_01J", scene_id="sc_01J"),
+        _revision("sh_02J"),
+    ]
+    assert _collection_violations(shots, revisions) == []
+
+
+def test_duplicate_shot_code_in_same_project_is_rejected() -> None:
+    shots = [BASE, _shot(shot_id="sh_02J", shot_code="EP001-SC003-SH012")]
+    problems = _collection_violations(shots, [])
+    assert any("shot_code 重复" in p for p in problems), problems
+
+
+def test_same_shot_code_across_projects_is_allowed() -> None:
+    """8.2 只要求业务短编号唯一性落在项目内，跨项目撞号不是错误。"""
+    shots = [BASE, _shot(shot_id="sh_02J", project_id="prj_02J")]
+    assert _collection_violations(shots, []) == []
+
+
+def test_revision_cannot_be_reattached_to_another_scene() -> None:
+    """SR-5 / SH-2：同一 shot_id 的修订不得跨场次改挂。"""
+    problems = _collection_violations([BASE], [_revision("sh_01J", scene_id="sc_02J")])
+    assert any("跨场次改挂" in p for p in problems), problems
+
+
+def test_revision_parents_must_not_drift_among_themselves() -> None:
+    problems = _collection_violations(
+        [BASE], [_revision("sh_01J"), _revision("sh_01J", scene_id="sc_02J")]
+    )
+    assert any("父级不一致" in p for p in problems), problems
+
+
+def test_revision_must_point_to_an_existing_shot() -> None:
+    problems = _collection_violations([BASE], [_revision("sh_ghost")])
+    assert any("不存在" in p for p in problems), problems

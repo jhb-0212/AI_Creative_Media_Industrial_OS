@@ -8245,7 +8245,7 @@
         },
         "shot_id": {
           "type": "string",
-          "description": "稳定逻辑镜头标识（8.2：不得复用）。同一 shot_id 下的所有修订必须共享父级归属；业务短编号属 Shot，见 ADR-R17"
+          "description": "稳定逻辑镜头标识（8.2：不得复用）。从属于 Shot.shot_id（ADR-R18）：Shot 是归属锚点与稳定身份来源，修订侧不得自造归属。同一 shot_id 下的所有修订必须共享父级归属；业务短编号属 Shot，见 ADR-R17"
         },
         "project_id": {
           "type": "string",
@@ -8580,7 +8580,8 @@
         "2.3 Creative Autonomy 等级（L1–L4）",
         "4.1 统一质量基线（UNIFIED_HIGH_QUALITY）",
         "ADF：31.6 SHOT.REVISION.CONFIRM（人类确认，版本冲突必须拒绝）与 Gate 1-A（授权确认人、版本与差异）",
-        "docs/adr/ADR-R17-shot-revision-contract.md"
+        "docs/adr/ADR-R17-shot-revision-contract.md",
+        "docs/adr/ADR-R18-shot-entity-contract.md（Shot 独立建模，本对象从属于 Shot）"
       ],
       "x-afs-required-basis": "required = C.3.1 通用信封 + 8.3 示例中归属「修订内容」的字段 + 8.8 意图固定引用 + 19.3 来源段落 + Gate 1-A 的确认人与时间。业务短编号（shot_code）与生产进度状态（IN_PRODUCTION）不进本对象：它们在 8.3 里属于 Shot 而非修订，而 Shot 尚未建模（见 ADR-R17）。",
       "x-afs-exclusions": [

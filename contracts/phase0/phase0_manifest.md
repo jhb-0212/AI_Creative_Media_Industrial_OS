@@ -16,7 +16,7 @@
 
 | 正文类目 | 文件 | 字节 | SHA-256 | 对应章节 |
 |---|---|---|---|---|
-| ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 242898 | `886e7111800df4968fadb9a3cae494f30c82a4d6cc6cd749f05a22d34b73abdb` | 8.x 对象契约 / C.3 数据契约 |
+| ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 243112 | `95ea19c4c820df93859b4f7c59a259eb3135f9674f26ec87cf7ed2bf1ed9557a` | 8.x 对象契约 / C.3 数据契约 |
 | ② OpenAPI 草案 | `contracts/openapi/openapi.draft.yaml` | 113753 | `99e979790047853da9840ffd485d1f4ae6b8e1f7230eed115fc3a330fae03ebc` | 31.6（由 Action Registry 派生） |
 | ③ 状态机 | `contracts/state_machines/state_machines.yaml` | 28720 | `eaf830f7c3949cef7a6306d31bcacbdaea28823e8bdba26e6518fca2c5161781` | 31.5 / 8.6 / 32.6 / 33.3 / 34.7 |
 | ④ Action Registry | `contracts/action_registry/action_registry.yaml` | 43652 | `ed3b3ae9fe6ee1a6ba7e3c324016054ed6a329471a35eff6817e890cb0d0cf0b` | 31.6 唯一注册表 |
