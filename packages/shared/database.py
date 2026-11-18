@@ -223,8 +223,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.asset_service_engine = asset_engine
     app.state.project_planning_sessionmaker = project_sessionmaker
     app.state.asset_service_sessionmaker = asset_sessionmaker
-    # 向后兼容别名：/readyz 与既有代码读 app.state.sessionmaker 时，落到
+    # 向后兼容别名：既有代码读 app.state.sessionmaker 时，落到
     # project_planning 域会话工厂（有 public.alembic_version 只读权限）。
+    # /readyz 已不依赖此别名——池拆分后它显式探测两个域池（Codex P2）。
     app.state.engine = project_engine
     app.state.sessionmaker = project_sessionmaker
     # 限流器与数据库同属「进程级基础设施」，生命周期统一在这里收口：

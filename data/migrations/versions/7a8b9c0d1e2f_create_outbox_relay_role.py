@@ -61,14 +61,25 @@ def _relay_password() -> str:
 
     口令不出现在版本库中；缺失直接失败，避免以空口令或开发口令建角色。
     单引号按 SQL 字面量规则转义（``'`` → ``''``）。
-    """
-    from packages.shared.config import get_settings
 
-    password = get_settings().postgres_relay_password.get_secret_value()
+    迁移经裸 ``get_settings()`` 读配置、不声明进程身份，进程层的生产
+    校验不会触发——必须在此显式拒绝开发默认口令（Codex P1：否则生产
+    迁移未注入口令时会以仓库里可预测的 relay_dev_password 建角色）。
+    """
+    from packages.shared.config import (
+        get_settings,
+        reject_development_default_password,
+    )
+
+    settings = get_settings()
+    password = settings.postgres_relay_password.get_secret_value()
     if not password:
         raise RuntimeError(
             "POSTGRES_RELAY_PASSWORD 未配置：拒绝以空口令创建 relay 角色"
         )
+    reject_development_default_password(
+        settings, "postgres_relay_password", "POSTGRES_RELAY_PASSWORD"
+    )
     return password.replace("'", "''")
 
 
@@ -78,7 +89,8 @@ def upgrade() -> None:
     relay_role = _relay_role()
 
     # 1. 创建 relay 专用角色：LOGIN、非超级用户、NOBYPASSRLS（不绕过 RLS）。
-    #    已存在时同步口令，避免历史开发口令留在角色上。
+    #    已存在时同步口令**并重置属性**（Codex P1）：只改密码会保留存量角色
+    #    可能带有的 SUPERUSER/BYPASSRLS 等危险属性，角色隔离形同虚设。
     op.execute(
         f"""
         DO $$
@@ -87,7 +99,8 @@ def upgrade() -> None:
                 CREATE ROLE {relay_role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
                     NOBYPASSRLS PASSWORD '{password}';
             ELSE
-                ALTER ROLE {relay_role} WITH PASSWORD '{password}';
+                ALTER ROLE {relay_role} WITH LOGIN NOSUPERUSER NOCREATEDB
+                    NOCREATEROLE NOBYPASSRLS PASSWORD '{password}';
             END IF;
         END
         $$

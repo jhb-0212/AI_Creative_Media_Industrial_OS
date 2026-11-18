@@ -131,3 +131,23 @@ import 冒烟没有提供公钥，于是 FAIL。
 - `process_role` 的新增（如 `migration`）——alembic 在 `get_settings()` 解耦后
   已不再需要 api 角色密钥，无需新角色维度；
 - 高并发压测实测报告（方案与脚本已有，待目标环境跑出）。
+
+## 9. PR 评审对话收口（2026-11-18，Codex 16 条）
+
+Codex 机器人在 PR #11 留下 16 条评审对话，逐条对照代码后：**9 条已被本轮
+之前的提交根治**（#1→P1-04、#2/#8→P1-03、#3→P2-01、#4→P1-01、#5/#6→P2-02、
+#7→P1-04、#9→P1-02），**7 条未修**，本轮全部落地：
+
+| # | 评审点 | 修复 |
+| --- | --- | --- |
+| 10 | 授权不校验组织范围：持 `Project:*` 可操作租户内其他组织的项目 | Principal/JWT 增 `org` claim；项目 create/read/status-change 增资源级 ABAC（`_assert_organization_scope`，fail-closed），6 条集成用例 |
+| 11 | load_test 不把 HTTP 4xx/5xx 计入错误 | 非 2xx 计入 errors、错误率按总请求数计算、存在错误退出非零 |
+| 12 | 生产迁移可用仓库内 `relay_dev_password` 建 relay 角色 | `reject_development_default_password`（共享守卫），relay/app/域角色迁移统一接入 |
+| 13 | 同上——域角色 `*_dev_password` | 同上（单一事实源 `DEVELOPMENT_DEFAULT_PASSWORDS`） |
+| 14 | identity 进程不连库却被要求 `POSTGRES_APP_PASSWORD` | 必需清单移除该项 + 清除死守卫；用例改断言「identity 无 DB 口令也能启动」 |
+| 15 | `/readyz` 只探 project 池 | 显式探测 project+asset 双池，任一失败 503；用例拆成双池负向 |
+| 16 | 存量角色只改密码不重置属性 | `ALTER ROLE ... WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD`（relay/app/域三处一致） |
+
+**诚实边界**：#16 修改了已在本分支验证过的迁移文件，此前的
+upgrade→downgrade→upgrade 往返证据需在合并后的真实 PG 上重跑（CI 集成测试
+覆盖迁移链）；本地沙箱数据库不可用，本轮 7 项修复的运行期验证以 CI 为准。

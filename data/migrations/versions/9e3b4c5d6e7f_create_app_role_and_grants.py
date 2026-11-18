@@ -43,14 +43,25 @@ def _app_password() -> str:
 
     口令不出现在版本库中；缺失直接失败，避免以空口令或开发口令建角色。
     单引号按 SQL 字面量规则转义（``'`` → ``''``）。
-    """
-    from packages.shared.config import get_settings
 
-    password = get_settings().postgres_app_password.get_secret_value()
+    迁移经裸 ``get_settings()`` 读配置、不声明进程身份，进程层的生产
+    校验不会触发——必须在此显式拒绝开发默认口令（与 relay/域角色迁移
+    同一守卫，见 ``reject_development_default_password``）。
+    """
+    from packages.shared.config import (
+        get_settings,
+        reject_development_default_password,
+    )
+
+    settings = get_settings()
+    password = settings.postgres_app_password.get_secret_value()
     if not password:
         raise RuntimeError(
             "POSTGRES_APP_PASSWORD 未配置：拒绝以空口令创建应用角色"
         )
+    reject_development_default_password(
+        settings, "postgres_app_password", "POSTGRES_APP_PASSWORD"
+    )
     return password.replace("'", "''")
 
 
@@ -59,7 +70,8 @@ def upgrade() -> None:
     password = _app_password()
 
     # 1. 创建应用角色：LOGIN、非超级用户、NOBYPASSRLS（不绕过 RLS）。
-    #    已存在时同步口令，避免历史开发口令留在角色上。
+    #    已存在时同步口令**并重置属性**（与 relay/域角色迁移同一守卫）：
+    #    只改密码会保留存量角色可能带有的 SUPERUSER/BYPASSRLS 等危险属性。
     op.execute(
         f"""
         DO $$
@@ -68,7 +80,8 @@ def upgrade() -> None:
                 CREATE ROLE {APP_ROLE} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
                     NOBYPASSRLS PASSWORD '{password}';
             ELSE
-                ALTER ROLE {APP_ROLE} WITH PASSWORD '{password}';
+                ALTER ROLE {APP_ROLE} WITH LOGIN NOSUPERUSER NOCREATEDB
+                    NOCREATEROLE NOBYPASSRLS PASSWORD '{password}';
             END IF;
         END
         $$

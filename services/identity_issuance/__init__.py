@@ -70,6 +70,7 @@ def issue_token(
     tenant_id: str,
     roles: list[str],
     capabilities: list[str] | None = None,
+    organization_id: str | None = None,
 ) -> str:
     """签发一条访问令牌（身份服务内部使用，含私钥）。
 
@@ -79,6 +80,9 @@ def issue_token(
     capabilities：能力范围集合（caps claim）。契约中所有动作 ``token_required``
     均为 true，因此签发方必须显式授予能力范围；不传则签发空能力集，任何
     需 Capability 校验的动作都会被拒绝（fail-closed）。
+
+    organization_id：组织归属（可选，org claim）——组织项目的资源级 ABAC
+    判定键（基线 27.3 多层级作用域）。
     """
     from packages.identity.jwt_core import encode_token
 
@@ -90,6 +94,7 @@ def issue_token(
         tenant_id=tenant_id,
         roles=roles,
         capabilities=capabilities or [],
+        organization_id=organization_id,
         issuer=settings.identity_issuer,
         audience=settings.identity_audience,
         ttl_seconds=settings.identity_access_token_ttl_seconds,

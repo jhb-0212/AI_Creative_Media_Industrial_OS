@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.contract_models import contract_model
 from packages.shared.unit_of_work import UnitOfWork
 from services.identity_access.deps import (
@@ -24,6 +25,7 @@ from services.identity_access.deps import (
     require_role,
 )
 from services.project_planning.domain.enums import ProjectStatus, ProjectTier
+from services.project_planning.domain.project import Project
 from services.project_planning.repository.sqlalchemy_outbox_writer import (
     SqlAlchemyOutboxWriter,
 )
@@ -75,6 +77,43 @@ def _get_read_service(
     return _build_service(uow.session)
 
 
+def _assert_organization_scope(principal: Principal, project: Project) -> None:
+    """资源级 ABAC：组织项目的访问必须与 Principal 的 ``org`` claim 匹配。
+
+    基线 27.3 支持组织/团队/项目/集/镜头多层级作用域（RBAC + ABAC）；租户
+    RLS 只隔离租户、不隔离租户内的组织——持 ``Project:*`` 能力的调用方此前
+    可以读/改**其他组织**的项目（Codex P1）。判定规则（fail-closed）：
+
+    - 项目归属组织而 Principal 无 org claim（个人主体 / 服务账号）→ 拒绝；
+    - 双方都有组织且不相等 → 拒绝；
+    - 项目为个人租户（organization_id 为空）→ 不做组织限定，放行。
+
+    动作级授权仍由 ``authorize`` 统一判定（单一事实源）；本函数只回答
+    「这个主体能不能碰这个组织的目标资源」，与动作无关。
+    """
+    if project.organization_id is None:
+        return
+    if principal.organization_id is None or (
+        principal.organization_id != project.organization_id
+    ):
+        raise DomainError(
+            ErrorRegistry.AUTH_SCOPE_DENIED,
+            detail=(
+                "项目归属其他组织：本主体无该组织的资源范围。租户一致但组织"
+                "不同属于越权访问（基线 27.3 多层级作用域），如需访问请由组织"
+                "管理员授予对应组织身份。"
+            ),
+            context={
+                "project_organization_id": str(project.organization_id),
+                "principal_organization_id": (
+                    str(principal.organization_id)
+                    if principal.organization_id
+                    else None
+                ),
+            },
+        )
+
+
 @router.post("", status_code=201, response_model=_ProjectResponse)
 async def create_project(
     body: CreateProjectRequest,
@@ -83,6 +122,25 @@ async def create_project(
     service: ProjectService = Depends(_get_service),
 ) -> dict[str, Any]:
     """创建项目（幂等）。created_by / tenant_id 来自可信 Principal。"""
+    # 组织归属写入前先验证：不得把项目挂到主体不属于的组织（创建即越权）。
+    if body.organization_id is not None and (
+        principal.organization_id != body.organization_id
+    ):
+        raise DomainError(
+            ErrorRegistry.AUTH_SCOPE_DENIED,
+            detail=(
+                "不得将项目归属到主体未加入的组织：创建请求的 organization_id "
+                "必须与主体的 org claim 一致（个人主体不能创建组织项目）。"
+            ),
+            context={
+                "requested_organization_id": str(body.organization_id),
+                "principal_organization_id": (
+                    str(principal.organization_id)
+                    if principal.organization_id
+                    else None
+                ),
+            },
+        )
     project = await service.create_project(
         project_name=body.project_name,
         project_tier=body.project_tier,
@@ -102,8 +160,10 @@ async def get_project(
     _principal: Principal = Depends(require_role("PROJECT.READ")),
     service: ProjectService = Depends(_get_read_service),
 ) -> dict[str, Any]:
-    """按 id 查询项目（需 PROJECT.READ 授权；租户边界由 RLS 保证）。"""
+    """按 id 查询项目（需 PROJECT.READ 授权；租户边界由 RLS 保证，组织边界由
+    资源级 ABAC 校验）。"""
     project = await service.get_project(entity_id)
+    _assert_organization_scope(_principal, project)
     return project.to_dict()
 
 
@@ -126,5 +186,7 @@ async def change_project_status(
         changed_by=principal.subject_id,
         tenant_id=principal.tenant_id,
     )
+    # 状态推进是写操作：组织边界必须在落库提交前校验（fail-closed）。
+    _assert_organization_scope(principal, project)
     await uow.commit()
     return project.to_dict()

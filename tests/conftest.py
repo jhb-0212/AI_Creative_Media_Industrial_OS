@@ -56,6 +56,7 @@ def make_test_token(
     roles: list[str] | None = None,
     tenant_id: uuid.UUID = TEST_TENANT_ID,
     capabilities: list[str] | None = None,
+    organization_id: uuid.UUID | None = None,
 ) -> str:
     """签发一条测试访问令牌（身份服务内部签发，含私钥）。
 
@@ -63,6 +64,8 @@ def make_test_token(
     capabilities 默认签发全通配 ``*``（测试 token 视为「受信任的完整授权
     主体」），使既有正向用例专注验证「角色授权」而不被能力校验干扰；
     负向用例可显式传入空列表或受限能力集来验证「缺能力拒绝」。
+    organization_id：组织归属（可选，org claim）——组织项目的资源级 ABAC
+    负向用例据此构造「他组织成员」的令牌。
 
     测试据此构造认证头，走真实验签路径（R6/R9）。
     """
@@ -71,6 +74,7 @@ def make_test_token(
         tenant_id=str(tenant_id),
         roles=roles or ["导演", "编剧", "制片"],
         capabilities=capabilities if capabilities is not None else ["*"],
+        organization_id=str(organization_id) if organization_id else None,
     )
 
 

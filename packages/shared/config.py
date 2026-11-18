@@ -165,8 +165,10 @@ class Settings(BaseSettings):
         "outbox_maintenance": (
             ("postgres_password", "POSTGRES_PASSWORD"),
         ),
+        # KEYS-3：identity 签发方是独立进程，只持私钥并对外提供 JWKS——
+        # 它不连接数据库（workers/identity 零 DB import），因此不要求任何
+        # postgres 口令；app_role 仅作为遗留兼容路径由测试/工具显式使用。
         "identity": (
-            ("postgres_app_password", "POSTGRES_APP_PASSWORD"),
             ("identity_private_key_pem", "IDENTITY_PRIVATE_KEY_PEM"),
             ("identity_public_key_pem", "IDENTITY_PUBLIC_KEY_PEM"),
         ),
@@ -205,43 +207,19 @@ class Settings(BaseSettings):
                 f"生产环境（APP_ENV=production，PROCESS_ROLE={self.process_role}）"
                 "缺少必需密钥，拒绝启动：" + ", ".join(missing)
             )
-        # 显式拒绝开发默认值：迁移 9e3b4c5d6e7f 创建的 app_dev_password /
-        # 7a8b9c0d1e2f 创建的 relay_dev_password 只允许本地/测试使用，不得带入
-        # 生产（否则 RLS 应用角色/Relay 角色的口令可预测）。与必需清单一致，按
-        # 进程角色判断：只有真正使用该角色的进程才校验其默认口令，避免
-        # outbox_maintenance（走 postgres 超级用户）被无关的 app/relay 密码牵制。
-        if "postgres_app_password" in {f for f, _ in required} and (
-            self.postgres_app_password.get_secret_value() == "app_dev_password"
-        ):
-            raise ValueError(
-                "生产环境（APP_ENV=production）不得使用开发默认应用数据库密码"
-                " app_dev_password（POSTGRES_APP_PASSWORD），请由部署系统注入独立密码。"
-            )
-        if "postgres_relay_password" in {f for f, _ in required} and (
-            self.postgres_relay_password.get_secret_value() == "relay_dev_password"
-        ):
-            raise ValueError(
-                "生产环境（APP_ENV=production）不得使用开发默认 relay 数据库密码"
-                " relay_dev_password（POSTGRES_RELAY_PASSWORD），请由部署系统注入独立密码。"
-            )
-        if "postgres_project_planning_password" in {f for f, _ in required} and (
-            self.postgres_project_planning_password.get_secret_value()
-            == "project_planning_dev_password"
-        ):
-            raise ValueError(
-                "生产环境（APP_ENV=production）不得使用开发默认 project_planning"
-                " 域数据库密码 project_planning_dev_password"
-                "（POSTGRES_PROJECT_PLANNING_PASSWORD），请由部署系统注入独立密码。"
-            )
-        if "postgres_asset_service_password" in {f for f, _ in required} and (
-            self.postgres_asset_service_password.get_secret_value()
-            == "asset_service_dev_password"
-        ):
-            raise ValueError(
-                "生产环境（APP_ENV=production）不得使用开发默认 asset_service"
-                " 域数据库密码 asset_service_dev_password"
-                "（POSTGRES_ASSET_SERVICE_PASSWORD），请由部署系统注入独立密码。"
-            )
+        # 显式拒绝开发默认值：各角色口令若取自仓库里的开发默认值，生产环境
+        # 的数据库角色口令即「可预测」，RLS 边界形同虚设。清单收敛为模块级
+        # DEVELOPMENT_DEFAULT_PASSWORDS（单一事实源）；按进程角色判断——只有
+        # 真正使用该角色的进程才校验其默认口令，避免 outbox_maintenance（走
+        # postgres 超级用户）被无关角色的密码牵制。**迁移路径不声明进程身份、
+        # 不走本方法**：建角色的迁移必须显式调用 reject_development_default_password。
+        for field_name, env_name in required:
+            default = DEVELOPMENT_DEFAULT_PASSWORDS.get(field_name)
+            if default and getattr(self, field_name).get_secret_value() == default:
+                raise ValueError(
+                    "生产环境（APP_ENV=production）不得使用开发默认数据库密码"
+                    f" {default}（{env_name}），请由部署系统注入独立密码。"
+                )
 
     @model_validator(mode="after")
     def _require_webhook_secret_with_url(self) -> Settings:
@@ -260,6 +238,40 @@ class Settings(BaseSettings):
                 "拒绝启动未经签名的事件外发。"
             )
         return self
+
+
+# 开发默认数据库口令清单（**单一事实源**）：进程校验与建角色迁移共用。
+# 这些口令以明文入库（供本地/测试开箱即用）；若带入生产，RLS 应用角色 /
+# Relay 角色 / 域角色的口令即「可预测」，角色隔离形同虚设。因此两层都拒绝：
+# - 进程层：``Settings.validate_process_requirements``（按角色清单命中时）；
+# - 迁移层：建角色的迁移显式调用 :func:`reject_development_default_password`
+#   （迁移经裸 ``get_settings()`` 读配置、不声明进程身份，进程层不会触发）。
+DEVELOPMENT_DEFAULT_PASSWORDS: dict[str, str] = {
+    "postgres_app_password": "app_dev_password",
+    "postgres_relay_password": "relay_dev_password",
+    "postgres_project_planning_password": "project_planning_dev_password",
+    "postgres_asset_service_password": "asset_service_dev_password",
+}
+
+
+def reject_development_default_password(
+    settings: Settings, field_name: str, env_name: str
+) -> None:
+    """生产环境拒绝以开发默认口令创建/同步数据库角色（迁移层守卫）。
+
+    建角色的迁移（9e3b4c5d6e7f / 7a8b9c0d1e2f / 8f3b2c1d4e5a）经裸
+    ``get_settings()`` 读取配置，不声明进程身份，进程层校验不会触发；
+    必须在取口令处显式调用本函数（fail-closed）。仅拒绝「值 == 开发默认」，
+    不要求非空——空值由迁移自身的缺省拒绝兜底。
+    """
+    if settings.app_env != "production":
+        return
+    default = DEVELOPMENT_DEFAULT_PASSWORDS.get(field_name)
+    if default and getattr(settings, field_name).get_secret_value() == default:
+        raise RuntimeError(
+            "生产环境（APP_ENV=production）不得使用开发默认数据库密码"
+            f" {default}（{env_name}），请由部署系统注入独立密码。"
+        )
 
 
 @lru_cache

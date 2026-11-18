@@ -79,19 +79,33 @@ def _domain_password(field: str, env_name: str) -> str:
 
     口令不出现在版本库中；缺失直接失败，避免以空口令或开发口令建角色。
     单引号按 SQL 字面量规则转义（``'`` → ``''``）。
-    """
-    from packages.shared.config import get_settings
 
-    password = getattr(get_settings(), field).get_secret_value()
+    迁移经裸 ``get_settings()`` 读配置、不声明进程身份，进程层的生产
+    校验不会触发——必须在此显式拒绝开发默认口令（Codex P1：否则生产
+    迁移未注入口令时会以仓库里可预测的 *_dev_password 建域角色）。
+    """
+    from packages.shared.config import (
+        get_settings,
+        reject_development_default_password,
+    )
+
+    settings = get_settings()
+    password = getattr(settings, field).get_secret_value()
     if not password:
         raise RuntimeError(
             f"{env_name} 未配置：拒绝以空口令创建业务域角色"
         )
+    reject_development_default_password(settings, field, env_name)
     return password.replace("'", "''")
 
 
 def _create_role_if_absent(role: str, password: str) -> None:
-    """创建业务域角色（幂等；已存在则同步口令，避免开发口令留存）。"""
+    """创建业务域角色（幂等；已存在则同步口令**并重置属性**）。
+
+    属性重置（Codex P1）：存量角色若已带 SUPERUSER/BYPASSRLS/NOSUPERUSER
+    等危险属性，只同步口令会原样保留——角色必须强制收敛到最小权限集
+    （LOGIN + 四个 NO*），与新建路径完全一致。
+    """
     op.execute(
         f"""
         DO $$
@@ -100,7 +114,8 @@ def _create_role_if_absent(role: str, password: str) -> None:
                 CREATE ROLE {role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
                     NOBYPASSRLS PASSWORD '{password}';
             ELSE
-                ALTER ROLE {role} WITH PASSWORD '{password}';
+                ALTER ROLE {role} WITH LOGIN NOSUPERUSER NOCREATEDB
+                    NOCREATEROLE NOBYPASSRLS PASSWORD '{password}';
             END IF;
         END
         $$

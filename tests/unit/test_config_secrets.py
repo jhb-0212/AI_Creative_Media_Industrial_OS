@@ -28,7 +28,6 @@ _REQUIRED_BY_PROCESS = {
     "relay": ["POSTGRES_RELAY_PASSWORD"],
     "outbox_maintenance": ["POSTGRES_PASSWORD"],
     "identity": [
-        "POSTGRES_APP_PASSWORD",
         "IDENTITY_PRIVATE_KEY_PEM",
         "IDENTITY_PUBLIC_KEY_PEM",
     ],
@@ -165,17 +164,25 @@ def test_secret_fields_do_not_leak_in_repr(monkeypatch: pytest.MonkeyPatch) -> N
     assert "s3cret-s3" not in rendered
 
 
-def test_production_rejects_dev_default_app_password(monkeypatch: pytest.MonkeyPatch) -> None:
-    """identity 进程显式使用开发默认应用密码 app_dev_password → 拒绝启动。
+def test_identity_process_does_not_require_database_password(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """identity 进程不再要求任何 POSTGRES 口令（Codex P2 / KEYS-3 收口）。
 
-    DATA-1（按域拆角色）后，app_role 只被 identity 进程使用（签发方），
-    故 dev 默认口令检查也只对 identity 生效；api 进程改用两个业务域角色。
+    workers/identity 只持私钥并对外提供 JWKS，**零数据库 import**——历史
+    清单要求 POSTGRES_APP_PASSWORD 会让生产签发方在无 DB 口令时拒绝启动，
+    属于「必需清单与进程真实依赖不符」。app_role 仅是遗留兼容路径（测试/
+    工具显式使用），不再出现在任何进程的必需清单里。
     """
     _set_env(monkeypatch, _prod_env())
+    # 显式把 POSTGRES_APP_PASSWORD 设回开发默认值：identity 仍必须能启动——
+    # 它根本不使用该口令；开发默认值的拒绝只对「真正使用该角色」的进程生效。
     monkeypatch.setenv("POSTGRES_APP_PASSWORD", "app_dev_password")
-    with pytest.raises(ValueError) as exc_info:
-        _make_settings(process_role="identity")
-    assert "app_dev_password" in str(exc_info.value)
+    settings = _make_settings(process_role="identity")
+    assert settings.identity_private_key_pem.get_secret_value() != ""
+    assert "postgres_app_password" not in {
+        f for f, _ in settings._PRODUCTION_REQUIRED_SECRETS_BY_PROCESS["identity"]
+    }
 
 
 def test_production_rejects_dev_default_domain_passwords(
@@ -278,3 +285,69 @@ def test_process_settings_declares_and_validates(
     with pytest.raises(ValueError) as exc_info:
         get_process_settings("relay")
     assert "POSTGRES_RELAY_PASSWORD" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# 迁移层守卫（Codex P1 #12/#13）：建角色迁移用裸 get_settings()，不走
+# validate_process_requirements——必须显式调用 reject_development_default_password。
+# ---------------------------------------------------------------------------
+
+
+def test_migration_guard_rejects_dev_default_password_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """生产环境 + 开发默认口令 → RuntimeError（迁移路径唯一防线）。"""
+    from packages.shared.config import reject_development_default_password
+
+    _set_env(monkeypatch, _prod_env())
+    monkeypatch.setenv("POSTGRES_RELAY_PASSWORD", "relay_dev_password")
+    settings = Settings(_env_file=None, process_role="relay")
+    with pytest.raises(RuntimeError) as exc_info:
+        reject_development_default_password(
+            settings, "postgres_relay_password", "POSTGRES_RELAY_PASSWORD"
+        )
+    assert "relay_dev_password" in str(exc_info.value)
+
+
+def test_migration_guard_rejects_dev_default_domain_passwords(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """域角色口令取开发默认值 → 同样被迁移守卫拒绝。"""
+    from packages.shared.config import reject_development_default_password
+
+    for field, env_name, default in (
+        ("postgres_project_planning_password", "POSTGRES_PROJECT_PLANNING_PASSWORD", "project_planning_dev_password"),
+        ("postgres_asset_service_password", "POSTGRES_ASSET_SERVICE_PASSWORD", "asset_service_dev_password"),
+        ("postgres_app_password", "POSTGRES_APP_PASSWORD", "app_dev_password"),
+    ):
+        _set_env(monkeypatch, _prod_env())
+        monkeypatch.setenv(env_name, default)
+        settings = Settings(_env_file=None, process_role="api")
+        with pytest.raises(RuntimeError, match=default):
+            reject_development_default_password(settings, field, env_name)
+
+
+def test_migration_guard_allows_development_default_outside_production(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """非生产环境不触发（本地/测试开箱即用语义不变）。"""
+    from packages.shared.config import reject_development_default_password
+
+    settings = Settings(_env_file=None, process_role="relay")  # 默认 app_env=development
+    # 不应抛出：开发默认口令只在生产被拒绝。
+    reject_development_default_password(
+        settings, "postgres_relay_password", "POSTGRES_RELAY_PASSWORD"
+    )
+
+
+def test_migration_guard_allows_injected_production_password(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """生产环境 + 部署注入的独立口令 → 放行（不误伤正常部署）。"""
+    from packages.shared.config import reject_development_default_password
+
+    _set_env(monkeypatch, _prod_env())
+    settings = Settings(_env_file=None, process_role="relay")
+    reject_development_default_password(
+        settings, "postgres_relay_password", "POSTGRES_RELAY_PASSWORD"
+    )

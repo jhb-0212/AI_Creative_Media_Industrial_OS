@@ -67,6 +67,10 @@ async def _run(args: argparse.Namespace) -> int:
                 resp = await client.get(url, headers=headers)
                 latencies.append(time.perf_counter() - start)
                 status_counter[resp.status_code] += 1
+                # HTTP 4xx/5xx 也是错误（Codex P2）：只记异常会让「全部 500」
+                # 的压测报 0 错误、退出 0，错误率验收被系统性低估。
+                if resp.is_error:
+                    errors.append(f"HTTP {resp.status_code}")
             except Exception as exc:  # 连接失败等：计入错误，不中断压测
                 errors.append(f"{type(exc).__name__}: {exc}")
 
@@ -91,12 +95,16 @@ async def _run(args: argparse.Namespace) -> int:
     p95 = latencies[int(len(latencies) * 0.95)]
     p99 = latencies[min(int(len(latencies) * 0.99), len(latencies) - 1)]
     qps = len(latencies) / total_elapsed
+    # 成功 = 2xx；错误率分母是全部发起的请求（含超时/连接失败/4xx/5xx）。
+    success = sum(count for status, count in status_counter.items() if 200 <= status < 300)
+    error_rate = len(errors) / args.requests if args.requests else 0.0
 
     print("=" * 60)
     print(f"压测目标: {url}")
     print(f"并发 {args.concurrency} / 总请求 {args.requests} / 耗时 {total_elapsed:.2f}s")
     print("-" * 60)
-    print(f"成功请求: {len(latencies)}")
+    print(f"成功请求(2xx): {success} / {args.requests}")
+    print(f"错误率:   {error_rate:.2%}（HTTP 非 2xx + 异常）")
     print(f"QPS:      {qps:.2f}")
     print(f"平均延迟: {statistics.mean(latencies):.1f} ms")
     print(f"P50:      {p50 * 1000:.1f} ms")
@@ -109,7 +117,9 @@ async def _run(args: argparse.Namespace) -> int:
         for err in errors[:3]:
             print(f"  - {err}")
     print("=" * 60)
-    return 0
+    # 存在任何错误（含 HTTP 4xx/5xx）即非零退出：错误率必须被消费方显式看见，
+    # 而不是靠人读输出发现「成功请求其实全是 500」。
+    return 1 if errors else 0
 
 
 def _chunks(items: list[object], size: int) -> list[list[object]]:

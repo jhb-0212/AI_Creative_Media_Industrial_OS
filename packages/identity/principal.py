@@ -35,6 +35,10 @@ class Principal:
     tenant_id: UUID
     roles: frozenset[str] = field(default_factory=frozenset)
     capabilities: frozenset[str] = field(default_factory=frozenset)
+    # 组织归属（JWT ``org`` claim，可选）：基线 27.3「组织/团队/项目/集/镜头
+    # 多层级作用域」的资源级 ABAC 判定键。None = 无组织归属（个人租户或
+    # 未声明组织的服务主体）；组织项目的访问必须与此匹配（fail-closed）。
+    organization_id: UUID | None = None
     jti: str | None = None
 
     def __post_init__(self) -> None:
@@ -58,6 +62,9 @@ class Principal:
         return {
             "subject_id": self.subject_id,
             "tenant_id": str(self.tenant_id),
+            "organization_id": (
+                str(self.organization_id) if self.organization_id else None
+            ),
             "roles": sorted(self.roles),
             "capabilities": sorted(self.capabilities),
             "jti": self.jti,

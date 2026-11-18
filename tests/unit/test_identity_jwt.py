@@ -278,3 +278,72 @@ def test_caps_claim_must_be_string_array(key: SigningKey) -> None:
         decode_token(
             token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE
         )
+
+
+# ---------------------------------------------------------------------------
+# org claim（组织归属，Codex P1 #10）：资源级 ABAC 的判定键。
+# ---------------------------------------------------------------------------
+
+
+def test_org_claim_round_trip(key: SigningKey) -> None:
+    """带 org claim 的令牌解码后 Principal 携带组织归属。"""
+    org_id = str(uuid.uuid4())
+    token = encode_token(
+        key,
+        subject_id="user-org",
+        tenant_id=TENANT_ID,
+        roles=["导演"],
+        issuer=ISSUER,
+        audience=AUDIENCE,
+        organization_id=org_id,
+    )
+    principal = decode_token(
+        token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE
+    )
+    assert principal.organization_id is not None
+    assert str(principal.organization_id) == org_id
+
+
+def test_org_claim_absent_means_no_organization(key: SigningKey) -> None:
+    """不带 org claim（个人租户/服务主体）→ organization_id 为 None。"""
+    token = encode_token(
+        key,
+        subject_id="user-solo",
+        tenant_id=TENANT_ID,
+        roles=["导演"],
+        issuer=ISSUER,
+        audience=AUDIENCE,
+    )
+    principal = decode_token(
+        token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE
+    )
+    assert principal.organization_id is None
+
+
+@pytest.mark.parametrize("bad_org", ["not-a-uuid", "", 123, ["x"]])
+def test_org_claim_invalid_value_rejected(key: SigningKey, bad_org: object) -> None:
+    """org claim 存在但非法（非 UUID/空/非字符串）→ 拒绝（fail-closed）。
+
+    组织是资源级 ABAC 的判定键：非法值宁可拒绝也不能降级成 None 放行，
+    否则伪造令牌可用坏 org 绕过组织边界。
+    """
+    import time as _time
+
+    now = int(_time.time())
+    payload = {
+        "sub": "user-forged",
+        "tenant_id": TENANT_ID,
+        "org": bad_org,
+        "roles": ["导演"],
+        "caps": [],
+        "jti": "forged",
+        "iss": ISSUER,
+        "aud": AUDIENCE,
+        "iat": now,
+        "exp": now + 300,
+    }
+    token = jwt.encode(payload, key.private_pem, algorithm="RS256", headers={"kid": key.kid})
+    with pytest.raises(TokenError, match="org"):
+        decode_token(
+            token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE
+        )
