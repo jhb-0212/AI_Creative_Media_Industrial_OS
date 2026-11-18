@@ -222,6 +222,34 @@ class Settings(BaseSettings):
                 )
 
     @model_validator(mode="after")
+    def _require_distinct_database_roles(self) -> Settings:
+        """业务域角色名必须互不相同（P2-02：架构边界不能靠配置巧合成立）。
+
+        三个角色名都可通过环境变量改：若部署时把 project_planning 与
+        asset_service 配成同一个名字，DATA-1 的「模块级角色隔离」会在配置层
+        静默失效——迁移照常建角色、服务照常启动、CI 全绿，实际上两个业务域
+        共用一套权限。这种失效无法在运行期被发现（权限看起来「都通」），
+        只能在启动期拒绝。
+
+        与进程身份无关（任何读配置的地方都该看到同一个约束），故放在构造期。
+        """
+        roles = {
+            "POSTGRES_PROJECT_PLANNING_USER": self.postgres_project_planning_user,
+            "POSTGRES_ASSET_SERVICE_USER": self.postgres_asset_service_user,
+            "POSTGRES_RELAY_USER": self.postgres_relay_user,
+            "POSTGRES_APP_USER": self.postgres_app_user,
+        }
+        seen: dict[str, str] = {}
+        for env_name, role in roles.items():
+            if role in seen:
+                raise ValueError(
+                    f"数据库角色名重复：{seen[role]} 与 {env_name} 都是 {role!r}。"
+                    "域角色必须互不相同，否则模块级角色隔离（DATA-1）在配置层失效。"
+                )
+            seen[role] = env_name
+        return self
+
+    @model_validator(mode="after")
     def _require_webhook_secret_with_url(self) -> Settings:
         """配了 webhook URL 却不配密钥时拒绝启动（所有环境，不只生产）。
 

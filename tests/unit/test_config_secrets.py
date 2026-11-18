@@ -351,3 +351,37 @@ def test_migration_guard_allows_injected_production_password(
     reject_development_default_password(
         settings, "postgres_relay_password", "POSTGRES_RELAY_PASSWORD"
     )
+
+
+def test_duplicate_domain_role_names_rejected() -> None:
+    """两个域角色配成同名 → 启动期拒绝（P2-02）。
+
+    角色名可配置，若配置成同一个，DATA-1 的模块级隔离会被一个环境变量抹掉，
+    而运行期看不出异常（权限看起来都通）。因此必须在配置构造期拒绝。
+    """
+    from packages.shared.config import Settings
+
+    with pytest.raises(ValueError) as exc:
+        Settings(
+            postgres_project_planning_user="same_role",
+            postgres_asset_service_user="same_role",
+        )
+    assert "角色名重复" in str(exc.value)
+
+
+def test_distinct_domain_role_names_accepted() -> None:
+    """默认角色名互不相同 → 正常构造（不误伤）。"""
+    from packages.shared.config import Settings
+
+    settings = Settings()
+    assert (
+        len(
+            {
+                settings.postgres_project_planning_user,
+                settings.postgres_asset_service_user,
+                settings.postgres_relay_user,
+                settings.postgres_app_user,
+            }
+        )
+        == 4
+    )

@@ -14,23 +14,43 @@
 
 name: ai-film-industrial
 
-x-db-env: &db-env
+# 数据库连接参数按「角色」拆分，而不是一个全量 anchor。
+#
+# 为什么拆（第二轮审查 P1-01 的根因）：此前只有一个 x-db-env，含超级用户
+# 口令与全部角色口令，谁 `<<: *db-env` 谁就全拿。identity 进程全文不碰数据库，
+# 却因此持有 postgres 超级用户口令；relay 只该用 outbox_relay_role，也拿到了
+# 全套业务凭证。进程职责拆开了，凭证面没拆，等于边界只写在文档里。
+#
+# 现在四份 anchor 各自最小：
+#   db-endpoint  仅连接参数（无凭证）
+#   db-superuser 超级用户（仅迁移与分区维护这类 DDL 作业可用）
+#   db-business  两个业务域角色（api 用）
+#   db-relay     事件投递角色（relay 用）
+# 新增服务必须在 scripts/boundary_assertions.py 的 PROCESS_ALLOWED_DB_ENV 里
+# 登记允许集合，否则 contract-check 直接报红（CRED-1）。
+x-db-endpoint: &db-endpoint
   POSTGRES_HOST: postgres
   POSTGRES_PORT: "5432"
+  POSTGRES_DB: ai_film_industrial
+
+x-db-superuser: &db-superuser
+  <<: *db-endpoint
   POSTGRES_USER: postgres
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-  POSTGRES_DB: ai_film_industrial
-  # 旧应用角色（仅保留给 RLS 验证/兜底读；业务写入已按域拆角色）
-  POSTGRES_APP_USER: app_role
-  POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-app_dev_password}
-  # 按域拆分的角色（DATA-1）：project_planning / asset_service 各自独立。
-  # 显式写在这里，是为了让「哪个进程用哪个角色」在编排层一眼可见，
-  # 而不是靠 Settings 的开发默认值隐式生效。
+
+# 业务域角色（DATA-1）：project_planning / asset_service 各自独立。
+# 显式写在这里，是为了让「哪个进程用哪个角色」在编排层一眼可见，
+# 而不是靠 Settings 的开发默认值隐式生效。
+x-db-business: &db-business
+  <<: *db-endpoint
   POSTGRES_PROJECT_PLANNING_USER: project_planning_role
   POSTGRES_PROJECT_PLANNING_PASSWORD: ${POSTGRES_PROJECT_PLANNING_PASSWORD:-project_planning_dev_password}
   POSTGRES_ASSET_SERVICE_USER: asset_service_role
   POSTGRES_ASSET_SERVICE_PASSWORD: ${POSTGRES_ASSET_SERVICE_PASSWORD:-asset_service_dev_password}
-  # Relay 专用角色（F03）：只碰 outbox，不碰业务 schema。
+
+# Relay 专用角色（F03）：只碰 outbox，不碰业务 schema。
+x-db-relay: &db-relay
+  <<: *db-endpoint
   POSTGRES_RELAY_USER: outbox_relay_role
   POSTGRES_RELAY_PASSWORD: ${POSTGRES_RELAY_PASSWORD:-relay_dev_password}
 
@@ -72,7 +92,7 @@ services:
       dockerfile: infra/docker/Dockerfile.api
     image: ai-film-api:local
     command: ["alembic", "upgrade", "head"]
-    environment: *db-env
+    environment: *db-superuser
     depends_on:
       postgres:
         condition: service_healthy
@@ -84,7 +104,7 @@ services:
       dockerfile: infra/docker/Dockerfile.api
     image: ai-film-api:local
     environment:
-      <<: *db-env
+      <<: *db-business
       APP_ENV: ${APP_ENV:-development}
       # 验签公钥（KEYS-1/KEYS-3）：API 只持公钥，**绝不下发私钥**。
       # 未配置时 API 拒绝启动（fail-closed）——这是设计，不是缺陷。
@@ -117,7 +137,7 @@ services:
     image: ai-film-api:local
     command: ["python", "-m", "workers.relay"]
     environment:
-      <<: *db-env
+      <<: *db-relay
       APP_ENV: ${APP_ENV:-development}
       OUTBOX_RELAY_INTERVAL_SECONDS: ${OUTBOX_RELAY_INTERVAL_SECONDS:-5}
       OUTBOX_RELAY_BATCH_SIZE: ${OUTBOX_RELAY_BATCH_SIZE:-100}
@@ -142,7 +162,8 @@ services:
     image: ai-film-api:local
     command: ["python", "-m", "workers.identity"]
     environment:
-      <<: *db-env
+      # 身份进程不连数据库：不注入任何 POSTGRES_*（第二轮审查 P1-01）。
+      # 它只持签发私钥并对外提供 JWKS。
       APP_ENV: ${APP_ENV:-development}
       # 私钥只注入这里（生产由密钥系统注入；本地 make dev-keys 生成）。
       IDENTITY_PRIVATE_KEY_PEM: ${IDENTITY_PRIVATE_KEY_PEM:-}
@@ -152,7 +173,9 @@ services:
       migrate:
         condition: service_completed_successfully
     ports:
-      - "${IDENTITY_HOST_PORT:-8100}:8100"
+      # 宿主端口与容器端口都与 IDENTITY_PORT 同源：此前容器端口与健康检查
+      # 硬编码 8100，改配置只会让探针打空端口（P2-01）。
+      - "${IDENTITY_HOST_PORT:-8100}:${IDENTITY_PORT:-8100}"
     healthcheck:
       # 复用镜像内的 python 探针，避免依赖 curl（runtime 镜像不装它）。
       test:
@@ -160,7 +183,7 @@ services:
           "CMD",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=3)",
+          "import os, urllib.request; urllib.request.urlopen(f\"http://127.0.0.1:{os.environ.get('IDENTITY_PORT', '8100')}/health\", timeout=3)",
         ]
       interval: 30s
       timeout: 5s
@@ -193,7 +216,9 @@ services:
         "--archive-dir",
         "/archive",
       ]
-    environment: *db-env
+    # 分区维护要建分区 / ATTACH PARTITION，需表属主权限（当前即超级用户）。
+    # 这是 DDL 作业的显式例外，与 migrate 同性质，已在 CRED-1 例外清单登记。
+    environment: *db-superuser
     volumes:
       # 归档是本机最后一份可校验副本：必须持久化，不能随容器删除而消失。
       - outbox_archive:/archive
