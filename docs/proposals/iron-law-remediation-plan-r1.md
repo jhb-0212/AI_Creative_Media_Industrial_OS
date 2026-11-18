@@ -15,8 +15,10 @@ open_items:
       25 个 ACTIVE 动作仍无运行时入口，因此 Phase 1 不能宣布验收通过
     source: "contracts/runtime/action_implementations.yaml#not_implemented"
   - item: >-
-      多主体共同审批（双人审批）未落地：AUTH-3 的 residual_risk 仍成立
-    source: "contracts/security_boundary.yaml#AUTH-3"
+      会签累积机制未落地：AUTH-5 已固定 `/`（席内 OR）与 `+`（席位间 AND）语义，
+      多席位动作显式拒绝而非静默降级；但「多主体分次签署、凑齐后放行」依赖
+      审批事实契约与目标动作入口，两者均未就位
+    source: "contracts/security_boundary.yaml#AUTH-5"
 ---
 
 # 工程铁律整改方案（R1）

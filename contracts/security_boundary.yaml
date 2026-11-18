@@ -105,7 +105,16 @@ authorization:
       runtime_evidence:
         - tests/unit/test_authorize.py::test_separation_rejects_self_approval
         - tests/unit/test_authorize.py::test_separation_allows_different_subjects
-      residual_risk: "多主体共同审批（allowed_principals 含 '+' 的 CRITICAL 动作）仍未落地，属双人审批阶段。"
+      residual_risk: >-
+        会签（多席位）的**符号语义已定义且运行时显式拒绝**（见 AUTH-5），但
+        累积式会签尚未落地：缺一个承载「谁签了哪个席位」的审批事实契约
+        （DeliveryManifest 等对象当前无 approvals 字段），因此单请求模型下
+        只能 fail-closed 拒绝。事实口径：唯一含 '+' 的 ACTIVE 动作是
+        DELIVERY.MANIFEST.APPROVE（risk_level=HIGH，不是 CRITICAL），且它所在的
+        交付链（CREATE/APPROVE/RELEASE）尚无任何运行时入口；CRITICAL 的
+        COMMUNITY.REUSE.APPROVE 属 PHASE_GATED（Phase 2）。故此刻不具备「先做
+        会签机制再开会签动作」的顺序基础——正确顺序是先落地交付链入口，再补
+        审批事实契约，最后由会签守卫拦截。
 
     - id: AUTH-4
       name: 状态推进的准入条件挂在转移边上（边有唯一所有者）
@@ -124,6 +133,29 @@ authorization:
       residual_risk: >-
         当前只有 AssetVersion 落地了边带守卫；Project/Episode/ScriptRevision 的边
         仍只有结构（无证据类准入条件），其所有者已在同一张表登记，后续按同一模式扩展。
+
+    - id: AUTH-5
+      name: 会签语义不得被静默降级为单人授权
+      statement: >-
+        ``allowed_principals`` 是机器可读表达式：``/`` 分隔同一席位内的候选角色
+        （OR），``+`` 分隔多个席位（AND，每个席位须由不同真实主体分别签署），
+        且 ``/`` 先结合（``交付负责人+内部 QC/权利职责`` = 交付负责人 AND
+        (内部 QC OR 权利职责)）。运行时必须按席位判定：多席位动作若在单请求内
+        无法凑齐不同主体，必须显式拒绝并说明「会签未实现」，不得退化为
+        「某个角色碰巧匹配就放行」。禁止把含 ``+`` 的条目当成一个角色名解析——
+        那个角色永远不存在，会把会签要求伪装成「权限没配好」。
+      fact_source: services/identity_access/action_registry.py（parse_principal_seats）；services/identity_access/rbac.py（authorize）
+      verification: 断言 auth.countersignature_not_downgraded（席位解析 + 单角色被拒 + 单席位不误拒）
+      assertion: auth.countersignature_not_downgraded
+      runtime_evidence:
+        - tests/unit/test_countersignature.py::test_plus_creates_two_seats_with_slash_grouping_inside
+        - tests/unit/test_countersignature.py::test_countersign_rejects_single_seat_role_with_actionable_message
+        - tests/unit/test_countersignature.py::test_single_seat_action_still_allows_matching_role
+        - tests/unit/test_countersignature.py::test_contract_plus_actions_are_all_multi_seat
+      residual_risk: >-
+        只解决了「语义正确 + 不静默降级」；累积式会签（多主体分次签署、凑齐后
+        放行）仍未实现，依赖审批事实契约（谁签了哪个席位）与目标动作的运行时
+        入口。在两者就位前，多席位动作一律 fail-closed，属有意为之而非缺陷。
 
 # --------------------------------------------------------------------------- #
 # 2. 资源归属边界（resource_scope）

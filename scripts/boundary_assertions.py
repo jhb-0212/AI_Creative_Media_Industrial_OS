@@ -167,15 +167,17 @@ def auth_rbac_capability_enforced() -> AssertionResult:
     from packages.identity.principal import Principal
     from services.identity_access.action_registry import (
         _load_registry,
-        allowed_roles,
+        principal_seats,
     )
     from services.identity_access.rbac import authorize
 
     probe = None
     for key, definition in _load_registry().items():
-        roles = allowed_roles(key)
-        if definition.token_required and roles and not any("+" in r for r in roles):
-            probe = (key, definition.resource_type, sorted(roles)[0])
+        # 只挑「单席位」动作做探针：多席位动作要求多方会签，authorize 会
+        # 无条件拒绝（会签机制未实现），用它做探针会让断言假通过。
+        seats = principal_seats(key)
+        if definition.token_required and len(seats) == 1:
+            probe = (key, definition.resource_type, sorted(seats[0])[0])
             break
     if probe is None:
         return (False, "找不到可用于探针的 token_required 动作（契约可能已改）")
@@ -242,6 +244,92 @@ def auth_separation_enforced() -> AssertionResult:
         )
     except DomainError as exc:
         return (False, f"不同主体审批被误拒：{exc}")
+    return (True, "")
+
+
+@assertion("auth.countersignature_not_downgraded")
+def auth_countersignature_not_downgraded() -> AssertionResult:
+    """会签（多席位）语义不得被静默降级成单人授权。
+
+    背景：``allowed_principals`` 用 ``/`` 表达「同一席位任选其一」、``+`` 表达
+    「多个席位必须由不同主体分别签署」。旧解析器只按 ``/`` 切分，把
+    ``交付负责人+内部 QC`` 当成一个角色名——那个角色永远不存在，于是判定永远
+    否决，报错却是「缺少角色」，把「双人会签」掩盖成「权限没配好」。
+
+    本断言要求三件事同时成立（缺一即为可被欺骗）：
+    1. 契约里含 ``+`` 的动作确实被解析成 ≥2 个席位；
+    2. 只持有一个席位的角色也**必须被拒绝**，且错误语义指向「会签/多主体」；
+    3. 单席位动作仍能正常放行——排除「一律拒绝」造成的假通过。
+    """
+    from uuid import uuid4
+
+    from packages.errors.error_codes import DomainError
+    from packages.identity.principal import Principal
+    from services.identity_access.action_registry import (
+        _load_registry,
+        principal_seats,
+    )
+    from services.identity_access.rbac import authorize
+
+    tenant = uuid4()
+
+    # 找一个真实的「多席位」动作作为探针；找不到就说明契约已无会签要求，
+    # 此时本断言不适用（不算失败，但必须显式说明，不能静默通过）。
+    countersign: tuple[str, frozenset[str]] | None = None
+    for key, definition in _load_registry().items():
+        if "+" not in definition.allowed_principals:
+            continue
+        seats = principal_seats(key)
+        if len(seats) < 2:
+            return (
+                False,
+                f"动作 {key} 的 allowed_principals 含 '+' 却只解析出 "
+                f"{len(seats)} 个席位：会签语义已被降级",
+            )
+        countersign = (key, seats[0])
+        break
+    if countersign is None:
+        return (True, "")
+
+    action_key, first_seat = countersign
+    role = sorted(first_seat)[0]
+    single_seat_principal = Principal(
+        subject_id="assertion-countersign",
+        tenant_id=tenant,
+        roles=frozenset({role}),
+        capabilities=frozenset({"*"}),
+    )
+    try:
+        authorize(action_key, single_seat_principal)
+    except DomainError as exc:
+        if "会签" not in exc.detail:
+            return (
+                False,
+                f"动作 {action_key} 已拒绝但错误语义未指向会签（实际：{exc.detail}）",
+            )
+    else:
+        return (
+            False,
+            f"动作 {action_key} 要求多方会签，却被单个角色 {role} 放行——"
+            "会签被静默降级为单人授权",
+        )
+
+    # 反向探针：单席位动作必须仍能放行，否则「一律拒绝」也能骗过上面的检查。
+    for key, definition in _load_registry().items():
+        seats = principal_seats(key)
+        if len(seats) == 1 and not definition.token_required:
+            probe_role = sorted(seats[0])[0]
+            principal = Principal(
+                subject_id="assertion-single",
+                tenant_id=tenant,
+                roles=frozenset({probe_role}),
+                capabilities=frozenset({"*"}),
+            )
+            try:
+                authorize(key, principal)
+            except DomainError as exc:
+                return (False, f"单席位动作 {key} 被误拒：{exc.detail}")
+            return (True, "")
     return (True, "")
 
 

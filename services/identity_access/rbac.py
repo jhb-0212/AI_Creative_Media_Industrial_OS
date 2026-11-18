@@ -7,7 +7,8 @@
 - 本模块把授权收敛为**单一决策入口** ``authorize(action_key, principal)``，
   按固定顺序执行授权链：
     1. Action 解析（action_key 未注册 → 结构化内部错误，fail-fast）。
-    2. RBAC：``Principal.roles`` 与 ``allowed_principals`` 求交。
+    2. RBAC：``Principal.roles`` 与 ``allowed_principals`` 的**会签席位**判定
+       （单席位 = 任一候选角色；多席位 = 要求多方会签，当前显式拒绝）。
     3. Capability：契约声明 ``token_required: true`` 的动作，要求 Principal
        携带覆盖该动作的能力范围（caps claim），否则拒绝。
   后续 ABAC / 资源范围 / 职责分离在同一入口内追加，而非在各业务模块
@@ -38,7 +39,7 @@ from packages.identity.ownership import (
 from packages.identity.principal import Principal
 from services.identity_access.action_registry import (
     action_definition,
-    allowed_roles,
+    principal_seats,
 )
 
 # 认证依赖函数类型别名：解析出 Principal 的异步可调用对象。
@@ -74,14 +75,36 @@ def authorize(
     """
     definition = action_definition(action_key)
 
-    # 1. RBAC：角色求交（allowed_principals 为空视为契约配置错误，fail-closed）。
-    allowed = allowed_roles(action_key)
-    if not allowed:
+    # 1. RBAC：按「会签席位」判定（allowed_principals 为空视为契约配置错误）。
+    #
+    # 为什么不是「角色求交」了：契约里 `+` 表达的是「这些席位必须由不同主体
+    # 分别签署」，`/` 才表达「同一席位任选其一」。旧实现只按 `/` 切分，把
+    # `交付负责人+内部 QC` 当成一个角色名——那个角色永远不存在，于是判定的
+    # 结果永远是否决，原因却是「缺少角色」，掩盖了「这是一条双人会签要求」。
+    seats = principal_seats(action_key)
+    if not seats:
         raise DomainError(
             ErrorRegistry.AUTH_SCOPE_DENIED,
             detail=f"动作 {action_key} 未配置允许角色",
         )
-    if not (principal.roles & allowed):
+    if len(seats) > 1:
+        # 多席位 = 会签：需要 N 个不同真实主体各签一次，而单次请求只携带一个
+        # Principal。此处必须显式拒绝并说明「是能力未实现」，不能退化成
+        # 「某个角色碰巧匹配就放行」——那等于把会签要求静默降级成单人授权。
+        if not any(principal.roles & seat for seat in seats):
+            raise DomainError(
+                ErrorRegistry.AUTH_SCOPE_DENIED,
+                detail=f"缺少执行 {action_key} 所需角色",
+            )
+        required = " + ".join("/".join(sorted(seat)) for seat in seats)
+        raise DomainError(
+            ErrorRegistry.AUTH_SCOPE_DENIED,
+            detail=(
+                f"动作 {action_key} 要求 {len(seats)} 方会签（{required}），"
+                "须由不同主体分别签署；当前授权链不支持多主体累积审批"
+            ),
+        )
+    if not (principal.roles & seats[0]):
         raise DomainError(
             ErrorRegistry.AUTH_SCOPE_DENIED,
             detail=f"缺少执行 {action_key} 所需角色",

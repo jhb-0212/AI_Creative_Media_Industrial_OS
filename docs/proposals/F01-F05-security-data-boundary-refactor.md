@@ -7,8 +7,12 @@ authoritative_sources:
   - contracts/runtime/action_implementations.yaml
 open_items:
   - item: >-
-      多主体共同审批（双人审批）未落地：AUTH-3 的 residual_risk 仍成立
-    source: "contracts/security_boundary.yaml#AUTH-3"
+      会签累积机制未落地：AUTH-5 已让 `/`（席内 OR）与 `+`（席位间 AND）的语义
+      可判定，并让多席位动作显式拒绝而非静默降级；但「多主体分次签署、凑齐后
+      放行」需要审批事实契约（谁签了哪个席位）与目标动作的运行时入口，两者均
+      未就位。唯一含 '+' 的 ACTIVE 动作 DELIVERY.MANIFEST.APPROVE 属交付链，
+      该链 11 个动作全无入口
+    source: "contracts/security_boundary.yaml#AUTH-5"
   - item: >-
       边带守卫仅 AssetVersion 落地；Project / Episode / ScriptRevision 的转移边
       只有结构、尚无证据类准入门槛（AUTH-4 的 residual_risk）
