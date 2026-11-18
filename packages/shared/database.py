@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from urllib.parse import quote
 
 from fastapi import FastAPI
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -26,8 +27,12 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 
 from packages.shared.config import Settings, get_settings
+from packages.shared.logging import get_logger
 from packages.shared.rate_limit import RateLimiter
+from packages.shared.readiness import ReadinessProbe, ReadinessResult
 from packages.telemetry.tracing import shutdown_telemetry
+
+logger = get_logger("packages.shared.database")
 
 
 class Base(DeclarativeBase):
@@ -198,6 +203,53 @@ def create_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]
     )
 
 
+async def probe_domain_databases(app: FastAPI) -> ReadinessResult:
+    """真实探测两个域连接池 + 迁移版本，返回就绪判定。
+
+    为什么不探第三个池：``alembic_version`` 全库共享，从 project 池读一次即可。
+
+    为什么逐个记录 check 名：unready 时运维需要知道「是 asset 池挂了还是
+    project 池挂了」，一个笼统的 ``database: down`` 会把排障从「看一眼」变成
+    「逐个连一遍」。失败时不记录已通过的项也无妨——``checks`` 只描述结论。
+
+    连接池按域拆分后必须**两个池都探活**：只探 project 池时，asset 凭据或角色
+    权限损坏仍会回报 ready，资产路由的流量进来变成 500。
+
+    ``schema_revision`` 一并回报：本机曾有两个 Postgres 共用 15432 端口的不同
+    地址族（127.0.0.1 → 旧集群、localhost → Docker），「连错库」表现为「迁移像是
+    没跑」。读不到版本表同样按 unready 处理（fail-closed，不猜）。
+
+    归因在**探测内部**完成，不外抛给探针兜底：外层只能给出笼统的
+    ``probe_failed``，而运维要的是「哪个池挂了」。异常在这里就地转成对应的
+    check 名，探针层的兜底只负责「检查函数自身崩溃/超时」这类真正意外。
+    """
+    checks: dict[str, str] = {}
+    for name in ("project_planning_sessionmaker", "asset_service_sessionmaker"):
+        label = name.removesuffix("_sessionmaker") + "_database"
+        try:
+            async with getattr(app.state, name)() as session:
+                await session.execute(text("SELECT 1"))
+        except Exception:
+            logger.error("readiness_check_failed", check=label, exc_info=True)
+            return ReadinessResult(ready=False, checks={label: "down"})
+        checks[label] = "up"
+
+    try:
+        async with app.state.project_planning_sessionmaker() as session:
+            revision = (
+                await session.execute(text("SELECT version_num FROM alembic_version"))
+            ).scalar_one_or_none()
+    except Exception:
+        # 版本表读的是 project 池：归因到它就够定位，不必再编一个 check 名。
+        logger.error(
+            "readiness_check_failed", check="schema_revision", exc_info=True
+        )
+        return ReadinessResult(
+            ready=False, checks={"project_planning_database": "down"}
+        )
+    return ReadinessResult(ready=True, checks=checks, schema_revision=revision)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """FastAPI Lifespan：管理各业务域引擎与会话工厂的生命周期（P0-4 根治核心）。
@@ -231,6 +283,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # 限流器与数据库同属「进程级基础设施」，生命周期统一在这里收口：
     # 漏关连接池比漏开更隐蔽，集中一处才不会各写一遍。
     app.state.rate_limiter = RateLimiter.from_settings()
+    # 就绪探针：探测逻辑在这里（它探的就是本模块管的池），缓存/单飞/超时在
+    # ReadinessProbe 里。/readyz 因此是内存读，不会每个请求真打三次连接。
+    settings = get_settings()
+    app.state.readiness_probe = ReadinessProbe(
+        lambda: probe_domain_databases(app),
+        ttl_seconds=settings.readiness_cache_ttl_seconds,
+        timeout_seconds=settings.readiness_timeout_seconds,
+    )
     try:
         yield
     finally:
