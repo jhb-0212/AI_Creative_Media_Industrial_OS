@@ -15,7 +15,7 @@ def test_public_store_carries_public_material_only() -> None:
     """只装入公钥的验签仓储不暴露私钥参数（d/p/q），也没有签发入口。"""
     key = generate_signing_key()
     signing_store = KeyStore([key])
-    public_store = PublicKeyStore(signing_store.public_keys())
+    public_store = PublicKeyStore(signing_store.public_pems())
 
     assert public_store.public_pem(key.kid) == key.public_pem
     assert public_store.jwks() == signing_store.jwks()

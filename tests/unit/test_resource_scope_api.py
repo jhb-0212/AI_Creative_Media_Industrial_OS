@@ -87,6 +87,60 @@ async def _organizations(db_sessionmaker) -> None:
     await _seed_organization(db_sessionmaker, _ORG_B)
 
 
+async def test_project_create_into_other_organization_rejected() -> None:
+    """以 A 组织成员身份创建「B 组织」项目 → 403（组织归属写入即授权）。
+
+    此前该路径**没有判定**：路由拿 principal 的租户 + 请求体组织拼一条必然
+    自洽的归属路径，组织是否真实属于本租户无人过问。此处钉住语义。
+    """
+    async with _client(organization_id=_ORG_A, subject_id="proj_owner") as owner:
+        resp = await owner.post(
+            "/projects",
+            json={
+                "project_name": "跨组织创建",
+                "project_tier": "B",
+                "organization_id": str(_ORG_B),
+            },
+        )
+    assert resp.status_code == 403
+    assert resp.json()["error_code"] == "AUTH_SCOPE_DENIED"
+
+
+async def test_project_create_referencing_invisible_organization_is_not_found() -> None:
+    """跨租户引用组织 → 404，且**不得**退化成 409。
+
+    回归防护：组织解析缺失时，跨租户创建撞复合外键，被 Service 统一映射成
+    ``CONCURRENT_MODIFICATION``（409，retryable=true）——把「无权/不可见」
+    误报成「稍后重试即可」，既误导排障，也让调用方白白重试。
+    归属不可见必须与不存在同形（404），这是 ``ownership`` 模块定死的语义。
+    """
+    from httpx import ASGITransport
+
+    from apps.api.main import app
+
+    foreign_tenant = uuid.uuid4()
+    token = make_test_token(
+        subject_id="proj_foreign",
+        tenant_id=foreign_tenant,
+        organization_id=_ORG_A,  # org claim 指向另一租户的组织
+    )
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+        headers={"Authorization": f"Bearer {token}"},
+    ) as client:
+        resp = await client.post(
+            "/projects",
+            json={
+                "project_name": "跨租户创建",
+                "project_tier": "B",
+                "organization_id": str(_ORG_A),
+            },
+        )
+    assert resp.status_code == 404, resp.text
+    assert resp.json()["error_code"] == "NOT_FOUND"
+
+
 async def test_episode_create_into_other_organization_project_rejected() -> None:
     """往他组织项目里登记集数 → 403（写入即越权，P1-03 的写侧）。"""
     async with _client(organization_id=_ORG_A, subject_id="ep_owner") as owner:

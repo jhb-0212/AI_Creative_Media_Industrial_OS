@@ -140,3 +140,36 @@ def test_separation_whitespace_insensitive() -> None:
             counterpart="  writer-001  ",
             action_label="SCRIPT.LOCK.APPROVE",
         )
+
+
+# --------------------------------------------------------------------------- #
+# 归属解析的覆盖度（结构守卫，纯离线）
+# --------------------------------------------------------------------------- #
+class _EmptyResult:
+    """空结果集：resolver 走「查不到 → None」分支，不触碰数据库。"""
+
+    def first(self) -> None:
+        return None
+
+
+class _EmptySession:
+    """只实现 resolver 用到的 execute，用于离线验证「类型是否登记」。"""
+
+    async def execute(self, statement: object, parameters: dict[str, str]) -> _EmptyResult:
+        return _EmptyResult()
+
+
+async def test_ownership_resolver_registers_organization() -> None:
+    """归属链根节点（Organization）必须可解析，否则创建路径只能自证归属。
+
+    回归背景：``_RESOLVE_SQL`` 曾只登记 Project/Episode/ScriptRevision/
+    AssetVersion/QCReport，漏了组织这一层。于是「创建时指定组织」无法用数据库
+    事实确认「该组织是否在本租户内」，只能拿 principal 的租户拼一条必然自洽的
+    路径——跨租户创建于是要等外键报错才被发现，并被映射成 409「并发修改」，
+    把「越权/不可见」误报成「重试即可」。
+    """
+    from packages.identity.ownership import SqlOwnershipResolver
+
+    resolver = SqlOwnershipResolver(_EmptySession())  # type: ignore[arg-type]
+    # 未登记的类型会抛 INTERNAL_ERROR（fail-closed），因此返回 None 即证明已登记。
+    assert await resolver.resolve("Organization", str(uuid.uuid4())) is None

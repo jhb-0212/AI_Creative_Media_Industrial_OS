@@ -34,8 +34,10 @@ def get_key_store() -> KeyStore:
     - 否则开发环境随机生成一把（仅用于本地/测试，重启后失效，验签方
       需经 JWKS 端点动态获取公钥，天然支持轮换）。
 
-    kid 默认取固定值「current」，便于开发/测试环境稳定引用；生产轮换时
-    追加新 kid，旧 kid 保留验签仍在有效期内的令牌。
+    kid 由公钥内容派生（RFC 7638 指纹，见 ``public_key_thumbprint``）：签发方与
+    验签方各自从同一把公钥独立算出同一个 kid，无需共享配置，也不存在「两边
+    配置不一致」的故障面。此前 kid 硬编码为字面量「current」，两把密钥会同名
+    覆盖，使多 kid 轮换在实现层不可达。
 
     注意：本函数持私钥（签发方语义），仅身份签发服务被要求持有私钥，
     API/Relay 的进程清单不含该密钥，结构上杜绝私钥外泄到验签进程。
@@ -45,10 +47,10 @@ def get_key_store() -> KeyStore:
     public_pem = settings.identity_public_key_pem.get_secret_value()
 
     if private_pem and public_pem:
+        # kid 缺省 = 公钥指纹；load_signing_key 同时校验私钥与公钥确为同一对。
         key = load_signing_key(
             private_pem.encode("utf-8"),
             public_pem.encode("utf-8"),
-            kid="current",
         )
         return KeyStore([key])
 
@@ -60,7 +62,7 @@ def get_key_store() -> KeyStore:
             "IDENTITY_PUBLIC_KEY_PEM；禁止使用进程内随机生成的临时签名密钥。"
         )
     # 开发/测试：随机生成一把（不落日志，进程内持有）。
-    key = generate_signing_key(kid="current")
+    key = generate_signing_key()
     return KeyStore([key])
 
 

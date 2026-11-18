@@ -148,8 +148,15 @@ def _client_with_org(organization_id: uuid.UUID | None, subject_id: str = "org_u
     return AsyncClient(transport=transport, base_url="http://test", headers=headers)
 
 
-async def test_create_project_in_other_organization_rejected() -> None:
-    """A 组织成员不得把项目挂到 B 组织：创建即越权 → 403。"""
+async def test_create_project_in_other_organization_rejected(db_sessionmaker) -> None:
+    """A 组织成员不得把项目挂到 B 组织：创建即越权 → 403。
+
+    前置条件必须显式播种 B 组织：本用例的语义是「同租户、**存在但不同**的
+    组织」。此前实现不校验组织是否真实存在（拿请求体拼归属路径），漏播种也
+    能碰巧得到 403；现在归属按数据库事实判定，不播种会正确地变成 404
+    （不可见与不存在同形），测到的就不是本条要证明的语义了。
+    """
+    await _seed_organization(db_sessionmaker, _ORG_B)
     async with _client_with_org(_ORG_A) as c:
         resp = await c.post(
             "/projects",
