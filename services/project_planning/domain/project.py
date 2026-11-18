@@ -21,7 +21,7 @@ from uuid import UUID
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from services.project_planning.domain.entity import OWNER_MODULE, Entity
 from services.project_planning.domain.enums import ProjectStatus, ProjectTier
-from services.project_planning.domain.state_machine import assert_transition
+from services.project_planning.domain.state_machine import PROJECT_LIFECYCLE
 
 
 @dataclass
@@ -59,12 +59,20 @@ class Project(Entity):
                 detail="project_name 长度超过上限 200",
             )
 
-    def transition_to(self, target: ProjectStatus, audit_ref: str) -> Project:
-        """执行状态迁移，未登记转移拒绝（31.5）。
+    def transition_to(
+        self, target: ProjectStatus, audit_ref: str, action: str
+    ) -> Project:
+        """执行状态迁移：结构合法性 + **边所有权**双重校验（31.5 / N-07）。
 
-        转移合法性由 domain/state_machine.py 的单一权威转移表校验。
+        ``action`` 不是记录用的标签，是准入凭据：由 ``PROJECT_LIFECYCLE``
+        判定这条边是否归该动作所有。不属于该动作的边，对本调用方不可达——
+        这条规则在这里执行一次，而不是由每个调用方自行「记得先查」。
+
+        唯一推进入口 ``advance_status`` 传入的正是它随后写进迁移事实的那个
+        ``owner_action``：一个值，两处用途，不存在「事实记的动作」与「准入判的
+        动作」不一致的可能。
         """
-        assert_transition(self.status, target)
+        PROJECT_LIFECYCLE.edge_owned_by(self.status, target, action)
         self.status = target
         self._advance_version(audit_ref)
         return self

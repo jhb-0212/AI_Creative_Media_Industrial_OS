@@ -310,6 +310,7 @@ class AssetService:
                 GuardContext(actor=report.created_by, qc_report_count=qc_report_count),
                 principal=principal,
                 event_type="QC_REPORT_CREATED",
+                action=QC_REPORT_ACTION,
                 extra_payload=qc_extra_payload,
                 evidence_refs=(report.qc_report_id,),
             )
@@ -382,6 +383,7 @@ class AssetService:
                     context,
                     principal=principal,
                     event_type="ASSET_VERSION_HUMAN_REVIEW_ENTERED",
+                    action=APPROVE_ACTION,
                     actor_field="reviewed_by",
                 )
             else:
@@ -391,6 +393,7 @@ class AssetService:
                     context,
                     principal=principal,
                     event_type="ASSET_VERSION_APPROVED",
+                    action=APPROVE_ACTION,
                     actor_field="approved_by",
                 )
         return asset
@@ -436,6 +439,7 @@ class AssetService:
             context,
             principal=principal,
             event_type="ASSET_VERSION_STATUS_CHANGED",
+            action=STATUS_CHANGE_ACTION,
             actor_field="changed_by",
         )
         return asset
@@ -469,6 +473,7 @@ class AssetService:
         *,
         principal: Principal,
         event_type: str,
+        action: str,
         extra_payload: Mapping[str, Any] | None = None,
         evidence_refs: tuple[str, ...] = (),
         actor_field: str | None = None,
@@ -484,6 +489,11 @@ class AssetService:
         要 `changed_by`。**不能统一写 `actor`**——那三个名字是事件契约声明的
         `payload_required`，写别的名字等于事件里缺了必填事实，而事件闸门只校验
         字段存在、不校验代码是否真发（本轮已因此发现两处缺口）。
+
+        ``action`` 是发起本次推进的动作，必须由调用点显式声明，**不能**从
+        ``edge.owner_action`` 反推：从边自证会让领域层的所有权判定恒真，等于
+        把那道判定降级成装饰。显式传入后，同一个值同时用于准入校验与事实写入
+        （``owner_action=action``），与项目域 ``advance_status`` 完全同构。
         """
         evaluate(edge.guards, asset, context)
 
@@ -492,7 +502,9 @@ class AssetService:
         # 事实 id 先于迁移生成：audit_ref 已降级为「指向本次事实的指针」。
         transition_id = uuid.uuid4()
         asset.transition_to(
-            edge.target, audit_ref=transition_audit_ref(transition_id)
+            edge.target,
+            audit_ref=transition_audit_ref(transition_id),
+            action=action,
         )
         try:
             await self._assets.save(asset, expected_version)
@@ -512,7 +524,9 @@ class AssetService:
                 entity_version=asset.entity_version,
                 from_status=previous_status.value,
                 to_status=edge.target.value,
-                owner_action=edge.owner_action,
+                # 与传给 transition_to 的是同一个 action：准入判的与事实记的
+                # 不是两次填写，因此不存在「记的动作不是判的动作」这种谎。
+                owner_action=action,
                 actor_subject=context.actor,
                 evidence_refs=evidence_refs,
             ),

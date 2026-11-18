@@ -2392,8 +2392,9 @@ def check_event_catalog() -> bool:
 # - status 仅允许 partial / debt，且必须带完整原因与解除条件。
 #
 # 校验点：
-# 1. 文件存在且顶层为映射，含五条边界（authorization / resource_scope /
-#    data_ownership / process_keys / credential_scope），缺一报红；
+# 1. 文件存在且顶层为映射，含五条安全边界（authorization / resource_scope /
+#    data_ownership / process_keys / credential_scope）与生命周期分区
+#    （lifecycle），缺一报红；
 # 2. 每条不变量有 id / name / statement / fact_source / verification；
 # 3. status 出现即必须是 partial / debt，且子块字段完整；写 satisfied 直接报红；
 # 4. 无 status 时必须 assertion 已注册且执行通过，runtime_evidence 节点真实存在；
@@ -2407,6 +2408,7 @@ _SECURITY_BOUNDARY_SECTIONS = (
     "data_ownership",
     "process_keys",
     "credential_scope",
+    "lifecycle",
 )
 
 _SECURITY_BOUNDARY_INVARIANT_REQUIRED = (

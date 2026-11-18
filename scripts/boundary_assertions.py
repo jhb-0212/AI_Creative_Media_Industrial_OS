@@ -43,11 +43,15 @@
 from __future__ import annotations
 
 import ast
+import importlib
 import re
+import sys
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+CONTRACTS_PATH = ROOT / "contracts"
 
 # (是否通过, 失败原因)；通过时原因为空串。
 AssertionResult = tuple[bool, str]
@@ -197,6 +201,15 @@ def _dict_of_name_tuples(rel_path: str, name: str) -> dict[str, set[str]] | None
 
 def _require(cond: bool, message: str) -> AssertionResult:
     return (True, "") if cond else (False, message)
+
+
+def _status_value(status: object) -> str:
+    """状态值统一取 ``.value``；已是字符串时原样返回。
+
+    与 ``packages/shared/lifecycle.py`` 同口径：断言比对的是「值」而不是
+    「枚举对象」，否则同一份边表换个写法就会被判成不一致。
+    """
+    return str(getattr(status, "value", status))
 
 
 def _iter_python_files(
@@ -492,50 +505,221 @@ def _api_layer_ownership_checks() -> list[str]:
     return offenders
 
 
+# 已实现状态机的登记表：对象 → 代码落点。
+# 只登记 contract_check._STATE_MACHINE_SOURCES 里的四个对象：没实现状态机的
+# 对象没有边表可判，硬判会得到「找不到边表」的假红。
+_LIFECYCLE_SOURCES: tuple[tuple[str, str, str, str, str, str], ...] = (
+    (
+        "Project",
+        "services.project_planning.domain.state_machine",
+        "PROJECT_LIFECYCLE",
+        "ALLOWED_TRANSITIONS",
+        "services/project_planning/domain/project.py",
+        "Project",
+    ),
+    (
+        "Episode",
+        "services.project_planning.domain.state_machine",
+        "EPISODE_LIFECYCLE",
+        "EPISODE_ALLOWED_TRANSITIONS",
+        "services/project_planning/domain/episode.py",
+        "Episode",
+    ),
+    (
+        "ScriptRevision",
+        "services.project_planning.domain.state_machine",
+        "SCRIPT_LIFECYCLE",
+        "SCRIPT_ALLOWED_TRANSITIONS",
+        "services/project_planning/domain/script.py",
+        "ScriptRevision",
+    ),
+    (
+        "AssetVersion",
+        "services.asset_service.domain.state_machine",
+        "ASSET_LIFECYCLE",
+        "ASSET_ALLOWED_TRANSITIONS",
+        "services/asset_service/domain/asset_version.py",
+        "AssetVersion",
+    ),
+)
+
+
+@dataclass(frozen=True)
+class LifecycleSpec:
+    """一个状态机的判定输入（由 wrapper 收集，纯函数只消费）。"""
+
+    object_name: str
+    lifecycle: object  # packages.shared.lifecycle.Lifecycle 实例
+    exported_allowed: object  # 模块导出的邻接集投影（契约闸门读它）
+    aggregate_path: str  # 聚合根源码路径（相对 root）
+    aggregate_class: str  # 聚合根类名
+    registry: dict[str, str]  # action_key -> status
+    contract_edges: frozenset[tuple[str, str]]  # 契约登记的 (from, to)
+
+
 @assertion("lifecycle.edge_ownership")
 def lifecycle_edge_ownership() -> AssertionResult:
-    """状态推进的准入条件必须挂在转移边上，且边有唯一所有者。
+    """状态推进的准入条件必须挂在转移边上，且**所有权被执行**（不变量 LIFECYCLE-1）。
 
-    这是 P1-02 的结构性判据（而不是「有没有校验证据」这种用例级断言）：
-    只要准入条件长在用例方法里，第二条推进路径就会漏；只有长在边上才不可能漏。
+    本断言有两个来源，覆盖的是同一件事的两个层：
+
+    * P1-02（资产域）：证据门槛与职责分离必须长在边上。长在用例方法里，第二条
+      推进路径就会漏——实测 ``change_status`` 只给 GOLD 加门槛，``APPROVED``
+      没有，通用接口可绕过审批。
+    * N-07（跨域）：所有权必须由聚合根**执行**，不能只是写进审计事实的字符串。
+      整改前资产域执行、项目域只记录；同一句不变量两种落实方式，就有一种是假的。
+      实测假的那一半：任何调用方带着看起来对的 action 就能走任意已登记的边，
+      审计表记下的「谁走的」是自称而非判定。
+
+    判据见 ``evaluate_lifecycle_edge_ownership``（纯函数，供负向测试喂构造数据，
+    证明规则真的会拒绝，而不是「碰巧现在没问题」）与 ``_asset_edge_specific``
+    （P1-02 的资产域回归防线）。
+    """
+    registry = _action_registry_statuses()
+    if not registry:
+        return (False, "动作注册表为空或无法读取：所有者将无从校验")
+
+    contract_objects = _contract_state_machines()
+    specs: list[LifecycleSpec] = []
+    for (
+        object_name,
+        module_path,
+        lifecycle_var,
+        allowed_var,
+        aggregate_path,
+        aggregate_class,
+    ) in _LIFECYCLE_SOURCES:
+        try:
+            module = _import_domain_module(module_path)
+        except Exception as exc:  # pragma: no cover - 导入失败即实现损坏
+            return (False, f"无法导入 {module_path}：{exc!r}")
+        lifecycle = getattr(module, lifecycle_var, None)
+        allowed = getattr(module, allowed_var, None)
+        if lifecycle is None or allowed is None:
+            return (
+                False,
+                f"{module_path} 缺少 {lifecycle_var} / {allowed_var}："
+                "边表未收敛到共享形态，所有权无从判定",
+            )
+        contract_edges = contract_objects.get(object_name)
+        if contract_edges is None:
+            return (False, f"state_machines.yaml 中未找到 {object_name} 的转移边")
+        specs.append(
+            LifecycleSpec(
+                object_name=object_name,
+                lifecycle=lifecycle,
+                exported_allowed=allowed,
+                aggregate_path=aggregate_path,
+                aggregate_class=aggregate_class,
+                registry=registry,
+                contract_edges=contract_edges,
+            )
+        )
+
+    problems = evaluate_lifecycle_edge_ownership(tuple(specs), root=ROOT)
+    problems.extend(_asset_edge_specific(specs))
+    return _require(not problems, "；".join(problems))
+
+
+def evaluate_lifecycle_edge_ownership(
+    specs: tuple[LifecycleSpec, ...], *, root: Path
+) -> list[str]:
+    """纯判定：返回边所有权不成立的位置。
+
+    五条判据，覆盖「形态」「事实」「执行」三层：
+
+    1. **投影同源**：模块导出的邻接集必须等于边表派生出的投影。手写的
+       ``{source: {target}}`` 与边表可以同时存在且不一致——那时契约闸门比对的是
+       邻接集，边表成了没人看的第二份真相。
+    2. **所有者是真动作**：每条边的 ``owner_action`` 必须在
+       ``action_registry.yaml`` 里存在且状态为 ACTIVE。拼错一个字母的 action
+       仍然「非空」，靠肉眼发现不了，靠它准入则等于永远拒绝。
+    3. **边在契约登记**：每条边必须能在 ``state_machines.yaml`` 的该对象
+       ``transitions`` 里找到（31.5：未登记转移一律拒绝；实现也不许造边）。
+    4. **聚合根接收 action**：``transition_to`` 必须有 ``action`` 形参。没有它，
+       所有权判定只能靠服务层「记得先查」，而「记得」不是机制。
+    5. **action 真的参与判定**：``transition_to`` 必须把 ``action`` 传给
+       ``edge_owned_by``。只加参数不用它，等于把准入降级成装饰——这条判据是
+       「看起来已经修好了」与「真的修好了」的分界线。
+    """
+    problems: list[str] = []
+    if not specs:
+        return ["没有任何状态机被登记：断言会无条件通过，等于没有"]
+
+    for spec in specs:
+        lifecycle = spec.lifecycle
+        edges = tuple(getattr(lifecycle, "edges", ()))
+        if not edges:
+            problems.append(f"{spec.object_name}：边表为空，所有权无从判定")
+            continue
+
+        # 判据 1：投影同源
+        derived = getattr(lifecycle, "allowed_transitions")()
+        exported = _normalize_allowed_map(spec.exported_allowed)
+        if derived != exported:
+            problems.append(
+                f"{spec.object_name}：导出的邻接集与边表派生结果不一致"
+                f"（导出 {_describe_allowed(exported)} / 派生 {_describe_allowed(derived)}）"
+                " —— 存在两份真相"
+            )
+
+        for edge in edges:
+            source = _status_value(getattr(edge, "source"))
+            target = _status_value(getattr(edge, "target"))
+            owner = getattr(edge, "owner_action", "")
+
+            # 判据 2：所有者是真动作
+            status = spec.registry.get(owner)
+            if status is None:
+                problems.append(
+                    f"{spec.object_name} 边 {source}->{target} 的所有者 "
+                    f"{owner!r} 不在动作注册表"
+                )
+            elif status != "ACTIVE":
+                problems.append(
+                    f"{spec.object_name} 边 {source}->{target} 的所有者 "
+                    f"{owner!r} 状态为 {status}，不可作为准入凭据"
+                )
+
+            # 判据 3：边在契约登记
+            if (source, target) not in spec.contract_edges:
+                problems.append(
+                    f"{spec.object_name} 边 {source}->{target} 未在 "
+                    "state_machines.yaml 登记（实现不得造边，31.5）"
+                )
+
+        # 判据 4 + 5：聚合根真的用 action 判所有权
+        problems.extend(
+            _evaluate_aggregate_entry(
+                spec.aggregate_path, spec.aggregate_class, spec.object_name, root
+            )
+        )
+
+    return problems
+
+
+def _asset_edge_specific(specs: tuple[LifecycleSpec, ...]) -> list[str]:
+    """P1-02 的资产域回归防线（跨域不变量之外，资产域还有自己的具体形状）。
+
+    三条都比「边有所有者」更具体：审批边的所有者必须正是 APPROVE 动作、
+    该边必须带守卫、服务层不得再持有证据判定代码。前两条防止「边表结构对了但
+    审批边被改派给通用动作」，第三条防止「守卫留在边上、又在服务里抄了一份」。
     """
     from services.asset_service.domain import state_machine as sm
 
-    edges = getattr(sm, "ASSET_TRANSITIONS", None)
-    if not edges:
-        return (False, "状态机没有结构化边表 ASSET_TRANSITIONS（仍只有邻接集）")
-
-    unowned = [f"{e.source.value}->{e.target.value}" for e in edges if not e.owner_action]
-    if unowned:
-        return (False, f"以下边没有所有者（任何动作都能推进）: {unowned}")
-
+    problems: list[str] = []
     approved = sm.edge_for(sm.AssetStatus.HUMAN_REVIEW, sm.AssetStatus.APPROVED)
     if approved is None:
-        return (False, "缺少 HUMAN_REVIEW -> APPROVED 边")
-    if approved.owner_action != "ASSET.VERSION.APPROVE":
-        return (
-            False,
-            f"APPROVED 边的所有者为 {approved.owner_action}："
-            "通用状态接口可绕过审批（P1-02 复发）",
-        )
+        problems.append("资产域缺少 HUMAN_REVIEW -> APPROVED 边")
+    else:
+        if approved.owner_action != "ASSET.VERSION.APPROVE":
+            problems.append(
+                f"APPROVED 边的所有者为 {approved.owner_action}："
+                "通用状态接口可绕过审批（P1-02 复发）"
+            )
+        if not approved.guards:
+            problems.append("APPROVED 边没有任何准入守卫：审批无凭据也能通过")
 
-    if not approved.guards:
-        return (False, "APPROVED 边没有任何准入守卫：审批无凭据也能通过")
-
-    # 邻接集必须是边表的投影，否则两份结构会漂移（契约闸门读的是邻接集）。
-    derived = {
-        status: frozenset(
-            edge.target for edge in edges if edge.source is status
-        )
-        for status in sm.AssetStatus
-    }
-    if derived != dict(sm.ASSET_ALLOWED_TRANSITIONS):
-        return (
-            False,
-            "ASSET_ALLOWED_TRANSITIONS 与边表不一致（两份结构已漂移）",
-        )
-
-    # 服务层不得再持有证据规则：规则只在 guards 里。
     service = _read("services/asset_service/service/asset_service.py")
     leaked = [
         marker
@@ -543,8 +727,132 @@ def lifecycle_edge_ownership() -> AssertionResult:
         if marker in service
     ]
     if leaked:
-        return (False, f"服务层仍持有证据判定代码（两套规则）: {leaked}")
-    return (True, "")
+        problems.append(f"资产服务层仍持有证据判定代码（两套规则）: {leaked}")
+    return problems
+
+
+def _evaluate_aggregate_entry(
+    rel_path: str, class_name: str, object_name: str, root: Path
+) -> list[str]:
+    """聚合根的 ``transition_to`` 必须接收并**使用** action（判据 4 + 5）。"""
+    path = root / rel_path
+    if not path.exists():
+        return [f"{object_name}：聚合根文件不存在 {rel_path}"]
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    cls = next(
+        (
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == class_name
+        ),
+        None,
+    )
+    if cls is None:
+        return [f"{object_name}：{rel_path} 中未找到类 {class_name}"]
+    func = next(
+        (
+            node
+            for node in cls.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "transition_to"
+        ),
+        None,
+    )
+    if func is None:
+        return [f"{object_name}：{class_name} 未定义 transition_to"]
+
+    params = [arg.arg for arg in func.args.args] + [
+        arg.arg for arg in func.args.kwonlyargs
+    ]
+    if "action" not in params:
+        return [
+            f"{object_name}：{class_name}.transition_to 未接收 action 形参——"
+            "边所有权只能靠调用方「记得先查」，那不是机制（N-07）"
+        ]
+
+    uses_action = any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "edge_owned_by"
+        and any(isinstance(arg, ast.Name) and arg.id == "action" for arg in node.args)
+        for node in ast.walk(func)
+    )
+    if not uses_action:
+        return [
+            f"{object_name}：{class_name}.transition_to 接收 action 却未传给 "
+            "edge_owned_by——参数存在但不参与准入，等于装饰（N-07）"
+        ]
+    return []
+
+
+def _action_registry_statuses() -> dict[str, str]:
+    """读动作注册表：action_key -> status（所有者必须在这里且 ACTIVE）。"""
+    import yaml
+
+    path = CONTRACTS_PATH / "action_registry" / "action_registry.yaml"
+    if not path.exists():
+        return {}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    result: dict[str, str] = {}
+    for item in data.get("actions", []) or []:
+        key = item.get("action_key")
+        if isinstance(key, str):
+            result[key] = str(item.get("status", ""))
+    return result
+
+
+def _contract_state_machines() -> dict[str, frozenset[tuple[str, str]]]:
+    """读契约状态机：object -> {(from, to)}。"""
+    import yaml
+
+    path = CONTRACTS_PATH / "state_machines" / "state_machines.yaml"
+    if not path.exists():
+        return {}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    result: dict[str, frozenset[tuple[str, str]]] = {}
+    for entry in data.get("objects", []) or []:
+        name = entry.get("object")
+        if not isinstance(name, str):
+            continue
+        edges = {
+            (str(t["from"]), str(t["to"]))
+            for t in entry.get("transitions", []) or []
+            if isinstance(t, dict) and "from" in t and "to" in t
+        }
+        result[name] = frozenset(edges)
+    return result
+
+
+def _import_domain_module(module_path: str) -> object:
+    """导入领域模块（先把项目根加入 sys.path，兼容 `python scripts/xxx.py`）。"""
+    root = str(ROOT)
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    return importlib.import_module(module_path)
+
+
+def _normalize_allowed_map(raw: object) -> dict[str, frozenset[str]]:
+    """把邻接集归一化为 ``{状态值: {目标值}}``（枚举与字符串同口径）。"""
+    if not hasattr(raw, "items"):
+        return {}
+    result: dict[str, frozenset[str]] = {}
+    for source, targets in raw.items():  # type: ignore[attr-defined]
+        result[_status_value(source)] = frozenset(
+            _status_value(target) for target in targets
+        )
+    return result
+
+
+def _describe_allowed(allowed: dict[str, frozenset[str]]) -> str:
+    """邻接集的可读描述（报错用，按 source 排序保证 diff 稳定）。"""
+    return (
+        "{"
+        + ", ".join(
+            f"{source}: {sorted(targets)}"
+            for source, targets in sorted(allowed.items())
+        )
+        + "}"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -1769,3 +2077,4 @@ def data_transition_fact_table() -> AssertionResult:
     if "SCHEMA_NAME = \"audit\"" not in model:
         return (False, "ORM 映射未落在 audit schema")
     return (True, "")
+

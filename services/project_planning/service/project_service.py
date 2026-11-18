@@ -20,6 +20,9 @@ from packages.shared.outbox_writer import OutboxWriter
 from packages.shared.port_errors import DuplicateEntityError, ReferentialIntegrityError
 from services.project_planning.domain.enums import ProjectStatus, ProjectTier
 from services.project_planning.domain.project import Project
+from services.project_planning.domain.state_machine import (
+    PROJECT_STATUS_CHANGE_ACTION,
+)
 from services.project_planning.repository.project_repo import ProjectRepository
 from services.project_planning.service.transition import advance_status
 
@@ -183,7 +186,7 @@ class ProjectService:
             tenant_id=tenant_id,
             payload={"project_id": project.entity_id},
             resource_type="Project",
-            owner_action="PROJECT.STATUS.CHANGE",
+            owner_action=PROJECT_STATUS_CHANGE_ACTION,
             conflict_detail="项目状态并发冲突，请基于最新状态重试",
             actor_field="changed_by",
             actor=changed_by,

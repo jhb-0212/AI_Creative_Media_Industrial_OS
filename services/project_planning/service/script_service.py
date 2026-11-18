@@ -30,6 +30,11 @@ from packages.identity.separation import require_different_subject
 from packages.shared.port_errors import DuplicateEntityError, ReferentialIntegrityError
 from services.project_planning.domain.enums import ScriptStatus
 from services.project_planning.domain.script import ScriptRevision
+from services.project_planning.domain.state_machine import (
+    SCRIPT_IMPORT_ACTION,
+    SCRIPT_LOCK_APPROVE_ACTION,
+    SCRIPT_LOCK_REQUEST_ACTION,
+)
 from services.project_planning.repository.episode_repo import EpisodeRepository
 from services.project_planning.repository.outbox_writer import OutboxWriter
 from services.project_planning.repository.project_repo import ProjectRepository
@@ -219,10 +224,10 @@ class ScriptService:
                 "requested_by": requested_by,
             },
             resource_type="ScriptRevision",
-            owner_action="SCRIPT.LOCK.REQUEST",
+            owner_action=SCRIPT_LOCK_REQUEST_ACTION,
             conflict_detail="剧本锁定申请并发冲突，请基于最新状态重试",
             actor=requested_by,
-            domain_operation=lambda ref: script.request_lock(requested_by, ref),
+            domain_operation=lambda ref, act: script.request_lock(requested_by, ref, act),
         )
         return script
 
@@ -282,10 +287,10 @@ class ScriptService:
                 "approved_by": approved_by,
             },
             resource_type="ScriptRevision",
-            owner_action="SCRIPT.LOCK.APPROVE",
+            owner_action=SCRIPT_LOCK_APPROVE_ACTION,
             conflict_detail="剧本锁定批准并发冲突，请基于最新状态重试",
             actor=approved_by,
-            domain_operation=lambda ref: script.approve_lock(approved_by, ref),
+            domain_operation=lambda ref, act: script.approve_lock(approved_by, ref, act),
         )
         return script
 
@@ -358,7 +363,7 @@ class ScriptService:
             resource_type="ScriptRevision",
             # 新版本导入使旧版本 SUPERSEDED（state_machines.yaml#ScriptRevision 的 note）：
             # 拥有这条边的是 SCRIPT.IMPORT，而不是某个"取代"动作（契约里不存在该动作）。
-            owner_action="SCRIPT.IMPORT",
+            owner_action=SCRIPT_IMPORT_ACTION,
             conflict_detail="剧本版本取代并发冲突",
             actor=actor,
             on_conflict="skip",

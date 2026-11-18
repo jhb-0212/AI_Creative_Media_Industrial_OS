@@ -44,13 +44,19 @@ _SYSTEM_ACTOR = "system"
 
 
 class VersionedStatusEntity(Protocol):
-    """推进函数对实体的最小要求（结构化类型，不引入共享基类）。"""
+    """推进函数对实体的最小要求（结构化类型，不引入共享基类）。
+
+    ``transition_to`` 必须接收 ``action``：它是**准入凭据**，不是标签。聚合根内部
+    用域的 ``Lifecycle.edge_owned_by`` 判定这条边是否归该动作所有，不属于即拒
+    （N-07）。把它做成必填位置参数是刻意的——有默认值就等于允许某个聚合悄悄
+    不校验，而那一个聚合不会被任何闸门发现。
+    """
 
     status: Any
     entity_version: int
     entity_id: str
 
-    def transition_to(self, target: Any, audit_ref: str) -> Any: ...
+    def transition_to(self, target: Any, audit_ref: str, action: str) -> Any: ...
 
 
 class StatusRepository(Protocol):
@@ -82,7 +88,7 @@ async def advance_status(
     authority_ref: str | None = None,
     evidence_refs: tuple[str, ...] = (),
     on_conflict: ConflictPolicy = "raise",
-    domain_operation: Callable[[str], object] | None = None,
+    domain_operation: Callable[[str, str], object] | None = None,
 ) -> bool:
     """执行一次状态推进并原子写入事件，返回是否真的推进了。
 
@@ -107,9 +113,15 @@ async def advance_status(
     内部必须经 ``transition_to`` 改状态（闸门 ``data.transition_single_entry``
     同时检查服务层不许直接赋值 ``.status``）。
 
+    它的签名是 ``(audit_ref, action)``：领域操作必须把**同一个** action 转交给
+    ``transition_to``，因此「申请锁定」这样的封装不能自己决定走哪条边——边所有权
+    由本函数声明的 ``owner_action`` 判定。
+
     ``resource_type`` / ``owner_action`` 是迁移事实的必填构件：前者标识被推进的
-    对象（Schema 键名），后者是拥有该转移边的 action_key。二者都由调用方给——
-    本函数不做映射推断，推断出来的归属是猜的，不是事实。
+    对象（Schema 键名），后者是拥有该转移边的 action_key。``owner_action`` 在这里
+    有两个用途，且是**同一个值**：传给 ``transition_to`` 做准入判定，随后写进
+    ``TransitionFact``。整改前它只写事实、不参与准入（N-07），于是审计表记录的
+    「谁走的」只是调用方的自称。一个参数两处用途，物理上无法不一致。
 
     ``organization_id`` 的取法（codex 评审 T3）：能从不传，就从实体自身取
     （``entity.organization_id``）。让调用方「记得传」是把不变量交给记忆——项目
@@ -125,11 +137,12 @@ async def advance_status(
     transition_id = uuid4()
     audit_ref = transition_audit_ref(transition_id)
     if domain_operation is None:
-        entity.transition_to(target_status, audit_ref)
+        entity.transition_to(target_status, audit_ref, owner_action)
     else:
         # 领域操作自己经 transition_to 改状态，同时写审批链字段（申请人/批准人）。
         # 传 audit_ref 而不是 ID：领域层不解释指针格式（ADR-R23 §D2-c）。
-        domain_operation(audit_ref)
+        # 传 owner_action 而不是让领域操作自己挑：准入凭据只有一个来源。
+        domain_operation(audit_ref, owner_action)
 
     # 事实里的 to_status 取聚合的真实结果，并当场核对调用方声明的目标一致。
     # 若两者不一致，写进事实的就是一条谎——审计表里最不该有的东西。

@@ -478,3 +478,48 @@ credential_scope:
         - tests/unit/test_db_role_names.py::test_literal_role_name_in_migration_is_rejected
         - tests/unit/test_db_role_names.py::test_literal_role_name_in_sql_string_is_rejected
         - tests/unit/test_db_role_names.py::test_role_name_in_docstring_is_allowed
+
+# --------------------------------------------------------------------------- #
+# 6. 生命周期边界（lifecycle）
+# --------------------------------------------------------------------------- #
+# 这一分区不是「第六条安全边界」，而是同一套机制的第二个应用面：状态推进的
+# 准入判定与审计事实必须来自**同一个**声明，否则「谁能走这条边」变成调用方的
+# 自称。它之所以必须由断言执行，理由与前面四条边界完全相同——写成文档没人读，
+# 写成 if/else 会漏路径。
+#
+# 根因（N-07）：整改前两个域是两种形态。资产域是「边表 + 所有者 + 守卫」，
+# 所有权真被执行；项目域是「邻接集 + 一个只写进 audit.status_transitions 和
+# outbox 事件的 owner_action 字符串」。于是 SCRIPT.LOCKED（归 LOCK.APPROVE）与
+# SCRIPT.SUPERSEDED（归 IMPORT）在运行时是同一种通行证，区别只是一行自称，
+# 而审计表会忠实地把这个自称记成事实。
+lifecycle:
+  invariants:
+    - id: LIFECYCLE-1
+      name: 转移边的所有权被执行（记录的动作 = 准入的动作）
+      statement: >-
+        每个已实现状态机的转移边必须有且只有一个所有者动作，该动作必须存在于
+        action_registry 且状态为 ACTIVE；边的 (from, to) 必须在 state_machines.yaml
+        登记。聚合根的 ``transition_to`` 必须接收 action，并把它交给边所有权判定
+        （``edge_owned_by``）——只接收不使用，等于把准入降级成装饰。唯一推进入口
+        必须把它随后写进迁移事实的那个 action 原样传下来，使「事实记的动作」与
+        「准入判的动作」是同一个值，而不是两次填写。邻接集只能是边表的派生投影，
+        不得另写一份。
+      fact_source: >-
+        packages/shared/lifecycle.py（边表形态唯一来源）；
+        services/{project_planning,asset_service}/domain/state_machine.py（各域边表）；
+        各聚合根 transition_to（所有权执行点）
+      verification: 断言 lifecycle.edge_ownership（四域形态+事实+执行三层判据）
+      assertion: lifecycle.edge_ownership
+      runtime_evidence:
+        - tests/unit/test_boundary_lifecycle_edges.py::test_real_repository_satisfies_edge_ownership
+        - tests/unit/test_boundary_lifecycle_edges.py::test_aggregate_ignoring_action_is_reported
+        - tests/unit/test_asset_domain.py::test_edge_ownership_is_enforced_by_aggregate
+        - tests/unit/test_project_domain.py::test_edge_ownership_is_enforced_by_aggregate
+        - tests/unit/test_script_domain.py::test_edge_ownership_is_enforced_by_aggregate
+      residual_risk: >-
+        边的所有者只在实现侧声明，契约 state_machines.yaml 的 transitions 不含
+        owner_action 字段（43 个对象中仅 4 个有实现边表，反向补登会把这 4 个的
+        实现形态抬成全部对象的契约义务）。因此「这条边该归谁」目前由实现的
+        边表 + 本断言（所有者必须是真动作、边必须在契约登记）共同约束，而不是
+        由契约直接规定。若将来契约要求声明所有者，需按 contract_amendments
+        登记修订后统一补登。
