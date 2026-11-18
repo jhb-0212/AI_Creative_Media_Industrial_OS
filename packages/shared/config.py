@@ -77,6 +77,22 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = True
     rate_limit_per_minute: int = 120
     rate_limit_window_seconds: int = 60
+    # 限流后端熔断（压测实测暴露：Redis 不可达时每请求固定阻塞一个
+    # socket_connect_timeout 才 fail-open，降级比不降级更糟）。
+    # 连续失败达阈值后 OPEN，冷却期满半开探测；0 表示关闭熔断
+    # （与 webhook 端点熔断同一口径：用 0 表达关闭，不另加 enabled 开关）。
+    # 默认 3 而非 5：同机/VPC 的 Redis 连续 3 次失败基本可判定后端已死，
+    # 每多一次阈值就多付一个完整连接超时。
+    rate_limit_circuit_failure_threshold: int = 3
+    rate_limit_circuit_recovery_seconds: float = 30.0
+
+    # 就绪探针（GET /readyz）。探针要回答「现在能不能接流量」，每次真探测
+    # 两个域连接池约 90ms；编排系统按秒级轮询时这会变成可观负载，且并发探测
+    # 会与业务抢连接。缓存 TTL 让探测频率与请求频率解耦。
+    # 失败结果**同样缓存**：数据库挂掉时探测成本最高（要等超时），不缓存
+    # 会让探针成为把连接池彻底打满的最后一根稻草。
+    readiness_cache_ttl_seconds: float = 1.0
+    readiness_timeout_seconds: float = 2.0
 
     # Outbox relay（R06 消费端，workers/relay）。批量与节奏按积压调，不做自适应：
     # 自适应调节会把「行为随负载变化」引入排障面，当前规模用固定参数更可控。
@@ -247,6 +263,46 @@ class Settings(BaseSettings):
                     "域角色必须互不相同，否则模块级角色隔离（DATA-1）在配置层失效。"
                 )
             seen[role] = env_name
+        return self
+
+    @model_validator(mode="after")
+    def _require_sane_resilience_params(self) -> Settings:
+        """熔断与探针参数必须自洽（开着保护设施却给了不可能生效的参数）。
+
+        这类配置错误的特点是**不报错地失效**：阈值写 0 以为「更保守」，
+        实际是「永不熔断」；TTL 写 0 以为「总是最新」，实际是「每请求都真打
+        数据库」。启动期拒绝，比上线后靠压测发现便宜得多。
+        """
+        circuits = (
+            (
+                "限流后端",
+                self.rate_limit_circuit_failure_threshold,
+                self.rate_limit_circuit_recovery_seconds,
+            ),
+            (
+                "webhook 端点",
+                self.outbox_webhook_circuit_failure_threshold,
+                self.outbox_webhook_circuit_recovery_seconds,
+            ),
+        )
+        for name, threshold, recovery in circuits:
+            if threshold < 0:
+                raise ValueError(
+                    f"{name}熔断阈值不能为负（0 表示关闭熔断）：{threshold}"
+                )
+            if threshold > 0 and recovery <= 0:
+                raise ValueError(
+                    f"{name}熔断已开启（阈值 {threshold}）但冷却期 <= 0：{recovery}"
+                )
+        if self.readiness_cache_ttl_seconds < 0:
+            raise ValueError(
+                "READINESS_CACHE_TTL_SECONDS 不能为负（0 表示不缓存）："
+                f"{self.readiness_cache_ttl_seconds}"
+            )
+        if self.readiness_timeout_seconds <= 0:
+            raise ValueError(
+                f"READINESS_TIMEOUT_SECONDS 必须 > 0：{self.readiness_timeout_seconds}"
+            )
         return self
 
     @model_validator(mode="after")

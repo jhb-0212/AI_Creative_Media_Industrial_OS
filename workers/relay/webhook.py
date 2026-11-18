@@ -41,9 +41,25 @@ from typing import Any
 
 import httpx
 
-from packages.shared.circuit_breaker import CircuitBreaker
+from packages.shared.circuit_breaker import CircuitBreaker, CircuitState
+from packages.shared.metrics import OUTBOX_WEBHOOK_CIRCUIT_STATE, observe_circuit_state
 from workers.relay.consumer import OutboxEvent
 from workers.relay.errors import DeliveryDeferredError, OutboxDeliveryError
+
+
+def _observe_endpoint_circuit(
+    state: CircuitState, previous: CircuitState | None
+) -> None:
+    """把端点熔断状态发布到 webhook 专属 Gauge。
+
+    接口在 ``CircuitBreaker`` 里，指标名在这里——因为只有这里知道
+    「这个熔断器管的是 webhook 端点」。
+    """
+    observe_circuit_state(
+        OUTBOX_WEBHOOK_CIRCUIT_STATE,
+        state.value,
+        previous.value if previous is not None else None,
+    )
 
 
 class WebhookDeliveryError(OutboxDeliveryError):
@@ -102,6 +118,7 @@ class WebhookDispatcher:
             failure_threshold=circuit_failure_threshold,
             recovery_timeout_seconds=circuit_recovery_seconds,
             enabled=circuit_enabled,
+            state_observer=_observe_endpoint_circuit,
         )
 
     async def __call__(self, event: OutboxEvent) -> None:

@@ -19,12 +19,16 @@
    下游故障时每个副本都独立进入 OPEN——这已经足够（目标是「别持续放大请求」），
    不需要引入 Redis/分布式锁来共享熔断状态。跨副本的精确一致由 Prometheus
    聚合指标 + 告警承担。
-2. **时钟注入**：``clock`` 参数默认为 ``time.time``，测试注入假时钟即可确定性
-   驱动「冷却期满 → 半开」的时序，不依赖真实 sleep。
+2. **时钟注入**：``clock`` 参数默认为 ``time.monotonic``。冷却期是「过了多久」
+   的度量，不能用墙钟：NTP 校时或人工改时间回拨 30 秒，``clock() - opened_at``
+   变负，冷却期永远不到期，熔断器会卡死在 OPEN——即「下游恢复了但系统永远
+   不再试」。测试注入假时钟即可确定性驱动时序，不依赖真实 sleep。
 3. **半开探测的原子性**：``allow()`` 从读状态到改写状态之间无 ``await``，
    asyncio 单线程内天然原子，不需要额外加锁；「只放行一个」用布尔标志实现。
-4. **状态指标**：只暴露 CLOSED/OPEN/HALF_OPEN 三值 Gauge，不打 endpoint 标签
-   （endpoint 是单值配置，不是高基数维度；未来多端点再评估）。
+4. **指标由使用方注入**：熔断器是通用设施，不替使用方决定指标名。
+   ``state_observer`` 为空时完全不写指标（本模块不 import 任何业务指标），
+   使用方各自注入自己的 Gauge——限流后端状态与 webhook 端点状态是两件事，
+   共用一个指标名会让「哪个组件在熔断」变得不可分辨。
 """
 
 from __future__ import annotations
@@ -32,8 +36,6 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from enum import Enum
-
-from packages.shared.metrics import OUTBOX_WEBHOOK_CIRCUIT_STATE
 
 
 class CircuitState(Enum):
@@ -64,6 +66,7 @@ class CircuitBreaker:
         recovery_timeout_seconds: float = 30.0,
         enabled: bool = True,
         clock: Callable[[], float] | None = None,
+        state_observer: Callable[[CircuitState, CircuitState | None], None] | None = None,
     ) -> None:
         if enabled:
             if failure_threshold < 1:
@@ -75,14 +78,16 @@ class CircuitBreaker:
         self._failure_threshold = max(1, failure_threshold)
         self._recovery_timeout = recovery_timeout_seconds
         self._enabled = enabled
-        self._clock = clock if clock is not None else time.time
+        # 默认单调时钟：冷却期的语义是「过了多久」，墙钟回拨会让它永不到期。
+        self._clock = clock if clock is not None else time.monotonic
+        self._state_observer = state_observer
 
         self._state = CircuitState.CLOSED
         self._consecutive_failures = 0
         self._opened_at = 0.0
         # HALF_OPEN 时「已放行一个探测」标志：探测未出结果前不再放行第二个。
         self._probe_in_flight = False
-        self._emit()
+        self._emit(None)
 
     @property
     def state(self) -> CircuitState:
@@ -147,8 +152,21 @@ class CircuitBreaker:
 
         self._consecutive_failures = 0
 
+    def release_probe(self) -> None:
+        """放弃在途探测（请求被取消，未得到任何结论）。
+
+        半开期放行一个探测后，若该请求被取消（服务关闭、调用方断开），
+        ``record_success`` 与 ``record_failure`` 都不会被调用，``_probe_in_flight``
+        会永远为 True——此后所有请求都被判为「半开期已有探测在途」而快速失败，
+        熔断器永久卡死。取消既不是成功也不是失败，正确语义是「回到未探测」，
+        让下一个请求重新探测。
+        """
+        if self._state is CircuitState.HALF_OPEN:
+            self._probe_in_flight = False
+
     def _transition(self, new_state: CircuitState) -> None:
         """状态迁移的唯一入口：统一维护伴随字段与指标，避免各分支各自散改。"""
+        previous = self._state
         self._state = new_state
         if new_state is CircuitState.OPEN:
             self._opened_at = self._clock()
@@ -159,11 +177,18 @@ class CircuitBreaker:
         elif new_state is CircuitState.HALF_OPEN:
             # 半开不重置 opened_at（保留原始故障时间供观测），只清在途标志。
             self._probe_in_flight = False
-        self._emit()
+        self._emit(previous)
 
-    def _emit(self) -> None:
-        """把当前状态写入指标（三值 Gauge，1=当前态，其余归 0）。"""
-        for state in CircuitState:
-            OUTBOX_WEBHOOK_CIRCUIT_STATE.labels(state=state.value).set(
-                1 if state is self._state else 0
-            )
+    def _emit(self, previous: CircuitState | None) -> None:
+        """把「从 previous 迁移到当前态」交给使用方注入的观察者。
+
+        本模块刻意不 import 任何指标：熔断器不知道自己被谁用、也不知道使用者
+        想把状态记到哪个指标上。使用方注入 ``state_observer`` 后自行决定
+        （webhook 写端点熔断 Gauge、限流写限流后端 Gauge）。
+
+        传 ``previous`` 而不是让观察者遍历全部状态：只有真发生迁移时才需要
+        「清旧置新」，metrics 层因此不需要再维护一份状态名清单（那是第二个
+        事实源，新增状态时必定漏改）。
+        """
+        if self._state_observer is not None:
+            self._state_observer(self._state, previous)
