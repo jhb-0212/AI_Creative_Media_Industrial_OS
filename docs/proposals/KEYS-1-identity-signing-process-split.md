@@ -1,6 +1,16 @@
+---
+doc_type: proposal
+status: implemented
+updated_at: 2026-11-18
+authoritative_sources:
+  - contracts/security_boundary.yaml
+open_items: []
+---
+
 # KEYS-1：身份签发服务独立部署单元拆分方案
 
-> 状态：**S1/S2/S3/S4 已落地**（2026-11-18）。S1 签发方迁至 `services/identity_issuance`；
+> 状态：**以文首 front-matter 为准**（`status: implemented`，无未完成项）。
+> S1/S2/S3/S4 已落地（2026-11-18）。S1 签发方迁至 `services/identity_issuance`；
 > S2 移除 `PublicKeyStore.from_key_store` 派生桥；S3 新增独立进程 `workers/identity`
 > （持私钥 + `/.well-known/jwks.json`，不提供 token 端点）；S4 契约登记 KEYS-3 +
 > 负向测试（`tests/unit/test_identity_process.py`、`test_identity_public_store.py`）。

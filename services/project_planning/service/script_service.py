@@ -24,11 +24,10 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy.exc import IntegrityError
-
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.identity.principal import Principal
 from packages.identity.separation import require_different_subject
+from packages.shared.port_errors import DuplicateEntityError, ReferentialIntegrityError
 from services.project_planning.domain.enums import ScriptStatus
 from services.project_planning.domain.script import ScriptRevision
 from services.project_planning.repository._versioning import ConcurrentModificationError
@@ -129,7 +128,15 @@ class ScriptService:
         # INSERT 语义新增；并发下唯一约束兜底 check-then-act 竞态。
         try:
             await self._repository.add(script)
-        except IntegrityError as exc:
+        except ReferentialIntegrityError as exc:
+            # 归属项目/集数在并发窗口里被删除，或取值违反 CHECK：引用不成立。
+            # 与「同集重复导入」是两回事——后者由 ux_script_active_version 触发，
+            # 属唯一冲突（下面 DuplicateEntityError 分支），可幂等/可重试。
+            raise DomainError(
+                ErrorRegistry.CONCURRENT_MODIFICATION,
+                detail="剧本归属的项目或集数已变化，请基于最新数据重试",
+            ) from exc
+        except DuplicateEntityError as exc:
             if entity_id is None:
                 # 无显式 id 的冲突来自 ux_script_active_version（并发导入同集）：
                 # 这不是内部错误，而是可重试的并发冲突，让客户端基于最新版本重试。

@@ -18,8 +18,11 @@ class ProjectRepository(ABC):
 
     @abstractmethod
     async def add(self, project: Project) -> None:
-        """新增项目（INSERT 语义，主键冲突抛 IntegrityError）。
+        """新增项目（INSERT 语义）。
 
+        失败契约（端口声明，不由适配器的库决定）：
+        - 主键/唯一冲突 → ``DuplicateEntityError``（可幂等回读）；
+        - 外键/CHECK 不成立 → ``ReferentialIntegrityError``（不可幂等，上抛）。
         与 save（upsert）区分：新增走本方法，使并发重复插入能被数据库
         唯一约束捕获，配合服务层幂等兜底（见 ProjectService.create_project）。
         """

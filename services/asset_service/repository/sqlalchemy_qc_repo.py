@@ -5,9 +5,11 @@ from __future__ import annotations
 from enum import Enum
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.port_errors import classify_integrity_error
 from services.asset_service.domain.enums import DeviationClass, IntentMatchStatus
 from services.asset_service.domain.qc_report import QCReport
 from services.asset_service.repository.orm import QCReportModel
@@ -78,8 +80,16 @@ class SqlAlchemyQCReportRepository(QCReportRepository):
         self._session = session
 
     async def add(self, report: QCReport) -> None:
-        async with self._session.begin_nested():
-            self._session.add(_to_orm(report))
+        # SAVEPOINT + 端口契约翻译：唯一冲突 → DuplicateEntityError（可幂等回读），
+        # 外键/CHECK 失败 → ReferentialIntegrityError（不可幂等）。服务层只认识
+        # 后者还是前者，不认识 SQLAlchemy（P2-03）。
+        try:
+            async with self._session.begin_nested():
+                self._session.add(_to_orm(report))
+        except IntegrityError as exc:
+            raise classify_integrity_error(
+                exc, entity_id=report.qc_report_id
+            ) from exc
 
     async def get_by_id(self, qc_report_id: str) -> QCReport | None:
         stmt = select(QCReportModel).where(QCReportModel.qc_report_id == qc_report_id)

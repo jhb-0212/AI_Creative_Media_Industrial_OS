@@ -1,6 +1,22 @@
+---
+doc_type: proposal
+status: in_progress
+updated_at: 2026-11-18
+authoritative_sources:
+  - contracts/runtime/resource_schema_gaps.yaml
+  - contracts/runtime/action_implementations.yaml
+open_items:
+  - item: >-
+      ShotDraft 等 9 个资源类型仍无对象 schema 定义（须依据基线正文补齐，不得猜契约）
+    source: "contracts/runtime/resource_schema_gaps.yaml#gaps"
+  - item: >-
+      镜头域动作（SHOT.DRAFT.CREATE 等）无运行时入口，属 Phase 2 范围
+    source: "contracts/runtime/action_implementations.yaml#not_implemented"
+---
+
 # 镜头域契约闭合提案（Shot domain contract closure）
 
-状态：第一步已实施（2026-11-14，闸门口径已扩到 ACTIVE 并用显式债务承接；第 2~4 步阻塞于正文）
+状态：以文首 front-matter 为准（`status: in_progress`，未完成项见 `open_items`）。
 关联：ADR-032（AI 拆镜输出默认草案）、ADR-R07（ShotDraft 缺对象契约）
 适用范围：仅契约层与闸门口径；不含运行时实现代码
 

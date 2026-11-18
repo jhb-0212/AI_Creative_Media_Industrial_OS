@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.port_errors import classify_integrity_error
 from services.project_planning.domain.enums import ScriptStatus
 from services.project_planning.domain.script import ScriptRevision
 from services.project_planning.repository._versioning import (
@@ -77,8 +79,12 @@ class SqlAlchemyScriptRepository(ScriptRepository):
     async def add(self, script: ScriptRevision) -> None:
         # INSERT 语义 + SAVEPOINT：并发重复插入由唯一约束捕获（幂等兜底），
         # 失败仅回滚本次 INSERT，session 不进入 aborted 态。
-        async with self._session.begin_nested():
-            self._session.add(_to_orm(script))
+        # 驱动异常在此翻译为端口契约，服务层不认识 SQLAlchemy（P2-03）。
+        try:
+            async with self._session.begin_nested():
+                self._session.add(_to_orm(script))
+        except IntegrityError as exc:
+            raise classify_integrity_error(exc, entity_id=script.entity_id) from exc
 
     async def save(self, script: ScriptRevision, expected_version: int) -> None:
         # 乐观锁条件更新：WHERE entity_version = expected_version 原子匹配，

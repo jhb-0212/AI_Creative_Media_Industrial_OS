@@ -9,9 +9,11 @@
 from __future__ import annotations
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.port_errors import classify_integrity_error
 from services.project_planning.domain.enums import ProjectStatus, ProjectTier
 from services.project_planning.domain.project import Project
 from services.project_planning.repository._versioning import (
@@ -83,11 +85,14 @@ class SqlAlchemyProjectRepository(ProjectRepository):
         self._session = session
 
     async def add(self, project: Project) -> None:
-        # INSERT 语义 + SAVEPOINT：并发重复插入相同主键时由数据库唯一约束
-        # 抛出 IntegrityError；用嵌套事务（savepoint）隔离，失败仅回滚本次
-        # INSERT，使 session 不进入 aborted 态，服务层可安全降级为幂等查询。
-        async with self._session.begin_nested():
-            self._session.add(_to_orm(project))
+        # INSERT 语义 + SAVEPOINT：并发重复插入相同主键时由数据库唯一约束拒绝，
+        # 用嵌套事务隔离使 session 不进入 aborted 态，服务层可安全降级为幂等查询。
+        # 驱动异常在此翻译为端口契约（唯一冲突 / 引用失败），服务层不依赖 ORM。
+        try:
+            async with self._session.begin_nested():
+                self._session.add(_to_orm(project))
+        except IntegrityError as exc:
+            raise classify_integrity_error(exc, entity_id=project.entity_id) from exc
 
     async def save(self, project: Project, expected_version: int) -> None:
         # 乐观锁条件更新（语义同 ScriptRepository.save）；仅登记变更，不 commit。

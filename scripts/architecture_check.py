@@ -25,6 +25,13 @@ R3 模块导入期循环 —— **只看模块级 import**。理由：惰性导�
    它不会造成导入期死锁，因此不计入循环；但若两模块在**导入期**互相依赖，
    那就是真问题（import 顺序敏感、可能直接 ImportError），必须拦住。
 
+R4 进程边界隔离 —— apps 层不得 import 私钥签发模块（KEYS-1）。
+
+R5 内核持久化隔离 —— `services/<域>/{service,domain}/**` 不得 import
+   sqlalchemy / asyncpg / psycopg / alembic。理由：端口的失败契约必须由端口声明，
+   内核认识 ORM 异常会让适配器不可替换，并把「唯一冲突」与「外键冲突」压平成
+   同一分支（P2-03）。仓库/适配器子包不受限。
+
 R0 覆盖面防呆 —— 仓库顶层出现新的代码目录（比如将来加 `plugins/`）时，必须在本文件的
    `LAYERS` / `LAYER_RULES` 里登记，否则闸门报红。否则新增一层会天然免疫所有规则。
 
@@ -418,6 +425,66 @@ def check_process_isolation(imports: list[ImportRecord]) -> list[Violation]:
 
 
 # --------------------------------------------------------------------------- #
+# R5 内核层不依赖持久化实现（P2-03）
+# --------------------------------------------------------------------------- #
+# ``services/<域>/service/**`` 与 ``services/<域>/domain/**`` 不得 import ORM /
+# 驱动 / 迁移库。仓库/适配器子包不受此限（它们就是实现）。
+#
+# 为什么这是一条架构规则而不是风格偏好：整改前四个服务有 ``except IntegrityError``，
+# 也就是说**端口的失败契约是别人的库异常**。它带来两个结构性后果——
+# ① 纯内存适配器为了配合内核去伪造 ``sqlalchemy.exc.IntegrityError``（不可替换）；
+# ② 唯一冲突（23505）与外键冲突（23503）被压平成同一分支，外键失败会被误降级为
+#    "重复提交、返回既有记录"，真实的一致性问题被幂等语义吞掉。
+# 规则化之后，"内核又去认识 ORM 异常"这件事不可能悄悄复发。
+PERSISTENCE_LIBRARIES: tuple[str, ...] = (
+    "sqlalchemy",
+    "asyncpg",
+    "psycopg",
+    "psycopg2",
+    "alembic",
+)
+
+# 参与本规则的 services 子包（内核语义层）。
+KERNEL_SUBPACKAGES: frozenset[str] = frozenset({"service", "domain"})
+
+
+def check_kernel_persistence_isolation(imports: list[ImportRecord]) -> list[Violation]:
+    """内核（service/domain）import 持久化库 → 违规（含惰性导入）。
+
+    惰性导入一并计入：把 ORM 异常处理藏进函数体，依赖仍然是依赖，而且更难发现。
+    """
+    violations: list[Violation] = []
+    for record in imports:
+        if record.source_layer != "services":
+            continue
+        parts = record.source_module.split(".")
+        # 形如 services.<域>.<子包>.<...> 才算内核层。
+        if len(parts) < 3 or parts[2] not in KERNEL_SUBPACKAGES:
+            continue
+        for library in PERSISTENCE_LIBRARIES:
+            if record.target_module == library or record.target_module.startswith(
+                library + "."
+            ):
+                violations.append(
+                    Violation(
+                        rule="R5 内核持久化隔离",
+                        file=record.source_file,
+                        line=record.line,
+                        message=(
+                            f"内核层不得 import 持久化库 {record.target_module}："
+                            "端口的失败契约必须由端口自己声明"
+                            "（packages/shared/port_errors.py 的 DuplicateEntityError / "
+                            "ReferentialIntegrityError），由适配器翻译驱动异常；"
+                            "内核认识 ORM 异常会让适配器不可替换，"
+                            "并把唯一冲突与外键冲突压平成同一分支（P2-03）"
+                        ),
+                    )
+                )
+                break
+    return violations
+
+
+# --------------------------------------------------------------------------- #
 # R3 模块导入期循环
 # --------------------------------------------------------------------------- #
 def _module_graph(root: Path, imports: list[ImportRecord]) -> dict[str, set[str]]:
@@ -561,6 +628,7 @@ def run_all(root: Path = ROOT) -> dict[str, list[Violation]]:
         "R2 服务间直连": check_cross_service(imports) + check_stale_platform_dependencies(imports),
         "R3 导入期循环": check_import_cycles(root, imports),
         "R4 进程边界隔离": check_process_isolation(imports),
+        "R5 内核持久化隔离": check_kernel_persistence_isolation(imports),
     }
 
 
@@ -586,7 +654,9 @@ def main() -> int:
     print(
         f"[PASS] 分层依赖：{len(LAYER_RULES)} 层规则 / R1 方向 0 违规 / "
         f"R2 跨服务 0 违规（平台能力 {len(PLATFORM_SERVICE_DEPENDENCIES)} 项）/ "
-        f"R3 导入期循环 0 处 / R4 进程边界隔离 0 违规"
+        f"R3 导入期循环 0 处 / R4 进程边界隔离 0 违规 / "
+        f"R5 内核持久化隔离 0 违规（{len(KERNEL_SUBPACKAGES)} 类子包 / "
+        f"{len(PERSISTENCE_LIBRARIES)} 个持久化库）"
     )
     return 0
 
