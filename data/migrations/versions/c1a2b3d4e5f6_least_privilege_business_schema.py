@@ -30,9 +30,16 @@
 本迁移做什么
 ------------------------------------------------------------
 逐条执行 ``packages/shared/db_grants.py::converge_statements`` 生成的语句：
-每张表 ``REVOKE ALL`` 后按矩阵 ``GRANT``，并撤销业务 schema 的默认权限。
-**本文件不含任何手写 GRANT**——矩阵是唯一声明处，迁移只是它的执行器；
-断言 ``data.role_grants_least_privilege`` 校验两者逐条相等，任何一边漂移即红。
+每张表 ``REVOKE ALL``（含对 ``PUBLIC``）后按矩阵 ``GRANT``，并撤销业务 schema
+的默认权限。**本文件不含任何手写 GRANT**——矩阵是唯一声明处，迁移只是它的执行器。
+
+**本迁移是时间胶囊，不是矩阵的镜像**（评审 F1）。它显式传
+``_GRANTED_AT_THIS_REVISION``：只处理「写下这个 revision 时矩阵里已存在的表」。
+若不传，未来矩阵新增一张表时，本迁移会在**该表的建表迁移之前**对它
+``REVOKE ALL`` —— clean install 直接失败（表还不存在），而已升级的库又不会重跑
+本迁移（新表于是永远没有授权）。新表的授权属于**新增迁移**的职责：在建表之后
+调用 ``converge_statements(..., tables={"新表"})``。判据由断言
+``data.role_grants_least_privilege`` 保证「矩阵里每张表都被某条迁移覆盖」。
 
 另加一条运行时护栏：收敛后枚举业务 schema 的真实表，若存在矩阵未声明的表
 直接失败。理由是「矩阵覆盖」不能只靠 ORM 静态比对——迁移建的表（如未来的
@@ -72,6 +79,24 @@ _LIST_TABLES = sa.text(
     """
 )
 
+# 本 revision 时刻矩阵里的表（冻结，不随 db_grants 的未来增补而变化）。
+# 只写表名不写权限：权限仍由矩阵生成——收紧/放宽一个权限不需要新迁移，
+# 而「多了一张表」必须由新迁移在建表之后显式声明。
+_GRANTED_AT_THIS_REVISION: frozenset[str] = frozenset(
+    {
+        "projects",
+        "episodes",
+        "script_revisions",
+        "organizations",
+        "asset_versions",
+        "qc_reports",
+        "status_transitions",
+        "outbox_events",
+        "revoked_tokens",
+        "alembic_version",
+    }
+)
+
 
 def _actual_tables(schema: str) -> set[str]:
     """业务 schema 里真实存在的表名（排除分区子表：它们已在父表口径内）。"""
@@ -87,10 +112,17 @@ def _undeclared(schema: str) -> list[str]:
 
 
 def upgrade() -> None:
-    """按矩阵收敛两个业务域角色的表级权限，并撤销业务 schema 的默认权限。"""
+    """按矩阵收敛两个业务域角色的表级权限，并撤销业务 schema 的默认权限。
+
+    ``_GRANTED_AT_THIS_REVISION`` 是本迁移的**冻结范围**：clean install 时后建的
+    表还不在数据库里，对未来表的 ``REVOKE ALL`` 会直接失败；已升级的库又不会
+    重跑本迁移。新表由新迁移在建表之后声明（调用同一生成器，不手写 GRANT）。
+    """
     for domain in DOMAINS:
         role = domain_role(domain)
-        for statement in converge_statements(role, domain):
+        for statement in converge_statements(
+            role, domain, tables=_GRANTED_AT_THIS_REVISION
+        ):
             op.execute(statement)
 
     # 护栏：收敛后若还有未声明的表，说明矩阵没跟上 schema 演进。

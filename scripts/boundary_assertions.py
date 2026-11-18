@@ -920,6 +920,36 @@ def _non_docstring_literals(rel_path: str) -> list[str]:
     ]
 
 
+def _unfrozen_converge_calls(rel_paths: list[str]) -> list[str]:
+    """调用 ``converge_statements`` 但没传 ``tables=`` 快照的位置（``path:line``）。
+
+    判据只看**调用点**，不看结果：读活矩阵的迁移在「结果」上完全正常——它生成
+    的就是矩阵，语句比对当然相等。问题在时间轴上：历史迁移会随矩阵漂移，未来
+    新表的建表迁移之前就有人对它 ``REVOKE ALL``，clean install 崩在一个看起来
+    与授权无关的位置。这类缺陷无法用「当前是否等于矩阵」发现（评审 F1）。
+    """
+    found: list[str] = []
+    for rel_path in rel_paths:
+        path = ROOT / rel_path
+        if not path.exists():
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = (
+                func.attr
+                if isinstance(func, ast.Attribute)
+                else getattr(func, "id", "")
+            )
+            if name != "converge_statements":
+                continue
+            if not any(kw.arg == "tables" for kw in node.keywords):
+                found.append(f"{rel_path}:{node.lineno}")
+    return found
+
+
 def _migration_chain(revision: str) -> tuple[str, list[str]]:
     """按 alembic 版本链返回 ``(该迁移的相对路径, 它之后的迁移相对路径列表)``。
 
@@ -951,19 +981,26 @@ def evaluate_least_privilege(
     converge: dict[str, list[str]],
     rendered: list[str],
     grant_forbidden_literals: dict[str, list[str]],
+    unfrozen_converge_calls: list[str],
 ) -> list[str]:
     """判定「域角色的授权面 == 矩阵声明」（纯函数，供负向用例喂构造数据）。
 
-    四类判据，各自封一个失效模式：
+    五类判据，各自封一个失效模式：
 
     1. **矩阵覆盖**：本域 schema 的每张 ORM 表都必须在矩阵里；矩阵里声明的表
        也必须真实存在。前者防「新增表静默无权限」，后者防「表已删、矩阵还留着」
        （收敛迁移会直接失败，但那是在部署时才发现）。
-    2. **迁移 == 矩阵**：回放收敛迁移得到的语句，必须与矩阵生成的语句逐条相等。
-       防「矩阵改了、迁移没跟上」以及「迁移里手写了一份看似相同的 DDL」。
+    2. **迁移 == 矩阵**：回放**全部授权迁移**得到的语句，必须与矩阵生成的语句
+       逐条相等。防「矩阵改了、迁移没跟上」以及「迁移里手写了一份看似相同的 DDL」。
+       为什么是「全部迁移」而不只是收敛那次：迁移是时间胶囊，新表由新迁移授权，
+       并集才等于矩阵（评审 F1）。
     3. **此后的迁移不得手写 GRANT**：授权只能经矩阵收敛。这条把「下一次有人
        用 ``GRANT … ON ALL TABLES`` 图省事」挡在 CI，而不是等运行库审计发现。
-    4. 矩阵自身的问题（``validate_matrix``）原样上报。
+       大小写不敏感——SQL 关键字不分大小写，``grant`` 与 ``GRANT`` 同权（评审 F2）。
+    4. **授权迁移必须声明自己的表范围**：``converge_statements`` 的调用必须显式
+       传 ``tables=``。不传就是读活矩阵，历史迁移会在未来新表的建表迁移之前
+       对它 ``REVOKE ALL``，clean install 直接失败（评审 F1 的复发防线）。
+    5. 矩阵自身的问题（``validate_matrix``）原样上报。
     """
     problems: list[str] = list(matrix_problems)
 
@@ -1000,17 +1037,29 @@ def evaluate_least_privilege(
         )
 
     # 3. 此后的迁移不得手写 GRANT（含 ALTER DEFAULT PRIVILEGES … GRANT）。
+    #    SQL 关键字大小写不敏感：`grant` / `Grant` 与 `GRANT` 同权。正则若只认
+    #    大写，一句小写 grant 就能让矩阵被绕过而闸门仍然 PASS（评审 F2）。
     for rel_path, literals in sorted(grant_forbidden_literals.items()):
         offenders = [
             literal.strip().splitlines()[0][:80]
             for literal in literals
-            if re.search(r"(?<![A-Z])GRANT\b", literal)
+            if re.search(r"(?<![A-Za-z])GRANT\b", literal, re.IGNORECASE)
         ]
         if offenders:
             problems.append(
                 f"{rel_path} 手写 GRANT（应改为在 db_grants.py 声明 + converge_statements 执行）："
                 f"{offenders[:3]}"
             )
+
+    # 4. 授权迁移必须声明自己的表范围（评审 F1）。
+    #    判据针对「调用点」而不是「结果」：结果看起来一样，但读活矩阵的迁移会在
+    #    未来新表上先于建表执行，clean install 崩在建表迁移之前——那时报错指向
+    #    REVOKE 而不是「有人把时间胶囊写成了镜像」，排障成本极高。
+    for location in unfrozen_converge_calls:
+        problems.append(
+            f"{location} 调用 converge_statements 未传 tables= 快照："
+            "历史迁移读了活矩阵，未来新增表会让 clean install 在建表前对它 REVOKE（评审 F1）"
+        )
 
     return problems
 
@@ -1059,10 +1108,17 @@ def data_role_grants_least_privilege() -> AssertionResult:
             domain: converge_statements(domain_role(domain), domain)
             for domain in DOMAINS
         },
-        rendered=_rendered_migration_statements(converge_migration),
+        # 回放**全部**授权迁移并取并集：迁移是时间胶囊，新表由新迁移授权，
+        # 只看收敛那一次会在「矩阵加表」后误报（评审 F1）。
+        rendered=[
+            statement
+            for path in scan_paths
+            for statement in _rendered_migration_statements(path)
+        ],
         grant_forbidden_literals={
             path: _non_docstring_literals(path) for path in scan_paths
         },
+        unfrozen_converge_calls=_unfrozen_converge_calls(scan_paths),
     )
     if problems:
         return (False, "；".join(problems))

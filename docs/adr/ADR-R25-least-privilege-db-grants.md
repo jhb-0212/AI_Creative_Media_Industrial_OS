@@ -85,9 +85,13 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA project_planning
 `c1a2b3d4e5f6` 的 `upgrade()` 只有一句循环：
 
 ```python
-for statement in converge_statements(role, domain):
+for statement in converge_statements(role, domain, tables=_GRANTED_AT_THIS_REVISION):
     op.execute(statement)
 ```
+
+`tables` 是**该 revision 时刻的表名快照**，不是权限快照（权限仍由矩阵生成）。
+迁移是时间胶囊，不能读今天的矩阵决定「那时有什么表」——否则未来新增表时，历史
+迁移会在建表之前对它 `REVOKE ALL`。详见 §8 F1。
 
 每张表先 `REVOKE ALL` 再按矩阵 `GRANT`，并撤销两个业务 schema 的默认权限（TABLES 与
 SEQUENCES 各一条）。**为什么是整表重置而不是差量收紧**：差量式的结果取决于历史——
@@ -168,3 +172,72 @@ DML——`GRANT DELETE (col)` 是非法语句（PG：`invalid privilege type DEL
 | 6 | 断言会报红（5 类构造输入各报一条） | `tests/unit/test_boundary_role_grants.py` |
 | 7 | 迁移往返一致 | `alembic downgrade -1 && upgrade head` 实测 |
 | 8 | 既有用例不因收紧而失败 | 全量回归 838 passed |
+
+## 8. 评审记录（PR #19 / Codex，四条 P2 逐条核实）
+
+四条全部核实为**真**，其中 F1 与 F3 不是实现疏漏，而是决策里的结构性缺陷。逐条的
+「事实 → 根因 → 改法」如下。
+
+### F1：收敛迁移读了活矩阵（时间胶囊 vs 镜像）
+
+**事实**：`c1a2b3d4e5f6.upgrade()` 遍历 `DOMAIN_GRANTS[domain]`（模块级常量）。
+未来矩阵新增一张表时：clean install 会在这张表的**建表迁移之前**对它 `REVOKE ALL`
+——表不存在，迁移失败；而已升级的库不会重跑 `c1a2`，新表于是永远没有授权。
+
+**根因**：迁移被当成「矩阵的镜像」，而迁移的本质是**时间胶囊**。镜像会随代码漂移，
+时间胶囊不会。更糟的是它与判据 4（后续迁移不得手写 GRANT）构成死结：新迁移不许写
+GRANT，`c1a2` 又不会重跑，新表没有任何合法路径拿到授权。
+
+**改法**（三处，缺一不成立）：
+
+1. `converge_statements(role, domain, *, tables=None)`：`tables` 是冻结范围；
+2. `c1a2` 显式传 `_GRANTED_AT_THIS_REVISION`（写下 revision 时的表名快照），只处理
+   当时存在的表；未来新表由**新迁移**在建表之后调用同一生成器授权（仍然零手写 GRANT）；
+3. 断言新增判据：**授权迁移的 `converge_statements` 调用必须传 `tables=`**。这条在
+   AST 层看调用点，不看结果——读活矩阵的迁移「语句 == 矩阵」恒真，靠比对永远发现不了。
+
+判据 2 相应改为回放**全部**授权迁移取并集（新表由新迁移补，并集才等于矩阵）。
+
+### F2：GRANT 检测大小写敏感
+
+**事实**：`re.search(r"(?<![A-Z])GRANT\b", literal)` 只认大写。`grant select …` 是合法
+SQL，会绕过判据 4，而闸门仍然 PASS。
+
+**根因**：把「没有手写授权」退化成了「没有用大写字母写授权」。
+
+**改法**：`re.IGNORECASE`，并将前置断言 `(?<![A-Z])` 同步放宽为 `(?<![A-Za-z])`
+（否则小写 `grant` 前的字母会让单词边界失效）。负向用例覆盖小写形态。
+
+### F3：降级把共享表放大成可写
+
+**事实**：`legacy_statements()` 对所有非 append-only 矩阵表授 `SELECT/INSERT/UPDATE/DELETE`，
+包括 `auth.revoked_tokens`（矩阵与历史口径都只有 `SELECT`）。降级一次，域角色即可
+`DELETE` 吊销记录，已吊销令牌复活。
+
+**根因**：降级被写成「矩阵的逆」，而不是「本迁移改动的逆」。本迁移从来没有改过共享表
+的授权，所以它们**不需要回滚**——「升级前是什么」就是矩阵此刻声明的权限。把共享表也
+纳入回滚，等于在降级路径上重新制造一次 N-06。
+
+**改法**：`legacy_statements` 跳过 schema 不在 `DOMAINS` 的表；共享表原样保留。
+两条单测钉死：降级语句不得触碰 `audit/outbox/auth/public`。
+
+### F4：PUBLIC 授权对按角色的比对照不可见
+
+**事实**：三个 ACL 查询都带 `a.grantee <> 0`，而 `PUBLIC` 的 grantee 正是 OID 0。
+一旦有人 `GRANT UPDATE ON t TO PUBLIC`，所有角色（含域角色）都能写，但按角色过滤的
+比对结果里没有这一条，测试 PASS。
+
+**根因**：比对口径是「具名角色的授权」，而权限的生效口径是「角色 + PUBLIC」。
+两个口径不一致时，多授的那一类恰好落在两者的差集里。
+
+**改法**：两侧同时收紧——收敛迁移对每张表加 `REVOKE ALL … FROM PUBLIC`（表级），
+并对业务 schema 加 `ALTER DEFAULT PRIVILEGES … FROM PUBLIC`（默认权限同理）；
+运行时测试新增 `_PUBLIC_TABLE_ACL`（grantee = 0），断言业务 schema 内 PUBLIC 授权为空。
+
+### 连带修正
+
+- 迁移的 `_GRANTED_AT_THIS_REVISION` 是**表名**快照而非权限快照：收紧/放宽单个权限
+  只需改矩阵（生成器读活矩阵），「多了一张表」才必须走新迁移。这个区分让日常调权不必
+  新增迁移，同时保留了时间胶囊的时序安全。
+- 负向用例从 13 条增至 18 条（新增 F1 调用点、F2 小写、F3 共享表、F3 revoked_tokens、
+  真实仓库快照已声明）。

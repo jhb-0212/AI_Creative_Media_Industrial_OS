@@ -4,11 +4,12 @@
 断言判据真的成立，还是判据写得太松、怎么改都 PASS。本文件对每一类失效
 各构造一份输入，断言它**恰好**报出对应的那条问题。
 
-四类失效对应四类判据（见 ``evaluate_least_privilege`` 文档）：
+五类失效对应五类判据（见 ``evaluate_least_privilege`` 文档）：
 1. ORM 有新表但矩阵没声明（新表静默无权限）；
 2. 矩阵声明了不存在的表（陈旧声明，收敛迁移会失败）；
-3. 收敛迁移的语句与矩阵不一致（手写 DDL / 矩阵改了迁移没跟上）；
-4. 收敛迁移之后的迁移手写 GRANT（绕过矩阵的唯一入口）。
+3. 授权迁移的语句与矩阵不一致（手写 DDL / 矩阵改了迁移没跟上）；
+4. 迁移手写 GRANT（绕过矩阵的唯一入口，大小写均拦）；
+5. 授权迁移没声明 tables 快照（读活矩阵，未来新表会让 clean install 崩）。
 """
 
 from __future__ import annotations
@@ -57,6 +58,7 @@ def _evaluate(**overrides: object) -> list[str]:
         "converge": _converge(),
         "rendered": _rendered(),
         "grant_forbidden_literals": {},
+        "unfrozen_converge_calls": [],
     }
     kwargs.update(overrides)
     return ba.evaluate_least_privilege(**kwargs)  # type: ignore[arg-type]
@@ -147,6 +149,22 @@ def test_default_privilege_grant_is_also_handwritten_grant() -> None:
     assert any("手写 GRANT" in p for p in problems), problems
 
 
+def test_lowercase_grant_is_also_handwritten_grant() -> None:
+    """SQL 关键字不分大小写：``grant`` 与 ``GRANT`` 同权（评审 F2）。
+
+    正则若只认大写，一句小写 grant 就能绕过矩阵而闸门仍然 PASS——判据从
+    「没有手写授权」退化成「没有用大写字母写授权」。
+    """
+    problems = _evaluate(
+        grant_forbidden_literals={
+            "data/migrations/versions/zzz_later.py": [
+                "grant select, insert on project_planning.projects to role"
+            ]
+        }
+    )
+    assert any("手写 GRANT" in p for p in problems), problems
+
+
 def test_revoke_only_migration_is_allowed() -> None:
     """只 REVOKE 的迁移不触发判据（收紧授权永远安全，不该逼人绕路）。"""
     problems = _evaluate(
@@ -203,3 +221,69 @@ def test_real_repository_passes() -> None:
     """真实仓库必须 PASS——构造用例证明判据会红，这条证明它现在是绿的。"""
     ok, reason = ba.get_assertion("data.role_grants_least_privilege")()
     assert ok, reason
+
+
+# --------------------------------------------------------------------------- #
+# 5. 授权迁移必须声明自己的表范围（评审 F1）
+# --------------------------------------------------------------------------- #
+def test_converge_call_without_tables_snapshot_is_reported() -> None:
+    """读活矩阵的迁移在「结果」上完全正常，问题出在时间轴上。
+
+    这条用例守住的是「判据能不能发现一个看起来正确的迁移」：它的语句与矩阵
+    逐条相等（所以判据 2 通过），但未来矩阵加表时它会在建表迁移之前 REVOKE
+    那张还不存在的表。只能靠调用点判据抓。
+    """
+    problems = _evaluate(
+        unfrozen_converge_calls=[
+            "data/migrations/versions/c1a2b3d4e5f6_least_privilege_business_schema.py:88"
+        ]
+    )
+    assert any("未传 tables= 快照" in p for p in problems), problems
+
+
+def test_real_repository_declares_snapshot() -> None:
+    """真实迁移必须已声明快照：否则上一条用例只是「规则存在但没人遵守」。"""
+    from scripts import boundary_assertions as ba
+
+    converge_migration, later = ba._migration_chain(ba._LEAST_PRIVILEGE_REVISION)
+    assert ba._unfrozen_converge_calls([converge_migration, *later]) == []
+
+
+# --------------------------------------------------------------------------- #
+# 5. 授权迁移必须声明自己的表范围（评审 F1）
+# --------------------------------------------------------------------------- #
+def test_legacy_downgrade_does_not_touch_shared_tables() -> None:
+    """降级只回滚本迁移改过的东西——业务 schema 的域角色表级权限。
+
+    共享表（audit / outbox / auth / public）的历史口径从未被本迁移改动，所以
+    「升级前是什么」就是矩阵此刻声明的权限。早先的降级对它们一律授全量 DML，
+    把 ``auth.revoked_tokens`` 从只读放大成可 DELETE：降级一次就能删掉吊销记录，
+    让已吊销令牌复活——降级路径成了「终态不可复活」的后门。
+    """
+    from packages.shared.db_grants import DOMAINS, legacy_statements
+    from packages.shared.db_roles import domain_role
+
+    shared_markers = ("audit.", "outbox.", "auth.", "public.")
+    for domain in DOMAINS:
+        statements = legacy_statements(domain_role(domain), domain)
+        touched = [
+            statement
+            for statement in statements
+            if any(marker in statement for marker in shared_markers)
+        ]
+        assert not touched, f"{domain} 降级语句触碰了共享表：{touched}"
+
+
+def test_legacy_downgrade_never_grants_delete_on_revoked_tokens() -> None:
+    """把上一条的核心风险单独钉死：吊销记录不可被删。"""
+    from packages.shared.db_grants import DOMAINS, legacy_statements
+    from packages.shared.db_roles import domain_role
+
+    for domain in DOMAINS:
+        statements = legacy_statements(domain_role(domain), domain)
+        assert not any("revoked_tokens" in s for s in statements), statements
+
+
+# --------------------------------------------------------------------------- #
+# 6. 降级不得把共享表放大成可写（评审 F3）
+# --------------------------------------------------------------------------- #

@@ -66,6 +66,20 @@ _DEFAULT_ACL = text(
     """
 )
 
+# ``PUBLIC`` 是 grantee OID 0，``grantee::regrole`` 对它没有名字（会报错），
+# 所以只能单独查、只取权限类型。为什么要单独查：``PUBLIC`` 的授权对**所有**
+# 角色生效，却不会出现在「按角色过滤」的结果里——按角色比对越权永远看不见它
+# （评审 F4）。收敛迁移现在也 ``REVOKE … FROM PUBLIC``，两侧都要有证据。
+_PUBLIC_TABLE_ACL = text(
+    """
+    SELECT n.nspname AS schema, c.relname AS name, a.privilege_type
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    CROSS JOIN LATERAL aclexplode(c.relacl) a
+    WHERE c.relkind IN ('r', 'p') AND a.grantee = 0
+    """
+)
+
 
 async def _table_acl(admin_sessionmaker) -> dict[tuple[str, str, str], set[str]]:
     """``(role, schema, table) -> 权限集``（整表级）。"""
@@ -136,6 +150,24 @@ async def test_domain_role_privileges_match_matrix(admin_sessionmaker) -> None:
             )
 
     assert not mismatches, "域角色授权与矩阵不一致：\n" + "\n".join(mismatches)
+
+
+async def test_business_tables_grant_nothing_to_public(admin_sessionmaker) -> None:
+    """业务表不得对 ``PUBLIC`` 授任何权限（评审 F4）。
+
+    只按域角色比对会漏掉这一整类越权：``GRANT UPDATE ON t TO PUBLIC`` 让**所有**
+    角色（含域角色）都能写，而按角色过滤的 ACL 结果里根本没有这一条——比对会
+    PASS，权限却是宽的。``grantee = 0`` 就是 ``PUBLIC``。
+    """
+    async with admin_sessionmaker() as session:
+        rows = (await session.execute(_PUBLIC_TABLE_ACL)).all()
+    offenders = [
+        f"{row[0]}.{row[1]}: {row[2]}" for row in rows if row[0] in DOMAINS
+    ]
+    assert not offenders, (
+        "业务表对 PUBLIC 授权（所有角色都会继承，矩阵形同虚设）：\n"
+        + "\n".join(offenders)
+    )
 
 
 async def test_cross_domain_read_is_column_scoped(admin_sessionmaker) -> None:

@@ -292,13 +292,26 @@ def _privileges_sql(privileges: frozenset[str]) -> str:
     return ", ".join(sorted(privileges, key=lambda p: order.get(p, len(order))))
 
 
-def converge_statements(role: str, domain: str) -> list[str]:
+def converge_statements(
+    role: str, domain: str, *, tables: frozenset[str] | None = None
+) -> list[str]:
     """把该域角色的表级权限收敛到矩阵所需的**全部**语句（迁移逐条执行）。
 
     先 ``REVOKE ALL`` 再按矩阵 ``GRANT``：只 ``REVOKE`` 越权项也能达到同样效果，
     但那样「矩阵之外还有什么」永远取决于历史；``REVOKE ALL`` 让结果只取决于
     矩阵——这正是「声明式」与「差量式」的区别。域角色是专用角色，整表重置
     不会伤到别人的授权。
+
+    ``REVOKE … FROM PUBLIC`` 是判据的一部分，不是顺手多写一句：``PUBLIC`` 的
+    授权对**所有**角色生效，却不出现在「按角色过滤」的 ACL 视图里。只撤具名
+    角色的话，一次 ``GRANT UPDATE ON t TO PUBLIC`` 就能让域角色绕过矩阵而不被
+    任何按角色的比对照见（评审 F4）。
+
+    ``tables`` 是**历史迁移的冻结范围**（评审 F1）。迁移是时间胶囊：它记录的是
+    「那时该做什么」，不能读今天的矩阵去决定「那时有什么表」。不传 ``tables``
+    表示按当前矩阵全量收敛（供断言与初始化使用）；迁移必须显式传自己的快照，
+    否则未来矩阵新增一张表时，历史迁移会在**建表之前**对它 ``REVOKE ALL``，
+    clean install 直接失败，而已升级的库又不会重跑该迁移。
 
     默认权限的撤销也在本函数里：``ALTER DEFAULT PRIVILEGES`` 让未来表天生带权限，
     不撤销就等于把同一个根因留给「下一次建表」（``8f3b2c1d4e5a`` 曾给域角色
@@ -312,9 +325,15 @@ def converge_statements(role: str, domain: str) -> list[str]:
         f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
         f"REVOKE ALL ON SEQUENCES FROM {role}"
         for schema in DOMAINS
+    ] + [
+        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} REVOKE ALL ON TABLES FROM PUBLIC"
+        for schema in DOMAINS
     ]
     for grant in DOMAIN_GRANTS[domain]:
+        if tables is not None and grant.table not in tables:
+            continue
         qualified = grant.qualified()
+        statements.append(f"REVOKE ALL ON {qualified} FROM PUBLIC")
         statements.append(f"REVOKE ALL ON {qualified} FROM {role}")
         statements.append(grant.grant_statement(role))
     return statements
@@ -334,6 +353,14 @@ def legacy_statements(role: str, domain: str) -> list[str]:
     }
     statements: list[str] = []
     for grant in DOMAIN_GRANTS[domain]:
+        if grant.schema not in DOMAINS:
+            # 共享表（audit / outbox / auth / public）**不归本迁移管**（评审 F3）。
+            # 本迁移从未改过它们的历史口径，所以「升级前是什么」就是矩阵此刻声明
+            # 的权限——不需要也不应该在这里重建。早先版本对它们一律「REVOKE ALL
+            # + 全量 DML」，把 ``auth.revoked_tokens`` 从只读放大成可 DELETE，
+            # 于是降级一次就能删掉吊销记录、让已吊销令牌复活——降级路径成了
+            # 「终态不可复活」的后门。降级只回滚自己改过的东西。
+            continue
         if grant.columns is not None:
             # 列级授权：历史口径与矩阵一致（b3c4d5e6f7a8 授的就是这三列只读），
             # 回滚不需要也不允许把它放大成整表 DML——`GRANT DELETE (col)` 是
