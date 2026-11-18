@@ -1,58 +1,21 @@
-feat(audit): 状态迁移事实表落地——审批可追溯从「靠 outbox 保留期」变成第一类事实（D2 / ADR-R23）
+fix(audit): 资产事件按契约写操作者字段名（changed_by/approved_by/reviewed_by），并加用例锁住
 
-根因：一次推进此前只留两处痕——每次迁移被覆盖的 audit_ref，与按保留期 DETACH 的
-outbox 分区。于是「谁在什么证据下批准了什么」在保留期之后不可查询，事实的生命周期
-由传输机制的保留策略决定；AUTH-5 累积式会签因此不是排期问题，是模型里没有落点。
+自查发现（与 QC_REPORT_CREATED 漏 quality_profile_version 同源）：事件契约
+`payload_required` 逐事件声明了操作者字段名，而 `_advance` 统一写成 `"actor"`：
+- ASSET_VERSION_STATUS_CHANGED 要 changed_by
+- ASSET_VERSION_APPROVED 要 approved_by
+- ASSET_VERSION_HUMAN_REVIEW_ENTERED 要 reviewed_by
 
-本批按 ADR-R23 实施 D2a，不动状态机语义、不动 outbox 保留期：
+名字不对 = 事件里缺了必填事实，而事件闸门只校验 YAML 字段存在、不校验代码是否真发，
+所以这个缺口对 CI 完全隐形。
 
-一、先收敛，再挂记录点（不按散点铺开）
-  实测原有 5 条持久化迁移路径（asset _advance / asset create_qc_report 内联 /
-  project:178 / episode:189 / script:337），四步序列被复制 5 次。
-  若记录点跟着 5 处铺开，就是把「同一规则多份实现」再犯一遍。
-  → 新增 services/project_planning/service/transition.py::advance_status，
-    三个 service 共用；asset 的 QC 内联路径并回 _advance（extra_payload 承载差异），
-    「只发事件不推进状态」的分支抽成 _record_event。
-    5 条 → 2 条，并用 AST 白名单封住第 6 条（data.transition_single_entry）。
+改法不是「再加一个 actor 键」（那会让同一事实有两个名字，等于造第二个事实源），
+而是给 `_advance` 增加 `actor_field`，由各调用点按自己事件的契约传名字；
+`actor_subject` 仍只存在于迁移事实里，职责不重叠。
 
-二、事实与事件必须互指（端口层面无法只写一条）
-  SqlAlchemyOutboxWriter.record_transition 一次写两条：事件 payload 带 transition_id，
-  事实带 event_id。拆成两个方法就等于允许只写一条，而那只失败形态正是要消除的。
-  之所以不用外键：实测 outbox_events 主键是 (event_id, occurred_at) 且按 occurred_at
-  分区，event_id 单独不唯一，外键建不出来；改用提交时约束触发器校验事件存在。
-  附带收益：校验在 COMMIT 发生，写入顺序不再需要人记。
+同时补一条以契约为准的用例：跑通 QC / 复核 / 批准 / 状态变更四条路径，
+逐条核对实际 payload 是否覆盖 `payload_required`，并断言至少检查了 4 条事件
+（否则用例会静默空跑）。这类缺口闸门查不到，只能用运行时用例锁。
 
-三、约束交给数据库，不交给「记得写对」
-  - UNIQUE(tenant_id, resource_type, resource_id, entity_version)：并发双写结构上不可能
-  - CHECK(from_status <> to_status)：no-op 行不能冒充迁移（也就不能冒充会签）
-  - append-only 三条：行级 UPDATE/DELETE + 语句级 TRUNCATE + 提交时事件校验
-  - RLS ENABLE + FORCE（只 enable 不 force 会漏掉所有者，之前踩过）
-  - 顺带补齐既有 qc_reports / asset_versions 的 TRUNCATE 缺口（实测 d1e2f3a4b5c6 只装了
-    行级守卫，两张表都能被清空）——不允许新表新标准、旧表旧标准
-
-四、audit_ref 降级为指针 + 遗留值三态
-  tr:<transition_id> 为指针；迁移前的自由串（实测 ASSET.STATUS.CHANGE:director_1）
-  判为 legacy，不解析、不判错——要求「全部可解析」会把合法历史判成损坏，与「不回填
-  历史」自相矛盾。写侧由 AST 断言封闭（赋值只许在 _advance_version）。
-
-五、三处实施决策（记录在 ADR §9，不埋在代码里）
-  - record_transition 挂在既有 OutboxWriter 端口上，不新建 Recorder 层（端口名比职责窄，
-    已在 docstring 写明；改名的收益只是 diff 变小）
-  - 剧本取代的 actor 取真实主体 principal.subject_id，不为满足 NOT NULL 编造 "system"
-  - evidence_refs 只登记已知引用（QC 推进写 qc_report_id），不为填满字段额外查库
-  - 另修一个顺带发现的契约缺口：QC_REPORT_CREATED 的 payload_required 早声明了
-    quality_profile_version，旧代码从未发送（事件闸门只校验字段存在，不校验是否真发）
-
-契约：V205-R14-A12 登记 StatusTransition → Schema 84 = 76+8，冻结清单重签。
-不变量：17 → 19，新增 DATA-4（推进唯一入口）、DATA-5（事实 append-only 且不可假造），
-两者均由可执行断言判定，debt 0。
-
-验证（真实 PostgreSQL 16）：
-  freeze     PASS  Action 84 = 75+9 / Schema 84 = 76+8 / 状态机 43 = 35+8
-  contract   PASS  19 条不变量（断言 19 / partial 0 / debt 0）
-  arch       PASS  R1-R5 零违规
-  alembic    check 无漂移（先按 varchar 统一类型，回滚重跑后复检）
-  ruff/mypy  PASS（105 文件）
-  pytest     760 passed / 0 failed / 0 skipped
-  新增 10 条边界用例：互指、无事件提交被拒、UPDATE/DELETE/TRUNCATE（含所有者身份）、
-  既有两表 TRUNCATE、同版本唯一、no-op 拒绝、跨租户 RLS、指针三态编解码。
+验证：ruff / mypy / freeze / contract（19 不变量 debt 0）/ arch 全绿；
+pytest 761 passed / 0 failed / 0 skipped。

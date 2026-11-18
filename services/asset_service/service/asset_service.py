@@ -382,6 +382,7 @@ class AssetService:
                     context,
                     principal=principal,
                     event_type="ASSET_VERSION_HUMAN_REVIEW_ENTERED",
+                    actor_field="reviewed_by",
                 )
             else:
                 await self._advance(
@@ -390,6 +391,7 @@ class AssetService:
                     context,
                     principal=principal,
                     event_type="ASSET_VERSION_APPROVED",
+                    actor_field="approved_by",
                 )
         return asset
 
@@ -434,6 +436,7 @@ class AssetService:
             context,
             principal=principal,
             event_type="ASSET_VERSION_STATUS_CHANGED",
+            actor_field="changed_by",
         )
         return asset
 
@@ -468,12 +471,19 @@ class AssetService:
         event_type: str,
         extra_payload: Mapping[str, Any] | None = None,
         evidence_refs: tuple[str, ...] = (),
+        actor_field: str | None = None,
     ) -> None:
         """求值守卫 → 乐观锁迁移 → 同事务写事件（R07）。
 
         ``extra_payload`` 只用于补**该事件特有**的键（如 QC 事件的 `qc_report_id`），
         与基础 payload 同名时以 extra 为准（QC 事件的 `created_by` 是报告创建者，
         不是资产创建者——这个差异必须由调用方显式覆盖，不能靠基础 payload 猜）。
+
+        ``actor_field`` 是操作者在该事件契约里的键名：`ASSET_VERSION_APPROVED` 要
+        `approved_by`、`..._HUMAN_REVIEW_ENTERED` 要 `reviewed_by`、`..._STATUS_CHANGED`
+        要 `changed_by`。**不能统一写 `actor`**——那三个名字是事件契约声明的
+        `payload_required`，写别的名字等于事件里缺了必填事实，而事件闸门只校验
+        字段存在、不校验代码是否真发（本轮已因此发现两处缺口）。
         """
         evaluate(edge.guards, asset, context)
 
@@ -516,7 +526,7 @@ class AssetService:
                     "project_id": asset.project_id,
                     "from_status": previous_status.value,
                     "to_status": edge.target.value,
-                    "actor": context.actor,
+                    **({actor_field: context.actor} if actor_field else {}),
                     "owner_action": edge.owner_action,
                     "created_by": asset.created_by,
                     "qc_report_count": context.qc_report_count,

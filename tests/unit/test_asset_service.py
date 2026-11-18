@@ -8,8 +8,10 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
+import yaml
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.identity.principal import Principal
@@ -24,6 +26,15 @@ from services.asset_service.service.asset_service import AssetService
 
 _TENANT = uuid.UUID("00000000-0000-0000-0000-000000000000")
 _SHA = "b" * 64
+
+_CATALOG_PATH = (
+    Path(__file__).resolve().parents[2] / "contracts/runtime/event_catalog.yaml"
+)
+# 事件契约的必填字段（模块导入时读一次；用例只做比对，不做 IO）。
+_EVENT_REQUIRED: dict[str, list[str]] = {
+    entry["event_type"]: entry["payload_required"]
+    for entry in yaml.safe_load(_CATALOG_PATH.read_text(encoding="utf-8"))["events"]
+}
 
 
 class FakeAssetRepository(AssetRepository):
@@ -603,3 +614,47 @@ def test_service_layer_holds_no_evidence_rules() -> None:
     ).read_text(encoding="utf-8")
     assert "if not asset.rights_manifest_ref" not in source
     assert "report_count == 0" not in source
+
+
+async def test_asset_events_carry_catalog_required_payload_keys(
+    service: tuple[AssetService, FakeAssetRepository, FakeQCRepository, FakeOutboxWriter],
+) -> None:
+    """资产事件必须真的发出契约声明的必填字段（不是「字段存在」就算）。
+
+    事件闸门只校验 ``payload_required`` 字段**存在**于 YAML，不校验代码是否真发。
+    实测因此漏过两处：``QC_REPORT_CREATED`` 从未发 ``quality_profile_version``；
+    三个事件的操作者字段被统一写成 ``actor``，而契约分别要求 ``changed_by`` /
+    ``approved_by`` / ``reviewed_by``——名字不对，等于事件里缺了必填事实。
+    本用例以契约为准逐字段核对实际发出的 payload。
+    """
+    svc, _, _, outbox = service
+    asset = await _create(svc)
+    await svc.create_qc_report(
+        asset_version_id=asset.entity_id,
+        quality_profile_version="qp-1",
+        detector_versions={"blur": "1.0"},
+        findings=[{"code": "BLUR"}],
+        principal=_principal("qc-1", "QC Worker"),
+    )
+    await svc.approve(
+        asset_version_id=asset.entity_id, principal=_principal("director-1", "导演")
+    )
+    await svc.change_status(
+        asset_version_id=asset.entity_id,
+        target_status=AssetStatus.GOLD,
+        changed_by="director-2",
+        principal=_principal("director-2", "导演"),
+    )
+
+    checked = 0
+    for event in outbox.events:
+        name = str(event["event_type"])
+        if name not in _EVENT_REQUIRED:
+            continue
+        payload = event["payload"]
+        assert isinstance(payload, dict)
+        missing = [key for key in _EVENT_REQUIRED[name] if key not in payload]
+        assert not missing, f"{name} 缺少契约必填字段：{missing}"
+        checked += 1
+    # 至少覆盖 QC / 复核 / 批准 / 状态变更四条路径，否则用例会静默空跑。
+    assert checked >= 4
