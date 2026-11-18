@@ -40,6 +40,8 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import os
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,6 +51,17 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE_DOC = ROOT / "docs" / "baseline" / "AI影视工业化生产平台V2.0.5.md"
+
+# 「游离副本」扫描时跳过的目录：它们不是仓库交付物，把基线正文放进去也不构成
+# 「读者会读到第二份正文」的风险（依赖包与工具缓存的内部文件不会被当作基线引用）。
+_SCAN_EXCLUDED_DIRS = frozenset(
+    {".git", ".venv", "venv", "node_modules", "__pycache__",
+     ".mypy_cache", ".ruff_cache", ".pytest_cache"}
+)
+
+# 正文 31.6 的自述数量口径：基线是「冻结时刻的快照」，它自述的 action 数必须等于
+# 冻结清单登记的基线数，不能随手改成「当前注册数」（那是派生文件的事实）。
+_SELF_REPORTED_ACTIONS = re.compile(r"当前共注册\s*(\d+)\s*项规范 action_key")
 INVENTORY_PATH = ROOT / "contracts" / "phase0" / "frozen_inventory.yaml"
 AMENDMENTS_PATH = ROOT / "contracts" / "phase0" / "contract_amendments.yaml"
 MANIFEST_PATH = ROOT / "contracts" / "phase0" / "phase0_manifest.md"
@@ -208,6 +221,72 @@ def check_baseline_document(inventory: dict[str, Any]) -> list[str]:
             f"基线主文档 SHA-256 变更：{actual_hash[:16]}… ≠ 登记的 {expected_hash[:16]}…；"
             "正文哈希变化即新修订，必须重新派生全部契约产物并重签清单"
         )
+    return problems
+
+
+def check_stray_baseline_copies() -> list[str]:
+    """仓库内不得存在与基线**同名**的正文副本（只看文件名，不看内容）。
+
+    判定依据是「同名即歧义」而不是「内容不同才算漂移」：读者（尤其是新加入的
+    人或 Agent）按文件名找权威源，两份同名的正文会让「哪一份受校验」变成需要
+    考古的问题；内容相同也一样——因为下一个人改的可能是没受校验的那一份，而
+    CI 全程绿灯。内容不同只是把这种歧义变成了既成事实。
+
+    存量教训（N-01）：根目录曾长期存在一份手工回填过修订的副本，`README` 还把它
+    称为「配套基线文档」，于是同一件事出现 75 / 83 / 84 三个数字，且引用了一个
+    不存在的 ADR。固定路径校验对此完全无感。
+    """
+    if not BASELINE_DOC.exists():
+        # 缺失由 check_baseline_document 报，这里不重复报同一件事。
+        return []
+    name = BASELINE_DOC.name
+    folded = name.casefold()
+    authoritative = BASELINE_DOC.resolve()
+    stray: list[Path] = []
+    for current, dirs, files in os.walk(ROOT):
+        dirs[:] = [d for d in dirs if d not in _SCAN_EXCLUDED_DIRS]
+        # 按 casefold 比对：Windows 上同名不同大小写本就是同一个文件，而 Linux CI
+        # 大小写敏感，`…V2.0.5.MD` 会以「不同文件名」逃过精确匹配。
+        matches = [f for f in files if f.casefold() == folded]
+        for filename in matches:
+            candidate = Path(current) / filename
+            if candidate.resolve() != authoritative:
+                stray.append(candidate)
+    return [
+        f"发现基线正文的游离副本：{_rel(path)}；基线唯一权威路径是 {_rel(BASELINE_DOC)}"
+        "——正文修订只能改权威路径并在修改后重新派生、重签清单，副本必须删除"
+        for path in sorted(stray)
+    ]
+
+
+def check_baseline_self_reported_counts(inventory: dict[str, Any]) -> list[str]:
+    """正文自述的 action 数量必须等于冻结清单登记的基线数量。
+
+    基线正文 31.6 有一句「当前共注册 N 项规范 action_key」。它描述的是**冻结时刻**
+    的事实，因此 N 必须等于 ``frozen_inventory.baseline.counts.actions``，而不是
+    当前注册表的大小（后者已含修订增量，登记在 ``contract_amendments.yaml``）。
+
+    这条断言针对的失败形态很具体：手工把修订内容回填正文时，很自然地会顺手把 N
+    改成「现在有多少个」——回填 8 条却写 83、而真实是 84，正文与注册表就此分叉，
+    且没有任何一层能发现（哈希层只保证「正文没被改」，不保证「正文说得对」）。
+
+    句子不存在时不报错：删除这句话必然改变正文字节，由第一层哈希校验拦截，无需
+    在这里重复判定。
+    """
+    if not BASELINE_DOC.exists():
+        return []
+    baseline = _mapping(inventory.get("baseline"), "frozen_inventory.baseline")
+    counts = _mapping(baseline.get("counts"), "frozen_inventory.baseline.counts")
+    expected = counts.get("actions")
+    text = BASELINE_DOC.read_text(encoding="utf-8")
+    problems: list[str] = []
+    for matched in _SELF_REPORTED_ACTIONS.finditer(text):
+        declared = int(matched.group(1))
+        if declared != expected:
+            problems.append(
+                f"基线正文 31.6 自述 action 数 {declared} ≠ 冻结清单登记的基线数 {expected}；"
+                "修订增量登记在 contract_amendments.yaml，正文不得回填成「当前注册数」"
+            )
     return problems
 
 
@@ -534,6 +613,8 @@ def check_all() -> list[str]:
     inventory = _mapping(_load_yaml(INVENTORY_PATH), "frozen_inventory.yaml")
     problems: list[str] = []
     problems += check_baseline_document(inventory)
+    problems += check_stray_baseline_copies()
+    problems += check_baseline_self_reported_counts(inventory)
     problems += check_manifest_integrity()
     problems += check_amendment_consistency(inventory)
     problems += check_openapi_parity()

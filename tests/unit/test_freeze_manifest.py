@@ -394,3 +394,73 @@ def test_check_cli_reports_failures_without_traceback(pack: FrozenPack) -> None:
     """CLI 遇到漂移应打印 [FAIL] 并返回 1，而不是抛栈。"""
     pack.doc.write_text("# 被改\n", encoding="utf-8")
     assert fm.main(["--check"]) == 1
+
+
+# --------------------------------------------------------------------------- #
+# 第一层补充：基线正文的事实源唯一性（N-01 / ADR-R22）
+# --------------------------------------------------------------------------- #
+def test_stray_baseline_copy_detected(pack: FrozenPack) -> None:
+    """仓库根出现一份同名正文副本 → 必须报「游离副本」。
+
+    这是历史真实形态：根目录副本被手工回填过修订，README 还把它称为「配套基线文档」，
+    于是同一件事出现 75 / 83 / 84 三个数字，而固定路径校验全程绿灯。
+    """
+    stray = pack.root / pack.doc.name
+    stray.write_text("# 另一份正文\n", encoding="utf-8")
+    problems = fm.check_stray_baseline_copies()
+    assert any("游离副本" in p and pack.doc.name in p for p in problems)
+
+
+def test_stray_copy_with_identical_content_still_detected(pack: FrozenPack) -> None:
+    """副本内容与权威源完全一致，也要报红。
+
+    判定口径是「同名即歧义」：内容相同不代表没问题——下一个人改的可能是没受校验的那一份。
+    """
+    stray = pack.root / pack.doc.name
+    stray.write_bytes(pack.doc.read_bytes())
+    assert len(fm.check_stray_baseline_copies()) == 1
+
+
+def test_stray_copy_with_different_case_detected(pack: FrozenPack) -> None:
+    """大小写变体也是副本。
+
+    Windows 上 `…V2.0.5.MD` 与 `…V2.0.5.md` 本就是同一个文件；而 Linux CI 大小写敏感，
+    精确匹配会让它以「另一个文件名」的身份逃过闸门。判定按 casefold 比对。
+    """
+    stray = pack.root / pack.doc.name.upper()
+    stray.write_text("# 大小写变体\n", encoding="utf-8")
+    assert len(fm.check_stray_baseline_copies()) == 1
+
+
+def test_stray_copy_in_dependency_dir_ignored(pack: FrozenPack) -> None:
+    """依赖/缓存目录里的同名文件不算游离副本（扫描边界的正向说明）。"""
+    buried = pack.root / ".venv" / "lib" / pack.doc.name
+    buried.parent.mkdir(parents=True, exist_ok=True)
+    buried.write_text("依赖包自带文件\n", encoding="utf-8")
+    assert fm.check_stray_baseline_copies() == []
+
+
+def test_authoritative_baseline_is_not_reported_as_stray(pack: FrozenPack) -> None:
+    """权威路径自身不得被判为副本（否则闸门天天红，等于没有闸门）。"""
+    assert fm.check_stray_baseline_copies() == []
+
+
+def test_baseline_self_reported_action_count_mismatch_detected(pack: FrozenPack) -> None:
+    """正文自述「当前共注册 N 项」与冻结清单的基线数不一致 → 必须报红。
+
+    这正是副本写「83」的成因：回填 8 条修订、数了自己加的行，而真实是 75+9=84。
+    """
+    pack.doc.write_text(
+        "# 基线正文\n当前共注册 99 项规范 action_key；\n", encoding="utf-8"
+    )
+    problems = fm.check_baseline_self_reported_counts(fm._load_yaml(pack.inventory))
+    assert any("自述 action 数 99" in p for p in problems)
+
+
+def test_baseline_self_reported_action_count_consistent(pack: FrozenPack) -> None:
+    """自述数量等于冻结基线数时放行（正文是快照，不是当前注册数）。"""
+    pack.doc.write_text(
+        f"# 基线正文\n当前共注册 {len(pack.BASE_ACTIONS)} 项规范 action_key；\n",
+        encoding="utf-8",
+    )
+    assert fm.check_baseline_self_reported_counts(fm._load_yaml(pack.inventory)) == []
