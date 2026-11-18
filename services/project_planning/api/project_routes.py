@@ -15,7 +15,11 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from packages.identity.ownership import OwnershipPath, ResourceRef
+from packages.identity.ownership import (
+    OwnershipPath,
+    ResourceRef,
+    SqlOwnershipResolver,
+)
 from packages.shared.contract_models import contract_model
 from packages.shared.unit_of_work import UnitOfWork
 from services.identity_access.deps import (
@@ -86,17 +90,24 @@ async def create_project(
     service: ProjectService = Depends(_get_service),
 ) -> dict[str, Any]:
     """创建项目（幂等）。created_by / tenant_id 来自可信 Principal。"""
-    # 组织归属写入即授权：目标资源的归属由请求体给出（尚未落库），
-    # 仍走同一套范围判定，不为创建路径开特例。
+    # 组织归属写入即授权：目标资源尚未落库，仍走同一套范围判定，不为创建路径
+    # 开特例。但归属必须来自**数据库事实**，不能拿请求体 + principal 拼一条必然
+    # 自洽的路径——那等于组织这一环自证，跨租户要等外键报错才被发现，且会被
+    # 映射成「并发修改」掩盖真实原因。这里按 resource_id 解析组织：
+    # 跨租户在 RLS 下解析不到 → authorize 转 404（与「不可见」同形）；
+    # 同租户跨组织 → 403 AUTH_SCOPE_DENIED。
+    ownership = (
+        await SqlOwnershipResolver(uow.session).resolve(
+            "Organization", str(body.organization_id)
+        )
+        if body.organization_id is not None
+        else OwnershipPath(tenant_id=principal.tenant_id)
+    )
     authorize(
         "PROJECT.CREATE",
         principal,
         ResourceRef("Project", None),
-        OwnershipPath(
-            tenant_id=principal.tenant_id,
-            organization_id=body.organization_id,
-            project_id=None,
-        ),
+        ownership,
     )
     project = await service.create_project(
         project_name=body.project_name,

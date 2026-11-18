@@ -89,6 +89,16 @@ class OwnershipResolver(Protocol):
 # 资产/质检报告跨 schema 读 project_planning.projects 的三列归属键
 # （迁移 b3c4d5e6f7a8 的列级授权），读不到项目业务字段。
 _RESOLVE_SQL: dict[str, str] = {
+    # 链的根：组织本身也要能解析，否则「创建时指定组织归属」这条路径无法用
+    # 数据库事实回答「该组织是否在我这个租户内」，只能拿 principal 的租户拼一条
+    # 必然自洽的路径（自证），把跨租户判定漏给外键、再被映射成 409。RLS 使跨租户
+    # 查不到 → None → 统一 404，与其余资源同形。
+    # 归属链根节点没有上级，project_id 恒为 NULL。
+    "Organization": """
+        SELECT o.tenant_id, o.organization_id, CAST(NULL AS text) AS project_id
+        FROM project_planning.organizations AS o
+        WHERE o.organization_id = CAST(:rid AS uuid)
+    """,
     "Project": """
         SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
         FROM project_planning.projects AS p
