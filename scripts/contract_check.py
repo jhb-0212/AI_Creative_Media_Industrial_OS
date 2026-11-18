@@ -763,6 +763,7 @@ def _serializer_factories() -> dict[str, object]:
             entity_id="probe-asset",
             created_by="probe",
             tenant_id=tenant_id,
+            project_id="probe-project",
             asset_type="video",
             sha256="0" * 64,
             storage_ref={"bucket": "probe", "key": "probe"},
@@ -1104,10 +1105,20 @@ def check_implemented_permission_wiring() -> bool:
             ok = False
             continue
         source = module_path.read_text(encoding="utf-8")
-        if f'require_role("{key}")' not in source:
+        # 两种授权依赖都算「接上了」，且 require_resource_role 是更强的那个：
+        # 它在动作级 RBAC/Capability 之外还判定资源归属（AUTH-1 的资源输入）。
+        # 只认 require_role 会让资源级改造被误判为「没挂授权」。
+        # 允许换行/缩进（资源级依赖参数较多，动作键常在下一行）。
+        wired = bool(
+            re.search(
+                rf'require_(?:resource_)?role\(\s*"{re.escape(key)}"', source
+            )
+        )
+        if not wired:
             print(
                 f"[FAIL] {key} 在 {module_rel} 中没有挂 require_role"
-                f'("{key}")——端点存在但没有授权依赖'
+                f'("{key}") 或 require_resource_role("{key}", ...)'
+                "——端点存在但没有授权依赖"
             )
             ok = False
 
@@ -1527,22 +1538,30 @@ def check_event_catalog() -> bool:
 # --------------------------------------------------------------------------- #
 # 为什么需要这个校验（R1 一个事实一个权威源 + 边界缺口不可静默增长）
 # ------------------------------------------------------------------------
-# contracts/security_boundary.yaml 是授权/资源归属/数据所有权/进程密钥四条
-# 边界的唯一权威源。它必须是**结构化约束**而非解释文档：本函数把它读进来，
-# 逐条校验结构自洽——每条不变量必须落在 satisfied / partial / debt 三态之一，
-# 且 debt 必须给 reason / contract_ref / unblocks_when 三项完整、partial 必须
-# 给 satisfied / missing / unblocks_when。这样「边界缺口」就与 resource_schema_gaps /
-# state_machine_gaps 一样，成为可双向校验的显式债务，而不是没人读的散文。
+# contracts/security_boundary.yaml 是授权/资源归属/数据所有权/进程密钥/进程凭证
+# 五条边界的唯一权威源。它必须是**结构化约束**而非解释文档。
+#
+# 本轮整改的关键变化：**status: satisfied 被禁止手写**。
+# 此前的不变量靠人工填 satisfied 销项，本函数只校验 YAML 结构自洽——结果是
+# AUTH-1（授权单一入口）标记 satisfied，而组织级判定实际手写在路由层；
+# KEYS-1 标记 satisfied，而其文句根本没覆盖数据库凭证，identity 继承 postgres
+# 超级用户口令对闸门因此是隐形的。闸门只能证明「有人写了 satisfied」，不能证明
+# 「事实成立」，这就是第三轮、第二轮审查反复从同一条缝挖出 P1 的机制。
+#
+# 现在的判定方式（两级证据，各管各的事实）：
+# - 无 status 字段 → 必须声明 assertion（scripts/boundary_assertions.py 的注册 id），
+#   由闸门**执行**它判定成立与否；断言由红转绿只能靠改实现。
+# - runtime_evidence（pytest 节点列表）→ 指向真实行为测试，闸门校验节点真实存在，
+#   由 CI 的 `pytest tests` 在真实 PostgreSQL 上执行（闸门同时校验 CI 确实跑了它）。
+# - status 仅允许 partial / debt，且必须带完整原因与解除条件。
 #
 # 校验点：
-# 1. 文件存在且顶层为映射，含四条边界（authorization / resource_scope /
-#    data_ownership / process_keys），缺一报红；
-# 2. 每条不变量有 id / name / statement / fact_source / verification / status；
-# 3. status ∈ {satisfied, partial, debt}，且按状态要求对应字段：
-#    - debt     → reason / contract_ref / unblocks_when 三项完整；
-#    - partial  → satisfied / missing / unblocks_when 三项完整；
-#    - satisfied→ 不得残留 debt / partial 子块（陈旧债务必须清理）。
-# 4. 不变量 id 全局唯一（防复制粘贴出重名）。
+# 1. 文件存在且顶层为映射，含五条边界（authorization / resource_scope /
+#    data_ownership / process_keys / credential_scope），缺一报红；
+# 2. 每条不变量有 id / name / statement / fact_source / verification；
+# 3. status 出现即必须是 partial / debt，且子块字段完整；写 satisfied 直接报红；
+# 4. 无 status 时必须 assertion 已注册且执行通过，runtime_evidence 节点真实存在；
+# 5. 不变量 id 全局唯一（防复制粘贴出重名）。
 
 SECURITY_BOUNDARY_PATH = CONTRACTS / "security_boundary.yaml"
 
@@ -1551,6 +1570,7 @@ _SECURITY_BOUNDARY_SECTIONS = (
     "resource_scope",
     "data_ownership",
     "process_keys",
+    "credential_scope",
 )
 
 _SECURITY_BOUNDARY_INVARIANT_REQUIRED = (
@@ -1559,17 +1579,51 @@ _SECURITY_BOUNDARY_INVARIANT_REQUIRED = (
     "statement",
     "fact_source",
     "verification",
-    "status",
 )
 
-_SECURITY_BOUNDARY_STATUSES = ("satisfied", "partial", "debt")
+# status 只允许「显式欠账」两种；satisfied 由断言执行结果决定，不再可写。
+_SECURITY_BOUNDARY_DECLARED_STATUSES = ("partial", "debt")
 
 _DEBT_REQUIRED = ("reason", "contract_ref", "unblocks_when")
 _PARTIAL_REQUIRED = ("satisfied", "missing", "unblocks_when")
 
 
+def _assertion_registry():
+    """延迟导入断言注册表（脚本目录加入 sys.path，支持 `python scripts/xxx.py` 直跑）。"""
+    scripts_dir = str(Path(__file__).resolve().parent)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    import boundary_assertions
+
+    return boundary_assertions
+
+
+def _test_node_exists(node: str) -> bool:
+    """校验 ``tests/x.py::test_y`` 指向的测试函数真实存在（防指向空气）。"""
+    path_part, _, func_part = node.partition("::")
+    path = Path(path_part)
+    if not path.is_absolute():
+        path = CONTRACTS.parent / path_part
+    if not path.exists():
+        return False
+    if not func_part:
+        return True
+    # 参数化节点形如 test_x[a-b]：只校验函数本体存在。
+    func_name = func_part.split("[", 1)[0]
+    pattern = rf"^\s*(?:async\s+)?def\s+{re.escape(func_name)}\b"
+    return re.search(pattern, path.read_text(encoding="utf-8"), re.M) is not None
+
+
+def _ci_runs_full_test_suite() -> bool:
+    """CI 必须真实执行 runtime_evidence 指向的测试（否则证据只是装饰）。"""
+    workflow = CONTRACTS.parent / ".github/workflows/ci.yml"
+    if not workflow.exists():
+        return False
+    return "pytest tests" in workflow.read_text(encoding="utf-8")
+
+
 def check_security_boundary() -> bool:
-    """校验安全与数据边界契约的结构自洽（债务/半满足/已满足三态一致）。"""
+    """校验安全与数据边界契约：断言执行结果 + 显式债务一致性。"""
     data = load_yaml_mapping(SECURITY_BOUNDARY_PATH)
     ok = True
 
@@ -1582,10 +1636,12 @@ def check_security_boundary() -> bool:
         )
         ok = False
 
+    registry = _assertion_registry()
     seen_ids: set[str] = set()
     total_invariants = 0
     debt_count = 0
     partial_count = 0
+    verified_count = 0
 
     for section in _SECURITY_BOUNDARY_SECTIONS:
         invariants = data.get(section, {}).get("invariants")
@@ -1622,11 +1678,31 @@ def check_security_boundary() -> bool:
             seen_ids.add(inv_id)
 
             status = str(inv.get("status", "")).strip()
-            if status not in _SECURITY_BOUNDARY_STATUSES:
+            has_sub_block = "debt" in inv or "partial" in inv
+
+            if status == "satisfied":
                 print(
-                    f"[FAIL] {inv_id} 的 status 非法: {status!r}（须为 "
-                    f"{'/'.join(_SECURITY_BOUNDARY_STATUSES)}）"
+                    f"[FAIL] {inv_id} 写了 status: satisfied —— 已禁止手写。"
+                    "删掉该字段并声明 assertion（由闸门执行判定）；"
+                    "确实未完成则写 partial/debt 并给原因。"
                 )
+                ok = False
+                continue
+            if status and status not in _SECURITY_BOUNDARY_DECLARED_STATUSES:
+                print(
+                    f"[FAIL] {inv_id} 的 status 非法: {status!r}（只允许 "
+                    f"{'/'.join(_SECURITY_BOUNDARY_DECLARED_STATUSES)}）"
+                )
+                ok = False
+                continue
+            # 一条不变量只能有一种欠账形态：partial 挂 debt 子块会让「还差什么」
+            # 与「何时解除」出现两套说法，正是本轮要消除的多事实源。
+            if status == "partial" and "debt" in inv:
+                print(f"[FAIL] {inv_id} 同时声明 partial 与 debt 子块（欠账形态必须唯一）")
+                ok = False
+                continue
+            if status == "debt" and "partial" in inv:
+                print(f"[FAIL] {inv_id} 同时声明 debt 与 partial 子块（欠账形态必须唯一）")
                 ok = False
                 continue
 
@@ -1643,14 +1719,9 @@ def check_security_boundary() -> bool:
                 if missing:
                     print(f"[FAIL] {inv_id} 债务登记缺字段: {missing}")
                     ok = False
-                # 防陈旧：status 已是 satisfied 却仍挂 debt 子块。
-                if "debt" in inv and inv.get("status") == "satisfied":
-                    print(
-                        f"[FAIL] {inv_id} 已满足却残留 debt 子块（陈旧债务必须清理）"
-                    )
-                    ok = False
+                continue
 
-            elif status == "partial":
+            if status == "partial":
                 partial_count += 1
                 part = inv.get("partial")
                 if not isinstance(part, dict):
@@ -1663,19 +1734,236 @@ def check_security_boundary() -> bool:
                 if missing:
                     print(f"[FAIL] {inv_id} 半满足登记缺字段: {missing}")
                     ok = False
+                continue
 
-            elif status == "satisfied" and ("debt" in inv or "partial" in inv):
-                # 已满足的不变量不得残留任何债务/半满足子块。
+            # 无 status：断言裁决路径。
+            if has_sub_block:
                 print(
-                    f"[FAIL] {inv_id} 已满足却残留 debt/partial 子块"
-                    "（陈旧债务必须清理）"
+                    f"[FAIL] {inv_id} 残留 debt/partial 子块但未声明 status"
+                    "（债务必须显式化，不能靠断言通过就假装还清）"
                 )
                 ok = False
+
+            assertion_id = str(inv.get("assertion", "")).strip()
+            if not assertion_id:
+                print(
+                    f"[FAIL] {inv_id} 既无 status 也无 assertion："
+                    "不变量没有可执行判据，只能靠人声称成立（本次整改禁止）。"
+                    f"可用断言: {', '.join(registry.registered_ids())}"
+                )
+                ok = False
+                continue
+
+            func = registry.get_assertion(assertion_id)
+            if func is None:
+                print(
+                    f"[FAIL] {inv_id} 引用了未注册的断言: {assertion_id}"
+                    f"（已注册: {', '.join(registry.registered_ids())}）"
+                )
+                ok = False
+                continue
+
+            try:
+                passed, reason = func()
+            except Exception as exc:  # 断言自身崩溃也是红，不允许静默跳过
+                print(f"[FAIL] {inv_id} 断言 {assertion_id} 执行异常: {exc!r}")
+                ok = False
+                continue
+
+            if not passed:
+                print(f"[FAIL] {inv_id} 断言未通过（{assertion_id}）: {reason}")
+                ok = False
+                continue
+
+            evidence = inv.get("runtime_evidence") or []
+            if not isinstance(evidence, list) or not evidence:
+                print(
+                    f"[FAIL] {inv_id} 缺 runtime_evidence：结构性断言不足以证明"
+                    "运行时拦得住，必须指向真实行为测试"
+                )
+                ok = False
+                continue
+            dead_nodes = [str(n) for n in evidence if not _test_node_exists(str(n))]
+            if dead_nodes:
+                print(f"[FAIL] {inv_id} 的 runtime_evidence 指向不存在的测试: {dead_nodes}")
+                ok = False
+                continue
+            verified_count += 1
+
+    if not _ci_runs_full_test_suite():
+        print(
+            "[FAIL] CI 未执行 `pytest tests`：runtime_evidence 指向的测试没有被运行，"
+            "证据链断裂"
+        )
+        ok = False
+
     if ok:
         print(
             f"[PASS] 安全与数据边界契约：{total_invariants} 条不变量"
-            f"（debt {debt_count} / partial {partial_count} / satisfied "
-            f"{total_invariants - debt_count - partial_count}）结构自洽"
+            f"（断言验证 {verified_count} / partial {partial_count} / debt {debt_count}）"
+        )
+    return ok
+
+
+# --------------------------------------------------------------------------- #
+# 提案状态（P2-04：文档状态不得手写，必须引用事实源）
+# --------------------------------------------------------------------------- #
+# 为什么需要（这是 P2-04 的根因，不是文档洁癖）：
+# 第二轮审查发现 ``docs/proposals/F01-F05-...md`` 头部写着「提案 / 待评审冻结」，
+# 而它描述的六个阶段早已合并进 main；同一份文件里还写着「本地无 PG，集成测试
+# 未能执行」，而 CI 每天在真实 PostgreSQL 上跑。**文档状态无人校验，就必然腐化**——
+# 它腐化的方式很具体：下一个人读到「待评审」，就会重新评审一遍已经落地的东西，
+# 或者反过来，把「已登记债务」当成「已解决」。
+#
+# 所以提案改为机器可读的 front-matter，闸门校验三件事：
+# 1. ``status`` 合法，且与 ``open_items`` 自洽——
+#    ``implemented`` 必须没有未完成项，``in_progress`` 必须说清还差什么；
+# 2. ``authoritative_sources`` 指向的文件真实存在（不许指向空气）；
+# 3. ``open_items[].source`` 能解析到**契约里真实存在的债**——
+#    写 ``contracts/security_boundary.yaml#AUTH-3`` 就必须真有一条 AUTH-3 且带
+#    residual_risk/debt/partial。这条是关键：否则「还差什么」又变成散文。
+PROPOSALS_DIR = ROOT / "docs/proposals"
+_PROPOSAL_STATUSES = ("proposed", "in_progress", "implemented", "superseded")
+# 一条 open item 的 source 允许指向的三类"债"字段（契约里的显式未完成登记）。
+_OPEN_ITEM_DEBT_KEYS = ("residual_risk", "debt", "partial")
+
+
+def _read_front_matter(path: Path) -> dict[str, Any] | None:
+    """读取 Markdown 顶部的 YAML front-matter（缺失/损坏返回 None）。"""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    for index in range(1, len(lines)):
+        if lines[index].strip() == "---":
+            try:
+                data = yaml.safe_load("\n".join(lines[1:index]))
+            except yaml.YAMLError:
+                return None
+            return data if isinstance(data, dict) else None
+    return None
+
+
+def _find_invariant(data: dict[str, Any], anchor: str) -> dict[str, Any] | None:
+    """在（security_boundary 这类）分区-不变量结构里按 id 找条目。"""
+    for value in data.values():
+        if not isinstance(value, dict):
+            continue
+        for inv in value.get("invariants") or []:
+            if isinstance(inv, dict) and inv.get("id") == anchor:
+                return inv
+    return None
+
+
+def _resolve_open_item_source(source: str) -> str | None:
+    """校验 open_items[].source；返回问题描述，None 表示成立。
+
+    两种写法：
+    - ``path``：文件必须存在（用于整份台账，例如 action_implementations.yaml）；
+    - ``path#ANCHOR``：文件存在且 ANCHOR 指向**非空的未完成登记**——
+      ANCHOR 命中不变量 id 时要求该条带 residual_risk/debt/partial；
+      命中顶层键时要求其值非空（如 ``#not_implemented``）。
+    """
+    path_part, _, anchor = source.partition("#")
+    target = ROOT / path_part
+    if not path_part or not target.exists():
+        return f"open_items.source 指向不存在的文件: {path_part!r}"
+    if not anchor:
+        return None
+    try:
+        data = load_yaml_mapping(target)
+    except ValueError as exc:
+        return f"open_items.source 无法加载: {exc}"
+    invariant = _find_invariant(data, anchor)
+    if invariant is not None:
+        if any(str(invariant.get(key, "")).strip() for key in _OPEN_ITEM_DEBT_KEYS):
+            return None
+        return (
+            f"open_items.source 指向不变量 {anchor}，但该条没有 residual_risk/debt/partial："
+            "文档说还差什么，契约里必须有对应的债"
+        )
+    if anchor in data:
+        value = data[anchor]
+        if value:
+            return None
+        return f"open_items.source 指向的顶层键 {anchor} 为空，不能证明还有未完成项"
+    return f"open_items.source 的锚点 {anchor} 在 {path_part} 中不存在"
+
+
+def check_proposal_status() -> bool:
+    """提案状态必须与契约事实自洽（P2-04）。"""
+    ok = True
+    files = sorted(PROPOSALS_DIR.glob("*.md"))
+    if not files:
+        print("[FAIL] docs/proposals 下没有提案文件：提案状态无从校验")
+        return False
+
+    counts: dict[str, int] = dict.fromkeys(_PROPOSAL_STATUSES, 0)
+    for path in files:
+        # 报告路径：仓库内用相对路径，测试传入临时目录时用绝对路径（不因位置崩）。
+        rel = (
+            path.relative_to(ROOT).as_posix()
+            if path.is_relative_to(ROOT)
+            else str(path)
+        )
+        meta = _read_front_matter(path)
+        if meta is None:
+            print(f"[FAIL] {rel} 缺少 YAML front-matter（状态必须机器可读）")
+            ok = False
+            continue
+
+        status = str(meta.get("status", "")).strip()
+        if status not in _PROPOSAL_STATUSES:
+            print(f"[FAIL] {rel} 的 status 非法: {status!r}（允许 {_PROPOSAL_STATUSES}）")
+            ok = False
+            continue
+        counts[status] += 1
+
+        sources = meta.get("authoritative_sources") or []
+        if not isinstance(sources, list) or not sources:
+            print(f"[FAIL] {rel} 未声明 authoritative_sources：状态必须有事实源")
+            ok = False
+        else:
+            for source in sources:
+                if not (ROOT / str(source)).exists():
+                    print(f"[FAIL] {rel} 的 authoritative_sources 指向不存在的文件: {source}")
+                    ok = False
+
+        items = meta.get("open_items")
+        if items is None:
+            items = []
+        if not isinstance(items, list):
+            print(f"[FAIL] {rel} 的 open_items 必须是列表")
+            ok = False
+            continue
+
+        for item in items:
+            if not isinstance(item, dict) or not str(item.get("item", "")).strip():
+                print(f"[FAIL] {rel} 的 open_items 条目缺 item 描述")
+                ok = False
+                continue
+            problem = _resolve_open_item_source(str(item.get("source", "")))
+            if problem:
+                print(f"[FAIL] {rel} 的 open_items[{item.get('item')}] {problem}")
+                ok = False
+
+        if status == "implemented" and items:
+            print(
+                f"[FAIL] {rel} 声明 implemented 却仍有 {len(items)} 项 open_items："
+                "勾完成与留债不能并存"
+            )
+            ok = False
+        if status == "in_progress" and not items:
+            print(
+                f"[FAIL] {rel} 声明 in_progress 却没有 open_items："
+                "说不清还差什么，就该按 implemented 声明（或补齐未完成项）"
+            )
+            ok = False
+
+    if ok:
+        print(
+            f"[PASS] 提案状态：{len(files)} 份提案"
+            f"（implemented {counts['implemented']} / in_progress {counts['in_progress']} / "
+            f"proposed {counts['proposed']} / superseded {counts['superseded']}）"
         )
     return ok
 
@@ -1709,6 +1997,7 @@ def main() -> int:
         ok &= check_schema_field_evolution()
         ok &= check_event_catalog()
         ok &= check_security_boundary()
+        ok &= check_proposal_status()
     except ValueError as exc:
         # 契约文件缺失/为空/非映射时，load_yaml_mapping 统一抛 ValueError；
         # 这是脚本级致命错误（契约损坏无法继续校验），在此统一兜底报红。

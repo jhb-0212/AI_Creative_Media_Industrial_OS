@@ -2,60 +2,82 @@
 #
 # 为什么需要这份文件（根因，不是又一份文档）
 # ------------------------------------------------------------
-# 外部审查报告（2026-11-17）与第三轮系统性审查共同指认：平台最严重的
-# 问题不是代码少，而是「授权边界、业务边界、数据边界、进程边界」四者
-# 没有统一、且没有在数据库层/运行时真实执行。它们当前被拆散在：
-#   - RBAC 代码（services/identity_access/rbac.py：只做角色求交）
-#   - RLS 策略（只做租户行级隔离，不做模块级所有权）
-#   - owner_module 字段（字符串标记，不构成数据库级所有权）
-#   - 复合外键（只有 Script↔Episode 一处，Project/Episode 之间没有）
-#   - 全局 Settings（API 与身份签发服务共用同一密钥清单）
+# 外部审查报告（2026-11-17）、第三轮系统性审查与第二轮重新审查（2026-11-18）
+# 共同指认：平台最严重的问题不是代码少，而是「授权边界、业务边界、数据边界、
+# 进程边界」四者没有统一、且没有在数据库层/运行时真实执行。
 #
-# 之前的问题是：这些约束散落各处、谁都不完整、且**没有一份被机器校验的
-# 权威源**。本文件是唯一权威源（R1：一个事实一个权威源）。它不是解释性
-# 文档，而是**被 scripts/contract_check.py::check_security_boundary 真实
-# 比对的结构化约束**——每条约束要么「已满足」，要么「登记为显式债务」，
-# 缺口不可静默增长，债务不可永久豁免（与 resource_schema_gaps /
-# state_machine_gaps 同一套闸门哲学）。
+# 本文件是唯一权威源（R1：一个事实一个权威源）。它不是解释性文档，而是被
+# scripts/contract_check.py::check_security_boundary 真实执行的约束集合。
 #
-# 四条边界（对应审查报告 F01–F05 的根因切面）：
-#   authorization  —— 谁能对哪个资源做什么（F02 Capability、F04 资源范围）
-#   resource_scope —— 资源归属链与授权继承（F04）
-#   data_ownership —— 数据库层模块所有权（F03）
-#   process_keys   —— 进程职责与密钥依赖（F05）
+# ---------------------------------------------------------------------------
+# 本轮整改的关键机制变化：status: satisfied 被禁止手写
+# ---------------------------------------------------------------------------
+# 旧机制下每条不变量靠人工填 ``status: satisfied`` 销项，而闸门只校验 YAML 的
+# 结构自洽（字段齐备、id 唯一、枚举合法、债务子块不残留），**从不校验
+# ``fact_source`` 指向的代码是否成立**。实测后果：
+#   - AUTH-1 标 satisfied，而组织级授权判定实际手写在 project_routes.py 路由层，
+#     episode_routes.py 连这段都没有；
+#   - KEYS-1 标 satisfied，而其文句只覆盖「签发私钥」，完全没覆盖「数据库凭证」，
+#     于是 identity 进程继承 postgres 超级用户口令对闸门是隐形的。
+# 也就是说，闸门只能证明「有人写了 satisfied」。第三轮、第二轮审查反复从同一条
+# 缝里挖出同类 P1，机制就在这里。
+#
+# 现在的判定方式（两级证据，各管各的事实）：
+#   1) assertion——无 status 的不变量必须声明 assertion: <id>，由闸门执行
+#      scripts/boundary_assertions.py 中注册的函数来判定；要让它变绿只能改实现。
+#   2) runtime_evidence——必须给出真实行为的 pytest 节点；闸门校验节点存在，
+#      由 CI 的 `pytest tests` 在真实 PostgreSQL 上执行（闸门同时校验 CI 真的跑了）。
+#   3) status 仅允许 partial / debt，且必须带完整原因与解除条件。
+#
+# 五条边界（对应审查报告的根因切面）：
+#   authorization    —— 谁能对哪个资源做什么（F02 Capability、F04 资源范围）
+#   resource_scope   —— 资源归属链与授权继承（F04）
+#   data_ownership   —— 数据库层模块所有权（F03）
+#   process_keys     —— 进程密钥依赖（F05）
+#   credential_scope —— 进程凭证面（第二轮审查 P1-01：密钥之外的另一半）
 #
 # 维护规则：
-# 1. 每类边界下是一条条「不变量」；每条不变量必须给出：事实源（在哪里执行）、
-#    验证点（代码/迁移/配置中的具体落点）、以及未满足时的债务登记。
-# 2. 新增/修改任何安全边界，先改本文件，再改实现；顺序反了即「先斩后奏」，
-#    由 check_security_boundary 报红。
-# 3. 债务条目必须给 reason / contract_ref / unblocks_when 三项，缺一报红；
-#    解除后必须删除条目，否则以「陈旧债务」报红（不变量已满足却仍登记）。
+# 1. 每条不变量必须给出：事实源（在哪里执行）、验证点（代码/迁移/配置中的落点）、
+#    以及未满足时的显式债务登记。
+# 2. 新增/修改任何安全边界，顺序是：先在 boundary_assertions.py 写断言 → 再改本
+#    文件引用它 → 最后改实现让断言由红转绿。顺序反了即「先斩后奏」。
+# 3. 债务条目必须给 reason / contract_ref / unblocks_when，缺一报红；解除后必须
+#    删除条目，否则以「陈旧债务」报红。
 # 4. 本文件不写具体角色清单、预算口径、状态机——那些归 action_registry /
 #    permission_matrix / state_machines 各自的权威源。
 
-schema_version: '1.0'
+schema_version: '2.0'
 refs:
   proposal: docs/proposals/F01-F05-security-data-boundary-refactor.md
+  remediation: docs/proposals/iron-law-remediation-plan-r1.md
   adr: docs/adr/ADR-R14-layering-ci-gate.md
   audit: docs/audits/2026-11-16-code-and-iron-law-review.md
 
 # --------------------------------------------------------------------------- #
 # 1. 授权边界（authorization）
 # --------------------------------------------------------------------------- #
-# 决策链单一入口：身份认证 → Action 解析 → RBAC → Capability → 资源范围 →
-# ABAC → 职责分离 → 执行。业务模块不得自行实现任何形式的「if role in ...」。
+# 决策链单一入口：身份认证 → Action 解析 → RBAC → Capability → 资源归属 → ABAC
+# → 职责分离 → 执行。业务模块不得自行实现任何形式的授权判定。
 authorization:
   invariants:
     - id: AUTH-1
-      name: 授权决策单一入口
+      name: 授权决策单一入口（含资源归属输入）
       statement: >-
-        所有授权判定必须经统一入口 authorize(action_key, principal)，
-        业务模块（services/*/api、services/*/service）不得自写角色/能力判断。
-      fact_source: services/identity_access/rbac.py（authorize 统一入口）
-      verification: tests/unit/test_authorize.py；架构约束禁止业务模块自行判定
-      status: satisfied
-      residual_risk: "ABAC（资源属性与环境条件）尚未接入统一入口，属后续阶段；当前 RBAC + Capability 两链已收口。"
+        所有授权判定必须经统一入口 authorize，输入必须包含主体、动作与**资源归属**；
+        services/*/api、services/*/service 不得自写角色/能力/归属判断。
+        归属解析（IO）集中在 packages/identity/ownership.py，判定（纯函数）在入口内，
+        业务路由只声明「判定对象是什么」，不实现判定。
+      fact_source: services/identity_access/rbac.py（authorize）；packages/identity/ownership.py（归属解析与范围判定）
+      verification: 断言 auth.single_entry_covers_resource（authorize 含资源参数 + 路由层无归属判定）
+      assertion: auth.single_entry_covers_resource
+      runtime_evidence:
+        - tests/unit/test_resource_scope_api.py::test_episode_status_change_across_organizations_rejected
+        - tests/unit/test_resource_scope_api.py::test_episode_read_across_organizations_rejected
+        - tests/unit/test_ownership_scope.py::test_cross_organization_is_denied
+      residual_risk: >-
+        归属解析每种资源需要一次 JOIN 读（成本换一致性）；组织内更细的成员级授权
+        （同组织不同角色对同一项目）仍归 RBAC 角色层，尚未做项目成员表。资源类型
+        未登记归属解析时 fail-closed（显式内部错误，不默认放行）。
 
     - id: AUTH-2
       name: Capability 运行时校验
@@ -64,9 +86,12 @@ authorization:
         （caps claim）并在统一授权入口运行时校验，不得用配置声明
         （token_required: true）替代真实校验。
       fact_source: packages/identity/principal.py（capabilities）；jwt_core.py（caps claim）
-      verification: tests/unit/test_authorize.py（缺能力拒绝负向测试）
-      status: satisfied
-      residual_risk: "Capability 采用 JWT 内嵌（无状态、短效），不支持即时吊销；细粒度资源授权（具体 project_id 范围）与独立 capability 表留待资源授权模型阶段。"
+      verification: 断言 auth.rbac_capability_enforced（角色对但无能力必须被拒、有能力必须放行）
+      assertion: auth.rbac_capability_enforced
+      runtime_evidence:
+        - tests/unit/test_authorize.py::test_authorize_rejects_missing_capability_even_with_role
+        - tests/unit/test_authorize.py::test_authorize_accepts_wildcard_capability
+      residual_risk: "Capability 采用 JWT 内嵌（无状态、短效），不支持即时吊销；细粒度资源范围仍由 SCOPE 系列承担，capability 表化留待后续。"
 
     - id: AUTH-3
       name: 职责分离真实主体比对
@@ -75,28 +100,50 @@ authorization:
         统一经 require_different_subject 判定，不得在各业务模块散落
         requested_by == approved_by 的裸字符串比较。
       fact_source: packages/identity/separation.py（require_different_subject）
-      verification: tests/unit/test_authorize.py（自批/缺申请人拒绝负向测试）
-      status: satisfied
-      residual_risk: "多主体共同审批（allowed_principals 含 '+' 的 CRITICAL 动作）仍未落地，属 ABAC/双人审批阶段。"
+      verification: 断言 auth.separation_enforced（自批拒绝 + 异主体不误拒）
+      assertion: auth.separation_enforced
+      runtime_evidence:
+        - tests/unit/test_authorize.py::test_separation_rejects_self_approval
+        - tests/unit/test_authorize.py::test_separation_allows_different_subjects
+      residual_risk: "多主体共同审批（allowed_principals 含 '+' 的 CRITICAL 动作）仍未落地，属双人审批阶段。"
+
+    - id: AUTH-4
+      name: 状态推进的准入条件挂在转移边上（边有唯一所有者）
+      statement: >-
+        每条状态转移边必须声明唯一所有者动作与准入守卫；证据门槛、职责分离等
+        准入条件只能定义在边上，不得写在用例方法里。通用状态推进接口只能走
+        归自己所有的边——APPROVED 归 ASSET.VERSION.APPROVE 独占，因此
+        ASSET.STATUS.CHANGE 在结构上无法到达审批态。
+      fact_source: services/asset_service/domain/state_machine.py（ASSET_TRANSITIONS）；domain/guards.py
+      verification: 断言 lifecycle.edge_ownership（边表结构 + 邻接集为投影 + 服务层无证据规则）
+      assertion: lifecycle.edge_ownership
+      runtime_evidence:
+        - tests/unit/test_asset_service.py::test_change_status_cannot_reach_approved
+        - tests/unit/test_asset_service.py::test_approve_and_change_status_share_evidence_rule
+        - tests/unit/test_asset_service.py::test_service_layer_holds_no_evidence_rules
+      residual_risk: >-
+        当前只有 AssetVersion 落地了边带守卫；Project/Episode/ScriptRevision 的边
+        仍只有结构（无证据类准入条件），其所有者已在同一张表登记，后续按同一模式扩展。
 
 # --------------------------------------------------------------------------- #
 # 2. 资源归属边界（resource_scope）
 # --------------------------------------------------------------------------- #
 # 归属链：Tenant → Organization → Project → Episode → Scene → Shot → Asset。
-# 每一级子资源必须通过数据库外键引用父级，授权从父级继承，除非显式覆盖。
+# 每一级子资源通过数据库外键引用父级；组织归属只沿一条路径派生，不冗余存储。
 resource_scope:
   invariants:
     - id: SCOPE-1
       name: Project 归属 Organization（租户内复合归属）
       statement: >-
-        Project 必须承载 organization_id（组织归属），并以
-        （organization_id, tenant_id）**复合外键**引用 organizations 的
-        同名列，使「引用的组织必须与项目同租户」在数据库层成立；organizations
-        本身纳入租户 RLS。同一租户下不同组织/项目之间不得默认互访。
-      fact_source: services/project_planning/repository/orm.py（ProjectModel.organization_id）；迁移 d2e3f4a5b6c7
-      verification: 迁移 d2e3f4a5b6c7（复合唯一约束 + 复合外键 + organizations RLS）；tests/integration/test_ownership_fk_constraints.py（跨租户组织引用负向测试）
-      status: satisfied
-      residual_risk: "迁移 9f1a2b3c4d5e6 先落单列外键，审查 P1-03 指出「只能证明组织存在，不能证明组织归属正确」，已由 d2e3f4a5b6c7 升级为租户复合外键并给 organizations 补 RLS；跨租户组织引用在数据库层被拒。"
+        Project 必须承载 organization_id，并以（organization_id, tenant_id）
+        **复合外键**引用 organizations 的同名列，使「引用的组织必须与项目同租户」
+        在数据库层成立；organizations 本身纳入租户 RLS。
+      fact_source: services/project_planning/repository/orm.py；迁移 d2e3f4a5b6c7
+      verification: 断言 scope.project_organization_fk（复合外键两列都是组织+租户）
+      assertion: scope.project_organization_fk
+      runtime_evidence:
+        - tests/integration/test_ownership_fk_constraints.py::test_project_cannot_reference_cross_tenant_organization
+      residual_risk: "迁移 9f1a2b3c4d5e6 先落单列外键，审查指出「只能证明组织存在，不能证明组织归属正确」，已由 d2e3f4a5b6c7 升级为租户复合外键。"
 
     - id: SCOPE-2
       name: 子资源外键归属（不变量放最可靠层）
@@ -104,9 +151,30 @@ resource_scope:
         Project↔Episode↔Script 之间的归属必须由数据库外键约束保证，
         不得仅靠 Service 查询校验。
       fact_source: services/project_planning/repository/orm.py
-      verification: 迁移 9f1a2b3c4d5e6（fk_episodes_project）；tests/integration/test_ownership_fk_constraints.py
-      status: satisfied
-      residual_risk: "ScriptRevision→Episode 已有复合外键（facd8d42d07f）；Episode→Project 外键由 9f1a2b3c4d5e6 补齐，并已在真实 PostgreSQL 16 上执行验证（同 SCOPE-1 的 3 项负向测试）。"
+      verification: 断言 scope.child_resource_fk（Episode→Project、ScriptRevision→Episode 外键）
+      assertion: scope.child_resource_fk
+      runtime_evidence:
+        - tests/integration/test_ownership_fk_constraints.py::test_episode_must_reference_existing_project
+      residual_risk: "Episode→Project 外键由 9f1a2b3c4d5e6 补齐，ScriptRevision→Episode 复合外键由 facd8d42d07f 建立，均在真实 PostgreSQL 16 上验证。"
+
+    - id: SCOPE-3
+      name: AssetVersion 归属 Project（资产归属链完整）
+      statement: >-
+        AssetVersion 必须承载 project_id 并以复合外键 (project_id, tenant_id) 引用
+        project_planning.projects(entity_id, tenant_id)——资产所属项目必须真实存在
+        且与资产同租户。组织归属从 project 派生、不冗余落库，保证
+        「资产 → 项目 → 组织」只有一条路径。镜头级资产是「被镜头引用」而非
+        「归属镜头」：scope: project/shot/asset 描述授权作用域，不是归属层级；
+        引用关系待 Shot 域落地时以引用表建立（无聚合根时建表只会得到无法验证的结构）。
+      fact_source: services/asset_service/repository/orm.py（AssetVersionModel）；迁移 b3c4d5e6f7a8
+      verification: 断言 scope.asset_ownership_chain（project_id + 复合外键 + 组织不落库）
+      assertion: scope.asset_ownership_chain
+      runtime_evidence:
+        - tests/integration/test_ownership_fk_constraints.py::test_asset_must_reference_existing_project
+      residual_risk: >-
+        迁移 b3c4d5e6f7a8 对非空 asset_versions 表 fail-closed（归属不能由迁移猜）；
+        资产按项目列举的索引已建。跨域只读被限制为 projects 的三列
+        (entity_id, tenant_id, organization_id) 列级 SELECT。
 
 # --------------------------------------------------------------------------- #
 # 3. 数据所有权边界（data_ownership）
@@ -118,22 +186,18 @@ data_ownership:
     - id: DATA-1
       name: 模块级数据库角色隔离
       statement: >-
-        每个业务域（project_planning / asset_service）持有独立数据库角色，
-        运行时角色只对自己的 schema 有写权限；不得共用单一 app_role
-        全量读写多个业务 schema。
-      fact_source: data/migrations/versions/8f3b2c1d4e5a_split_domain_roles.py
-      verification: tests/integration/test_domain_roles.py（跨域直接写表的数据库权限负向测试）
-      status: satisfied
+        每个业务域（project_planning / asset_service）持有独立数据库角色与独立
+        连接池，运行时角色只对自己的 schema 有写权限。
+      fact_source: data/migrations/versions/8f3b2c1d4e5a_split_domain_roles.py；packages/shared/database.py
+      verification: 断言 data.domain_role_split（角色 + 独立会话工厂同时存在）
+      assertion: data.domain_role_split
+      runtime_evidence:
+        - tests/integration/test_domain_roles.py::test_project_role_cannot_access_asset_service
+        - tests/integration/test_domain_roles.py::test_asset_role_can_read_own_schema
       residual_risk: >-
-        已在真实 PostgreSQL 16（docker-compose）上完成迁移 8f3b2c1d4e5a 执行与
-        负向验证：project_planning_role / asset_service_role 各自独立角色 +
-        按域分连接池 + 路由按域注入 + 越界写业务表负测（tests/integration/
-        test_domain_roles.py 6 项）全部通过。验证中发现并根治一个授权越界回归：
-        拆角色时 _grant_business_schema 授全量 DML，抹掉了 b7c8d9e0f1a2 的
-        append-only 收紧（qc_reports 应不可 UPDATE/DELETE、asset_versions 应
-        不可 DELETE），已在迁移 8f3b2c1d4e5a 内追加 _revoke_append_only_overreach
-        收口。身份签发服务已拆为独立进程 workers/identity（KEYS-3），
-        私钥只在该进程内可用。
+        拆角色时 _grant_business_schema 授全量 DML，曾抹掉 b7c8d9e0f1a2 的 append-only
+        收紧（qc_reports 不可 UPDATE/DELETE、asset_versions 不可 DELETE），已在
+        8f3b2c1d4e5a 内用 _revoke_append_only_overreach 收口。
 
     - id: DATA-2
       name: 跨域访问正式接口
@@ -141,40 +205,28 @@ data_ownership:
         跨模块数据访问必须通过正式接口（outbox 事件、明确的服务 API），
         Outbox 写入与投递的事务边界明确（业务写 + outbox 写同一事务）。
       fact_source: packages/shared/outbox_writer.py（OutboxWriter 事务边界）
-      verification: scripts/architecture_check.py（R2 服务间直连闸门）；tests/integration/test_outbox_*.py
-      status: satisfied
+      verification: 断言 data.cross_domain_via_outbox（同 session 写入 + R2 闸门存在）
+      assertion: data.cross_domain_via_outbox
+      runtime_evidence:
+        - tests/integration/test_outbox_relay.py::test_drain_only_reads_own_tenant
       residual_risk: >-
-        跨域写的正式接口由 outbox 事件承载（业务写 + 事件同事务）；跨域读的
-        物理隔离由 DATA-1（asset_service_role 无 project_planning schema 的
-        USAGE）在数据库层根治，代码层由 architecture_check R2 规则机器强制
-        （服务间禁止直接 import 对方实现）。真实 PG 验证中发现并根治分区授权
-        缺口：outbox_events 为按月分区表，父表 GRANT 不传播到分区，拆角色后
-        project_planning_role / asset_service_role / outbox_relay_role 只在
-        父表授权、分区从未授权，通过父表写/读事件时报 permission denied。
-        已由迁移 ae8724980e0b（对已有分区补授权 + ALTER DEFAULT PRIVILEGES
-        让未来分区自动授权）+ workers/outbox_maintenance 建分区时显式授权根治。
-        当前无跨域读消费者（AssetVersion 无 project 归属字段）；未来若引入
-        跨域读需求，须先在契约登记正式接口并接入所有权校验，禁止绕过 R2 直连。
+        分区分区授权曾漏授（父表 GRANT 不传播到分区），已由迁移 ae8724980e0b +
+        workers/outbox_maintenance 建分区时显式授权根治。S0.5 后资产将持有 project_id，
+        跨域读必须经正式接口并接入归属校验，禁止绕过 R2 直连。
 
     - id: DATA-3
       name: Outbox Relay 专用角色（进程边界隔离）
       statement: >-
-        Relay 进程使用独立 outbox_relay_role，仅持有 outbox schema 的
-        SELECT 与**列级** UPDATE（published_at / attempts /
-        next_attempt_at / dead_lettered_at，即投递元数据），不得持有任何
-        业务 schema 的读写权限，也不得 UPDATE 事件业务内容
-        （payload / event_type / tenant_id 等）。
-      fact_source: packages/shared/partition_guard.py（RELAY_UPDATE_COLUMNS 列清单）
-      verification: 迁移 7a8b9c0d1e2f + b9e1c2d3f4a5（父表/分区/默认权限三层列级收口）；tests/integration/test_ownership_db_roles.py
-      status: satisfied
-      residual_risk: >-
-        已在真实 PostgreSQL 16 上完成迁移 7a8b9c0d1e2f 执行与负向验证：
-        outbox_relay_role 能 SELECT/UPDATE outbox、不能 INSERT/DELETE、无业务
-        schema 权限。审查 P1-01 指出「整表 UPDATE 可改 payload/event_type/
-        tenant_id」，已由 b9e1c2d3f4a5 收窄为列级授权（父表 + 已存在分区 +
-        撤销未来分区的整表 UPDATE 默认权限），relay 改业务内容在数据库层报
-        permission denied for column。relay 消费端连接角色由调用方注入
-        （生产入口用 create_relay_engine(settings)），与进程配置同源。
+        Relay 进程使用独立 outbox_relay_role，仅持有 outbox schema 的 SELECT 与
+        **列级** UPDATE（published_at / attempts / next_attempt_at /
+        dead_lettered_at），不得持有业务 schema 任何权限，也不得 UPDATE 事件正文。
+      fact_source: packages/shared/partition_guard.py（RELAY_UPDATE_COLUMNS）
+      verification: 断言 data.relay_column_grants（列清单不含 payload/event_type/tenant_id）
+      assertion: data.relay_column_grants
+      runtime_evidence:
+        - tests/integration/test_ownership_db_roles.py::test_relay_cannot_update_event_content
+        - tests/integration/test_ownership_db_roles.py::test_relay_column_privileges_match_contract
+      residual_risk: "整表 UPDATE 已由 b9e1c2d3f4a5 收窄为列级授权（父表 + 已存在分区 + 撤销未来分区默认权限）。"
 
 # --------------------------------------------------------------------------- #
 # 4. 进程密钥边界（process_keys）
@@ -184,35 +236,75 @@ data_ownership:
 process_keys:
   invariants:
     - id: KEYS-1
-      name: 进程密钥最小权限
+      name: 进程密钥最小权限（含超级用户口令收口）
       statement: >-
-        API / Relay 进程的生产必需密钥不得包含身份签发私钥
-        （identity_private_key_pem）；私钥仅身份签发服务持有。
+        API / Relay 进程的生产必需密钥不得包含身份签发私钥（identity_private_key_pem）；
+        私钥仅身份签发服务持有。超级用户口令（postgres_password）只允许 DDL 作业
+        （outbox_maintenance）与迁移持有，业务进程一律不得持有。
       fact_source: packages/shared/config.py（_PRODUCTION_REQUIRED_SECRETS_BY_PROCESS）
-      verification: tests/unit/test_config_secrets.py（按进程断言必需密钥集合）
-      status: satisfied
-      residual_risk: "身份签发能力已迁至 services/identity_issuance（KEYS-1 S1），验签方 services/identity_access 与之结构上零依赖（架构检查 R4 强制 apps 不得 import 签发模块），且「从签发仓储派生公钥」的桥已移除（PublicKeyStore 无 from_key_store）。签发方已由独立进程 workers/identity 承载（持私钥 + JWKS 端点），私钥注入只发生在该进程。"
+      verification: 断言 keys.per_process_secrets（AST 解析必需密钥表，按进程判定私钥与超级用户口令）
+      assertion: keys.per_process_secrets
+      runtime_evidence:
+        - tests/unit/test_config_secrets.py::test_production_missing_secret_rejected_per_process
 
     - id: KEYS-2
       name: 生产启动密钥检查按进程分列
       statement: >-
         生产启动检查（Settings.validate_process_requirements）只校验当前进程
-        真正需要的密钥，按 process_role 分列，不做全局一刀切；且该校验只在
-        进程入口声明身份时执行（get_process_settings），纯配置读取
-        （get_settings）不承担任何进程密钥要求。
+        真正需要的密钥，按 process_role 分列；该校验只在进程入口声明身份时执行
+        （get_process_settings），纯配置读取（get_settings）不承担进程密钥要求。
       fact_source: packages/shared/config.py（process_role + get_process_settings）
-      verification: tests/unit/test_config_secrets.py；tests/unit/test_process_entrypoints.py
-      status: satisfied
-      residual_risk: "process_role 由进程入口显式声明（get_process_settings），身份签发方经 get_key_store 以 identity 角色构造；若未来新增进程而未显式声明角色，会回落到默认 api 语义，需在新增进程清单时一并登记（test_process_entrypoints 对既有入口做静态断言）。"
+      verification: 断言 keys.process_scoped_validation（各进程入口都显式声明 role）
+      assertion: keys.process_scoped_validation
+      runtime_evidence:
+        - tests/unit/test_process_entrypoints.py::test_entrypoint_declares_process_role
+      residual_risk: "新增进程若未显式声明角色会回落成 api 语义，故本断言把入口清单也纳入校验。"
 
     - id: KEYS-3
       name: 签发方与验签方进程物理分离
       statement: >-
         签发私钥只在身份进程（workers/identity）内可用：该进程是唯一 import
-        services/identity_issuance 并监听 JWKS 端点的部署单元；API 进程只持
-        公钥验签（apps 层被架构闸门 R4 禁止 import 签发模块），Relay 与运维
-        进程不碰身份密钥。
-      fact_source: workers/identity/app.py（JWKS + get_key_store）；scripts/architecture_check.py（R4）
-      verification: tests/unit/test_identity_process.py（JWKS 只含公钥、进程可独立启动）；tests/architecture/test_architecture.py（R4 负测）
-      status: satisfied
-      residual_risk: "生产环境的密钥轮换编排（多 kid 并行、旧 kid 退役时机）仍属运维面，KeyStore 已支持多 kid 但未做自动轮换调度；JWKS 端点未内置限流（公钥可公开，暴露面由网络层控制）。"
+        services/identity_issuance 并监听 JWKS 端点的部署单元；API 进程只持公钥验签
+        （apps 层被架构闸门 R4 禁止 import 签发模块），Relay 与运维进程不碰身份密钥。
+      fact_source: workers/identity/app.py（JWKS）；scripts/architecture_check.py（R4）
+      verification: 断言 keys.physical_separation（R4 存在 + JWKS 端点存在）
+      assertion: keys.physical_separation
+      runtime_evidence:
+        - tests/unit/test_identity_process.py::test_jwks_exposes_public_keys_only
+      residual_risk: "密钥轮换编排（多 kid 并行、旧 kid 退役）仍属运维面；JWKS 未内置限流，暴露面由网络层控制。"
+
+# --------------------------------------------------------------------------- #
+# 5. 进程凭证边界（credential_scope）
+# --------------------------------------------------------------------------- #
+# 第二轮审查 P1-01 的根因：process_keys 只建模了「密钥」，没建模「数据库凭证」，
+# 于是 identity 进程继承 postgres 超级用户口令这件事在契约里没有形状。
+# 密钥与凭证是两类事实，混在一条不变量里就会漏掉一半。
+credential_scope:
+  invariants:
+    - id: CRED-1
+      name: 进程凭证最小面（按角色分发，超级用户不出运维单元）
+      statement: >-
+        每个部署单元只能获得其运行时真实使用的数据库凭证；凭证按数据库角色分发。
+        超级用户口令只允许 postgres 自身、迁移与分区维护（DDL 作业）持有；
+        身份进程不碰数据库，一条数据库变量都不应注入。新增服务必须在
+        PROCESS_ALLOWED_DB_ENV 登记允许集合（未登记即报红，防「新进程默认继承全套」）。
+      fact_source: infra/compose/docker-compose.yml（anchor 拆分）；scripts/boundary_assertions.py（PROCESS_ALLOWED_DB_ENV）
+      verification: 断言 cred.process_credential_surface（解析 compose，逐服务比对 env 键集合）
+      assertion: cred.process_credential_surface
+      runtime_evidence:
+        - tests/unit/test_credential_surface.py::test_identity_service_has_no_database_credentials
+        - tests/unit/test_credential_surface.py::test_relay_service_only_has_relay_credentials
+        - tests/unit/test_credential_surface.py::test_new_service_without_declaration_is_rejected
+
+    - id: CRED-2
+      name: 域角色名互异（配置层不得抹掉角色隔离）
+      statement: >-
+        project_planning / asset_service / relay / app 四个角色名必须互不相同。
+        角色名可通过环境变量配置，若配成同名，DATA-1 的模块级隔离会被一个环境
+        变量抹掉，且运行期看不出异常（权限看起来都通），因此必须在配置构造期拒绝。
+      fact_source: packages/shared/config.py（_require_distinct_database_roles）
+      verification: 断言 cred.role_names_distinct（同名配置必须构造失败）
+      assertion: cred.role_names_distinct
+      runtime_evidence:
+        - tests/unit/test_config_secrets.py::test_duplicate_domain_role_names_rejected
+        - tests/unit/test_config_secrets.py::test_distinct_domain_role_names_accepted

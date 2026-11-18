@@ -827,8 +827,120 @@ def test_transition_entry_gaps_contract_registration_is_not_stale(
 # --------------------------------------------------------------------------- #
 # 安全与数据边界契约（check_security_boundary）
 # --------------------------------------------------------------------------- #
+def test_security_boundary_rejects_handwritten_satisfied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """写 status: satisfied 必须报红（本轮整改的核心：状态不可手写）。
+
+    这是「宣称即销项」的最后一道防线：只要 satisfied 还能被编辑，闸门就永远
+    只能证明「有人写了 satisfied」，而不能证明事实成立。
+    """
+    data = yaml.safe_load(cc.SECURITY_BOUNDARY_PATH.read_text(encoding="utf-8"))
+    first = data["authorization"]["invariants"][0]
+    first.pop("partial", None)
+    first["status"] = "satisfied"
+    target = tmp_path / "security_boundary.yaml"
+    target.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    monkeypatch.setattr(cc, "SECURITY_BOUNDARY_PATH", target)
+    assert cc.check_security_boundary() is False
+
+
+def test_security_boundary_rejects_partial_with_debt_block(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """同一条不变量既 partial 又 debt 必须报红（欠账形态必须唯一）。
+
+    构造而非取材：本用例自己把一条断言条目改写成手写 partial，再叠加 debt 子块。
+    旧版从当前契约里「找一个真实 partial」，欠账清零那天就会以 StopIteration
+    失败——测试不该依赖被整改对象的状态，否则它测的是「仓库现在长什么样」，
+    不是「闸门会不会拦」。
+    """
+    data = yaml.safe_load(cc.SECURITY_BOUNDARY_PATH.read_text(encoding="utf-8"))
+    target_inv = data["authorization"]["invariants"][0]
+    target_inv.pop("assertion", None)
+    target_inv.pop("runtime_evidence", None)
+    target_inv["status"] = "partial"
+    target_inv["partial"] = {
+        "satisfied": "构造用例：假装已满足的部分",
+        "missing": "构造用例：假装未完成的部分",
+        "unblocks_when": "应只保留一种欠账形态",
+    }
+    target_inv["debt"] = {
+        "reason": "陈旧债务：与 partial 子块并存",
+        "contract_ref": "tests/unit/test_contract_check.py",
+        "unblocks_when": "应只保留一种欠账形态",
+    }
+    target = tmp_path / "security_boundary.yaml"
+    target.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    monkeypatch.setattr(cc, "SECURITY_BOUNDARY_PATH", target)
+    assert cc.check_security_boundary() is False
+
+
+def test_security_boundary_rejects_unregistered_assertion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """引用未注册的断言 id 必须报红（防止写个不存在的判据混过去）。"""
+    data = yaml.safe_load(cc.SECURITY_BOUNDARY_PATH.read_text(encoding="utf-8"))
+    data["authorization"]["invariants"][1]["assertion"] = "auth.does_not_exist"
+    target = tmp_path / "security_boundary.yaml"
+    target.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    monkeypatch.setattr(cc, "SECURITY_BOUNDARY_PATH", target)
+    assert cc.check_security_boundary() is False
+
+
+def test_security_boundary_rejects_failing_assertion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """断言执行不通过必须报红（实现回退时闸门要真的拦下来）。"""
+    import boundary_assertions as ba
+
+    monkeypatch.setitem(
+        ba._REGISTRY,
+        "auth.rbac_capability_enforced",
+        lambda: (False, "注入的失败断言"),
+    )
+    data = yaml.safe_load(cc.SECURITY_BOUNDARY_PATH.read_text(encoding="utf-8"))
+    target = tmp_path / "security_boundary.yaml"
+    target.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    monkeypatch.setattr(cc, "SECURITY_BOUNDARY_PATH", target)
+    assert cc.check_security_boundary() is False
+
+
+def test_security_boundary_rejects_missing_assertion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """既无 status 又无 assertion 必须报红（不变量不能没有可执行判据）。"""
+    data = yaml.safe_load(cc.SECURITY_BOUNDARY_PATH.read_text(encoding="utf-8"))
+    data["authorization"]["invariants"][1].pop("assertion")
+    target = tmp_path / "security_boundary.yaml"
+    target.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    monkeypatch.setattr(cc, "SECURITY_BOUNDARY_PATH", target)
+    assert cc.check_security_boundary() is False
+
+
+def test_security_boundary_rejects_dead_runtime_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """runtime_evidence 指向不存在的测试必须报红（证据不能指向空气）。"""
+    data = yaml.safe_load(cc.SECURITY_BOUNDARY_PATH.read_text(encoding="utf-8"))
+    data["authorization"]["invariants"][1]["runtime_evidence"] = [
+        "tests/unit/test_authorize.py::test_this_does_not_exist"
+    ]
+    target = tmp_path / "security_boundary.yaml"
+    target.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    monkeypatch.setattr(cc, "SECURITY_BOUNDARY_PATH", target)
+    assert cc.check_security_boundary() is False
+
+
+def test_security_boundary_assertion_registry_is_not_empty() -> None:
+    """断言注册表必须真的有内容（否则所有不变量都会因缺判据而报红）。"""
+    import boundary_assertions as ba
+
+    assert len(ba.registered_ids()) >= 10
+
+
 def test_check_security_boundary_passes_on_current_contract() -> None:
-    """当前 security_boundary.yaml 结构自洽，应通过。"""
+    """当前 security_boundary.yaml 结构自洽且断言全部通过。"""
     assert cc.check_security_boundary() is True
 
 
@@ -863,30 +975,14 @@ def test_security_boundary_detects_debt_missing_unblocks_when(
     """debt 缺 unblocks_when 字段应被检出（债务不能永久豁免）。"""
     data = yaml.safe_load(cc.SECURITY_BOUNDARY_PATH.read_text(encoding="utf-8"))
     # 主动把第一条不变量改成 debt（含 reason/contract_ref，但缺 unblocks_when）。
-    # 当前真实契约 10 条已全部 satisfied，不能靠「找一条 debt」来构造负例。
+    # 当前真实契约的 partial/debt 条目都不是 authorization 首条，不能靠「找一条」
+    # 来构造负例，因此显式注入。
     first = data["authorization"]["invariants"][0]
+    first.pop("partial", None)
     first["status"] = "debt"
     first["debt"] = {
         "reason": "测试注入的债务（缺 unblocks_when）",
         "contract_ref": "tests/unit/test_contract_check.py",
-    }
-    target = tmp_path / "security_boundary.yaml"
-    target.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
-    monkeypatch.setattr(cc, "SECURITY_BOUNDARY_PATH", target)
-    assert cc.check_security_boundary() is False
-
-
-def test_security_boundary_detects_stale_debt_on_satisfied(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """已满足的不变量残留 debt 子块应被检出（陈旧债务必须清理）。"""
-    data = yaml.safe_load(cc.SECURITY_BOUNDARY_PATH.read_text(encoding="utf-8"))
-    # 主动给一条 satisfied 不变量附上残留 debt 子块，模拟「已满足却未清理债务」。
-    first = data["authorization"]["invariants"][0]
-    first["debt"] = {
-        "reason": "陈旧债务：已满足却残留",
-        "contract_ref": "tests/unit/test_contract_check.py",
-        "unblocks_when": "已满足，应清理本子块",
     }
     target = tmp_path / "security_boundary.yaml"
     target.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
@@ -905,3 +1001,147 @@ def test_security_boundary_detects_duplicate_invariant_id(
     target.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
     monkeypatch.setattr(cc, "SECURITY_BOUNDARY_PATH", target)
     assert cc.check_security_boundary() is False
+
+
+# --------------------------------------------------------------------------- #
+# 提案状态（check_proposal_status，P2-04）
+# --------------------------------------------------------------------------- #
+def _write_proposal(dir_path: Path, name: str, front_matter: str, body: str = "# 提案\n") -> None:
+    dir_path.mkdir(parents=True, exist_ok=True)
+    (dir_path / name).write_text(
+        f"---\n{front_matter.strip()}\n---\n\n{body}", encoding="utf-8"
+    )
+
+
+def test_proposal_status_passes_on_repository() -> None:
+    """仓库里的提案必须全部自洽（状态与未完成项一致、事实源真实存在）。"""
+    assert cc.check_proposal_status() is True
+
+
+def test_proposal_without_front_matter_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """缺 front-matter → 报红（状态不可手写在正文里）。"""
+    (tmp_path / "p.md").write_text("# 提案\n\n状态：已完成\n", encoding="utf-8")
+    monkeypatch.setattr(cc, "PROPOSALS_DIR", tmp_path)
+    assert cc.check_proposal_status() is False
+
+
+def test_proposal_implemented_with_open_items_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """声明 implemented 却留着未完成项 → 报红（勾完成与留债不能并存）。"""
+    _write_proposal(
+        tmp_path,
+        "p.md",
+        """
+doc_type: proposal
+status: implemented
+authoritative_sources: [contracts/security_boundary.yaml]
+open_items:
+  - item: "还有一件没做完"
+    source: contracts/security_boundary.yaml
+""",
+    )
+    monkeypatch.setattr(cc, "PROPOSALS_DIR", tmp_path)
+    assert cc.check_proposal_status() is False
+
+
+def test_proposal_in_progress_without_open_items_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """声明 in_progress 却说不清差什么 → 报红（这就是 P2-04 的腐化形态）。"""
+    _write_proposal(
+        tmp_path,
+        "p.md",
+        """
+doc_type: proposal
+status: in_progress
+authoritative_sources: [contracts/security_boundary.yaml]
+open_items: []
+""",
+    )
+    monkeypatch.setattr(cc, "PROPOSALS_DIR", tmp_path)
+    assert cc.check_proposal_status() is False
+
+
+def test_proposal_source_pointing_to_air_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """事实源指向不存在的文件 → 报红（防"引用空气"）。"""
+    _write_proposal(
+        tmp_path,
+        "p.md",
+        """
+doc_type: proposal
+status: implemented
+authoritative_sources: [contracts/does_not_exist.yaml]
+open_items: []
+""",
+    )
+    monkeypatch.setattr(cc, "PROPOSALS_DIR", tmp_path)
+    assert cc.check_proposal_status() is False
+
+
+def test_proposal_open_item_anchor_without_debt_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """open item 指向的不变量若没有 residual_risk/debt/partial → 报红。
+
+    这条是 P2-04 的关键：允许写"还差什么"，但必须能在契约里找到对应的债；
+    否则"未完成项"又退化成散文。
+    """
+    _write_proposal(
+        tmp_path,
+        "p.md",
+        """
+doc_type: proposal
+status: in_progress
+authoritative_sources: [contracts/security_boundary.yaml]
+open_items:
+  - item: "声称还有债"
+    source: "contracts/security_boundary.yaml#CRED-1"
+""",
+    )
+    monkeypatch.setattr(cc, "PROPOSALS_DIR", tmp_path)
+    assert cc.check_proposal_status() is False
+
+
+def test_proposal_open_item_anchor_on_debt_invariant_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """指向带 residual_risk 的不变量（AUTH-3）应通过——正向对照。"""
+    _write_proposal(
+        tmp_path,
+        "p.md",
+        """
+doc_type: proposal
+status: in_progress
+authoritative_sources: [contracts/security_boundary.yaml]
+open_items:
+  - item: "双人审批未落地"
+    source: "contracts/security_boundary.yaml#AUTH-3"
+""",
+    )
+    monkeypatch.setattr(cc, "PROPOSALS_DIR", tmp_path)
+    assert cc.check_proposal_status() is True
+
+
+def test_proposal_illegal_status_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """status 不在枚举内 → 报红（防"待评审冻结"这类自由文本）。"""
+    _write_proposal(
+        tmp_path,
+        "p.md",
+        """
+doc_type: proposal
+status: 待评审冻结
+authoritative_sources: [contracts/security_boundary.yaml]
+open_items: []
+""",
+    )
+    monkeypatch.setattr(cc, "PROPOSALS_DIR", tmp_path)
+    assert cc.check_proposal_status() is False
+
+
