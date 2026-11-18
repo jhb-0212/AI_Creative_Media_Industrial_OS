@@ -235,6 +235,40 @@ def test_side_branch_states_do_not_need_edges() -> None:
     assert cc.transition_target_problems(sm_objects) == []
 
 
+def test_authoritative_post_publish_edges_are_registered() -> None:
+    """正文明确授权的发布后/取消/取代边必须在转移表里（PR #14 评审补齐）。
+
+    这些边在 v2 结构化迁移时漏抄，导致「契约声明的状态」与「可执行的状态转移」
+    脱节。逐条锁定，防止未来误删后闸门仍然全绿。
+    """
+    edges = {
+        obj["object"]: {(t["from"], t["to"]) for t in obj.get("transitions", [])}
+        for obj in _sm_objects()
+    }
+    required = {
+        # 31.5「发布后可 UNLISTED / TAKEN_DOWN / ARCHIVED」
+        "CommunityPost": {
+            ("PUBLISHED", "UNLISTED"),
+            ("PUBLISHED", "TAKEN_DOWN"),
+            ("PUBLISHED", "ARCHIVED"),
+        },
+        # 34.8「发布后可 UNLISTED / TAKEN_DOWN / REVOKED / ARCHIVED」
+        "CreatorRelease": {
+            ("PUBLISHED", "UNLISTED"),
+            ("PUBLISHED", "TAKEN_DOWN"),
+            ("PUBLISHED", "REVOKED"),
+            ("PUBLISHED", "ARCHIVED"),
+        },
+        # 33.3「旧版本 → SUPERSEDED/STALE/ARCHIVED」，DRAFT 侧两条本轮补齐
+        "TimelineDraft": {("DRAFT", "STALE"), ("DRAFT", "ARCHIVED")},
+        # 8.6「READY/QUEUED 允许取消」
+        "Task": {("READY", "CANCEL_REQUESTED"), ("QUEUED", "CANCEL_REQUESTED")},
+    }
+    for obj_name, expected in required.items():
+        missing = expected - edges.get(obj_name, set())
+        assert not missing, f"{obj_name} 缺正文授权边: {sorted(missing)}"
+
+
 # --------------------------------------------------------------------------- #
 # 6. 展示别名 / STALE 标记 / 检查项编号混入权威枚举 → 报红
 # --------------------------------------------------------------------------- #
@@ -513,6 +547,37 @@ def test_envelope_only_without_unblocks_when_is_reported() -> None:
         taxonomy, cc.state_machine_states(_sm_objects()), _definitions()
     )
     assert any("QCIssue" in p and "unblocks_when" in p for p in problems), problems
+
+
+def test_envelope_only_basis_must_be_in_closed_enum() -> None:
+    """basis 拼错或自造类别必须报红——台账自称 basis_kinds 是封闭枚举（PR #14 评审）。
+
+    只校验「非空」会让 ``immutabel_record`` 这类拼写错误静默通过，封闭枚举就成了
+    纯文案。这里显式传入合法集合注入一个非法值，验证闸门真的拒绝。
+    """
+    taxonomy = []
+    for entry in _taxonomy()["objects"]:
+        if entry["object"] == "QCIssue":
+            entry = {**entry, "basis": "immutabel_record"}  # 故意拼错
+        taxonomy.append(entry)
+    problems = cc.taxonomy_problems(
+        taxonomy,
+        cc.state_machine_states(_sm_objects()),
+        _definitions(),
+        basis_kinds={"immutable_record", "child_structure", "derived_projection", "status_split"},
+    )
+    assert any("QCIssue" in p and "basis_kinds" in p for p in problems), problems
+
+
+def test_envelope_only_basis_accepts_declared_kind() -> None:
+    """合法 basis 不应触发封闭枚举告警（防止闸门过严把正常台账误判为红）。"""
+    problems = cc.taxonomy_problems(
+        _taxonomy()["objects"],
+        cc.state_machine_states(_sm_objects()),
+        _definitions(),
+        basis_kinds={"immutable_record", "child_structure", "derived_projection", "status_split"},
+    )
+    assert not any("basis_kinds" in p for p in problems), problems
 
 
 def test_field_authority_is_consistent_with_schema() -> None:

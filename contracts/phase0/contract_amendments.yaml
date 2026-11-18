@@ -458,5 +458,42 @@ amendments:
       - '缺失 Schema 对象（PublicationReview / CreatorShareLink / Pattern / SharedReferenceAsset）继续单列 schema_gaps，不因不在枚举迁移范围而视为已闭合'
       - '本修订修正评审表格的统计口径：迁移前既有 enum 是 5，当前 57 个 status.enum = 40 生命周期 + 17 哨兵；42 个状态机对象与 76 个带 status 的 schema 对象不是同一集合'
 
+  - id: 'V205-R14-A11'
+    title: '状态机转移边迁移遗漏补齐 + basis 封闭枚举闸门（PR #14 评审）'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: 'PR #14 chatgpt-codex-connector 自动评审（6 条 review thread）；逐条比对基线正文后裁定'
+    reason: >-
+      A9/A10 把状态机从自由文本状态链迁到 allowed_states + transitions 结构化形式时，
+      transitions 只抄了正文里画成箭头的链，漏抄了正文以自然语言授权的边，造成
+      「契约声明的状态」与「可执行的状态转移」脱节。逐条比对基线正文后确认四类漏抄：
+      31.5「CommunityPost 发布后可 UNLISTED/TAKEN_DOWN/ARCHIVED」3 条边、
+      34.8「CreatorRelease 发布后可 UNLISTED/TAKEN_DOWN/REVOKED/ARCHIVED」4 条边、
+      33.3「TimelineDraft 旧版本 → SUPERSEDED/STALE/ARCHIVED」中 DRAFT 侧漏抄的
+      DRAFT→STALE / DRAFT→ARCHIVED 2 条边、8.6「READY/QUEUED 允许取消」2 条边，
+      共补齐 11 条正文明确授权的边。这些不是新增契约，是恢复正文原有语义。
+      另有一条评审指出 status_field_taxonomy 的 basis 只校验非空、未校验是否属于
+      basis_kinds 封闭枚举——拼错的类别会静默通过，台账自称的封闭枚举形同虚设，
+      故把闸门升级为封闭枚举校验并补两个负向测试。
+      ReworkTask 的 VERIFYING→IN_PROGRESS 与进入 REJECTED 的边：7.6 正文只给 status
+      枚举、未画转移图，不能凭评审措辞推定授权，故按「不猜契约」登记 transitions_gap
+      显式债务（含 unblocks_when），待所有者补登边的 owner_action 与前置条件后再写入 transitions。
+    adr: 'docs/adr/ADR-R20-status-enum-single-source.md'
+    approved_by: '项目所有者（会话内裁定「修复后合并」：修复已证实缺陷、待正文的登记显式债务，再合并 PR #14）'
+    approved_at: '2026-11-18'
+    source_commits: []
+    additions: {}
+    removals: {}
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 83
+      state_machines: 43
+    residual_risks:
+      - '本修订无名称级增删，只改已有状态机的转移边、ReworkTask 的 transitions_gap 债务字段与闸门校验逻辑；冻结闸门按内容哈希判定状态机变更，须随本修订重签清单'
+      - 'ReworkTask 的 REJECTED 仍是「合法但无授权入口」的旁支状态，VERIFYING→IN_PROGRESS 回流边未登记，按 31.5 一律拒绝，销项条件写在 transitions_gap.unblocks_when'
+      - '补齐的 11 条边只达契约层；CommunityPost / CreatorRelease / TimelineDraft / Task 均无运行时状态机（PENDING_PHASE1_REVIEW 或纯契约态），边目前不可执行，待各自运行时落地时按此转移表实现'
+      - '本轮以「note 声明 vs transitions」正则审计全部 43 个对象，除 PrevizVersion（已有 transitions_gap 债务）外无其它遗漏；中文措辞授权（如「发布后可」）正则不覆盖，已逐条人工核对 31.5/33.3/34.8/8.6/7.6 正文'
+
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

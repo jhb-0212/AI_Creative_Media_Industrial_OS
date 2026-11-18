@@ -189,3 +189,34 @@ Domain Enum 同步到全量状态集。其余 38 个对象没有 ORM、没有表
 - 旁支状态、展示别名、跨域标记、流水类型各有明确边界，混入即报红；
 - 任一处的状态集合漂移都会被闸门发现（七个负向场景逐个验证）；
 - 未实现的运行时部分如实标记为未实现，没有为了「看起来完整」而建的空表或假约束。
+
+## 勘误：v2 结构化迁移漏抄的转移边（PR #14 评审，V205-R14-A11）
+
+本 ADR 声称「合法状态集合只有一个权威源」，但合入前的自动评审暴露了一个盲区：
+`allowed_states` 收全了合法状态，`transitions` 却只抄了正文中画成箭头的链，正文用自然语言
+授权的边（「发布后可 X/Y/Z」「READY/QUEUED 允许取消」）被漏掉。结果是 `7 个负向场景`
+全过、闸门全绿，而契约声明的状态根本没有可执行入口。逐条比对基线正文后补齐 11 条边：
+
+| 对象 | 补齐的边 | 正文依据 |
+|---|---|---|
+| CommunityPost | PUBLISHED → UNLISTED / TAKEN_DOWN / ARCHIVED（3） | 31.5「发布后可 UNLISTED / TAKEN_DOWN / ARCHIVED」 |
+| CreatorRelease | PUBLISHED → UNLISTED / TAKEN_DOWN / REVOKED / ARCHIVED（4） | 34.8「发布后可 UNLISTED / TAKEN_DOWN / REVOKED / ARCHIVED」 |
+| TimelineDraft | DRAFT → STALE / ARCHIVED（2） | 33.3「旧版本 → SUPERSEDED/STALE/ARCHIVED」，note 已解释旧版本含 DRAFT |
+| Task | READY / QUEUED → CANCEL_REQUESTED（2） | 8.6「READY/QUEUED 允许取消」 |
+
+这不是新增契约，是恢复迁移时丢失的正文语义。补边后新增一条测试逐条锁定这 11 条边，
+防止未来误删仍能全绿。
+
+`ReworkTask` 例外：7.6 只给 status 枚举、未画转移图，`VERIFYING→IN_PROGRESS` 与进入
+`REJECTED` 的边无正文依据，按「不猜契约」不推定，改以 `transitions_gap` 登记显式债务
+（含 `unblocks_when`），待所有者补登每条边的 `owner_action` 与前置条件后再写入。
+
+同时把 `status_field_taxonomy` 的 `basis` 校验从「非空」升级为「必须属于 `basis_kinds`
+封闭枚举」：拼错类别（如 `immutabel_record`）此前会静默通过，台账自称的封闭枚举形同虚设。
+补两个负向测试（非法值报红 / 合法值放行）。
+
+**根因与防治**：这次缺陷不是「谁漏抄了一条边」，而是 v2 迁移缺少一条
+「note/正文声明的转移语义 vs transitions 转移表」的一致性校验。补边只能修复当下这批，
+真正防止重演的是两件事——逐条锁定正文授权边的回归测试，以及「正文自然语言授权的边
+必须同步进 transitions」这一迁移口径的明确化。中文措辞（「发布后可」）无法用箭头正则
+自动发现，故对 `PENDING_PHASE1_REVIEW` 对象的正文语义核对仍是人工复核环节，不假装自动化。

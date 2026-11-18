@@ -210,7 +210,13 @@ objects:
   - {from: DRAFT, to: SUBMITTED}
   - {from: PENDING_REVIEW, to: APPROVED}
   - {from: SUBMITTED, to: PENDING_REVIEW}
-  note: PUBLISHED 必须校验并引用 PG0—PG3 全部通过的 PublicationReview/PublicationGate 决定；Phase 1 不开放公开审核发布。
+  - {from: PUBLISHED, to: UNLISTED}
+  - {from: PUBLISHED, to: TAKEN_DOWN}
+  - {from: PUBLISHED, to: ARCHIVED}
+  note: >-
+    PUBLISHED 必须校验并引用 PG0—PG3 全部通过的 PublicationReview/PublicationGate 决定；Phase 1 不开放公开审核发布。
+    31.5 原文「发布后可 UNLISTED / TAKEN_DOWN / ARCHIVED」明确授权三条发布后治理边，v2 结构化迁移时漏抄，本轮补齐。
+    TAKEN_DOWN / ARCHIVED / UNLISTED 为治理终态，不得原地恢复；恢复须新建 post 并重走 Publication Review。
   all_sources:
   - 24.11 社区状态机、分享链接与复用状态机
   - 31.5 社区对象状态机最终定义
@@ -271,9 +277,15 @@ objects:
   - {from: AUTO_CHECKING, to: PUBLISHED}
   - {from: DRAFT, to: PUBLISH_REQUESTED}
   - {from: PUBLISH_REQUESTED, to: AUTO_CHECKING}
+  - {from: PUBLISHED, to: UNLISTED}
+  - {from: PUBLISHED, to: TAKEN_DOWN}
+  - {from: PUBLISHED, to: REVOKED}
+  - {from: PUBLISHED, to: ARCHIVED}
   note: >-
     发布必须由 CreatorWorkspace 所有者/权利主体本人显式点击；低风险且权利明确、自动检查 PASSED 时可直接发布，不要求前置人工内容审核；
     有不确定/敏感/第三方权利风险时转 HELD_FOR_REVIEW，不得公开。
+    34.8 原文「发布后可 UNLISTED / TAKEN_DOWN / REVOKED / ARCHIVED」明确授权四条发布后治理边，v2 结构化迁移时漏抄，本轮补齐；
+    四条均为治理终态，不得原地恢复，恢复须新建 release 并重走发布检查。
   all_sources:
   - 34.8 分享、社区发布与公开权限
 
@@ -482,8 +494,19 @@ objects:
   - {from: IN_PROGRESS, to: DONE}
   - {from: OPEN, to: IN_PROGRESS}
   - {from: VERIFYING, to: CLOSED}
-  note: VERIFYING 须有复核人且不得为返工执行人本人；CLOSED 为终态。
+  note: >-
+    VERIFYING 须有复核人且不得为返工执行人本人；CLOSED 为终态。
+    REJECTED（返工被驳回）已在 7.6 的 status 枚举中登记，但正文未画出进入该状态的授权边，
+    当前 transitions 不含任何指向 REJECTED 的边——该状态「合法但当前无授权入口」，按 31.5 未登记转移一律拒绝。
   source_kind: field_contract_status
+  transitions_gap:
+    reason: >-
+      7.6 正文只给出 status 枚举（OPEN / IN_PROGRESS / DONE / VERIFYING / CLOSED / REJECTED），
+      没有绘制转移图。当前四条边（OPEN→IN_PROGRESS→DONE→VERIFYING→CLOSED）是按返工主流程语义补的枝干；
+      REJECTED 只有状态值、无任何授权入边，且「验证失败退回 IN_PROGRESS」这类回流边正文亦未明示。
+    unblocks_when: >-
+      所有者补登 VERIFYING→IN_PROGRESS（复核失败退回）与进入 REJECTED 的授权边，给出每条边的
+      owner_action、前置条件与证据字段；补齐后写入 transitions 并删除本字段。
   all_sources:
   - 7.6 精准返工
 
@@ -548,14 +571,17 @@ objects:
   - {from: BLOCKED, to: READY}
   - {from: CANCEL_REQUESTED, to: CANCELLED}
   - {from: QUEUED, to: RUNNING}
+  - {from: QUEUED, to: CANCEL_REQUESTED}
   - {from: READY, to: QUEUED}
+  - {from: READY, to: CANCEL_REQUESTED}
   - {from: RETRY_WAIT, to: QUEUED}
   - {from: RUNNING, to: CANCEL_REQUESTED}
   - {from: RUNNING, to: FAILED}
   - {from: RUNNING, to: RETRY_WAIT}
   - {from: RUNNING, to: SUCCEEDED}
   note: >-
-    READY/QUEUED 允许取消；依赖失败时下游转 BLOCKED 或 NEEDS_REPLAN；等待态 WAITING_FOR_HUMAN/WAITING_FOR_RESOURCE/WAITING
+    READY/QUEUED 允许取消（8.6 原文明确授权，v2 结构化迁移时两条取消请求边漏抄，本轮补齐）；
+    依赖失败时下游转 BLOCKED 或 NEEDS_REPLAN；等待态 WAITING_FOR_HUMAN/WAITING_FOR_RESOURCE/WAITING
     _FOR_PROVIDER/SUBMISSION_UNKNOWN 纳入同一状态机且不产生权威业务结果；本节未列出的状态及其转移一律拒绝。
   source_kind: ascii_diagram
   all_sources:
@@ -566,6 +592,8 @@ objects:
   allowed_states: [ARCHIVED, DRAFT, STALE, SUPERSEDED, VALIDATED]
   transitions:
   - {from: DRAFT, to: SUPERSEDED}
+  - {from: DRAFT, to: STALE}
+  - {from: DRAFT, to: ARCHIVED}
   - {from: DRAFT, to: VALIDATED}
   - {from: VALIDATED, to: ARCHIVED}
   - {from: VALIDATED, to: STALE}
@@ -576,7 +604,7 @@ objects:
     里的「旧版本」是措辞不是状态名：它指的是被取代的那一版，而那一版在编辑发生时必然
     处于 DRAFT 或 VALIDATED。把它当成状态值会让一个不存在的状态进入枚举（本轮结构化
     时抓出来的第一处文本歧义），故此处按「DRAFT / VALIDATED → SUPERSEDED / STALE /
-    ARCHIVED」登记边，与原文语义一致。
+    ARCHIVED」登记全部六条边（v2 结构化迁移时 DRAFT→STALE / DRAFT→ARCHIVED 漏抄，本轮补齐），与原文语义一致。
   all_sources:
   - 33.3 状态机、编辑与 STALE 传播
 

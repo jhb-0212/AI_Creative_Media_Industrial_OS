@@ -18,7 +18,7 @@
 |---|---|---|---|---|
 | ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 270374 | `3510141315fbacb4f7bd92b56e20f7c8472bcece5f2db5f631000ba4cfdb5b95` | 8.x 对象契约 / C.3 数据契约 |
 | ② OpenAPI 草案 | `contracts/openapi/openapi.draft.yaml` | 113753 | `99e979790047853da9840ffd485d1f4ae6b8e1f7230eed115fc3a330fae03ebc` | 31.6（由 Action Registry 派生） |
-| ③ 状态机 | `contracts/state_machines/state_machines.yaml` | 42601 | `92cd2d32eb37b7400e174f4dcd5da4b36f2ec968f0ddbeefeb5fd433e3bc01bc` | 31.5 / 8.6 / 32.6 / 33.3 / 34.7 |
+| ③ 状态机 | `contracts/state_machines/state_machines.yaml` | 44678 | `3ecc2fca3707f0d968120f873bcf9f03dcb7b0bfa7d8ab5ccda8476da561b1f2` | 31.5 / 8.6 / 32.6 / 33.3 / 34.7 |
 | ④ Action Registry | `contracts/action_registry/action_registry.yaml` | 43652 | `ed3b3ae9fe6ee1a6ba7e3c324016054ed6a329471a35eff6817e890cb0d0cf0b` | 31.6 唯一注册表 |
 | ⑤ 权限矩阵 | `contracts/permission/permission_matrix.yaml` | 4212 | `c45a96cbf790568527b6a42a06fc4e20d5228f166b2d8e98d3abce7dd5709f6c` | C.5 / 31.6 |
 | ⑥ 预算与成本口径 | `contracts/budget/budget_caliber.yaml` | 2511 | `29e1d7d470f115ff41b07daaebfb198ccea9246316a2dd4b43a28b52596a0aef` | C.2 / 34.6 |
@@ -40,6 +40,7 @@
 - `V205-R14-A8`
 - `V205-R14-A9`
 - `V205-R14-A10`
+- `V205-R14-A11`
 
 契约名称全集必须精确等于「基线清单 ∪ 已批准修订」，由
 `scripts/freeze_manifest.py --check` 逐名称判定（不是只看数量）。

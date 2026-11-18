@@ -1710,13 +1710,23 @@ def transition_target_problems(sm_objects: Any) -> list[str]:
 
 
 def taxonomy_problems(
-    taxonomy_objects: Any, sm_states: dict[str, set[str]], definitions: dict[str, Any]
+    taxonomy_objects: Any,
+    sm_states: dict[str, set[str]],
+    definitions: dict[str, Any],
+    basis_kinds: set[str] | None = None,
 ) -> list[str]:
     """台账必须**恰好**覆盖 schema 里每个带 status 的对象，且分类自证。
 
     双向：漏登记报红（否则新对象可以带着裸 status 悄悄进来），多登记报红
     （否则台账会积累幽灵条目，看的人以为缺口还在）。
+
+    ``basis_kinds`` 是 ``status_field_taxonomy.yaml`` 声明的封闭依据类别集合。
+    ``basis`` 必须取自其中——只校验「非空」会让拼错的类别（``immutabel_record``）
+    静默通过，台账自称的封闭枚举就形同虚设（PR #14 评审）。默认从权威文件读取，
+    测试可显式传入以注入非法值验证闸门。
     """
+    if basis_kinds is None:
+        basis_kinds = set(load_yaml_mapping(STATUS_TAXONOMY_PATH).get("basis_kinds") or {})
     problems: list[str] = []
     declared: dict[str, dict[str, Any]] = {}
     for entry in taxonomy_objects or []:
@@ -1763,6 +1773,11 @@ def taxonomy_problems(
             basis = str(entry.get("basis", "")).strip()
             if not basis:
                 problems.append(f"{name} 标为 envelope_only 却没写 basis（依据类别）")
+            elif basis not in basis_kinds:
+                problems.append(
+                    f"{name} 的 basis {basis!r} 不在 basis_kinds 封闭枚举 "
+                    f"{sorted(basis_kinds)} 中（拼错或自造类别会让台账的分类依据静默失效）"
+                )
             if not str(entry.get("reason", "")).strip():
                 problems.append(
                     f"{name} 标为 envelope_only 却没写 reason："
@@ -2157,7 +2172,9 @@ def check_status_enum_consistency() -> bool:
     problems: list[str] = []
     problems += governance_problems(sm_data, definitions)
     problems += transition_target_problems(sm_objects)
-    problems += taxonomy_problems(taxonomy.get("objects"), sm_states, definitions)
+    problems += taxonomy_problems(
+        taxonomy.get("objects"), sm_states, definitions, set(taxonomy.get("basis_kinds") or {})
+    )
     problems += enum_registry_problems(registry.get("objects"), sm_states)
     problems += schema_enum_problems(definitions, sm_states, classes, layers)
     problems += field_authority_problems(FIELD_AUTHORITY_PATH, definitions)
