@@ -1,9 +1,9 @@
 """契约一致性校验脚本测试。
 
 覆盖：
-1. parse_state_chain 解析器：连续箭头、斜杠多源、中英文分隔符、空串。
-2. check_project_state_machine 正向：当前契约与实现一致，应通过。
-3. 负向：临时制造不一致（契约多/少转移），应被检出。
+1. check_project_state_machine 正向：当前契约与实现一致，应通过。
+2. 负向：临时制造不一致（契约多/少转移），应被检出。
+3. 状态名只能来自结构化的 allowed_states，不再从文本解析。
 """
 
 from __future__ import annotations
@@ -20,58 +20,6 @@ SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
 import contract_check as cc  # noqa: E402
-
-
-# --------------------------------------------------------------------------- #
-# parse_state_chain 解析器
-# --------------------------------------------------------------------------- #
-def test_parse_simple_chain() -> None:
-    assert cc.parse_state_chain("DRAFT→ACTIVE") == {("DRAFT", "ACTIVE")}
-
-
-def test_parse_consecutive_arrows() -> None:
-    assert cc.parse_state_chain("DRAFT→ACTIVE→ON_HOLD") == {
-        ("DRAFT", "ACTIVE"),
-        ("ACTIVE", "ON_HOLD"),
-    }
-
-
-def test_parse_slash_multi_source() -> None:
-    assert cc.parse_state_chain("DRAFT/ON_HOLD/COMPLETED→ARCHIVED") == {
-        ("DRAFT", "ARCHIVED"),
-        ("ON_HOLD", "ARCHIVED"),
-        ("COMPLETED", "ARCHIVED"),
-    }
-
-
-def test_parse_full_contract_chain() -> None:
-    text = (
-        "DRAFT→ACTIVE→ON_HOLD；ACTIVE→COMPLETED；"
-        "ON_HOLD→ACTIVE；DRAFT/ON_HOLD/COMPLETED→ARCHIVED"
-    )
-    expected = {
-        ("DRAFT", "ACTIVE"),
-        ("ACTIVE", "ON_HOLD"),
-        ("ACTIVE", "COMPLETED"),
-        ("ON_HOLD", "ACTIVE"),
-        ("DRAFT", "ARCHIVED"),
-        ("ON_HOLD", "ARCHIVED"),
-        ("COMPLETED", "ARCHIVED"),
-    }
-    assert cc.parse_state_chain(text) == expected
-
-
-def test_parse_ascii_arrows_and_semicolons() -> None:
-    assert cc.parse_state_chain("A->B; B/C->D") == {
-        ("A", "B"),
-        ("B", "D"),
-        ("C", "D"),
-    }
-
-
-def test_parse_empty_returns_empty() -> None:
-    assert cc.parse_state_chain("") == set()
-    assert cc.parse_state_chain("   ") == set()
 
 
 # --------------------------------------------------------------------------- #
@@ -95,7 +43,8 @@ def test_check_project_state_machine_detects_missing_in_contract(
         ("ON_HOLD", "ARCHIVED"),
         ("COMPLETED", "ARCHIVED"),
     }
-    monkeypatch.setattr(cc, "parse_state_chain", lambda text: fake_transitions)
+    # v2：契约转移已结构化，注入点从「解析文本」改成「读条目」
+    monkeypatch.setattr(cc, "contract_edges", lambda entry: fake_transitions)
     assert cc.check_project_state_machine() is False
 
 
@@ -114,7 +63,8 @@ def test_check_project_state_machine_detects_extra_in_impl(
         ("COMPLETED", "ARCHIVED"),
         ("COMPLETED", "ACTIVE"),  # 实现未登记，应被检出
     }
-    monkeypatch.setattr(cc, "parse_state_chain", lambda text: fake_transitions)
+    # v2：契约转移已结构化，注入点从「解析文本」改成「读条目」
+    monkeypatch.setattr(cc, "contract_edges", lambda entry: fake_transitions)
     assert cc.check_project_state_machine() is False
 
 
@@ -285,69 +235,33 @@ def test_check_resource_schemas_fails_for_orphan_exemption(
 # --------------------------------------------------------------------------- #
 # 状态可达性闸门（静默不可达 = 契约债务必须显式登记）
 # --------------------------------------------------------------------------- #
-def test_contract_state_names_extracts_asset_states() -> None:
-    text = (
-        "GENERATED→TECHNICAL_QC→HUMAN_REVIEW→APPROVED→GOLD；"
-        "可进入 REJECTED / QUARANTINED / REWORK / SUPERSEDED / ARCHIVED"
+def test_state_machine_states_reads_allowed_states() -> None:
+    """允许状态集合直接取 allowed_states：旁支状态不再靠正则从备注里捞。"""
+    states = cc.state_machine_states(
+        [{"object": "AssetVersion", "allowed_states": ["GENERATED", "QUARANTINED"]}]
     )
-    assert cc._contract_state_names(text) == {
-        "GENERATED",
-        "TECHNICAL_QC",
-        "HUMAN_REVIEW",
-        "APPROVED",
-        "GOLD",
-        "REJECTED",
-        "QUARANTINED",
-        "REWORK",
-        "SUPERSEDED",
-        "ARCHIVED",
-    }
+    assert states == {"AssetVersion": {"GENERATED", "QUARANTINED"}}
 
 
-def test_state_reachability_passes_on_current_contract() -> None:
-    assert cc.check_state_reachability() is True
+def test_state_machine_states_rejects_missing_allowed_states() -> None:
+    """没有 allowed_states 的条目是契约损坏，不能「当作空集」继续往下跑。"""
+    with pytest.raises(ValueError, match="allowed_states"):
+        cc.state_machine_states([{"object": "AssetVersion"}])
 
 
-def test_state_reachability_detects_undeclared_unreachable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """把债务登记清空 → 5 个旁支状态变成静默不可达，必须报红。"""
-    gaps = tmp_path / "gaps.yaml"
-    gaps.write_text("gaps: {}\n", encoding="utf-8")
-    monkeypatch.setattr(cc, "STATE_GAPS_PATH", gaps)
-    assert cc.check_state_reachability() is False
+def test_state_machine_states_rejects_duplicate_states() -> None:
+    with pytest.raises(ValueError, match="重复"):
+        cc.state_machine_states(
+            [{"object": "AssetVersion", "allowed_states": ["GENERATED", "GENERATED"]}]
+        )
 
 
-def test_state_reachability_detects_stale_debt(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """把可达状态误登记为缺口（陈旧债务）→ 必须报红。"""
-    import yaml
-
-    data = yaml.safe_load(cc.STATE_GAPS_PATH.read_text(encoding="utf-8"))
-    data["gaps"]["AssetVersion"]["GENERATED"] = {
-        "reason": "陈旧登记",
-        "contract_ref": "x",
-        "unblocks_when": "y",
-    }
-    gaps = tmp_path / "gaps.yaml"
-    gaps.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
-    monkeypatch.setattr(cc, "STATE_GAPS_PATH", gaps)
-    assert cc.check_state_reachability() is False
-
-
-def test_state_reachability_requires_gap_fields(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """债务登记缺 unblocks_when → 必须报红（债务不能含糊）。"""
-    import yaml
-
-    data = yaml.safe_load(cc.STATE_GAPS_PATH.read_text(encoding="utf-8"))
-    del data["gaps"]["AssetVersion"]["REJECTED"]["unblocks_when"]
-    gaps = tmp_path / "gaps.yaml"
-    gaps.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
-    monkeypatch.setattr(cc, "STATE_GAPS_PATH", gaps)
-    assert cc.check_state_reachability() is False
+def test_state_machine_states_rejects_non_state_token() -> None:
+    """「旧版本」「可进入」这类措辞曾被文本解析当成状态值，必须在入口拦住。"""
+    with pytest.raises(ValueError, match="非状态值"):
+        cc.state_machine_states(
+            [{"object": "TimelineDraft", "allowed_states": ["DRAFT", "旧版本"]}]
+        )
 
 
 # --------------------------------------------------------------------------- #

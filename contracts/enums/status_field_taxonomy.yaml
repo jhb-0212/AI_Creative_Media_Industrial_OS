@@ -1,0 +1,346 @@
+# 对象 status 字段的分类台账（手工维护，唯一权威）
+#
+# 为什么需要这份台账
+# ----------------
+# C.3.1 通用信封规定每个对象都有必填的 `status`。但「有 status 字段」不等于
+# 「有生命周期」：有的对象是不可变记录（流水、审计、决定），有的是挂靠父对象的
+# 子结构（批注、反推片段），有的状态由别的字段承载（ModelInvocation 的
+# submission_status / result_status / billing_status）。结果是同一个 `status`
+# 字段在不同对象上语义完全不同，而此前没有任何地方把这件事写下来——
+# 76 个 status 字段里 70 个是裸 `string`，谁都可以往里写任何字符串。
+#
+# 本台账把每个 status 字段落到三类之一，CI 按类强制：
+#
+#   lifecycle      —— 有权威状态机（state_machines.allowed_states）；
+#                     Schema 的 status.enum 必须逐值等于 allowed_states，缺一个、
+#                     多一个都报红。共 40 个（ADR-R21 把 PrevizVersion 归位：8.13
+#                     明确给出六态权威集，此前误判为 status_split）。
+#   envelope_only  —— 无独立生命周期，status 仅作信封占位；必须写 basis（依据类别）
+#                     + reason（为什么它不是生命周期）+ unblocks_when（哪项领域决策
+#                     才能解除该分类）。status 只允许写 status_layers 的哨兵值，
+#                     不再接受任意字符串。共 17 个。
+#   lifecycle_gap  —— 应有生命周期但状态机从未登记；必须写 reason / contract_ref /
+#                     unblocks_when 三项债务字段。这三项不是给文案看的：闸门会
+#                     双向校验（登记了却补上状态机 → 陈旧债务报红）。共 19 个。
+#
+# 三类互斥且必须覆盖 object_schemas 里每一个带 status 的对象：
+# 漏登记报红、多登记报红、同一个对象出现在两类里报红。删条目不能让闸门变绿，
+# 因为「未登记」本身就是红。
+#
+# 本台账刻意不做的事
+# ----------------
+# 不为没有权威状态集的对象编造 enum。给 CameraRig 造一套 DRAFT/ACTIVE/ARCHIVED
+# 只是把「未知」换成「看起来知道了」，而实现方会照着这个假枚举写 CHECK 约束，
+# 最后连正文都没说过的东西变成了数据库不变量。宁可留一个带债务登记的裸字段。
+
+version: 1
+source: contracts/schemas/object_schemas.schema.json + contracts/state_machines/state_machines.yaml
+
+basis_kinds:
+  immutable_record: >-
+    一次性写入、此后不可改写的记录（流水、审计、下架、决定、记忆）。它的「状态」
+    由记录本身的存在与内容表达，改写状态等于改写事实。
+  child_structure: >-
+    隶属于父对象、不独立存在的结构（批注、反推片段、场次分段）。它的生命周期
+    包含在父对象里，单独给它一套状态只会与父对象的状态打架。
+  derived_projection: >-
+    从别的对象/事件算出来的视图或快照（策略解析结果、版本树）。可重算，不承载
+    独立生命周期；给它状态等于把派生量当事实。
+  status_split: >-
+    状态由本对象上更具体的字段承载（提交状态、结果状态、计费状态、纯度检查结论）。
+    信封 status 是被拆分后剩下的占位位，真正的不变量在那些字段上。
+
+objects:
+  # ---------------- lifecycle：39 个已建模状态机对象 ----------------
+  - {object: Appeal, class: lifecycle}
+  - {object: AssetVersion, class: lifecycle}
+  - {object: BudgetLedgerTransaction, class: lifecycle}
+  - {object: BudgetTransferRequest, class: lifecycle}
+  - {object: CharacterAppearance, class: lifecycle}
+  - {object: CharacterCanon, class: lifecycle}
+  - {object: CharacterCard, class: lifecycle}
+  - {object: ClientReviewPortal, class: lifecycle}
+  - {object: CommunityPost, class: lifecycle}
+  - {object: ConstraintPack, class: lifecycle}
+  - {object: CreatorDeliveryManifest, class: lifecycle}
+  - {object: CreatorGate, class: lifecycle}
+  - {object: CreatorPublicationCheck, class: lifecycle}
+  - {object: CreatorRelease, class: lifecycle}
+  - {object: CreatorWorkspace, class: lifecycle}
+  - {object: DeliveryManifest, class: lifecycle}
+  - {object: Episode, class: lifecycle}
+  - {object: ExplorationBranch, class: lifecycle}
+  - {object: ExportPackage, class: lifecycle}
+  - {object: ExternalToolConnection, class: lifecycle}
+  - {object: PatternRecord, class: lifecycle}
+  - {object: PrevizVersion, class: lifecycle}
+  - {object: Project, class: lifecycle}
+  - {object: QCReviewSession, class: lifecycle}
+  - {object: QuotaReservation, class: lifecycle}
+  - {object: ReuseRequest, class: lifecycle}
+  - {object: ReverseAnalysisReport, class: lifecycle}
+  - {object: ReworkTask, class: lifecycle}
+  - {object: Scene, class: lifecycle}
+  - {object: ScriptRevision, class: lifecycle}
+  - {object: ShareLink, class: lifecycle}
+  - {object: Shot, class: lifecycle}
+  - {object: ShotBreakdownDraft, class: lifecycle}
+  - {object: ShotRevision, class: lifecycle}
+  - {object: ShotVisualPlan, class: lifecycle}
+  - {object: ShowcaseSnapshot, class: lifecycle}
+  - {object: SkillManifest, class: lifecycle}
+  - {object: Task, class: lifecycle}
+  - {object: TimelineDraft, class: lifecycle}
+  - {object: ToolExchangeSession, class: lifecycle}
+
+  # ---------------- envelope_only：17 个无独立生命周期的对象 ----------------
+  - object: ClientAnnotation
+    class: envelope_only
+    basis: child_structure
+    reason: >-
+      27.2 明确「ClientAnnotation 为其下挂批注对象，不是独立领域对象」：批注锚定
+      精确资产版本与时间位置，随审片门户一起处置（disposition 字段承载单条意见的
+      处理结论），没有自己的一套生命周期。
+    unblocks_when: >-
+      所有者裁定批注需要脱离 ClientReviewPortal 独立处置（如跨审片门户的复核链），并给出权威状态集与转移边；否则永远随门户状态走。
+  - object: Comment
+    class: envelope_only
+    basis: child_structure
+    reason: >-
+      评论挂 CommunityPost（post_id）与父评论（parent_comment_id）。社区治理状态
+      （DRAFT…TAKEN_DOWN）属 CommunityPost；给每条评论再造一套状态，会出现「帖子
+      已下架、评论仍在审核中」这种无法解释的组合。
+    unblocks_when: >-
+      所有者为社区评论定义独立于 CommunityPost 的治理状态机，并证明帖子下架后评论可独立存在；否则不解除。
+  - object: ReverseShotSegment
+    class: envelope_only
+    basis: child_structure
+    reason: 25.x 反推结果的分段结构，属 ReverseAnalysisReport 的组成部分；置信度与时间码是它的内容，不是状态。
+    unblocks_when: >-
+      所有者把反推分段提升为独立聚合根并给出状态机；当前它只是 ReverseAnalysisReport 的内容分段。
+  - object: ReversePromptPair
+    class: envelope_only
+    basis: child_structure
+    reason: 反推出的「图像提示词 / 运动提示词」成对结构，依附某个 segment（source_segment_ref），无独立生命周期。
+    unblocks_when: >-
+      所有者裁定提示词对可脱离 segment 独立复用、并授予自己的生命周期；否则不解除。
+  - object: ReverseKeyframeRef
+    class: envelope_only
+    basis: child_structure
+    reason: 关键帧引用，权利状态由 rights_status 字段承载（导出前重新校验），不构成对象生命周期。
+    unblocks_when: >-
+      所有者裁定 rights_status 之外还需要引用级生命周期（如重新校验、撤销）并给出状态集；否则 rights_status 是唯一事实。
+  - object: ReverseAudioDescription
+    class: envelope_only
+    basis: child_structure
+    reason: 反推的音频/对白描述块，属报告内容；不得默认转录或公开未授权音轨是内容约束，不是状态。
+    unblocks_when: >-
+      所有者裁定音频描述块可独立发布/撤回并给出状态机；当前内容约束由报告与权利字段承载。
+  - object: ReviewAnnotation
+    class: envelope_only
+    basis: child_structure
+    reason: 内部评审批注，锚定 snapshot_id 与资产版本；处置结论在批注自身字段上，不是生命周期。
+    unblocks_when: >-
+      所有者裁定评审批注可脱离 snapshot 独立流转并给出状态机；当前处置结论在批注字段上。
+  - object: PolicyResolution
+    class: envelope_only
+    basis: derived_projection
+    reason: 字段级策略解析快照（resolved_fields + source_versions + validation_result）。它是「按某组策略版本算出来的结果」，可重算，不是有生命周期的实体。
+    unblocks_when: >-
+      该快照被证明不可由策略版本重算且需要独立审计生命周期时解除；否则派生视图永不建状态机。
+  - object: ShowcaseVersionTree
+    class: envelope_only
+    basis: derived_projection
+    reason: 版本树是 nodes / edges + active_snapshot_ref 的图结构视图，由若干 ShowcaseSnapshot 组成；树本身没有状态，状态在节点上。
+    unblocks_when: >-
+      所有者裁定版本树本身需要独立状态（而非由节点聚合）并给出状态集；否则状态只在 ShowcaseSnapshot 上。
+  - object: TierChangeAudit
+    class: envelope_only
+    basis: immutable_record
+    reason: 等级变更审计记录（before/after 快照 + actor + timestamp）。审计记录写完即定，改写状态等于篡改审计。
+    unblocks_when: >-
+      正文为等级变更审计记录引入状态机并明确不篡改审计的写法；当前改写记录即篡改事实。
+  - object: GateDecision
+    class: envelope_only
+    basis: immutable_record
+    reason: >-
+      Gate 结论记录：decided_at / decided_by / decision / evidence_refs。34.x 要求
+      终态结论不得原地改写，条件变化须新建评估记录——既然不可改写，就没有「状态
+      迁移」这件事。
+    unblocks_when: >-
+      正文允许终局结论按新证据原地改判并给出可审计的状态机；在此之前条件变化必须新建评估记录。
+  - object: TakeDown
+    class: envelope_only
+    basis: immutable_record
+    reason: 下架处置记录（notice_ref / authority_ref / evidence_refs / taken_down_at）。处置动作已发生，记录不再变化；恢复上架是新事实，不是改这条记录的状态。
+    unblocks_when: >-
+      所有者裁定下架记录需要「生效中/已恢复」等状态并给出状态机；当前恢复上架是另一条新记录。
+  - object: ShotBudgetLedger
+    class: envelope_only
+    basis: immutable_record
+    reason: 镜头成本流水（transaction_id + amount + approval_id），追加式记账；与 BudgetLedgerTransaction 同理，记录本身就代表「已入账」。
+    unblocks_when: >-
+      正文为镜头流水给出与 BudgetLedgerTransaction 不同的生命周期并允许追加后改写；当前追加即不可变。
+  - object: MemoryRecord
+    class: envelope_only
+    basis: immutable_record
+    reason: 记忆记录（valid_from / valid_to / supersedes）。有效期与取代关系用字段表达，不需要状态迁移；且记忆明确不自动成为硬约束。
+    unblocks_when: >-
+      所有者裁定记忆记录除 valid_from/valid_to 与 supersedes 之外还需要状态迁移并给出状态集；当前有效期字段已是唯一事实。
+  - object: ExternalToolAdapterManifest
+    class: envelope_only
+    basis: status_split
+    reason: >-
+      32.4 的 AdapterManifest 自带 lifecycle_status 字段承载适配器生命周期，
+      信封 status 是并存的第二个占位位。这正是「两个 status 事实」的样本：
+      真正的不变量在 lifecycle_status 上，本轮不擅自合并（合并属契约修订），
+      但必须显式记下来，避免有人以为信封 status 也是权威。
+    unblocks_when: >-
+      所有者裁定 lifecycle_status 的完整允许状态集与转移边（含暂停/回滚/退役的字面值），写入 state_machines 后重新评估分类。
+  - object: ModelInvocation
+    class: envelope_only
+    basis: status_split
+    reason: >-
+      调用记录的状态被拆成三个字段：submission_status（是否已提交给供应商）、
+      result_status（结果是否可用）、billing_status（是否计费）——加上
+      duplicate_charge_risk / idempotency_key，这套设计刻意不把它们压成一个线性状态，
+      因为「提交未知但结果已到」这类组合是真实存在的。信封 status 不承载这层语义。
+    unblocks_when: >-
+      所有者分别给出 submission_status / result_status / billing_status 的完整值集与交叉组合约束；信封 status 永不复活。
+  - object: QCIssue
+    class: envelope_only
+    basis: status_split
+    reason: 缺陷单的处置结论在 disposition 与 human_decision 上（谁判、判成什么），不是一条从 OPEN 到 CLOSED 的通用状态链。
+    unblocks_when: >-
+      所有者裁定 human_decision 与 disposition 是否各建 enum、以及与 ReworkTask 的联动不变量；在此之前不伪造缺陷生命周期。
+
+  # ---------------- lifecycle_gap：19 个应有生命周期但未登记状态机 ----------------
+  - object: BlockingAsset
+    class: lifecycle_gap
+    reason: 白模/站位资产有版本与权利约束（version / license_type / rights_manifest_ref / preview_only），必然存在「生成→验证→可用→撤销」的过程，但正文只为它列了字段、没有状态链。
+    contract_ref: 8.15 CameraRig 与 BlockingAsset 字段契约表
+    unblocks_when: 正文补白模资产生命周期（预期与 AssetVersion 的 8.5 形状对齐，但隔离/纯净度判定不同），随后登记 state_machines 条目并在本台账改为 lifecycle
+  - object: CameraRig
+    class: lifecycle_gap
+    reason: 相机机位是版本化资产（version / camera_manifest_ref / extrinsics），与 Previz 绑定；「草案→校验→锁定→取代」是隐含流程，正文未登记状态集。
+    contract_ref: 8.15 CameraRig 与 BlockingAsset 字段契约表
+    unblocks_when: 正文补相机资产状态链，或明确它随 PrevizVersion 一同版本化（后者成立则改为 envelope_only + child_structure）
+  - object: CharacterReferenceSet
+    class: lifecycle_gap
+    reason: 参考图集带权利清单（rights_manifest_ref）与视图类型，参考素材必须过权利校验才能用于生成；正文给了字段未给状态。
+    contract_ref: C.3 CharacterReferenceSet 字段契约
+    unblocks_when: 正文补参考集的权利校验流程与状态集，或归属 CharacterCard 的组成部分（则改 child_structure）
+  - object: CharacterVoiceProfile
+    class: lifecycle_gap
+    reason: 声音档案带许可范围（license_scope）与音频资产引用；声音授权可撤销、可过期，必然有状态，但正文未登记。
+    contract_ref: C.3 CharacterVoiceProfile 字段契约
+    unblocks_when: 正文补声音授权生命周期（含撤销与过期），随后登记状态机
+  - object: ContinuityConstraint
+    class: lifecycle_gap
+    reason: 连续性约束带审批引用与有效期（approval_ref / authority / valid_from），7.9 只定义了 ConstraintPack 的状态机，单个约束条目的生效/失效/撤销未定义。
+    contract_ref: 7.9 隐式连续性依赖登记
+    unblocks_when: 正文补单条约束的生效与失效口径（可能与 ConstraintPack 共享状态集）
+  - object: ControlSignalAsset
+    class: lifecycle_gap
+    reason: 控制信号资产带纯净度检查与权利约束（purity_check_ref / rights_manifest_ref），是生成输入的前置条件；正文给了字段未给状态。
+    contract_ref: 8.12 控制信号契约
+    unblocks_when: 正文补控制信号资产生命周期（含纯净度复核与权利撤销）
+  - object: CreativeProposal
+    class: lifecycle_gap
+    reason: 创意提案有评审人（reviewed_by）与决策理由（decision_reason），说明存在「待评审→采纳/否决」流程，但正文未把它登记为状态机。
+    contract_ref: C.3 CreativeProposal 字段契约
+    unblocks_when: 正文补提案评审流程与状态集（注意与 ShotVisualPlan 的 DRAFT→REVIEW→APPROVED 区分，不得复用同一套命名掩盖语义差异）
+  - object: DeliverySpec
+    class: lifecycle_gap
+    reason: 交付规格「审批后冻结版本」——冻结即隐含状态迁移（草案→审批→冻结/取代），但正文未登记状态集。
+    contract_ref: 33.x 交付规格与 DeliveryManifest 字段契约
+    unblocks_when: 正文补交付规格的冻结与换版规则，随后登记状态机
+  - object: EscapeReport
+    class: lifecycle_gap
+    reason: 质量逃逸记录带 RCA 引用与关闭证据（rca_ref / resolution），从发现到关闭是一条明确的处置链，正文只给了字段。
+    contract_ref: 交付后质量逃逸章节
+    unblocks_when: 正文补逃逸处置状态链（发现→RCA→返工→关闭），随后登记状态机
+  - object: ExternalToolArtifact
+    class: lifecycle_gap
+    reason: 外部工具产物的描述是「先隔离和验证，合格后再创建正式 AssetVersion」——这就是一条生命周期（暂存→扫描→验证→转正/废弃），但未登记状态集。
+    contract_ref: 32.x Staging / Asset Intake 口径
+    unblocks_when: 正文补暂存产物的隔离与转正状态链（与 AssetVersion 的 QUARANTINED 语义要对齐，不得两套）
+  - object: IntentContract
+    class: lifecycle_gap
+    reason: 意图契约带审批（approval）与假设集（assumptions）；意图一旦被批准就成为下游硬约束，批准前后语义不同，但未登记状态。
+    contract_ref: C.3 IntentContract 字段契约
+    unblocks_when: 正文补意图契约的批准与变更口径
+  - object: ProjectProductionProfile
+    class: lifecycle_gap
+    reason: 项目生产策略带 policy_version，策略换版会改变后续镜头的默认分级；版本化策略的生效与取代是状态问题，正文未登记。
+    contract_ref: 17.4 项目等级 × 镜头等级二维矩阵
+    unblocks_when: 正文补策略版本的生效/取代规则，或明确策略只追加不改写（则改 immutable_record）
+  - object: Report
+    class: lifecycle_gap
+    reason: 举报对象带 decision_ref（处置决定引用），说明存在「待处置→已处置」流程，但正文未登记状态集。
+    contract_ref: 24.3 展示域对象字段（最小建议）
+    unblocks_when: 正文补举报处置流程与状态集（与 Appeal 的申诉链衔接）
+  - object: ShotProductionProfile
+    class: lifecycle_gap
+    reason: 镜头生产策略带 profile_version 与 effective_tier；与 ProjectProductionProfile 同理，版本生效是状态问题。
+    contract_ref: 17.4 项目等级 × 镜头等级二维矩阵
+    unblocks_when: 正文补镜头策略版本的生效/取代规则，或明确只追加不改写（则改 immutable_record）
+  - object: ShotResourceAllocation
+    class: lifecycle_gap
+    reason: 镜头资源分配带已分配/已预留金额与审批引用（allocated_amount / reserved_amount / approval_id）；预留→消耗→释放是资源生命周期，正文未登记。
+    contract_ref: 预算章节（镜头预算与配额）
+    unblocks_when: 正文补资源分配的状态链（预期与 QuotaReservation 的 REQUESTED→RESERVED→COMMITTED/RELEASED 同构）
+  - object: ShotSpec
+    class: lifecycle_gap
+    reason: >-
+      ShotSpec 是「怎么拍、多长、切在哪」的单一数据源，且带 locked_dimensions
+      （逐字段锁定）。锁定是状态语义：草案、待锁、部分锁定、全锁——这正是
+      ShotVisualPlan 已经登记过的那套形态，但 ShotSpec 自身没有状态机。
+    contract_ref: 8.12 ShotSpec 字段契约
+    unblocks_when: 正文补 ShotSpec 的锁定与换版口径（须与 ShotVisualPlan 的 PARTIALLY_LOCKED/LOCKED 对齐，不得自创第二套锁定命名）
+  - object: ShotTierChangeRequest
+    class: lifecycle_gap
+    reason: 镜头等级变更申请带申请人/批准人（requester / approver）与成本增量，是标准的两步审批流，形状与 ScriptRevision 的 LOCK_PENDING 完全一致，但正文未登记状态机。
+    contract_ref: 17.4 项目等级 × 镜头等级二维矩阵
+    unblocks_when: 正文补等级变更审批状态链（DRAFT→PENDING→APPROVED/REJECTED），复用职责分离口径
+  - object: TimelineManifest
+    class: lifecycle_gap
+    reason: 时间线清单是版本化描述（timeline_id / sequence_id / 帧率与轨道），与 TimelineDraft 同域；「发布版本→被取代」是隐含状态，正文未登记。
+    contract_ref: 33.2 TimelineDraft 字段组 / 33.3 状态机
+    unblocks_when: 正文补 TimelineManifest 与 TimelineDraft 的版本关系（若 Manifest 只是 Draft 的快照则改 envelope_only + derived_projection）
+  - object: ToolExchangePackage
+    class: lifecycle_gap
+    reason: 交换包的描述是「源版本固定不可变；下载链接短时有效，过期/撤销可追溯」——有效/过期/撤销是生命周期，正文只给了字段。
+    contract_ref: 32.6 文件导出、工程执行与成片回流闭环
+    unblocks_when: 正文补交换包的有效期与撤销状态链（与 ToolExchangeSession 的 EXPORTED 事件衔接）
+
+# 有状态机、但对象尚未进入 object_schemas 的缺口（显式登记，不得靠豁免消除）。
+# 闸门双向校验：对象补上 schema 后必须删条目（陈旧债务报红）；删条目不能让缺口消失。
+schema_gaps:
+  - object: PublicationReview
+    reason: >-
+      该对象有权威状态机（QUEUED→IN_REVIEW→APPROVED/REJECTED/RETURNED，
+      且要求审核人与提交人分离），却没有 object schema：审核人、规则版本、证据、
+      原因与决定时间都无处校验，「职责分离」只能靠实现方自觉。
+    contract_ref: contracts/state_machines/state_machines.yaml → objects.PublicationReview
+    unblocks_when: 31.5 审核章节的字段表落成 schema（含 reviewer 与 submitter 的分离约束），随后本条目删除
+  - object: CreatorShareLink
+    reason: >-
+      34.8 的 Creator 分享链接有独立状态机（ACTIVE→EXPIRED/REVOKED）且被明确
+      列为独立对象（与 31.5 的 ShareLink 不是同一条目），但没有 schema：
+      水印、有效期、受众限制、撤销依据都无法校验。
+    contract_ref: contracts/state_machines/state_machines.yaml → objects.CreatorShareLink
+    unblocks_when: 34.8 分享链接字段表落成 schema，随后本条目删除
+  - object: Pattern
+    reason: >-
+      31.5 的 Pattern 与 C.3 的 PatternRecord 状态链逐字相同，但只有 PatternRecord
+      进了 schema。Pattern 缺 schema 期间，两套命名并存且没有机制保证二者不漂移。
+    contract_ref: contracts/state_machines/state_machines.yaml → objects.Pattern
+    unblocks_when: 确认 Pattern 与 PatternRecord 是同一对象（则合并为一条状态机）或确属两个对象（则补 Pattern 的 schema 与字段差异说明），二选一后本条目删除
+  - object: SharedReferenceAsset
+    reason: >-
+      26.2 给出完整状态链（DRAFT→RIGHTS_CHECK→VALIDATED→AVAILABLE→
+      DEPRECATED/REVOKED/QUARANTINED），但对象尚未建模，暂以正文段落为权威
+      （state_machines.text_authority_only 已登记）。
+    contract_ref: contracts/state_machines/state_machines.yaml → text_authority_only.SharedReferenceAsset
+    unblocks_when: 建模该对象并补 schema 后，从 text_authority_only 移入 objects 并登记状态机，本条目删除

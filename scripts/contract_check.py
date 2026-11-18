@@ -22,11 +22,14 @@
    audit_event 必须已登记，否则须在 event_emission_gaps.yaml 显式登记债务。
 10. 对象引用目标（object_schemas 的 x-afs-reference-targets）：声明的字段必须存在、
     声明的目标必须是已定义对象；悬空引用报红（Scene 曾因此长期缺失而全绿）。
-11. 枚举覆盖（state_machines 对象集 ⊆ enum_registry 对象集）：派生文件与权威源
-    脱钩报红（Project / Episode / ScriptRevision 曾漏登记）。
+11. 状态枚举四层一致性（state_machines → enum_registry → object_schemas → Runtime）：
+    allowed_states 与转移边、枚举注册表、Schema 的 status.enum、status 字段分类台账、
+    别名/跨域标记层、已实现对象的 Domain Enum 与数据库 CHECK 全部逐值对齐。
+    （旧版只比对象名不比状态集，于是三处状态集合可以各自漂移而全绿。）
 
 设计要点（不屎山代码）：
-- 解析逻辑独立成纯函数（parse_state_chain），可单测、无副作用。
+- 状态值与转移边一律结构化（allowed_states / transitions / guards.transition）；
+  不再解析自然语言状态链，避免从备注文字里「抓」出假状态。
 - 校验结果显式返回，非零退出码供 CI 使用。
 - 不依赖运行时数据库 / 服务，纯静态比对。
 
@@ -97,40 +100,6 @@ def load_yaml_mapping(path: Path) -> dict[str, Any]:
 
 
 # --------------------------------------------------------------------------- #
-# 状态链解析
-# --------------------------------------------------------------------------- #
-def _split_tokens(text: str) -> list[str]:
-    """按分号切分子链，去除空白与空串。"""
-    return [t.strip() for t in re.split(r"[；;]", text) if t.strip()]
-
-
-def parse_state_chain(text: str) -> set[tuple[str, str]]:
-    """将状态链文本解析为 (source, target) 转移对集合。
-
-    示例：
-        "DRAFT→ACTIVE→ON_HOLD；ACTIVE→COMPLETED；DRAFT/ON_HOLD/COMPLETED→ARCHIVED"
-    解析为：
-        {(DRAFT,ACTIVE),(ACTIVE,ON_HOLD),(ACTIVE,COMPLETED),
-         (DRAFT,ARCHIVED),(ON_HOLD,ARCHIVED),(COMPLETED,ARCHIVED)}
-    """
-    transitions: set[tuple[str, str]] = set()
-    for chunk in _split_tokens(text):
-        # 单个子链内可能含连续箭头：A→B→C
-        states = [s.strip() for s in re.split(r"→|->", chunk) if s.strip()]
-        if len(states) < 2:
-            continue
-        # 展开连续箭头：A→B→C => (A,B),(B,C)
-        for i in range(len(states) - 1):
-            src_group = states[i].split("/")
-            dst = states[i + 1].strip()
-            for src in src_group:
-                src = src.strip()
-                if src:
-                    transitions.add((src, dst))
-    return transitions
-
-
-# --------------------------------------------------------------------------- #
 # 状态机一致性校验（Project + ScriptRevision）
 # --------------------------------------------------------------------------- #
 # 契约对象名 -> 领域转移表来源（模块路径, 变量名）
@@ -177,10 +146,10 @@ def check_project_state_machine() -> bool:
 
 
 def check_state_machines() -> bool:
-    """校验所有已实现的状态机（Project / ScriptRevision）与契约一致。
+    """校验所有已实现的状态机（Project / ScriptRevision / Episode / AssetVersion）与契约一致。
 
-    遍历 state_machines.yaml 中登记为 PENDING_PHASE1_REVIEW 且已提供领域实现
-    的对象，双向比对契约状态链与领域转移表。
+    比对对象是 ``transitions`` 结构化列表，不再是状态链文本——文本里 ``A→B / C``
+    的斜杠在源侧表示「多个源」、在目标侧表示「多个目标」，靠正则解析只能猜。
     """
     sm_path = CONTRACTS / "state_machines" / "state_machines.yaml"
     data = load_yaml_mapping(sm_path)
@@ -195,8 +164,7 @@ def check_state_machines() -> bool:
             all_ok = False
             continue
 
-        contract_states = entry.get("states", "")
-        contract_transitions = parse_state_chain(contract_states)
+        contract_transitions = contract_edges(entry)
         impl_transitions = _load_impl_transitions(module_path, var_name)
 
         only_contract = contract_transitions - impl_transitions
@@ -219,6 +187,19 @@ def check_state_machines() -> bool:
         print(f"[PASS] {obj_name} 状态机一致：{len(contract_transitions)} 条转移")
 
     return all_ok
+
+
+def contract_edges(entry: dict[str, Any]) -> set[tuple[str, str]]:
+    """把契约条目的 ``transitions`` 列表归一化为 ``(from, to)`` 集合。"""
+    edges: set[tuple[str, str]] = set()
+    for edge in entry.get("transitions") or []:
+        if not isinstance(edge, dict):
+            continue
+        src = str(edge.get("from", "")).strip()
+        dst = str(edge.get("to", "")).strip()
+        if src and dst:
+            edges.add((src, dst))
+    return edges
 
 
 # --------------------------------------------------------------------------- #
@@ -1169,14 +1150,9 @@ def _declared_state_gaps() -> dict[str, dict[str, dict[str, object]]]:
     return result
 
 
-# 状态名提取：契约里的状态都是大写下划线形式（GENERATED / TECHNICAL_QC）。
-# 只取长度 >=3 的全大写词，避免把中文说明或单字母误判成状态。
-_STATE_TOKEN_RE = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
-
-
-def _contract_state_names(text: str) -> set[str]:
-    """从契约 states 文本提取状态名集合。"""
-    return set(_STATE_TOKEN_RE.findall(text))
+# 状态名：契约里统一为大写下划线标识（GENERATED / TECHNICAL_QC）。
+# allowed_states 已是结构化列表，此处仅用于校验单个状态值的书写形态。
+_STATE_TOKEN_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,}$")
 
 
 def _reachable_states(edges: set[tuple[str, str]]) -> set[str]:
@@ -1201,6 +1177,10 @@ def check_state_reachability() -> bool:
     1. 契约声明了、实现不可达、又没登记 → FAIL（静默缺口）；
     2. 已登记为缺口、但实现其实可达 → FAIL（陈旧债务，必须删条目）；
     3. 缺口条目缺 reason / contract_ref / unblocks_when → FAIL（债务不能含糊）。
+
+    口径修正（v2）：比对的「契约状态」取自 ``allowed_states``，不再从文本状态链
+    里正则抓大写词。旧口径下，``AssetVersion`` 的旁支状态（QUARANTINED 等）只能
+    靠「note 里出现过大写词」被顺带抓到，抓不到就静默漏掉一整类缺口。
     """
     sm_path = CONTRACTS / "state_machines" / "state_machines.yaml"
     objects = load_yaml_mapping(sm_path).get("objects", [])
@@ -1215,7 +1195,7 @@ def check_state_reachability() -> bool:
             print(f"[FAIL] state_machines.yaml 中未找到 {obj_name}")
             ok = False
             continue
-        states = _contract_state_names(str(entry.get("states", "")))
+        states = {str(s) for s in entry.get("allowed_states") or []}
         edges = _load_impl_transitions(module_path, var_name)
         reachable = _reachable_states(edges)
         obj_gaps = declared.get(obj_name) or {}
@@ -1395,11 +1375,12 @@ def guard_problems(obj_name: str, entry: dict, definition: dict) -> list[str]:
     就只能靠「故意改坏契约再跑 CI」来验证，等于没有回归保护。测试直接构造
     entry + definition 调本函数即可。
 
-    四条校验（与 check_state_machine_guards 的 docstring 一致）：
-    1. ``transition`` 必须解析出转移边，且是该对象 ``states`` 已登记的边；
-    2. ``fields`` 必须是非空字符串列表；
-    3. ``fields`` 每一项都在 schema 的 properties 中；
-    4. ``transition`` / ``fields`` / ``rule`` 三项齐全。
+    五条校验（与 check_state_machine_guards 的 docstring 一致）：
+    1. ``transition`` 必须是 ``{from, to}`` 结构化边——v2 不再解析字符串状态链；
+    2. 该边必须是此对象 ``transitions`` 已登记的边；
+    3. ``fields`` 必须是非空字符串列表；
+    4. ``fields`` 每一项都在 schema 的 properties 中；
+    5. ``transition`` / ``fields`` / ``rule`` 三项齐全。
     """
     problems: list[str] = []
     guards = entry.get("guards")
@@ -1408,7 +1389,7 @@ def guard_problems(obj_name: str, entry: dict, definition: dict) -> list[str]:
     if not isinstance(guards, list):
         return [f"{obj_name}.guards 必须是列表"]
 
-    declared_edges = parse_state_chain(str(entry.get("states", "")))
+    declared_edges = contract_edges(entry)
     properties = definition.get("properties") or {}
 
     for idx, guard in enumerate(guards):
@@ -1420,17 +1401,19 @@ def guard_problems(obj_name: str, entry: dict, definition: dict) -> list[str]:
             problems.append(f"{obj_name}.guards[{idx}] 缺字段: {missing}")
             continue
 
-        edges = parse_state_chain(str(guard["transition"]))
-        if not edges:
+        edge = guard["transition"]
+        if not isinstance(edge, dict) or set(edge) != {"from", "to"} or not all(
+            isinstance(edge.get(k), str) and edge[k].strip() for k in ("from", "to")
+        ):
             problems.append(
-                f"{obj_name}.guards[{idx}] 的 transition 解析不出转移: "
-                f"{guard['transition']!r}"
+                f"{obj_name}.guards[{idx}].transition 必须是 {{from, to}} 结构化边"
+                f"（收到 {edge!r}）；状态值不接受字符串解析"
             )
             continue
-        illegal = sorted(edges - declared_edges)
-        if illegal:
+        pair = (edge["from"].strip(), edge["to"].strip())
+        if pair not in declared_edges:
             problems.append(
-                f"{obj_name}.guards[{idx}] 指向未登记的转移: {illegal}"
+                f"{obj_name}.guards[{idx}] 指向未登记的转移: {[pair]}"
                 "（守卫不能保护一条状态机不允许的边）"
             )
 
@@ -1453,7 +1436,7 @@ def check_state_machine_guards() -> bool:
     """校验状态机 ``guards`` 区声明的转移与字段是真实可校验的。
 
     为什么需要这条闸门：``guards`` 是「某条转移必须携带哪些字段」的唯一契约
-    表达，但它本身只是「转移串 + 字段名」的自然语言。字段名写错（例如把
+    表达，但它本身只是「转移边 + 字段名」的声明。字段名写错（例如把
     ``blocked_reason`` 写成 ``block_reason``）、或指向一条根本不存在的边，
     YAML 依然合法——实现时照着写，就会得到一个永远不放行、或永远不触发的
     守卫，而 CI 全绿。
@@ -1629,55 +1612,643 @@ def check_reference_targets() -> bool:
     return True
 
 
-def enum_registry_coverage_problems(
-    state_machine_objects: Any, enum_objects: Any
+# --------------------------------------------------------------------------- #
+# 状态枚举一致性：state_machines → enum_registry → object_schemas → Runtime
+# --------------------------------------------------------------------------- #
+# 为什么要有这一整段
+# ----------------
+# 上一版只有一条窄检查：state_machines 的对象集 ⊆ enum_registry 的对象集，且
+# 注释明说「刻意不比状态集」。结果是三处状态集合可以各自漂移而全绿：
+#   - state_machines 有状态、Schema 裸 string（76 个 status 里 70 个）；
+#   - enum_registry 有状态、state_machines 没有（PG0 / PG3 / PMS / PASS）；
+#   - Schema 有 enum、权威集合里没有（BudgetTransferRequest 的 8 个值）。
+# 三条都能同时成立，因为没有任何一条规则把它们连起来。下面的闸门就是这三条加上
+# 转移边、台账分类、别名层与运行时的双向校验；每条都能单独注入坏数据测试。
+STATUS_TAXONOMY_PATH = CONTRACTS / "enums" / "status_field_taxonomy.yaml"
+STATUS_LAYERS_PATH = CONTRACTS / "enums" / "status_layers.yaml"
+FIELD_AUTHORITY_PATH = CONTRACTS / "enums" / "field_authority.yaml"
+ENUM_REGISTRY_PATH = CONTRACTS / "enums" / "enum_registry.yaml"
+
+CLASS_LIFECYCLE = "lifecycle"
+CLASS_ENVELOPE_ONLY = "envelope_only"
+CLASS_LIFECYCLE_GAP = "lifecycle_gap"
+STATUS_CLASSES = (CLASS_LIFECYCLE, CLASS_ENVELOPE_ONLY, CLASS_LIFECYCLE_GAP)
+DEBT_FIELDS = ("reason", "contract_ref", "unblocks_when")
+
+# 运行时已实现状态机的对象 → (领域枚举模块, 类名)。
+# 只有列在这里的对象才要求 Domain Enum 与数据库 CHECK 对齐——未实现的对象
+# 不提前造 ORM 表，也不假装它有约束。
+_STATUS_ENUM_SOURCES: dict[str, tuple[str, str]] = {
+    "Project": ("services.project_planning.domain.enums", "ProjectStatus"),
+    "ScriptRevision": ("services.project_planning.domain.enums", "ScriptStatus"),
+    "Episode": ("services.project_planning.domain.enums", "EpisodeStatus"),
+    "AssetVersion": ("services.asset_service.domain.enums", "AssetStatus"),
+}
+
+# 已落库的表 → 契约对象名（表名与对象名不同名是常态，显式登记避免靠猜）。
+_STATUS_TABLES: dict[str, str] = {
+    "project_planning.projects": "Project",
+    "project_planning.episodes": "Episode",
+    "project_planning.script_revisions": "ScriptRevision",
+    "asset_service.asset_versions": "AssetVersion",
+}
+
+
+def state_machine_states(sm_objects: Any) -> dict[str, set[str]]:
+    """``{对象: allowed_states}``。形状坏了直接抛 ValueError（契约损坏）。"""
+    states: dict[str, set[str]] = {}
+    for entry in sm_objects or []:
+        if not isinstance(entry, dict):
+            raise ValueError("state_machines.objects 的条目必须是映射")
+        name = str(entry.get("object", "")).strip()
+        allowed = entry.get("allowed_states")
+        if not name:
+            raise ValueError("state_machines 有条目缺 object")
+        if not isinstance(allowed, list) or not allowed:
+            raise ValueError(f"{name} 缺 allowed_states（允许状态集合是唯一权威）")
+        values = [str(v).strip() for v in allowed]
+        if len(set(values)) != len(values):
+            raise ValueError(f"{name}.allowed_states 有重复值")
+        bad = [v for v in values if not _STATE_TOKEN_RE.match(v)]
+        if bad:
+            raise ValueError(f"{name}.allowed_states 含非状态值: {bad}")
+        if name in states:
+            raise ValueError(f"{name} 在 state_machines 里重复登记")
+        states[name] = set(values)
+    return states
+
+
+def transition_target_problems(sm_objects: Any) -> list[str]:
+    """转移边的两端都必须属于该对象的 allowed_states。
+
+    这是「状态集合与转移图分离」之后必须补的一条：既然两者分开存储，就必须有
+    规则保证它们指向同一批状态。否则打错一个字母的边会在运行时表现为
+    「永远无法进入的转移」，而契约层看不出来。
+    """
+    problems: list[str] = []
+    for entry in sm_objects or []:
+        if not isinstance(entry, dict):
+            continue
+        name = str(entry.get("object", "")).strip()
+        allowed = {str(v).strip() for v in entry.get("allowed_states") or []}
+        for edge in entry.get("transitions") or []:
+            if not isinstance(edge, dict):
+                problems.append(f"{name}.transitions 的条目必须是 {{from, to}} 映射")
+                continue
+            src = str(edge.get("from", "")).strip()
+            dst = str(edge.get("to", "")).strip()
+            if not src or not dst:
+                problems.append(f"{name}.transitions 有条目缺 from/to")
+                continue
+            for endpoint in (src, dst):
+                if endpoint not in allowed:
+                    problems.append(
+                        f"{name} 的转移边 {src}→{dst} 引用了未登记状态 {endpoint!r}"
+                        "（转移的两端必须都在 allowed_states 里）"
+                    )
+    return problems
+
+
+def taxonomy_problems(
+    taxonomy_objects: Any,
+    sm_states: dict[str, set[str]],
+    definitions: dict[str, Any],
+    basis_kinds: set[str] | None = None,
 ) -> list[str]:
-    """比对状态机对象集与枚举注册表对象集，返回缺失项。
+    """台账必须**恰好**覆盖 schema 里每个带 status 的对象，且分类自证。
 
-    只比对**对象名集合**，不比状态集：枚举注册表刻意允许收录转移链尚未覆盖的旁支状态
-    （如 AssetVersion 的 QUARANTINED、Task 的 WAITING_FOR_PROVIDER），强行要求状态集
-    相等会把合法设计判死。
+    双向：漏登记报红（否则新对象可以带着裸 status 悄悄进来），多登记报红
+    （否则台账会积累幽灵条目，看的人以为缺口还在）。
+
+    ``basis_kinds`` 是 ``status_field_taxonomy.yaml`` 声明的封闭依据类别集合。
+    ``basis`` 必须取自其中——只校验「非空」会让拼错的类别（``immutabel_record``）
+    静默通过，台账自称的封闭枚举就形同虚设（PR #14 评审）。默认从权威文件读取，
+    测试可显式传入以注入非法值验证闸门。
     """
-    sm_names = {
-        str(item.get("object"))
-        for item in state_machine_objects
-        if isinstance(item, dict) and item.get("object")
+    if basis_kinds is None:
+        basis_kinds = set(load_yaml_mapping(STATUS_TAXONOMY_PATH).get("basis_kinds") or {})
+    problems: list[str] = []
+    declared: dict[str, dict[str, Any]] = {}
+    for entry in taxonomy_objects or []:
+        if not isinstance(entry, dict):
+            problems.append("status_field_taxonomy.objects 的条目必须是映射")
+            continue
+        name = str(entry.get("object", "")).strip()
+        if not name:
+            problems.append("status_field_taxonomy 有条目缺 object")
+            continue
+        if name in declared:
+            problems.append(f"{name} 在 status_field_taxonomy 里重复登记")
+            continue
+        declared[name] = entry
+
+    schema_objects = {
+        name
+        for name, spec in definitions.items()
+        if isinstance(spec, dict) and "status" in (spec.get("properties") or {})
     }
-    en_names = {
-        str(item.get("object"))
-        for item in enum_objects
-        if isinstance(item, dict) and item.get("object")
-    }
-    return [
-        f"状态机登记了 {name}，但枚举注册表没有对应状态集（派生文件已与权威源脱钩）"
-        for name in sorted(sm_names - en_names)
-    ]
+    for name in sorted(schema_objects - set(declared)):
+        problems.append(
+            f"{name} 有 status 字段却没在 status_field_taxonomy 登记分类"
+            "（C.3.1 的 status 必填不代表可以无约束：必须说明它是生命周期还是占位）"
+        )
+    for name in sorted(set(declared) - schema_objects):
+        problems.append(
+            f"status_field_taxonomy 登记了 {name}，但 schema 里没有该对象的 status 字段"
+            "（陈旧条目必须删掉）"
+        )
+
+    for name, entry in declared.items():
+        cls = str(entry.get("class", "")).strip()
+        if cls not in STATUS_CLASSES:
+            problems.append(f"{name} 的分类非法: {cls!r}（允许 {STATUS_CLASSES}）")
+            continue
+        if cls == CLASS_LIFECYCLE:
+            if name not in sm_states:
+                problems.append(
+                    f"{name} 被登记为 lifecycle，但 state_machines 没有它的状态机"
+                )
+            continue
+        if cls == CLASS_ENVELOPE_ONLY:
+            basis = str(entry.get("basis", "")).strip()
+            if not basis:
+                problems.append(f"{name} 标为 envelope_only 却没写 basis（依据类别）")
+            elif basis not in basis_kinds:
+                problems.append(
+                    f"{name} 的 basis {basis!r} 不在 basis_kinds 封闭枚举 "
+                    f"{sorted(basis_kinds)} 中（拼错或自造类别会让台账的分类依据静默失效）"
+                )
+            if not str(entry.get("reason", "")).strip():
+                problems.append(
+                    f"{name} 标为 envelope_only 却没写 reason："
+                    "「它没有生命周期」本身就是要论证的结论，不能只下结论"
+                )
+            if not str(entry.get("unblocks_when", "")).strip():
+                problems.append(
+                    f"{name} 标为 envelope_only 却没写 unblocks_when："
+                    "不能让「暂无生命周期」变成永久兜底，必须写清哪项领域决策才能销项"
+                )
+            if name in sm_states:
+                problems.append(
+                    f"{name} 标为 envelope_only，但 state_machines 登记了它的状态机"
+                    "（要么改分类，要么删状态机，不能两套并存）"
+                )
+            continue
+        missing = [f for f in DEBT_FIELDS if not str(entry.get(f, "")).strip()]
+        if missing:
+            problems.append(f"{name} 标为 lifecycle_gap 却缺债务字段: {missing}")
+        if name in sm_states:
+            problems.append(
+                f"{name} 标为 lifecycle_gap，但状态机已经登记——陈旧债务必须改分类"
+            )
+    return problems
 
 
-def check_enum_registry_coverage() -> bool:
-    """状态机登记的对象必须全部在枚举注册表中有状态集。
+def enum_registry_problems(registry_objects: Any, sm_states: dict[str, set[str]]) -> list[str]:
+    """枚举注册表必须是状态机的**等值投影**：对象集、每对象状态集都相等。"""
+    problems: list[str] = []
+    registry: dict[str, set[str]] = {}
+    for entry in registry_objects or []:
+        if not isinstance(entry, dict):
+            problems.append("enum_registry.objects 的条目必须是映射")
+            continue
+        name = str(entry.get("object", "")).strip()
+        values = {str(v) for v in entry.get("states") or []}
+        if not name:
+            problems.append("enum_registry 有条目缺 object")
+            continue
+        registry[name] = values
 
-    为什么需要：enum_registry 自称「由 state_machines 派生」，但 Project / Episode /
-    ScriptRevision 三个对象有状态机却从未登记（实测 41 vs 38），而没有任何闸门比对两个
-    文件的对象集——派生文件与权威源脱钩也不会报红。ADR-R19 补齐三条并新增本闸门，
-    防止下一次「加了状态机、忘了登记」再次静默发生。
+    for name in sorted(set(sm_states) - set(registry)):
+        problems.append(f"state_machines 登记了 {name}，enum_registry 没有（派生文件已脱钩）")
+    for name in sorted(set(registry) - set(sm_states)):
+        problems.append(
+            f"enum_registry 有 {name}，state_machines 没有（注册表里出现了无权威源的状态集）"
+        )
+    for name in sorted(set(sm_states) & set(registry)):
+        extra = sorted(registry[name] - sm_states[name])
+        missing = sorted(sm_states[name] - registry[name])
+        if extra:
+            problems.append(f"{name} 的注册表多出权威集合里没有的状态: {extra}")
+        if missing:
+            problems.append(f"{name} 的注册表缺权威集合里的状态: {missing}")
+    return problems
+
+
+def envelope_only_sentinel(layers: dict[str, Any] | None = None) -> str:
+    """信封占位哨兵（唯一允许写入无生命周期对象的 status 的值）。"""
+    data = layers if layers is not None else load_yaml_mapping(STATUS_LAYERS_PATH)
+    sentinel = str(data.get("envelope_only_sentinel", "")).strip()
+    if not sentinel:
+        raise ValueError("status_layers 缺 envelope_only_sentinel（信封占位不能再退回裸 string）")
+    return sentinel
+
+
+def schema_enum_problems(
+    definitions: dict[str, Any],
+    sm_states: dict[str, set[str]],
+    classes: dict[str, str],
+    layers: dict[str, Any] | None = None,
+) -> list[str]:
+    """Schema 的 status.enum 必须逐值等于权威集合或信封哨兵，不得留裸字符串。
+
+    lifecycle      → enum 等于 state_machines.allowed_states；
+    envelope_only  → enum 只允许哨兵值（没有生命周期 ≠ 可以写任意字符串）；
+    lifecycle_gap  → 保留裸 string 是显式债务，必须有完整债务字段（由台账闸门校验）。
     """
+    problems: list[str] = []
+    sentinel = envelope_only_sentinel(layers)
+    for name, spec in definitions.items():
+        if not isinstance(spec, dict):
+            continue
+        props = spec.get("properties") or {}
+        if "status" not in props:
+            continue
+        status_spec = props["status"] if isinstance(props["status"], dict) else {}
+        enum_values = status_spec.get("enum")
+        cls = classes.get(name)
+        if cls == CLASS_ENVELOPE_ONLY:
+            if not enum_values:
+                problems.append(
+                    f"{name} 标为 envelope_only，status 却是无约束裸字符串"
+                    "（没有生命周期不等于允许任意值：只能写哨兵）"
+                )
+            elif {str(v) for v in enum_values} != {sentinel}:
+                problems.append(
+                    f"{name} 的 status.enum 必须只收信封哨兵 {sentinel!r}，"
+                    f"实际为 {sorted(str(v) for v in enum_values)}"
+                )
+            continue
+        if cls != CLASS_LIFECYCLE:
+            if enum_values is not None:
+                problems.append(
+                    f"{name} 被登记为 {cls}，Schema 却收了 status.enum"
+                    f"{sorted(enum_values)}（分类说它没有生命周期，enum 从哪来？）"
+                )
+            continue
+        if not enum_values:
+            problems.append(
+                f"{name} 是 lifecycle 对象，Schema 的 status 却是无约束裸字符串"
+                "（C.3.1：未知枚举值必须拒绝，裸 string 等于任何值都收）"
+            )
+            continue
+        actual = {str(v) for v in enum_values}
+        expected = sm_states.get(name, set())
+        extra = sorted(actual - expected)
+        missing = sorted(expected - actual)
+        if extra:
+            problems.append(f"{name}.status.enum 有权威集合里没有的值: {extra}")
+        if missing:
+            problems.append(f"{name}.status.enum 缺权威集合里的值: {missing}")
+    return problems
+
+
+def alias_layer_problems(layers: dict[str, Any], sm_states: dict[str, set[str]]) -> list[str]:
+    """别名必须落在权威状态上；禁用值不得出现在对应对象的状态集里。
+
+    杜绝两类历史错误：把展示别名 / STALE 标记写成状态值；把检查项编号（PG0）
+    或系统缩写（PMS）当状态登记。
+    """
+    problems: list[str] = []
+    all_states = set().union(*sm_states.values()) if sm_states else set()
+
+    for alias in layers.get("state_projection_aliases") or []:
+        if not isinstance(alias, dict):
+            problems.append("state_layers.state_projection_aliases 的条目必须是映射")
+            continue
+        name = str(alias.get("alias", "")).strip()
+        obj = str(alias.get("object", "")).strip()
+        target = str(alias.get("maps_to_state", "")).strip()
+        if obj not in sm_states:
+            problems.append(f"别名 {name} 指向未登记状态机的对象 {obj}")
+            continue
+        if target not in sm_states[obj]:
+            problems.append(
+                f"别名 {name} 映射到 {obj}.{target}，但该状态不在 allowed_states 里"
+                "（别名必须有落点）"
+            )
+        if name in all_states:
+            problems.append(
+                f"别名 {name} 与某个权威状态同名：展示投影不得占用权威状态值"
+            )
+
+    for mark in layers.get("cross_domain_marks") or []:
+        if not isinstance(mark, dict):
+            continue
+        name = str(mark.get("mark", "")).strip()
+        if name in all_states:
+            problems.append(
+                f"跨域标记 {name} 出现在某个对象的 allowed_states 里："
+                "失效/阻断标记不是生命周期状态，混进去会让它被当成真实进度"
+            )
+
+    for item in layers.get("prohibited_state_values") or []:
+        if not isinstance(item, dict):
+            continue
+        value = str(item.get("value", "")).strip()
+        applies = item.get("applies_to") or []
+        targets = list(sm_states) if applies == "all" else [str(t) for t in applies]
+        for obj in targets:
+            if value in sm_states.get(obj, set()):
+                problems.append(
+                    f"{obj}.allowed_states 含被禁用的伪状态值 {value}"
+                    f"（{item.get('reason', '见 status_layers.yaml')}）"
+                )
+    return problems
+
+
+def schema_gap_problems(
+    gaps: Any,
+    sm_states: dict[str, set[str]],
+    definitions: dict[str, Any],
+    text_only: set[str] | None = None,
+) -> list[str]:
+    """有状态机、无 schema 的对象必须显式登记缺口；补上 schema 后必须删条目。
+
+    ``text_only`` 是「正文有状态链、对象未建模」的那一类（state_machines 的
+    text_authority_only 分区）。它们同样必须出现在缺口台账里——「以正文为权威」
+    不等于可以不给实现方留一个可查的缺口条目。
+    """
+    text_only = text_only or set()
+    problems: list[str] = []
+    declared: dict[str, dict[str, Any]] = {}
+    for entry in gaps or []:
+        if not isinstance(entry, dict):
+            problems.append("status_field_taxonomy.schema_gaps 的条目必须是映射")
+            continue
+        name = str(entry.get("object", "")).strip()
+        if name in declared:
+            problems.append(f"schema_gaps 里 {name} 重复登记")
+            continue
+        declared[name] = entry
+
+    missing_schema = {n for n in sm_states if n not in definitions}
+    for name in sorted((missing_schema | text_only) - set(declared)):
+        problems.append(
+            f"{name} 有权威状态机但没有 object schema，且未在 schema_gaps 登记"
+            "（缺口不能隐形，也不能靠豁免消除）"
+        )
+    for name, entry in declared.items():
+        if name not in sm_states and name not in text_only:
+            problems.append(f"schema_gaps 登记的 {name} 不是状态机对象（陈旧条目）")
+        elif name in definitions:
+            problems.append(
+                f"{name} 已有 object schema，schema_gaps 条目已陈旧，必须删除"
+            )
+        debt = [f for f in DEBT_FIELDS if not str(entry.get(f, "")).strip()]
+        if debt:
+            problems.append(f"schema_gaps.{name} 缺字段: {debt}")
+    return problems
+
+
+def field_authority_problems(
+    path: Path,
+    definitions: dict[str, Any],
+    required_split: set[str] | None = None,
+) -> list[str]:
+    """双 status 对象的权威写入位置必须唯一、字段必须真实存在且论证完整。
+
+    ``required_split`` 是台账里所有 ``basis: status_split`` 的对象。每个这样的对象
+    都必须在本文件里有裁定条目——只校验「已登记的条目合法」不够：新增一个
+    status_split 对象却忘了裁定权威字段时，旧逻辑全绿，「两个事实源」重新隐形
+    （PR #14 评审）。默认从 taxonomy 文件读取，测试可显式传入注入缺口。
+
+    反向不要求相等：``same_fact_on_status`` 类条目（如 PrevizVersion 归位 lifecycle
+    后的裁定）保留在此，证明「某字段不是第二套生命周期」，属合法的历史裁定。
+    """
+    if required_split is None:
+        taxonomy = load_yaml_mapping(STATUS_TAXONOMY_PATH)
+        required_split = {
+            str(e.get("object", "")).strip()
+            for e in taxonomy.get("objects") or []
+            if isinstance(e, dict) and str(e.get("basis", "")).strip() == "status_split"
+        }
+    data = load_yaml_mapping(path)
+    problems: list[str] = []
+    seen: set[str] = set()
+    allowed_kinds = {"authority_elsewhere", "distinct_processes", "same_fact_on_status"}
+    for entry in data.get("objects") or []:
+        if not isinstance(entry, dict):
+            problems.append("field_authority.objects 的条目必须是映射")
+            continue
+        name = str(entry.get("object", "")).strip()
+        if not name or name in seen:
+            problems.append(f"field_authority 条目 object 缺失或重复: {name!r}")
+            continue
+        seen.add(name)
+        spec = definitions.get(name)
+        if not isinstance(spec, dict):
+            problems.append(f"field_authority 登记了 {name}，但 object_schemas 没有该对象")
+            continue
+        props = spec.get("properties") or {}
+        authoritative = [str(v).strip() for v in entry.get("authoritative_fields") or []]
+        non_authoritative = [
+            str(v).strip() for v in entry.get("non_authoritative_fields") or []
+        ]
+        if not authoritative or any(not v for v in authoritative):
+            problems.append(f"field_authority.{name} 缺 authoritative_fields")
+        if len(set(authoritative)) != len(authoritative):
+            problems.append(f"field_authority.{name} 的 authoritative_fields 有重复")
+        overlap = set(authoritative) & set(non_authoritative)
+        if overlap:
+            problems.append(f"field_authority.{name} 把同一字段既当权威又当非权威: {sorted(overlap)}")
+        for field in set(authoritative) | set(non_authoritative):
+            if field not in props:
+                problems.append(f"field_authority.{name} 引用了 schema 不存在的字段 {field}")
+        kind = str(entry.get("kind", "")).strip()
+        if kind not in allowed_kinds:
+            problems.append(f"field_authority.{name}.kind 非法: {kind!r}")
+        for key in ("ruling", "reason", "unblocks_when", "source_section"):
+            if not str(entry.get(key, "")).strip():
+                problems.append(f"field_authority.{name} 缺 {key}（裁定不能只下结论）")
+    # 完备性：每个 status_split 对象必须有权威裁定，不能靠「没登记」逃逸。
+    for name in sorted(required_split - seen):
+        problems.append(
+            f"{name} 在 status_field_taxonomy 标为 status_split，却没有 field_authority 裁定"
+            "——两个 status 事实必须指出哪个权威，不能让缺口隐形"
+        )
+    return problems
+
+
+def governance_problems(sm_data: dict[str, Any], definitions: dict[str, Any]) -> list[str]:
+    """状态机文件自身的账目必须对得上（对象数、冲突数、投影不入册）。"""
+    problems: list[str] = []
+    objects = sm_data.get("objects") or []
+    declared_total = sm_data.get("total_objects")
+    if declared_total != len(objects):
+        problems.append(
+            f"state_machines.total_objects={declared_total} 与实际条目数 {len(objects)} 不符"
+        )
+    conflicts = sum(1 for o in objects if isinstance(o, dict) and o.get("conflict") is True)
+    if sm_data.get("conflict_count") != conflicts:
+        problems.append(
+            f"state_machines.conflict_count={sm_data.get('conflict_count')} "
+            f"与实际标记 conflict 的条目数 {conflicts} 不符"
+        )
+    for obj in objects:
+        if not isinstance(obj, dict):
+            continue
+        gap = obj.get("transitions_gap")
+        if gap is None:
+            continue
+        name = str(obj.get("object", "")).strip()
+        if not isinstance(gap, dict):
+            problems.append(f"{name}.transitions_gap 必须是映射")
+            continue
+        missing = [k for k in ("reason", "unblocks_when") if not str(gap.get(k, "")).strip()]
+        if missing:
+            problems.append(f"{name}.transitions_gap 缺字段: {missing}")
+        if not obj.get("transitions"):
+            problems.append(f"{name} 登记了 transitions_gap，却连一条明确边都没有")
+    for projection in sm_data.get("projections") or []:
+        if not isinstance(projection, dict):
+            continue
+        name = str(projection.get("object", "")).strip()
+        if name in definitions:
+            problems.append(
+                f"{name} 被登记为 UI 投影，却同时有 object schema："
+                "投影不是持久化对象，不得进对象契约"
+            )
+        if not projection.get("allowed_states"):
+            problems.append(f"投影 {name} 缺 allowed_states（投影也有取值范围）")
+    return problems
+
+
+def runtime_status_problems(sm_states: dict[str, set[str]]) -> list[str]:
+    """已实现对象的 Domain Enum 与数据库 CHECK 不得偏离契约。
+
+    只查已实现的四处（见 _STATUS_ENUM_SOURCES / _STATUS_TABLES）。未实现的对象
+    不提前造枚举与约束——那会让「契约已有」和「运行时已有」混为一谈。
+    """
+    import importlib
+
+    from packages.shared.database import Base
+    from packages.shared.status_constraint import status_check_sql
+
+    # 触发模型注册（表元数据在 import 时建立）。
+    importlib.import_module("services.project_planning.repository.orm")
+    importlib.import_module("services.asset_service.repository.orm")
+
+    problems: list[str] = []
+    for obj_name, (module_path, class_name) in _STATUS_ENUM_SOURCES.items():
+        expected = sm_states.get(obj_name)
+        if expected is None:
+            problems.append(f"实现里登记了 {obj_name}，state_machines 却没有它")
+            continue
+        enum_cls = getattr(importlib.import_module(module_path), class_name)
+        actual = {str(member.value) for member in enum_cls}
+        extra = sorted(actual - expected)
+        missing = sorted(expected - actual)
+        if extra:
+            problems.append(f"{class_name} 有契约里没有的状态: {extra}")
+        if missing:
+            problems.append(
+                f"{class_name} 少登记契约状态: {missing}"
+                "（状态集合是唯一权威，运行时枚举必须与它逐值相等）"
+            )
+
+    for table_name, obj_name in _STATUS_TABLES.items():
+        expected = sm_states.get(obj_name)
+        if expected is None:
+            continue
+        table = Base.metadata.tables.get(table_name)
+        if table is None:
+            problems.append(f"找不到表 {table_name}（表名与对象的对应关系见 _STATUS_TABLES）")
+            continue
+        want = status_check_sql(expected)
+        constraints = [
+            c
+            for c in table.constraints
+            if getattr(c, "name", "") == f"ck_{table.name}_status"
+        ]
+        if not constraints:
+            problems.append(
+                f"{table_name} 缺 status CHECK 约束（ck_{table.name}_status）："
+                "契约收紧了枚举，数据库却仍接受任意字符串"
+            )
+            continue
+        actual_sql = " ".join(str(constraints[0].sqltext).split())
+        if actual_sql != want:
+            problems.append(
+                f"{table_name} 的 status CHECK 与契约不符：实际 {actual_sql!r}，应为 {want!r}"
+            )
+    return problems
+
+
+def check_status_enum_consistency() -> bool:
+    """状态枚举的四层一致性闸门（state_machines → registry → schema → runtime）。"""
     sm_path = CONTRACTS / "state_machines" / "state_machines.yaml"
-    en_path = CONTRACTS / "enums" / "enum_registry.yaml"
     sm_data = load_yaml_mapping(sm_path)
-    en_data = load_yaml_mapping(en_path)
-    problems = enum_registry_coverage_problems(
-        sm_data.get("objects") or [], en_data.get("objects") or []
+    sm_objects = sm_data.get("objects") or []
+    taxonomy = load_yaml_mapping(STATUS_TAXONOMY_PATH)
+    layers = load_yaml_mapping(STATUS_LAYERS_PATH)
+    registry = load_yaml_mapping(ENUM_REGISTRY_PATH)
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    definitions = schema.get("definitions") or schema.get("$defs") or {}
+
+    sm_states = state_machine_states(sm_objects)
+    classes = {
+        str(entry.get("object")).strip(): str(entry.get("class")).strip()
+        for entry in taxonomy.get("objects") or []
+        if isinstance(entry, dict)
+    }
+
+    problems: list[str] = []
+    problems += governance_problems(sm_data, definitions)
+    problems += transition_target_problems(sm_objects)
+    problems += taxonomy_problems(
+        taxonomy.get("objects"), sm_states, definitions, set(taxonomy.get("basis_kinds") or {})
     )
+    problems += enum_registry_problems(registry.get("objects"), sm_states)
+    problems += schema_enum_problems(definitions, sm_states, classes, layers)
+    problems += field_authority_problems(
+        FIELD_AUTHORITY_PATH,
+        definitions,
+        {
+            str(e.get("object", "")).strip()
+            for e in taxonomy.get("objects") or []
+            if isinstance(e, dict) and str(e.get("basis", "")).strip() == "status_split"
+        },
+    )
+    problems += alias_layer_problems(layers, sm_states)
+    problems += schema_gap_problems(
+        taxonomy.get("schema_gaps"),
+        sm_states,
+        definitions,
+        {
+            str(entry.get("object", "")).strip()
+            for entry in sm_data.get("text_authority_only") or []
+            if isinstance(entry, dict)
+        },
+    )
+    problems += runtime_status_problems(sm_states)
+    # 逐字节的派生漂移也要归这条闸门管：CI 只跑 contract_check，若把 --check
+    # 留成独立脚本，语义值一致但派生文件被手改（顺序、注释、格式）仍会漏网。
+    # 延迟导入：两个脚本同属 scripts 工具层，无反向依赖；放到函数内避免
+    # 单纯 import contract_check 就触发整套契约文件读取。
+    from gen_status_contracts import drift_problems
+
+    problems += drift_problems()
+
     for problem in problems:
         print(f"[FAIL] {problem}")
     if problems:
         return False
+
+    lifecycle = sum(1 for c in classes.values() if c == CLASS_LIFECYCLE)
+    envelope = sum(1 for c in classes.values() if c == CLASS_ENVELOPE_ONLY)
+    gaps = sum(1 for c in classes.values() if c == CLASS_LIFECYCLE_GAP)
+    total_states = sum(len(v) for v in sm_states.values())
+    total_edges = sum(
+        len(o.get("transitions") or []) for o in sm_objects if isinstance(o, dict)
+    )
     print(
-        f"[PASS] 枚举覆盖：{len(en_data.get('objects') or [])} 个对象的状态集"
-        "全部覆盖状态机登记的对象"
+        f"[PASS] 状态枚举一致：{len(sm_states)} 个状态机对象 / {total_states} 个状态 / "
+        f"{total_edges} 条转移；status 字段分类 {lifecycle} lifecycle + {envelope} 占位 + "
+        f"{gaps} 缺口；{len(_STATUS_ENUM_SOURCES)} 个已实现对象的枚举与 CHECK 与契约一致"
     )
     return True
+
 
 
 def check_event_catalog() -> bool:
@@ -2262,7 +2833,7 @@ def main() -> int:
         ok &= check_schema_objects()
         ok &= check_schema_field_evolution()
         ok &= check_reference_targets()
-        ok &= check_enum_registry_coverage()
+        ok &= check_status_enum_consistency()
         ok &= check_event_catalog()
         ok &= check_security_boundary()
         ok &= check_proposal_status()

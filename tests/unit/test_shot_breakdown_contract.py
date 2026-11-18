@@ -128,8 +128,7 @@ def test_status_enum_matches_state_machine() -> None:
     schema_states = set(DEF["properties"]["status"]["enum"])
 
     entry = _object_entries(STATE_MACHINES["objects"], "object")
-    edges = cc.parse_state_chain(str(entry["states"]))
-    machine_states = {state for edge in edges for state in edge}
+    machine_states = set(entry["allowed_states"])
 
     assert schema_states == machine_states, (
         f"schema 状态集 {sorted(schema_states)} 与状态机 {sorted(machine_states)} 不一致"
@@ -145,7 +144,7 @@ def test_status_enum_matches_enum_registry() -> None:
 def test_state_machine_transitions_are_exactly_as_designed() -> None:
     """五态五边：多一条或少一条都属于「实现时自创流程」。"""
     entry = _object_entries(STATE_MACHINES["objects"], "object")
-    assert cc.parse_state_chain(str(entry["states"])) == {
+    assert cc.contract_edges(entry) == {
         ("PENDING_CONFIRM", "IN_REVIEW"),
         ("IN_REVIEW", "CONFIRMED"),
         ("IN_REVIEW", "RETURNED"),

@@ -115,8 +115,7 @@ def test_optimistic_lock_carrier_is_required() -> None:
 # --------------------------------------------------------------------------- #
 def test_status_enum_matches_state_machine() -> None:
     schema_states = set(PROPS["status"]["enum"])
-    edges = cc.parse_state_chain(str(_entry(STATE_MACHINES["objects"], "object")["states"]))
-    machine_states = {state for edge in edges for state in edge}
+    machine_states = set(_entry(STATE_MACHINES["objects"], "object")["allowed_states"])
     assert schema_states == machine_states, (
         f"schema 状态集 {sorted(schema_states)} 与状态机 {sorted(machine_states)} 不一致"
     )
@@ -129,13 +128,13 @@ def test_status_enum_matches_enum_registry() -> None:
 
 def test_state_machine_has_exactly_one_edge() -> None:
     """正文没给本对象的状态集，只允许「有效 → 被取代」这一条边。"""
-    edges = cc.parse_state_chain(str(_entry(STATE_MACHINES["objects"], "object")["states"]))
+    edges = cc.contract_edges(_entry(STATE_MACHINES["objects"], "object"))
     assert edges == {("ACTIVE", "SUPERSEDED")}, f"出现了自创转移: {sorted(edges)}"
 
 
 def test_terminal_state_is_not_resurrected() -> None:
     """SUPERSEDED 是终态：状态机里不得出现从它出发的边。"""
-    edges = cc.parse_state_chain(str(_entry(STATE_MACHINES["objects"], "object")["states"]))
+    edges = cc.contract_edges(_entry(STATE_MACHINES["objects"], "object"))
     assert not any(source == "SUPERSEDED" for source, _ in edges)
 
 

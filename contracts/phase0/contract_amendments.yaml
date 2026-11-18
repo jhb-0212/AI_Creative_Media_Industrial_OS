@@ -354,5 +354,152 @@ amendments:
       - 'GateInstance 与 AuditEvent 仍无 schema：后者被信封 audit_ref 在 82 个对象上引用，是下一个同型缺口'
       - '本修订解除 A7 残余风险第 5 条（Scene 未建模），其它残余风险不变'
 
+  - id: 'V205-R14-A9'
+    title: '状态枚举统一迁移——allowed_states 与转移图分离、枚举派生、四层一致性闸门'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: 'V205-R14-A8 残余风险第 4 条（32 个对象 status 仍是裸 string）；项目所有者 2026-11-18 复核 main 时指出 A8 的 32/9 口径已过期且 enum_registry 只比对象名不比状态集，批准本项作为独立任务立项'
+    reason: >-
+      状态集合此前有三份手写副本：state_machines 的文本状态链、enum_registry 的状态列表、
+      Schema 的 status.enum。三份各自手改，于是同时存在三种漂移而闸门全绿：
+      state_machines 有状态而 Schema 是裸 string（76 个 status 中 70 个）、
+      enum_registry 有状态而 state_machines 没有（PG0 / PG3 / PMS / PASS / PUBLISHED）、
+      Schema 有 enum 而权威集合没有（BudgetTransferRequest 的 8 个值）。
+      根因不是「谁忘了改」，而是**没有一条规则把三处连起来**：旧闸门只比对对象名集合，
+      且注释明写「刻意不比状态集」，所以任何一处状态漂移都不可见。
+      本修订做三件事：(1) 把状态机从自由文本改成 allowed_states + transitions 两个结构字段，
+      让「允许出现哪些值」与「已授权哪些边」各自可校验——旁支状态（AssetVersion 的
+      QUARANTINED、Task 的 WAITING_FOR_PROVIDER）允许存在但可以没有入边，旧文本结构
+      无法表达这一点，导致枚举要么漏掉合法值、要么从备注里乱抓；(2) 让 enum_registry 与
+      Schema 的 status.enum 都由 allowed_states 生成（scripts/gen_status_contracts.py），
+      并用「重算一遍比字节」的闸门禁止任何手改派生文件；(3) 新增 status 字段分类台账
+      （status_field_taxonomy.yaml），把 76 个 status 字段落成 39 个 lifecycle + 18 个
+      envelope_only + 19 个 lifecycle_gap——没有权威状态集的对象不编造枚举，但必须留下
+      带 reason/contract_ref/unblocks_when 的缺口债务，删条目不能让闸门变绿。
+      清单口径同时修正：CharacterCard 与 CharacterAppearance 由 C.7 一条合并登记拆成两条
+      （两者共享同一状态集，C.3 未列 REJECTED/QUARANTINED 属描述省略，按 CharacterCanon /
+      ShotVisualPlan 同一裁决口径）；TimelineFlowStatus 是 UI 进度投影而非持久化对象，
+      移入 projections 分区且不进枚举注册表；BudgetTransferRequest 的孤儿枚举反向补登为
+      状态机（transitions 留空——正文只写了人工申请→人工审批→原子记账，未给边，
+      Phase 2 启用前不得推定）。运行时只对已落库的四张表收口：Domain Enum 与 status CHECK
+      约束都由契约状态集生成，闸门逐字比对，未实现的对象不提前造 ORM 或假约束。
+    adr: 'docs/adr/ADR-R20-status-enum-single-source.md'
+    approved_by: '项目所有者（会话内立项指令：「状态枚举统一迁移，批准立项。第一步不是直接修改 32 个对象，而是从当前 main 重新生成准确的状态枚举清单」）'
+    approved_at: '2026-11-18'
+    source_commits: []
+    additions:
+      state_machines:
+        - object: 'BudgetTransferRequest'
+          why: '对象在 object_schemas 里已有 status.enum（8 个值）却从未登记状态机，属「Schema 有状态、权威集合没有」的孤儿枚举。本轮按既有 schema 枚举反向补登 allowed_states，transitions 留空（正文未给边），registration_status: PENDING_PHASE2_REVIEW，Phase 2 启用前须所有者复核'
+        - object: 'CharacterAppearance'
+          why: 'C.7 原文以「CharacterCard / CharacterAppearance」一条状态机登记两个对象。拆成两条后两个对象各有独立条目、共享同一状态集（8 态），消除「一个对象两条/零条权威」的歧义'
+    removals:
+      state_machines:
+        - object: 'CharacterCard / CharacterAppearance'
+          why: '合并条目被上一条的拆分取代：该键不是合法对象名（object_schemas 里没有斜杠命名的对象），保留它会让「状态机对象集」与「Schema 对象集」永远无法逐名比对'
+        - object: 'TimelineFlowStatus（UI 投影）'
+          why: '33.3 的 TimelineFlowStatus 是 UI 进度投影（由 TimelineDraft.status 与 ToolExchangeSession 事件拼成），不是持久化领域对象。它进对象状态机清单等于把派生视图当实体，draft 的 status.enum 也会被要求收 IMPORTED/RETURNED 这种只来自事件的值。已移入 state_machines.projections 分区，不计入对象数、不进枚举注册表'
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 83
+      state_machines: 42
+    residual_risks:
+      - '19 个对象的 status 仍是裸 string（lifecycle_gap）：BlockingAsset / CameraRig / CharacterReferenceSet / CharacterVoiceProfile / ContinuityConstraint / ControlSignalAsset / CreativeProposal / DeliverySpec / EscapeReport / ExternalToolArtifact / IntentContract / ProjectProductionProfile / Report / ShotProductionProfile / ShotResourceAllocation / ShotSpec / ShotTierChangeRequest / TimelineManifest / ToolExchangePackage。逐个给出 reason/contract_ref/unblocks_when，闸门双向校验，但「有债务」不等于「已约束」——这些字段目前仍接受任意字符串'
+      - '18 个对象的 status 被判定为 envelope_only（无独立生命周期）：其中 4 个是 status_split（ExternalToolAdapterManifest.lifecycle_status、ModelInvocation 的 submission/result/billing_status、PrevizVersion 的 approved_at+ purity_check_status、QCIssue 的 disposition），这批对象存在「两个 status 事实」的结构问题，按 R4 应合并而非并存，但合并属契约修订，本轮只显式登记不擅自动手'
+      - 'Pattern 与 PatternRecord 状态链逐字相同而只有后者有 schema：是否同一对象尚未裁定，暂以 schema_gaps 条目登记，不擅自合并（合并会掩盖两章命名差异，不合并则缺一条 schema）'
+      - 'PublicationReview / CreatorShareLink 仍无 object schema（状态机有、字段无处校验），已登记 schema_gaps；PublicationReview 的「审核人与提交人分离」目前只有状态机 note 一句话，没有字段级约束'
+      - 'BudgetTransferRequest 的 allowed_states 取自既有 schema 枚举而非正文：正文只写「人工申请→人工审批→原子记账」。这属反向补登，Phase 2 启用前须所有者复核，否则等于让既有实现定义了契约'
+      - '运行时只收口四张已落库表（projects / episodes / script_revisions / asset_versions）：其余 38 个对象没有 ORM、没有表、没有 CHECK，契约层级约束已成立但运行时不可执行（如实标记，不提前建空表）'
+      - 'object_schemas 中既有 5 个 enum（Scene / Shot / ShotBreakdownDraft / ShotRevision / Task）的书写顺序同步为字母序：语义不变（闸门按集合比对），但评审时会看到纯顺序 diff'
+      - '本修订解除 A8 残余风险第 4 条（32 个对象裸 string），并修正其 32/9 统计口径（实测 76 个 status 中 70 裸 / 6 收 enum）；其余残余风险不变'
+
+  - id: 'V205-R14-A10'
+    title: '双 status 字段权威归属与信封哨兵（ADR-R21）'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: '项目所有者 2026-11-18 评审 ADR-R20：认可 19 lifecycle_gap / 18 envelope_only 作为不同性质显式债务保留，要求先裁定四个双 status 对象的权威归属，并指出 envelope_only 不能成为永久兜底、不能一边承认无生命周期一边允许任意字符串写入'
+    reason: >-
+      A9 把 18 个 status 字段归为 envelope_only，其中 4 个是 status_split，但只登记了
+      「存在两个事实」，没有裁定哪个字段可写——实现方仍可二选一，最终出现两个互不相认的
+      事实源。同时 envelope_only 对象保留裸 string，等于允许任意字符串写入，违反 C.3.1。
+      本修订按所有者三条口径逐项裁定：ExternalToolAdapterManifest 的权威为 lifecycle_status；
+      ModelInvocation 的提交/结果/计费三个正交字段各自保留，不合并成线性链；PrevizVersion
+      的 8.13 正文已给出六态权威集，归位为 lifecycle（purity_check_status 与审批字段是证据/检查
+      维度而非第二套生命周期）；QCIssue 的权威为 human_decision + disposition。信封 status
+      对前三个对象退役为 status_layers 哨兵 NO_LIFECYCLE，17 个 envelope_only 对象全部收单值
+      enum，且每个条目新增 unblocks_when 写明销项所需的领域决策。
+    adr: 'docs/adr/ADR-R21-status-field-authority.md'
+    approved_by: '项目所有者（会话内评审指令：「允许债务存在，不允许债务隐形；允许暂时不定义状态，不允许多个事实源同时拥有状态」）'
+    approved_at: '2026-11-18'
+    source_commits: []
+    additions:
+      enums:
+        - file: 'contracts/enums/field_authority.yaml'
+          why: '四个双 status 对象的权威写入位置、裁定理由与 unblocks_when；闸门校验字段真实存在且权威/非权威集合不重叠'
+        - file: 'contracts/enums/status_layers.yaml → envelope_only_sentinel'
+          why: 'NO_LIFECYCLE 作为无生命周期对象的唯一合法 status 值，堵住裸 string'
+      state_machines:
+        - object: 'PrevizVersion'
+          why: '8.13 明确给出 DRAFT/GEOMETRY_VALID/RENDERED/APPROVED/LOCKED/SUPERSEDED 六态；此前误判为 status_split。只登记正文明确的 APPROVED→LOCKED 边，其余边写入 transitions_gap，不推定'
+    removals:
+      status_field_taxonomy:
+        - object: 'PrevizVersion（envelope_only/status_split 条目）'
+          why: '归位 lifecycle；继续留在占位分类会让正文已有的六态权威集继续隐形'
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 83
+      state_machines: 43
+    residual_risks:
+      - '19 个 lifecycle_gap 仍是带债务字段的裸 string（A9 已登记，未在本轮迁移）；本修订只把它们与 envelope_only 的边界钉清'
+      - '17 个 envelope_only 对象的权威字段值集大多仍待所有者裁定：field_authority.unblocks_when 已逐项写明销项条件'
+      - 'PrevizVersion 的 5 条未授权转移边登记在 transitions_gap，未登记前按 31.5 一律拒绝'
+      - '缺失 Schema 对象（PublicationReview / CreatorShareLink / Pattern / SharedReferenceAsset）继续单列 schema_gaps，不因不在枚举迁移范围而视为已闭合'
+      - '本修订修正评审表格的统计口径：迁移前既有 enum 是 5，当前 57 个 status.enum = 40 生命周期 + 17 哨兵；42 个状态机对象与 76 个带 status 的 schema 对象不是同一集合'
+
+  - id: 'V205-R14-A11'
+    title: '状态机转移边迁移遗漏补齐 + basis 封闭枚举闸门（PR #14 评审）'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: 'PR #14 chatgpt-codex-connector 自动评审（6 条 review thread）；逐条比对基线正文后裁定'
+    reason: >-
+      A9/A10 把状态机从自由文本状态链迁到 allowed_states + transitions 结构化形式时，
+      transitions 只抄了正文里画成箭头的链，漏抄了正文以自然语言授权的边，造成
+      「契约声明的状态」与「可执行的状态转移」脱节。逐条比对基线正文后确认四类漏抄：
+      31.5「CommunityPost 发布后可 UNLISTED/TAKEN_DOWN/ARCHIVED」3 条边、
+      34.8「CreatorRelease 发布后可 UNLISTED/TAKEN_DOWN/REVOKED/ARCHIVED」4 条边、
+      33.3「TimelineDraft 旧版本 → SUPERSEDED/STALE/ARCHIVED」中 DRAFT 侧漏抄的
+      DRAFT→STALE / DRAFT→ARCHIVED 2 条边、8.6「READY/QUEUED 允许取消」2 条边，
+      共补齐 11 条正文明确授权的边。这些不是新增契约，是恢复正文原有语义。
+      另有一条评审指出 status_field_taxonomy 的 basis 只校验非空、未校验是否属于
+      basis_kinds 封闭枚举——拼错的类别会静默通过，台账自称的封闭枚举形同虚设，
+      故把闸门升级为封闭枚举校验并补两个负向测试。
+      ReworkTask 的 VERIFYING→IN_PROGRESS 与进入 REJECTED 的边：7.6 正文只给 status
+      枚举、未画转移图，不能凭评审措辞推定授权，故按「不猜契约」登记 transitions_gap
+      显式债务（含 unblocks_when），待所有者补登边的 owner_action 与前置条件后再写入 transitions。
+      推送后审查器第二轮又指出三处同类问题，逐条比对正文确认后一并修复：26.3/31.5
+      「RIGHTS_CHECK → APPROVED / REJECTED」明示的 ReuseRequest→REJECTED 边、
+      C.3 states_text 与 conflict_ruling 明示的 ShotVisualPlan REVIEW→REJECTED 边（两条漏抄），
+      以及 field_authority 闸门只校验已登记条目、不校验全部 status_split 对象都有裁定的
+      预防性漏洞——现已加双向完备性校验：台账里每个 basis=status_split 对象必须有一条
+      field_authority 裁定，防「两个事实源」再次隐形。第二轮的两条边同样进回归测试锁定。
+    adr: 'docs/adr/ADR-R20-status-enum-single-source.md'
+    approved_by: '项目所有者（会话内裁定「修复后合并」：修复已证实缺陷、待正文的登记显式债务，再合并 PR #14）'
+    approved_at: '2026-11-18'
+    source_commits: []
+    additions: {}
+    removals: {}
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 83
+      state_machines: 43
+    residual_risks:
+      - '本修订无名称级增删，只改已有状态机的转移边、ReworkTask 的 transitions_gap 债务字段与闸门校验逻辑；冻结闸门按内容哈希判定状态机变更，须随本修订重签清单'
+      - 'ReworkTask 的 REJECTED 仍是「合法但无授权入口」的旁支状态，VERIFYING→IN_PROGRESS 回流边未登记，按 31.5 一律拒绝，销项条件写在 transitions_gap.unblocks_when'
+      - '补齐的 13 条边只达契约层；相关对象均无运行时状态机（PENDING_PHASE1_REVIEW 或纯契约态），边目前不可执行，待各自运行时落地时按此转移表实现'
+      - '本轮两轮正则审计（note + other_definitions.states_text + conflict_rulings）覆盖全部 43 个对象，误报两类已人工排除：QCReviewSession 的 RESOLVED→CLOSED 是 ruling 明令禁止的跳关边、TimelineDraft 的 DRAFT→DRAFT 是正则跨字段错配；除 PrevizVersion（已有 transitions_gap 债务）外无真实遗漏。中文措辞授权（如「发布后可」）正则不覆盖，已逐条人工核对 26.3/31.5/33.3/34.8/8.6 正文'
+
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []
