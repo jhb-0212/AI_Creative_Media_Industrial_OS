@@ -30,6 +30,8 @@ from datetime import UTC, datetime
 import sqlalchemy as sa
 from alembic import op
 
+from packages.shared.db_roles import app_role_name
+
 # revision identifiers, used by Alembic.
 revision: str = "f6a7b8c9d1e2"
 down_revision: str | Sequence[str] | None = "e5f6a7b8c9d0"
@@ -40,7 +42,6 @@ SCHEMA = "outbox"
 _TABLE = "outbox_events"
 _LEGACY = "outbox_events_legacy"
 _DEFAULT_PARTITION = "outbox_events_default"
-_APP_ROLE = "app_role"
 _POLICY = "tenant_isolation_outbox_events"
 _INDEXES = ("ix_outbox_aggregate", "ix_outbox_published", "ix_outbox_tenant")
 
@@ -105,10 +106,10 @@ def _create_indexes() -> None:
 def _grant_and_protect() -> None:
     # 父表授权，不单独授权分区子表：应用永远通过父表名访问。
     op.execute(
-        f"GRANT SELECT, INSERT, UPDATE ON {SCHEMA}.{_TABLE} TO {_APP_ROLE}"
+        f"GRANT SELECT, INSERT, UPDATE ON {SCHEMA}.{_TABLE} TO {app_role_name()}"
     )
     # append-only：DELETE 一律不给（与 d4e5f6a7b8c9 的口径一致）。
-    op.execute(f"REVOKE DELETE ON {SCHEMA}.{_TABLE} FROM {_APP_ROLE}")
+    op.execute(f"REVOKE DELETE ON {SCHEMA}.{_TABLE} FROM {app_role_name()}")
     op.execute(f"ALTER TABLE {SCHEMA}.{_TABLE} ENABLE ROW LEVEL SECURITY")
     op.execute(
         f"""

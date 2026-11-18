@@ -1,10 +1,10 @@
 # ADR-R23：状态迁移事实表（审批可追溯的第一类事实）
 
-- 状态：已采纳，待实施（2026-11-18；同日按评审 R1–R5 修订）
+- 状态：**已实施（D2a，2026-11-18）**——读接口与会签仍属 D2b
 - 关联：N-02、ADR-R07（状态机单一事实源）、ADR-R11（不可变性与授权基线）、ADR-R06-2（outbox
   保留期与分区）、ADR-R22（基线事实源单一化）
 - 上游依据：`docs/audits/2026-11-18-full-repo-baseline-and-root-cause-audit.md` §7 N-02
-- 触发的契约演进：`V205-R14-A12`（新增 `StatusTransition` 对象 Schema，待登记）
+- 触发的契约演进：`V205-R14-A12`（StatusTransition 对象 Schema，已登记并重签：Schema 84 = 76+8）
 - 修订记录：R1 枚举真实写入路径（原稿误称每域已有唯一 choke point）；R2 `event_id` 改非空并由
   延迟约束触发器保证事件存在；R3 遗留 `audit_ref` 处理；R4 `resource_id` 与实体同型；
   R5 补 `TRUNCATE` 守卫（含既有两表同缺口）
@@ -49,15 +49,15 @@ CREATE TABLE audit.status_transitions (
     transition_id   uuid         PRIMARY KEY,
     tenant_id       uuid         NOT NULL,
     organization_id uuid         NULL,          -- 全局资源（无组织归属）为 NULL
-    resource_type   text         NOT NULL,      -- 对象类型，与 Schema $defs 同名
-    resource_id     varchar(64)  NOT NULL,      -- 与实体表 entity_id 同型（见要点 2）
-    entity_version  integer      NOT NULL,      -- 推进完成后的乐观锁版本
-    from_status     text         NOT NULL,
-    to_status       text         NOT NULL,
-    owner_action    text         NOT NULL,      -- Action Registry 的 action_key
-    actor_subject   text         NOT NULL,      -- 谁触发的
-    authority_ref   text         NULL,          -- 授权凭据 jti（谁授的权），可空
-    evidence_refs   text[]       NOT NULL DEFAULT '{}',  -- 证据对象 id 列表，不是摘要
+    resource_type   varchar(64)   NOT NULL,     -- 对象类型，与 definitions 同名
+    resource_id     varchar(64)   NOT NULL,     -- 与实体表 entity_id 同型（见要点 2）
+    entity_version  integer       NOT NULL,     -- 推进完成后的乐观锁版本
+    from_status     varchar(64)   NOT NULL,
+    to_status       varchar(64)   NOT NULL,
+    owner_action    varchar(64)   NOT NULL,     -- Action Registry 的 action_key
+    actor_subject   varchar(128)  NOT NULL,     -- 谁触发的
+    authority_ref   varchar(128)  NULL,         -- 授权凭据 jti（谁授的权），可空
+    evidence_refs   varchar(64)[] NOT NULL DEFAULT '{}',  -- 证据对象 id 列表，不是摘要
     occurred_at     timestamptz  NOT NULL DEFAULT now(),
     event_id        uuid         NOT NULL,      -- 对应 outbox 事件（非空，见要点 3）
 
@@ -248,7 +248,7 @@ contract_amendments.yaml 登记 A12（schema_objects: StatusTransition）
 
 | # | 内容 | 验收 |
 | --- | --- | --- |
-| 0 | **前置**：收敛写入路径为每域 1 条（D2-b-0），含 `_advance` 的 `extra_payload` 与 project_planning 共用 `advance()` | 5 条路径 → 2 条；AST 白名单断言（`transition_to` 调用点）通过；既有用例全绿（行为不变） |
+| 0 | **前置**：收敛写入路径为每域 1 条（D2-b-0），含 `_advance` 的 `extra_payload` 与 project_planning 共用 `advance()` | 5 条路径 → 2 条；AST 断言通过（判据见 §10「T1」：改状态 / 直接赋值 / 落库三个物理入口都封）；既有用例全绿（行为不变） |
 | 1 | 迁移：建 `audit` schema + 表 + 唯一约束 + `CHECK(from<>to)` + 索引 `(tenant_id, resource_type, resource_id, occurred_at)` | `alembic upgrade head` 在真实 PG 通过 |
 | 2 | 迁移：三条守卫——行级 `UPDATE/DELETE`、语句级 `TRUNCATE`、延迟约束触发器（提交时校验 `event_id` 存在） | 负向用例：UPDATE / DELETE / TRUNCATE 均抛异常（**含以表所有者身份**）；无事件的事实行在提交时失败 |
 | 3 | 迁移：**补齐既有两表**的 `TRUNCATE` 守卫（`asset_service.qc_reports`、`asset_service.asset_versions`） | 负向用例：两张表 TRUNCATE 均被拒 |
@@ -280,7 +280,11 @@ contract_amendments.yaml 登记 A12（schema_objects: StatusTransition）
 3. **无限增长**：append-only + 不设保留期 = 表持续增长。按当前业务量（迁移前 0 行）风险可忽略，
    触阈值时按 ADR-R06-2 的分区法处理，不提前引入分区复杂度。
 4. **组织隔离依赖 D3**：本表组织列目前只落值、不参与策略；跨组织可见性仍由应用层保证，
-   直到 D3 统一接入 RLS 组织维度。
+   直到 D3 统一接入 RLS 组织维度。**子资源组织归属尚未落值**：`Project` 自有
+   `organization_id`（已由实体派生写入事实），而 `Episode` / `ScriptRevision` /
+   `AssetVersion` 的组织经 project 派生，当前事实里为 `NULL`。D3 的归属解析就位后
+   统一补齐——在那之前，审计事实**不可用于按组织维度查子资源历史**（NULL 会被读成
+   「无组织归属」）。这是登记在案的债务，不是已达成状态。
 5. **`TRUNCATE` 守卫的剩余绕过面**：触发器对表所有者与超级用户同样生效，但后者可用
    `ALTER TABLE … DISABLE TRIGGER` 或 `SET session_replication_role = replica` 关掉。
    这不是应用路径，属运维权限范畴：生产迁移角色凭据不进业务容器（F05 已落地），DDL 变更走评审。
@@ -303,3 +307,120 @@ contract_amendments.yaml 登记 A12（schema_objects: StatusTransition）
 | 整表被 TRUNCATE 清空 | 是：语句级触发器，且既有两表同缺口一并补齐 |
 | 证据被二次录入后漂移 | 是：只存 `evidence_refs`，不存快照 |
 | 状态历史需要另一个「日志服务」 | 否（正确）：`audit_log` 若是操作日志就是另一类事实，本 ADR 不建 |
+
+## 9. 实施记录（2026-11-18，D2a 已落地）
+
+实施清单 0–9 全部完成，仅读接口（`AUDIT.STATUS.HISTORY.READ`）与会签事实（`approval_signatures`）
+按 §D2-e 留给 D2b。实施中有三处**设计层面的选择**，都记在这里而不是留在代码注释里：
+
+**1. `record_transition` 挂在既有 `OutboxWriter` 端口上，不新建 Recorder。**
+
+端口方法一次写两条：事件（payload 里带 `transition_id`）与事实（带 `event_id`）。
+理由是不变量本身——两者缺一即为非法状态。若拆成「写事件」与「写事实」两个方法/两个依赖，
+「只写一条」在类型层面就变成可表达的，而它恰恰是这张表要消除的失败形态。
+代价是端口名称比它的职责窄（它现在承载「同一事务内的证据写入」），已在模块 docstring 里写明；
+不为此改名，是因为改名只增加 diff，不改变任何行为。
+
+**2. 剧本取代的 `actor_subject` 来自真实主体，不编造。**
+
+`_supersede_active_version` 原本没有操作者参数。事实表的 `actor_subject` 非空，可以选
+「填一个 system」让它通过——但那是在事实里撒谎。改为把调用方已有的
+`principal.subject_id` 传下来：取代旧版本的「谁」就是导入新版本的人。
+顺带说明：`SCRIPT_SUPERSEDED` 的事件 payload 里**没有**操作者字段（它的「谁」是
+`superseded_by` 这个实体引用），所以 `advance_status` 的 `actor_field` 必须是可选的——
+为了「统一」强行给所有事件加 `changed_by`，等于改已登记的事件契约。
+
+**3. `evidence_refs` 只登记已知引用，不为了填满字段而查库。**
+
+QC 驱动的推进把 `qc_report_id` 写进事实；其余推进为 `()`。没有为了让字段「看起来完整」
+去额外查询证据 id 列表——引用缺失是可接受的事实（可补），编造或过度查询不是。
+另外修掉一个顺带发现的契约缺口：`QC_REPORT_CREATED` 的 `payload_required` 早就声明了
+`quality_profile_version`，而旧代码从未发送（事件闸门只校验字段存在，不校验代码是否真发）。
+
+## 10. 评审修复轮（2026-11-18，PR #17 五条意见）
+
+codex 评审在 D2a 落地后提出 5 条意见，**逐条核实全部为真**。逐条记「事实 → 根因 →
+改法 → 证据」，因为其中两条的根因不在被指出的那一行，而在更上面的机制里。
+
+### T1（真实：审批最重的两条转移没有事实行）
+
+**事实**：`SCRIPT.LOCK.REQUEST` / `SCRIPT.LOCK.APPROVE` 走的是
+`ScriptRevision.request_lock()` / `approve_lock()` 里直接 `self.status = …` 再
+`repository.save()`，两条路径都不经 `transition_to`，因此不写事实行。也就是说，
+**审批语义最重要的两条转移恰恰是唯一没有审计事实的两条**。
+
+**根因不在那两行赋值，在闸门的判据**：`data.transition_single_entry` 只查「谁调用了
+`transition_to`」。改状态有两种写法（调用迁移方法 / 直接赋值），闸门只覆盖了第一种，
+于是「方法名被覆盖」被误当成「状态变更被覆盖」。这是断言方法论上的错，不是漏了一个调用点。
+
+**改法**（判据按**位置**而非按**方法名**）：
+
+1. 领域层 `request_lock` / `approve_lock` 改为经 `transition_to` 改状态（聚合只保留一条
+   改状态的实现路径），审批链字段（`requested_by`）仍由它们写。
+2. `advance_status` 增加 `domain_operation` 参数：状态与附属字段在同一序列里改，服务层
+   不再自己 `save()`。并加一条自检——**事实里的 `to_status` 取聚合的真实结果**，与调用方
+   声明的目标不一致即报错（审计表里最不该出现的就是一条谎）。
+3. 闸门改三条判据：`transition_to` 只许出现在 `/domain/` 或白名单入口；`self.status = …`
+   只许出现在 `/domain/…/transition_to`；**`.save(…)` 只许出现在白名单入口**。
+   第三条是关键：改状态要生效就必须落库，把落库点钉在入口，等于封死物理出口，而且不必
+   记住「哪个方法名会改状态」。
+
+**证据**：`tests/unit/test_script_lock_transitions.py`（4 条：两条转移各写一条事实、
+`actor_subject` 是真实主体、事实与事件互指、职责分离拒绝时不留下半条链路）。
+
+### T2（真实：SECURITY DEFINER 校验只比 event_id）
+
+**事实**：`assert_transition_event_exists()` 以 `SECURITY DEFINER` 运行（必须读调用方
+看不见的 outbox），于是**绕过调用方的 RLS**，而谓词只写了 `WHERE event_id = NEW.event_id`。
+租户 A 的事实行可以指向租户 B 的事件：两条记录都在、提交成功，两个租户的审计链被缝在一起。
+
+**根因是权限模型带来的副作用没被写进判据**：函数一旦提权，就必须按「我现在没有任何 RLS
+保护」来写每一条谓词。
+
+**改法**：谓词补 `AND tenant_id = NEW.tenant_id`，异常信息点明租户。
+**证据**：`test_event_link_must_be_same_tenant`（负向：跨租户事件链在提交时被拒）。
+
+### T3（真实：组织归属靠调用方记得传）
+
+**事实**：`project_service` 没传 `organization_id`，组织项目的迁移事实落成 `NULL`——
+而 `NULL` 在本表里的语义是「该资源无组织归属」，不是「忘了填」。
+
+**根因**：`advance_status` 把「资源的组织归属」当成调用方参数。事实由实体决定，
+不该由调用方的记忆决定——这已经是本项目第二次踩「不变量交给记忆」的坑。
+
+**改法**：改为**从实体派生**（`organization_id` 属性优先，显式参数可覆盖），并在
+`advance_status` docstring 里写明：子资源（集数/剧本/资产版本）的组织经 project 派生，
+当前落 `NULL`，属已登记债务（§7.4），由 D3 的归属解析统一补齐。
+**证据**：`test_project_transition_fact_carries_organization`（不传也对）、
+`test_personal_project_transition_fact_has_no_organization`（个人项目确实为 `NULL`，
+不是「都填上了」）。
+
+### T4（真实：`entity_version` 只挡了「没写」，没挡「写了不可能的版本」）
+
+**事实**：表上只有 `NOT NULL`，`0` / 负数可写入，而对象 Schema 的下界是 1。
+**改法**：`CHECK (entity_version >= 1)`（`ck_status_transition_version_positive`）。
+**证据**：`test_non_positive_entity_version_is_rejected`。
+
+### T5（真实且范围更大：12 处写着字面量角色名）
+
+**事实**：评审只点了 D2 迁移。复核全仓后发现 **11 个迁移 + `partition_guard` 的默认参数**
+都把 `app_role` / `project_planning_role` / `asset_service_role` 写成字面量，
+而角色名是配置（`POSTGRES_*_USER` 可改）。两种失效都不会被读代码发现：自定义名字的部署里
+迁移建出没人用的角色（业务进程连库无权限），或 GRANT 到不存在的角色使升级路径中断。
+
+**根因**：「角色名」这一事实有两个表示（`Settings` 字段与代码字面量），且没有任何机制
+阻止第二种表示出现。`partition_guard` 更隐蔽——它写成**默认参数**，import 时求值。
+
+**改法**：
+1. 新增 `packages/shared/db_roles.py`（`app_role_name()` / `relay_role_name()` /
+   `domain_role_names()`），默认值只在 `config.py` 定义；12 处全部改为按配置取值，
+   `partition_guard` 的默认参数改为 `None` + 使用处解析（不再 import 时定值）。
+2. 新增不变量 **CRED-3**（安全边界契约 19 → 20 条）：角色名唯一来源是配置。
+   判据按**形态**而非「是否调用了读取函数」——AST 扫描非文档字符串常量，按标识符边界匹配
+   默认角色名；文档字符串允许（讲清分工必须能直呼其名），`"app_role_name"` 不误伤。
+3. 顺手修掉 `data.domain_role_split` 的判据：此前搜「文件里出现角色名」，文档字符串就能
+   满足；改为搜「是否从配置解析」，与 T5 同源。
+
+**证据**：`tests/unit/test_db_role_names.py`（7 条，含真实仓库零违规 + 构造目录必须被拒 +
+文档字符串放行 + 空目录必须红）。这条也说明一个反直觉点：**闸门的负向用例与正向用例同等
+重要**——「现在零违规」可能只是碰巧。

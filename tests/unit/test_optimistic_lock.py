@@ -38,6 +38,7 @@ class _RecordingOutboxWriter(OutboxWriter):
 
     def __init__(self) -> None:
         self.events: list[dict] = []
+        self.transitions: list = []
 
     def record(self, *, aggregate_type, aggregate_id, tenant_id, event_type, payload):  # type: ignore[override]
         self.events.append(
@@ -50,6 +51,17 @@ class _RecordingOutboxWriter(OutboxWriter):
             }
         )
         return uuid4()
+
+    def record_transition(self, *, fact, event):  # type: ignore[override]
+        """写入互指的一对：事件（带 transition_id）+ 事实（测试侧只留存待断言）。"""
+        self.transitions.append(fact)
+        return self.record(
+            aggregate_type=event.aggregate_type,
+            aggregate_id=event.aggregate_id,
+            tenant_id=event.tenant_id,
+            event_type=event.event_type,
+            payload={**event.payload, "transition_id": str(fact.transition_id)},
+        )
 
 
 class _VersionedScriptRepository(ScriptRepository):
@@ -183,7 +195,9 @@ async def test_supersede_concurrent_idempotent_skip() -> None:
     )
 
     # 第一次取代成功：DRAFT -> SUPERSEDED，version 1 -> 2。
-    await service._supersede_active_version("proj_s", "EP001", "scr_new", _TENANT)
+    await service._supersede_active_version(
+        "proj_s", "EP001", "scr_new", _TENANT, actor="tester"
+    )
 
     fetched = await repo.get_by_id("scr_old")
     assert fetched is not None
@@ -195,7 +209,9 @@ async def test_supersede_concurrent_idempotent_skip() -> None:
 
     # 第二次取代（并发模拟）：此时活跃版本已是 SUPERSEDED，get_latest 应返回 None
     # （因为 status != SUPERSEDED 过滤），幂等跳过，不抛错。
-    await service._supersede_active_version("proj_s", "EP001", "scr_new2", _TENANT)
+    await service._supersede_active_version(
+        "proj_s", "EP001", "scr_new2", _TENANT, actor="tester"
+    )
 
 
 async def test_concurrent_modification_error_carries_code() -> None:

@@ -32,8 +32,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
+from packages.shared.db_roles import app_role_name
 from packages.shared.partition_guard import (
-    APP_ROLE,
     OUTBOX_PARENT,
     OUTBOX_SCHEMA,
     protect_partition_statements,
@@ -56,12 +56,12 @@ def _restore_default_grants() -> list[str]:
     for schema in _SCHEMAS:
         statements.append(
             f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
-            f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {APP_ROLE}"
+            f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {app_role_name()}"
         )
     for schema in ("project_planning", "outbox"):
         statements.append(
             f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
-            f"GRANT USAGE, SELECT ON SEQUENCES TO {APP_ROLE}"
+            f"GRANT USAGE, SELECT ON SEQUENCES TO {app_role_name()}"
         )
     return statements
 
@@ -98,29 +98,29 @@ def upgrade() -> None:
     for schema in _SCHEMAS:
         op.execute(
             f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
-            f"REVOKE ALL ON TABLES FROM {APP_ROLE}"
+            f"REVOKE ALL ON TABLES FROM {app_role_name()}"
         )
         op.execute(
             f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
-            f"REVOKE ALL ON SEQUENCES FROM {APP_ROLE}"
+            f"REVOKE ALL ON SEQUENCES FROM {app_role_name()}"
         )
 
     # 3. append-only：证据与版本表不接受应用的整行删改。
-    op.execute(f"REVOKE DELETE ON asset_service.asset_versions FROM {APP_ROLE}")
+    op.execute(f"REVOKE DELETE ON asset_service.asset_versions FROM {app_role_name()}")
     op.execute(
-        f"REVOKE UPDATE, DELETE ON asset_service.qc_reports FROM {APP_ROLE}"
+        f"REVOKE UPDATE, DELETE ON asset_service.qc_reports FROM {app_role_name()}"
     )
 
     # 4. 让 /readyz 能读到 schema revision（只读元数据，不涉业务）。
-    op.execute(f"GRANT SELECT ON {_ALEMBIC_VERSION} TO {APP_ROLE}")
+    op.execute(f"GRANT SELECT ON {_ALEMBIC_VERSION} TO {app_role_name()}")
 
 
 def downgrade() -> None:
     """回滚到"分区可直连、默认自动授权"的旧状态（仅用于本地回退）。"""
-    op.execute(f"REVOKE SELECT ON {_ALEMBIC_VERSION} FROM {APP_ROLE}")
+    op.execute(f"REVOKE SELECT ON {_ALEMBIC_VERSION} FROM {app_role_name()}")
 
-    op.execute(f"GRANT DELETE ON asset_service.asset_versions TO {APP_ROLE}")
-    op.execute(f"GRANT UPDATE, DELETE ON asset_service.qc_reports TO {APP_ROLE}")
+    op.execute(f"GRANT DELETE ON asset_service.asset_versions TO {app_role_name()}")
+    op.execute(f"GRANT UPDATE, DELETE ON asset_service.qc_reports TO {app_role_name()}")
 
     for statement in _restore_default_grants():
         op.execute(statement)

@@ -21,28 +21,28 @@ from collections.abc import Sequence
 
 from alembic import op
 
+from packages.shared.db_roles import app_role_name
+
 revision: str = "d4e5f6a7b8c9"
 down_revision: str | Sequence[str] | None = "b2c3d4e5f6a7"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
-
-APP_ROLE = "app_role"
 OUTBOX_SCHEMA = "outbox"
 
 
 def upgrade() -> None:
     """撤销 outbox 的删除权限（append-only 审计不可物理删除）。"""
-    op.execute(f"REVOKE DELETE ON {OUTBOX_SCHEMA}.outbox_events FROM {APP_ROLE}")
+    op.execute(f"REVOKE DELETE ON {OUTBOX_SCHEMA}.outbox_events FROM {app_role_name()}")
     op.execute(
         f"ALTER DEFAULT PRIVILEGES IN SCHEMA {OUTBOX_SCHEMA} "
-        f"REVOKE DELETE ON TABLES FROM {APP_ROLE}"
+        f"REVOKE DELETE ON TABLES FROM {app_role_name()}"
     )
 
 
 def downgrade() -> None:
     """回滚：恢复 outbox 的删除权限与默认权限。"""
-    op.execute(f"GRANT DELETE ON {OUTBOX_SCHEMA}.outbox_events TO {APP_ROLE}")
+    op.execute(f"GRANT DELETE ON {OUTBOX_SCHEMA}.outbox_events TO {app_role_name()}")
     op.execute(
         f"ALTER DEFAULT PRIVILEGES IN SCHEMA {OUTBOX_SCHEMA} "
-        f"GRANT DELETE ON TABLES TO {APP_ROLE}"
+        f"GRANT DELETE ON TABLES TO {app_role_name()}"
     )

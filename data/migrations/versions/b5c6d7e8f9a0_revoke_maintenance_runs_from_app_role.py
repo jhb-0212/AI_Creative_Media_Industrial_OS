@@ -23,6 +23,8 @@ from collections.abc import Sequence
 
 from alembic import op
 
+from packages.shared.db_roles import app_role_name
+
 revision: str = "b5c6d7e8f9a0"
 down_revision: str | Sequence[str] | None = "a4b5c6d7e8f9"
 branch_labels: str | Sequence[str] | None = None
@@ -30,15 +32,14 @@ depends_on: str | Sequence[str] | None = None
 
 _SCHEMA = "outbox"
 _TABLE = "maintenance_runs"
-_APP_ROLE = "app_role"
 
 
 def upgrade() -> None:
-    op.execute(f'REVOKE ALL ON TABLE "{_SCHEMA}"."{_TABLE}" FROM {_APP_ROLE}')
+    op.execute(f'REVOKE ALL ON TABLE "{_SCHEMA}"."{_TABLE}" FROM {app_role_name()}')
 
 
 def downgrade() -> None:
     op.execute(
         f'GRANT SELECT, INSERT, UPDATE ON TABLE "{_SCHEMA}"."{_TABLE}" '
-        f"TO {_APP_ROLE}"
+        f"TO {app_role_name()}"
     )

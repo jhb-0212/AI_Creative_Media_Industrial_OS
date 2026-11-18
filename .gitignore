@@ -69,8 +69,11 @@ Thumbs.db
 node_modules/
 dist/
 
-# 根目录临时抓取输出（curl/日志落盘），禁止入库
+# 根目录临时落盘文件，禁止入库
+# `_*.txt`：抓取输出/日志；`commit_msg*.txt`：提交信息（应走 `git commit -F -` 从 stdin 读，
+# 不落盘；此规则是防泄漏的最后一道网，不是推荐用法）
 /_*.txt
+/commit_msg*.txt
 
 # 本地开发身份密钥对（make dev-keys 生成，绝不入库）
 infra/compose/.dev-keys/

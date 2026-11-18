@@ -24,6 +24,7 @@ from packages.identity.revoked_token_model import RevokedTokenModel  # noqa: F40
 from packages.shared.config import get_settings
 from packages.shared.database import Base, build_migration_url
 from packages.shared.outbox import OutboxEventModel  # noqa: F401
+from packages.shared.status_transition import StatusTransitionModel  # noqa: F401
 from services.asset_service.repository.orm import (  # noqa: F401
     AssetVersionModel,
     QCReportModel,

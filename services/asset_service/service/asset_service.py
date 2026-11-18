@@ -23,12 +23,18 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from typing import Any
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.identity.principal import Principal
 from packages.shared.outbox_writer import OutboxWriter
 from packages.shared.port_errors import DuplicateEntityError, ReferentialIntegrityError
+from packages.shared.status_transition import (
+    TransitionEvent,
+    TransitionFact,
+    transition_audit_ref,
+)
 from packages.shared.versioning import ConcurrentModificationError
 from services.asset_service.domain.asset_version import AssetVersion
 from services.asset_service.domain.enums import (
@@ -279,34 +285,46 @@ class AssetService:
                 detail="QC 报告并发写入冲突，请重试",
             ) from exc
 
+        qc_report_count = await self._qc_reports.count_by_asset(asset.entity_id)
+        qc_extra_payload: dict[str, Any] = {
+            "qc_report_id": report.qc_report_id,
+            # 事件契约 payload_required 声明了 quality_profile_version，
+            # 而旧实现从未发送（闸门只校验字段存在、不校验代码是否真发）。
+            # 本次重构一并补齐，而不是把缺口照抄进新路径。
+            "quality_profile_version": report.quality_profile_version,
+            # QC 事件的 created_by 是「谁登记的报告」，与资产创建者不同。
+            "created_by": report.created_by,
+        }
+
         if asset.status is AssetStatus.GENERATED:
             # 同一张边表：这条边属于 QC.REPORT.CREATE，且以「报告已登记」为准入
             # （因此该边无附加守卫——报告本身即证据，否则规则会自锁）。
             edge = edge_owned_by(
                 AssetStatus.GENERATED, AssetStatus.TECHNICAL_QC, QC_REPORT_ACTION
             )
-            evaluate(edge.guards, asset, GuardContext(actor=report.created_by))
-            expected_version = asset.entity_version
-            asset.transition_to(
-                edge.target, audit_ref=f"qc_report:{report.qc_report_id}"
+            # 计数在此处真实测量：报告已写入同一事务，得到的正是「推进时刻的证据数」。
+            # 不传默认 0——那会在事件里写下一个假事实（明明刚登记了一份报告）。
+            await self._advance(
+                asset,
+                edge,
+                GuardContext(actor=report.created_by, qc_report_count=qc_report_count),
+                principal=principal,
+                event_type="QC_REPORT_CREATED",
+                extra_payload=qc_extra_payload,
+                evidence_refs=(report.qc_report_id,),
             )
-            await self._assets.save(asset, expected_version)
-
-        self._outbox_writer.record(
-            aggregate_type="AssetVersion",
-            aggregate_id=asset.entity_id,
-            tenant_id=principal.tenant_id,
-            event_type="QC_REPORT_CREATED",
-            payload={
-                "qc_report_id": report.qc_report_id,
-                "asset_version_id": asset.entity_id,
-                "quality_profile_version": report.quality_profile_version,
-                "from_status": previous_status.value,
-                "to_status": asset.status.value,
-                "created_by": report.created_by,
-                "tenant_id": str(principal.tenant_id),
-            },
-        )
+        else:
+            # 已在 TECHNICAL_QC：只登记证据并发事件，不产生状态推进。
+            self._record_event(
+                asset,
+                principal=principal,
+                event_type="QC_REPORT_CREATED",
+                payload={
+                    **qc_extra_payload,
+                    "from_status": previous_status.value,
+                    "to_status": asset.status.value,
+                },
+            )
         return asset, report
 
     # ------------------------------------------------------------------ #
@@ -364,6 +382,7 @@ class AssetService:
                     context,
                     principal=principal,
                     event_type="ASSET_VERSION_HUMAN_REVIEW_ENTERED",
+                    actor_field="reviewed_by",
                 )
             else:
                 await self._advance(
@@ -372,6 +391,7 @@ class AssetService:
                     context,
                     principal=principal,
                     event_type="ASSET_VERSION_APPROVED",
+                    actor_field="approved_by",
                 )
         return asset
 
@@ -416,6 +436,7 @@ class AssetService:
             context,
             principal=principal,
             event_type="ASSET_VERSION_STATUS_CHANGED",
+            actor_field="changed_by",
         )
         return asset
 
@@ -448,13 +469,31 @@ class AssetService:
         *,
         principal: Principal,
         event_type: str,
+        extra_payload: Mapping[str, Any] | None = None,
+        evidence_refs: tuple[str, ...] = (),
+        actor_field: str | None = None,
     ) -> None:
-        """求值守卫 → 乐观锁迁移 → 同事务写事件（R07）。"""
+        """求值守卫 → 乐观锁迁移 → 同事务写事件（R07）。
+
+        ``extra_payload`` 只用于补**该事件特有**的键（如 QC 事件的 `qc_report_id`），
+        与基础 payload 同名时以 extra 为准（QC 事件的 `created_by` 是报告创建者，
+        不是资产创建者——这个差异必须由调用方显式覆盖，不能靠基础 payload 猜）。
+
+        ``actor_field`` 是操作者在该事件契约里的键名：`ASSET_VERSION_APPROVED` 要
+        `approved_by`、`..._HUMAN_REVIEW_ENTERED` 要 `reviewed_by`、`..._STATUS_CHANGED`
+        要 `changed_by`。**不能统一写 `actor`**——那三个名字是事件契约声明的
+        `payload_required`，写别的名字等于事件里缺了必填事实，而事件闸门只校验
+        字段存在、不校验代码是否真发（本轮已因此发现两处缺口）。
+        """
         evaluate(edge.guards, asset, context)
 
         previous_status = asset.status
         expected_version = asset.entity_version
-        asset.transition_to(edge.target, audit_ref=f"{edge.owner_action}:{context.actor}")
+        # 事实 id 先于迁移生成：audit_ref 已降级为「指向本次事实的指针」。
+        transition_id = uuid.uuid4()
+        asset.transition_to(
+            edge.target, audit_ref=transition_audit_ref(transition_id)
+        )
         try:
             await self._assets.save(asset, expected_version)
         except ConcurrentModificationError as exc:
@@ -463,6 +502,54 @@ class AssetService:
                 detail="资产状态并发冲突，请基于最新状态重试",
             ) from exc
 
+        self._outbox_writer.record_transition(
+            fact=TransitionFact(
+                transition_id=transition_id,
+                tenant_id=principal.tenant_id,
+                organization_id=None,  # 资产的归属经 project 派生，组织列随 D3 接入
+                resource_type="AssetVersion",
+                resource_id=asset.entity_id,
+                entity_version=asset.entity_version,
+                from_status=previous_status.value,
+                to_status=edge.target.value,
+                owner_action=edge.owner_action,
+                actor_subject=context.actor,
+                evidence_refs=evidence_refs,
+            ),
+            event=TransitionEvent(
+                aggregate_type="AssetVersion",
+                aggregate_id=asset.entity_id,
+                tenant_id=principal.tenant_id,
+                event_type=event_type,
+                payload={
+                    "asset_version_id": asset.entity_id,
+                    "project_id": asset.project_id,
+                    "from_status": previous_status.value,
+                    "to_status": edge.target.value,
+                    **({actor_field: context.actor} if actor_field else {}),
+                    "owner_action": edge.owner_action,
+                    "created_by": asset.created_by,
+                    "qc_report_count": context.qc_report_count,
+                    "tenant_id": str(principal.tenant_id),
+                    **(extra_payload or {}),
+                },
+            ),
+        )
+
+    def _record_event(
+        self,
+        asset: AssetVersion,
+        *,
+        principal: Principal,
+        event_type: str,
+        payload: Mapping[str, Any],
+    ) -> None:
+        """只发事件、**不推进状态**的出口（如资产已在 TECHNICAL_QC 时再登记报告）。
+
+        与 `_advance` 分开是刻意的：这条路径没有状态迁移，若也走 `_advance` 就会
+        凭空造一次「迁移」；但它同样不能各自拼 payload，所以共用这一个出口。
+        本函数不含 `transition_to`，不在「推进唯一路径」的管辖范围内。
+        """
         self._outbox_writer.record(
             aggregate_type="AssetVersion",
             aggregate_id=asset.entity_id,
@@ -470,14 +557,8 @@ class AssetService:
             event_type=event_type,
             payload={
                 "asset_version_id": asset.entity_id,
-                "project_id": asset.project_id,
-                "from_status": previous_status.value,
-                "to_status": edge.target.value,
-                "actor": context.actor,
-                "owner_action": edge.owner_action,
-                "created_by": asset.created_by,
-                "qc_report_count": context.qc_report_count,
                 "tenant_id": str(principal.tenant_id),
+                **payload,
             },
         )
 

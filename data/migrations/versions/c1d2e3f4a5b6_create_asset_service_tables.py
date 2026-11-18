@@ -27,13 +27,14 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
+from packages.shared.db_roles import app_role_name
+
 revision: str = "c1d2e3f4a5b6"
 down_revision: str | Sequence[str] | None = "b8c9d1e2f3a4"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 SCHEMA = "asset_service"
-APP_ROLE = "app_role"
 
 _TABLES = ("asset_versions", "qc_reports")
 
@@ -130,14 +131,14 @@ def upgrade() -> None:
         )
 
     # 授权：应用角色（NOBYPASSRLS）必须有 schema USAGE 与表级读写权限。
-    op.execute(f"GRANT USAGE ON SCHEMA {SCHEMA} TO {APP_ROLE}")
+    op.execute(f"GRANT USAGE ON SCHEMA {SCHEMA} TO {app_role_name()}")
     op.execute(
         f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {SCHEMA} "
-        f"TO {APP_ROLE}"
+        f"TO {app_role_name()}"
     )
     op.execute(
         f"ALTER DEFAULT PRIVILEGES IN SCHEMA {SCHEMA} "
-        f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {APP_ROLE}"
+        f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {app_role_name()}"
     )
 
 
@@ -145,8 +146,8 @@ def downgrade() -> None:
     """回滚：先删策略与表，再回收 schema 授权。"""
     for table in _TABLES:
         op.execute(f"DROP POLICY IF EXISTS tenant_isolation_{table} ON {SCHEMA}.{table}")
-    op.execute(f"REVOKE ALL ON ALL TABLES IN SCHEMA {SCHEMA} FROM {APP_ROLE}")
-    op.execute(f"REVOKE USAGE ON SCHEMA {SCHEMA} FROM {APP_ROLE}")
+    op.execute(f"REVOKE ALL ON ALL TABLES IN SCHEMA {SCHEMA} FROM {app_role_name()}")
+    op.execute(f"REVOKE USAGE ON SCHEMA {SCHEMA} FROM {app_role_name()}")
     op.drop_table("qc_reports", schema=SCHEMA)
     op.drop_table("asset_versions", schema=SCHEMA)
     op.execute(f"DROP SCHEMA IF EXISTS {SCHEMA}")

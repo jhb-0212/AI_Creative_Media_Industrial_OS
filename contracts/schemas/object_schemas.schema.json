@@ -18,7 +18,7 @@
   ],
   "x-afs-p0-coverage": {
     "note": "已建模对象与显式登记为待补的对象之并集，构成 P0 契约对象全集。待补项按缺口性质分类，不把“正文有字段表但派生未覆盖”与“正文缺字段标识”混为一类。",
-    "total": 83,
+    "total": 84,
     "modeled": [
       "Appeal",
       "AssetReference",
@@ -96,6 +96,7 @@
       "ShowcaseSnapshot",
       "ShowcaseVersionTree",
       "SkillManifest",
+      "StatusTransition",
       "TakeDown",
       "Task",
       "TierChangeAudit",
@@ -230,6 +231,95 @@
     "pending": []
   },
   "definitions": {
+    "StatusTransition": {
+      "type": "object",
+      "description": "状态迁移事实：某个资源在某个版本上从 A 状态推进到 B 状态。append-only、不设保留期（ADR-R23）；event_id 指向同事务写入的 outbox 事件，事件因此降级为「通知下游」，不再是唯一历史。本对象无生命周期状态，故不配状态机。",
+      "required": [
+        "transition_id",
+        "tenant_id",
+        "resource_type",
+        "resource_id",
+        "entity_version",
+        "from_status",
+        "to_status",
+        "owner_action",
+        "actor_subject",
+        "evidence_refs",
+        "occurred_at",
+        "event_id"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "transition_id": {
+          "type": "string",
+          "description": "事实标识（uuid）。实体 audit_ref 在 D2 之后以 tr:<transition_id> 指向它"
+        },
+        "tenant_id": {
+          "type": "string",
+          "description": "所属租户；RLS 按此列隔离"
+        },
+        "organization_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "所属组织；全局资源（无组织归属）为空。组织维度策略随 D3 接入，本对象当前只落值"
+        },
+        "resource_type": {
+          "type": "string",
+          "description": "对象类型，与 definitions 的键同名"
+        },
+        "resource_id": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "资源标识；与实体表 entity_id 同型（varchar(64)），不假定必须是 UUID"
+        },
+        "entity_version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "推进完成后的乐观锁版本；(tenant, type, id, version) 唯一，使并发双写结构上不可能"
+        },
+        "from_status": {
+          "type": "string",
+          "description": "推进前状态"
+        },
+        "to_status": {
+          "type": "string",
+          "description": "推进后状态；与 from_status 必须不同（CHECK 约束），no-op 不是迁移"
+        },
+        "owner_action": {
+          "type": "string",
+          "description": "拥有该转移边的 action_key（Action Registry 单一事实源）"
+        },
+        "actor_subject": {
+          "type": "string",
+          "description": "触发推进的真实主体"
+        },
+        "authority_ref": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "授权凭据 jti（谁授的权）；可空——部分推进由系统内部触发"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "证据对象 id 列表（引用，不是摘要或计数快照）：证据本身已 append-only 不可变，计数随时可重算"
+        },
+        "occurred_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "推进发生时间"
+        },
+        "event_id": {
+          "type": "string",
+          "description": "同事务写入的 outbox 事件；非空，并由延迟约束触发器在提交时校验存在"
+        }
+      }
+    },
     "ProjectProductionProfile": {
       "type": "object",
       "description": "权威所有者：项目生产策略与默认值。",

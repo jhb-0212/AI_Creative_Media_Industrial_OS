@@ -29,7 +29,6 @@ import re
 
 OUTBOX_SCHEMA = "outbox"
 OUTBOX_PARENT = "outbox_events"
-APP_ROLE = "app_role"
 # 与父表策略同名：策略名按表作用域独立，同名便于排障时一眼认出。
 PARTITION_POLICY = "tenant_isolation_outbox_events"
 
@@ -56,15 +55,23 @@ def protect_partition_statements(
     partition: str,
     *,
     schema: str = OUTBOX_SCHEMA,
-    role: str = APP_ROLE,
+    role: str | None = None,
 ) -> tuple[str, ...]:
     """返回"让某个分区进入受保护状态"所需的全部 SQL（幂等）。
 
     顺序有意义：先开 RLS 再建策略（策略可以在 RLS 未开时创建，但先开语义清楚），
     最后回收直连授权——保证任何中间失败重跑都能收敛到同一状态。
+
+    ``role`` 缺省时取配置里的应用角色名（``packages/shared/db_roles.py``）。
+    此前它是 ``role: str = APP_ROLE`` 的**默认参数**，默认值在 import 时求值：
+    改了 ``POSTGRES_APP_USER`` 之后，本模块仍然回收着字面量角色的权限，
+    于是「按配置建的角色」与「被收权的角色」不是同一个（评审 T5 的同型缺陷）。
     """
+    from packages.shared.db_roles import app_role_name
+
     qualified = f"{quote_ident(schema)}.{quote_ident(partition)}"
     policy = quote_ident(PARTITION_POLICY)
+    target_role = quote_ident(role if role is not None else app_role_name())
     return (
         f"ALTER TABLE {qualified} ENABLE ROW LEVEL SECURITY",
         f"DROP POLICY IF EXISTS {policy} ON {qualified}",
@@ -75,7 +82,7 @@ def protect_partition_statements(
             tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid
         )
         """.strip(),
-        f"REVOKE ALL ON {qualified} FROM {quote_ident(role)}",
+        f"REVOKE ALL ON {qualified} FROM {target_role}",
     )
 
 
@@ -83,15 +90,18 @@ def unprotect_partition_statements(
     partition: str,
     *,
     schema: str = OUTBOX_SCHEMA,
-    role: str = APP_ROLE,
+    role: str | None = None,
 ) -> tuple[str, ...]:
     """回滚语句（仅迁移 downgrade 使用）：恢复"分区可直连但不隔离"的旧状态。"""
+    from packages.shared.db_roles import app_role_name
+
     qualified = f"{quote_ident(schema)}.{quote_ident(partition)}"
     policy = quote_ident(PARTITION_POLICY)
+    target_role = quote_ident(role if role is not None else app_role_name())
     return (
         f"DROP POLICY IF EXISTS {policy} ON {qualified}",
         f"ALTER TABLE {qualified} DISABLE ROW LEVEL SECURITY",
-        f"GRANT SELECT, INSERT, UPDATE ON {qualified} TO {quote_ident(role)}",
+        f"GRANT SELECT, INSERT, UPDATE ON {qualified} TO {target_role}",
     )
 
 
@@ -203,7 +213,6 @@ def revoke_outbox_partition_statements(
 
 
 __all__ = [
-    "APP_ROLE",
     "OUTBOX_PARENT",
     "OUTBOX_SCHEMA",
     "PARTITION_POLICY",

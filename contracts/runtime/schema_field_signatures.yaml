@@ -1,6 +1,21 @@
 generated_from: object_schemas.schema.json
 note: 派生诊断快照，非权威事实源。字段签名变化须显式重签本台账，并在 contract_amendments.yaml 登记字段演进理由（F07）。
 signatures:
+  StatusTransition:
+    actor_subject: string
+    authority_ref: string|null
+    entity_version: integer
+    event_id: string
+    evidence_refs: array
+    from_status: string
+    occurred_at: string
+    organization_id: string|null
+    owner_action: string
+    resource_id: string
+    resource_type: string
+    tenant_id: string
+    to_status: string
+    transition_id: string
   ProjectProductionProfile:
     audit_ref: string|null
     budget_pool_id: string

@@ -22,6 +22,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
+from packages.shared.db_roles import app_role_name
+
 revision: str = "c6d7e8f9a0b1"
 down_revision: str | Sequence[str] | None = "b5c6d7e8f9a0"
 branch_labels: str | Sequence[str] | None = None
@@ -29,7 +31,6 @@ depends_on: str | Sequence[str] | None = None
 
 _SCHEMA = "auth"
 _TABLE = "revoked_tokens"
-_APP_ROLE = "app_role"
 
 
 def upgrade() -> None:
@@ -56,8 +57,8 @@ def upgrade() -> None:
         ["expires_at"],
         schema=_SCHEMA,
     )
-    op.execute(f'GRANT USAGE ON SCHEMA "{_SCHEMA}" TO {_APP_ROLE}')
-    op.execute(f'GRANT SELECT ON TABLE "{_SCHEMA}"."{_TABLE}" TO {_APP_ROLE}')
+    op.execute(f'GRANT USAGE ON SCHEMA "{_SCHEMA}" TO {app_role_name()}')
+    op.execute(f'GRANT SELECT ON TABLE "{_SCHEMA}"."{_TABLE}" TO {app_role_name()}')
 
 
 def downgrade() -> None:

@@ -37,6 +37,7 @@ class _RecordingOutboxWriter(OutboxWriter):
 
     def __init__(self) -> None:
         self.events: list[dict] = []
+        self.transitions: list = []
 
     def record(self, *, aggregate_type, aggregate_id, tenant_id, event_type, payload):  # type: ignore[override]
         self.events.append(
@@ -49,6 +50,17 @@ class _RecordingOutboxWriter(OutboxWriter):
             }
         )
         return uuid4()
+
+    def record_transition(self, *, fact, event):  # type: ignore[override]
+        """写入互指的一对：事件（带 transition_id）+ 事实（测试侧只留存待断言）。"""
+        self.transitions.append(fact)
+        return self.record(
+            aggregate_type=event.aggregate_type,
+            aggregate_id=event.aggregate_id,
+            tenant_id=event.tenant_id,
+            event_type=event.event_type,
+            payload={**event.payload, "transition_id": str(fact.transition_id)},
+        )
 
 
 class _RecordingRepository(ScriptRepository):

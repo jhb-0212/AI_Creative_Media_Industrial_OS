@@ -101,7 +101,7 @@ async def test_optimistic_lock_prevents_lost_update(
         script_a = await repo_a.get_by_id(script_id)
         assert script_a is not None
         expected_a = script_a.entity_version
-        script_a.request_lock("writer_a")
+        script_a.request_lock("writer_a", "tr:req")
         await repo_a.save(script_a, expected_a)
         await session_a.commit()
 

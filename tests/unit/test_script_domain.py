@@ -43,12 +43,12 @@ def test_import_produces_draft() -> None:
 def test_two_step_lock_flow() -> None:
     """两步审批流：DRAFT→LOCK_PENDING（申请）→LOCKED（批准）。"""
     s = _make_script()
-    s.request_lock("writer_001")
+    s.request_lock("writer_001", "tr:req")
     assert s.status == ScriptStatus.LOCK_PENDING
     assert s.requested_by == "writer_001"
     assert s.entity_version == 2
 
-    s.approve_lock("director_001")
+    s.approve_lock("director_001", "tr:app")
     assert s.status == ScriptStatus.LOCKED
     assert s.entity_version == 3
 
@@ -57,7 +57,7 @@ def test_draft_cannot_approve_directly() -> None:
     """DRAFT 不能直接 approve（须先申请，进入 LOCK_PENDING）。"""
     s = _make_script()
     with pytest.raises(DomainError):
-        s.approve_lock("director_001")
+        s.approve_lock("director_001", "tr:app")
 
 
 def test_draft_to_superseded_legal() -> None:
@@ -68,16 +68,16 @@ def test_draft_to_superseded_legal() -> None:
 
 def test_locked_to_superseded_legal() -> None:
     s = _make_script()
-    s.request_lock("writer_001")
-    s.approve_lock("director_001")
+    s.request_lock("writer_001", "tr:req")
+    s.approve_lock("director_001", "tr:app")
     s.transition_to(ScriptStatus.SUPERSEDED, audit_ref="superseded_by:scr_002")
     assert s.status == ScriptStatus.SUPERSEDED
 
 
 def test_locked_cannot_revert_to_draft() -> None:
     s = _make_script()
-    s.request_lock("writer_001")
-    s.approve_lock("director_001")
+    s.request_lock("writer_001", "tr:req")
+    s.approve_lock("director_001", "tr:app")
     with pytest.raises(DomainError):
         s.transition_to(ScriptStatus.DRAFT, audit_ref="revert")
 

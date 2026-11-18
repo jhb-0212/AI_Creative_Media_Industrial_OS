@@ -26,12 +26,12 @@ from collections.abc import Sequence
 
 from alembic import op
 
+from packages.shared.db_roles import app_role_name
+
 revision: str = "e5f6a7b8c9d0"
 down_revision: str | Sequence[str] | None = "d4e5f6a7b8c9"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
-
-APP_ROLE = "app_role"
 OUTBOX_SCHEMA = "outbox"
 
 _CREATE_FUNCTION = """
@@ -62,7 +62,7 @@ def upgrade() -> None:
     )
     op.execute(
         f"GRANT EXECUTE ON FUNCTION {OUTBOX_SCHEMA}.list_active_tenants() "
-        f"TO {APP_ROLE}"
+        f"TO {app_role_name()}"
     )
 
 

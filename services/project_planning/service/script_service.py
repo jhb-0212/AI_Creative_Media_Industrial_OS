@@ -30,11 +30,11 @@ from packages.identity.separation import require_different_subject
 from packages.shared.port_errors import DuplicateEntityError, ReferentialIntegrityError
 from services.project_planning.domain.enums import ScriptStatus
 from services.project_planning.domain.script import ScriptRevision
-from services.project_planning.repository._versioning import ConcurrentModificationError
 from services.project_planning.repository.episode_repo import EpisodeRepository
 from services.project_planning.repository.outbox_writer import OutboxWriter
 from services.project_planning.repository.project_repo import ProjectRepository
 from services.project_planning.repository.script_repo import ScriptRepository
+from services.project_planning.service.transition import advance_status
 
 
 class ScriptService:
@@ -113,7 +113,11 @@ class ScriptService:
         # 新版本导入：使「同一项目 + 同一集数」下当前未取代的旧版本转 SUPERSEDED。
         # 版本链按 project_id + episode_ref 隔离，避免跨集误替换。
         await self._supersede_active_version(
-            project_id, episode_ref, new_entity_id, principal.tenant_id
+            project_id,
+            episode_ref,
+            new_entity_id,
+            principal.tenant_id,
+            actor=principal.subject_id,
         )
 
         script = ScriptRevision(
@@ -198,23 +202,27 @@ class ScriptService:
         # 归属验证（申请前要求归属合法）。
         await self._assert_episode_ownership(script.project_id, script.episode_ref)
 
-        expected_version = script.entity_version
-        script.request_lock(requested_by)
-        await self._repository.save(script, expected_version)
-
-        self._outbox_writer.record(
+        # 唯一推进路径（ADR-R23 §D2-b）：状态、申请人、事实行、事件同一序列。
+        # domain_operation 承载「顺便写申请人」——领域方法内部仍经 transition_to
+        # 改状态，聚合上没有第二条改状态的路径。
+        await advance_status(
+            script,
+            ScriptStatus.LOCK_PENDING,
+            repository=self._repository,
+            outbox_writer=self._outbox_writer,
             aggregate_type="ScriptRevision",
-            aggregate_id=script.entity_id,
             event_type="SCRIPT_LOCK_REQUESTED",
             tenant_id=principal.tenant_id,
             payload={
                 "project_id": script.project_id,
                 "episode_ref": script.episode_ref,
                 "requested_by": requested_by,
-                "tenant_id": str(principal.tenant_id),
-                "from_status": ScriptStatus.DRAFT.value,
-                "to_status": ScriptStatus.LOCK_PENDING.value,
             },
+            resource_type="ScriptRevision",
+            owner_action="SCRIPT.LOCK.REQUEST",
+            conflict_detail="剧本锁定申请并发冲突，请基于最新状态重试",
+            actor=requested_by,
+            domain_operation=lambda ref: script.request_lock(requested_by, ref),
         )
         return script
 
@@ -256,15 +264,15 @@ class ScriptService:
             counterpart_label="申请人",
         )
 
-        expected_version = script.entity_version
-        script.approve_lock(approved_by)
-        await self._repository.save(script, expected_version)
-
-        # 审计事件（决策 3）：锁定批准与状态变更同事务原子记录，含职责分离
-        # 证据（申请人与批准人），可追溯审批当时的完整上下文（R7）。
-        self._outbox_writer.record(
+        # 唯一推进路径（ADR-R23 §D2-b）。批准人落在两处第一类事实里：事件的
+        # approved_by 与状态迁移事实的 actor_subject——「批准」这个词必须能
+        # 回答「谁批的」，且不依赖 outbox 保留期。
+        await advance_status(
+            script,
+            ScriptStatus.LOCKED,
+            repository=self._repository,
+            outbox_writer=self._outbox_writer,
             aggregate_type="ScriptRevision",
-            aggregate_id=script.entity_id,
             event_type="SCRIPT_LOCK_APPROVED",
             tenant_id=principal.tenant_id,
             payload={
@@ -272,10 +280,12 @@ class ScriptService:
                 "episode_ref": script.episode_ref,
                 "requested_by": script.requested_by,
                 "approved_by": approved_by,
-                "tenant_id": str(principal.tenant_id),
-                "from_status": ScriptStatus.LOCK_PENDING.value,
-                "to_status": ScriptStatus.LOCKED.value,
             },
+            resource_type="ScriptRevision",
+            owner_action="SCRIPT.LOCK.APPROVE",
+            conflict_detail="剧本锁定批准并发冲突，请基于最新状态重试",
+            actor=approved_by,
+            domain_operation=lambda ref: script.approve_lock(approved_by, ref),
         )
         return script
 
@@ -312,6 +322,8 @@ class ScriptService:
         episode_ref: str,
         new_entity_id: str,
         tenant_id: uuid.UUID,
+        *,
+        actor: str,
     ) -> None:
         """将指定项目 + 集数下的当前活跃版本标记为 SUPERSEDED。
 
@@ -327,37 +339,32 @@ class ScriptService:
             return
         if latest.status == ScriptStatus.SUPERSEDED:
             return
-        # 乐观锁：捕获读取时版本，条件更新。并发下若该活跃版本已被另一请求
-        # 先行取代（版本被推进），save 抛 ConcurrentModificationError——此时
-        # 幂等跳过（终态已达成，无需二次 transition，也避免对终态报错）。
-        expected_version = latest.entity_version
-        # 先固化旧状态再迁移：迁移后 latest.status 已是 SUPERSEDED，
-        # 再用它做 from_status 会记成 SUPERSEDED→SUPERSEDED，丢掉真实来源态。
-        previous_status = latest.status.value
-        latest.transition_to(
-            ScriptStatus.SUPERSEDED, audit_ref=f"superseded_by:{new_entity_id}"
-        )
-        try:
-            await self._repository.save(latest, expected_version)
-        except ConcurrentModificationError:
-            # 并发取代竞态：旧版本已被他人标记 SUPERSEDED，幂等跳过。
-            return
-
-        # 审计事件（决策 3）：版本取代同事务原子记录，保留取代链。
-        self._outbox_writer.record(
+        # 并发取代竞态由 advance_status 的 on_conflict="skip" 表达：若旧版本已被
+        # 他人推进（版本号已变），返回 False 并幂等跳过——终态已达成，不再二次
+        # transition，也不对终态报错。该策略是剧本取代独有的，故显式声明而非默认。
+        advanced = await advance_status(
+            latest,
+            ScriptStatus.SUPERSEDED,
+            repository=self._repository,
+            outbox_writer=self._outbox_writer,
             aggregate_type="ScriptRevision",
-            aggregate_id=latest.entity_id,
             event_type="SCRIPT_SUPERSEDED",
             tenant_id=tenant_id,
             payload={
                 "project_id": project_id,
                 "episode_ref": episode_ref,
                 "superseded_by": new_entity_id,
-                "from_status": previous_status,
-                "to_status": ScriptStatus.SUPERSEDED.value,
-                "tenant_id": str(tenant_id),
             },
+            resource_type="ScriptRevision",
+            # 新版本导入使旧版本 SUPERSEDED（state_machines.yaml#ScriptRevision 的 note）：
+            # 拥有这条边的是 SCRIPT.IMPORT，而不是某个"取代"动作（契约里不存在该动作）。
+            owner_action="SCRIPT.IMPORT",
+            conflict_detail="剧本版本取代并发冲突",
+            actor=actor,
+            on_conflict="skip",
         )
+        if not advanced:
+            return
 
     async def get_script(self, entity_id: str) -> ScriptRevision:
         """查询剧本版本，不存在抛 NOT_FOUND。"""

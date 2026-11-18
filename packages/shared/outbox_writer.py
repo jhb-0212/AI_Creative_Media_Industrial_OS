@@ -20,6 +20,11 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.shared.outbox import OutboxEventModel
+from packages.shared.status_transition import (
+    StatusTransitionModel,
+    TransitionEvent,
+    TransitionFact,
+)
 
 
 class OutboxWriter(ABC):
@@ -41,6 +46,19 @@ class OutboxWriter(ABC):
         payload: dict[str, Any],
     ) -> uuid.UUID:
         """登记一条不可变审计事件（不 commit），返回事件 id。"""
+        raise NotImplementedError
+
+    @abstractmethod
+    def record_transition(
+        self, *, fact: TransitionFact, event: TransitionEvent
+    ) -> uuid.UUID:
+        """把「迁移事实 + 事件」作为一对互指记录写入（同一事务，不 commit）。
+
+        为什么合成一个方法而不是两个调用：两者缺一即为非法状态——事实的
+        ``event_id`` 非空、事件 payload 存 ``transition_id``。拆成两个方法就等于
+        允许「只写一条」，而「只写一条」恰恰是这张表要消除的失败形态。
+        归档 outbox 分区不影响事实可查，事件也不再被要求承担历史职责。
+        """
         raise NotImplementedError
 
 
@@ -67,6 +85,41 @@ class SqlAlchemyOutboxWriter(OutboxWriter):
             event_type=event_type,
             payload=payload,
         )
+
+    def record_transition(
+        self, *, fact: TransitionFact, event: TransitionEvent
+    ) -> uuid.UUID:
+        """写入互指的一对记录：事件（含 transition_id）+ 事实（含 event_id）。
+
+        事件先写以拿到 ``event_id``（迁移侧的提交时校验要求它真实存在），
+        事实随后写入并持有该 id。两条记录都在调用方的工作单元里，一起提交或回滚。
+        """
+        event_id = self.record(
+            aggregate_type=event.aggregate_type,
+            aggregate_id=event.aggregate_id,
+            tenant_id=event.tenant_id,
+            event_type=event.event_type,
+            payload={**event.payload, "transition_id": str(fact.transition_id)},
+        )
+        self._session.add(
+            StatusTransitionModel(
+                transition_id=fact.transition_id,
+                tenant_id=fact.tenant_id,
+                organization_id=fact.organization_id,
+                resource_type=fact.resource_type,
+                resource_id=fact.resource_id,
+                entity_version=fact.entity_version,
+                from_status=fact.from_status,
+                to_status=fact.to_status,
+                owner_action=fact.owner_action,
+                actor_subject=fact.actor_subject,
+                authority_ref=fact.authority_ref,
+                evidence_refs=list(fact.evidence_refs),
+                occurred_at=fact.occurred_at,
+                event_id=event_id,
+            )
+        )
+        return event_id
 
 
 

@@ -69,27 +69,31 @@ class ScriptRevision(Entity):
                     detail=f"{name} 长度超过上限 {max_len}",
                 )
 
-    def request_lock(self, requested_by: str) -> ScriptRevision:
+    def request_lock(self, requested_by: str, audit_ref: str) -> ScriptRevision:
         """提交锁定申请（DRAFT→LOCK_PENDING），登记申请人真实主体。
 
         职责分离（红线）的前半：申请人 = 调用本动作的主体，写入 requested_by，
         供批准动作做「批准人 != 申请人」的运行时比对。
+
+        状态改经 ``transition_to``（而不是 ``self.status = ...``）：本聚合只允许
+        一条改状态的路径，否则审计事实行会在这条转移上静默缺失——而「谁申请锁定」
+        恰恰是最需要留痕的一条（ADR-R23 §D2-b）。
         """
-        assert_transition_script(self.status, ScriptStatus.LOCK_PENDING)
+        self.transition_to(ScriptStatus.LOCK_PENDING, audit_ref)
         self.requested_by = requested_by
-        self.status = ScriptStatus.LOCK_PENDING
-        self._advance_version(f"lock_requested_by:{requested_by}")
         return self
 
-    def approve_lock(self, approved_by: str) -> ScriptRevision:
+    def approve_lock(self, approved_by: str, audit_ref: str) -> ScriptRevision:
         """批准锁定（LOCK_PENDING→LOCKED），登记批准人真实主体。
 
-        职责分离（红线）的后半：批准人 = 调用本动作的主体。此处只登记批准人，
-        真正的「批准人 != 申请人」比对由服务层在调用前完成（需查询 requested_by）。
+        职责分离（红线）的后半：``approved_by`` 与申请人（``requested_by``）的
+        比对由服务层在调用前完成（需要读库里的申请人）。
+
+        批准人**不落实体字段**（本聚合没有 approved_by 列），而是落在两处第一类
+        事实里：`SCRIPT_LOCK_APPROVED` 事件的 payload 与状态迁移事实的
+        ``actor_subject``。此处只负责状态与版本号推进。
         """
-        assert_transition_script(self.status, ScriptStatus.LOCKED)
-        self.status = ScriptStatus.LOCKED
-        self._advance_version(f"lock_approved_by:{approved_by}")
+        self.transition_to(ScriptStatus.LOCKED, audit_ref)
         return self
 
     def transition_to(self, target: ScriptStatus, audit_ref: str) -> ScriptRevision:

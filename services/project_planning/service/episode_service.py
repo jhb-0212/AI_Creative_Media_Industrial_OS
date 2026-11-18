@@ -23,9 +23,9 @@ from packages.shared.outbox_writer import OutboxWriter
 from packages.shared.port_errors import DuplicateEntityError, ReferentialIntegrityError
 from services.project_planning.domain.enums import EpisodeStatus
 from services.project_planning.domain.episode import Episode
-from services.project_planning.repository._versioning import ConcurrentModificationError
 from services.project_planning.repository.episode_repo import EpisodeRepository
 from services.project_planning.repository.project_repo import ProjectRepository
+from services.project_planning.service.transition import advance_status
 
 
 class EpisodeService:
@@ -183,34 +183,24 @@ class EpisodeService:
         if episode is None:
             raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"集数不存在: {entity_id}")
 
-        # 固化旧状态再迁移，避免 from_status 记成目标态。
-        previous_status = episode.status
-        expected_version = episode.entity_version
-        episode.transition_to(
-            target_status, audit_ref=f"status_change:{changed_by}"
-        )
-        try:
-            await self._repository.save(episode, expected_version)
-        except ConcurrentModificationError as exc:
-            raise DomainError(
-                ErrorRegistry.CONCURRENT_MODIFICATION,
-                detail="集数状态并发冲突，请基于最新状态重试",
-            ) from exc
-
-        # 与状态变更同事务写 EPISODE_STATUS_CHANGED（R07：状态可追溯）。
-        self._outbox_writer.record(
+        # 唯一推进路径（ADR-R23 §D2-b），与项目/剧本共用同一序列。
+        await advance_status(
+            episode,
+            target_status,
+            repository=self._repository,
+            outbox_writer=self._outbox_writer,
             aggregate_type="Episode",
-            aggregate_id=episode.entity_id,
             event_type="EPISODE_STATUS_CHANGED",
             tenant_id=tenant_id,
             payload={
                 "episode_id": episode.entity_id,
                 "project_id": episode.project_id,
-                "from_status": previous_status.value,
-                "to_status": target_status.value,
-                "changed_by": changed_by,
-                "tenant_id": str(tenant_id),
             },
+            resource_type="Episode",
+            owner_action="EPISODE.STATUS.CHANGE",
+            conflict_detail="集数状态并发冲突，请基于最新状态重试",
+            actor_field="changed_by",
+            actor=changed_by,
         )
         return episode
 

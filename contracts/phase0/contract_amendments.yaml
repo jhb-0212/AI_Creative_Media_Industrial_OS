@@ -501,5 +501,41 @@ amendments:
       - '补齐的 13 条边只达契约层；相关对象均无运行时状态机（PENDING_PHASE1_REVIEW 或纯契约态），边目前不可执行，待各自运行时落地时按此转移表实现'
       - '本轮两轮正则审计（note + other_definitions.states_text + conflict_rulings）覆盖全部 43 个对象，误报两类已人工排除：QCReviewSession 的 RESOLVED→CLOSED 是 ruling 明令禁止的跳关边、TimelineDraft 的 DRAFT→DRAFT 是正则跨字段错配；除 PrevizVersion（已有 transitions_gap 债务）外无真实遗漏。中文措辞授权（如「发布后可」）正则不覆盖，已逐条人工核对 26.3/31.5/33.3/34.8/8.6 正文'
 
+  - id: 'V205-R14-A12'
+    title: '状态迁移事实对象契约——StatusTransition（审批可追溯的第一类事实）'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: 'docs/audits/2026-11-18-full-repo-baseline-and-root-cause-audit.md §7 N-02；docs/adr/ADR-R23-status-transition-fact-table.md'
+    reason: >-
+      审批与状态迁移此前只有两处落点：每次迁移被覆盖的实体 audit_ref，与按保留期
+      DETACH 的 outbox 分区。于是审计事实的生命周期由**传输机制**的保留策略决定，
+      「谁在什么证据下批准了什么」在保留期之后不可查询，AUTH-5 累积式会签因此不是
+      排期问题而是模型里没有落点（结构性缺口）。本修订补上这个事实对象：
+      append-only、不设保留期，并与状态变更同事务写入；event_id 互指使 outbox
+      降级为「通知下游」，不再被要求承担历史职责。
+      对象不含生命周期状态字段（from_status/to_status 是事实属性，不是当前态），
+      故不配状态机——本修订 schema_objects +1、state_machines 不变。
+    adr: 'docs/adr/ADR-R23-status-transition-fact-table.md'
+    approved_by: '项目所有者（会话内「按你的节奏来」授权 D1 合并后开 D2）'
+    approved_at: '2026-11-18'
+    source_commits: []
+    additions:
+      schema_objects:
+        - object: 'StatusTransition'
+          why: >-
+            一次状态推进的事实记录。唯一约束绑 (tenant_id, resource_type, resource_id,
+            entity_version)，把乐观锁抬成结构约束；只存 evidence_refs 不存快照；
+            CHECK(from_status <> to_status) 使「用 no-op 行冒充会签」结构上不可表达
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 84
+      state_machines: 43
+    residual_risks:
+      - '不回填历史：迁移前发生的推进没有事实行，遗留 audit_ref 按 ADR-R23 §D2-c 标记 legacy 而非反推 transition；假历史比缺历史更有害'
+      - '组织维度 RLS 待 D3：本对象当前只有租户维度策略；organization_id 只落值、不参与策略，跨组织可见性仍由应用层保证'
+      - '读接口与会签事实未立项：AUDIT.STATUS.HISTORY.READ 与 audit.approval_signatures 属 D2b，需所有者裁定新动作；在此之前会签动作保持 fail-closed'
+      - '既有 append_only 两表（asset_service.qc_reports / asset_versions）的 TRUNCATE 守卫随本批迁移补齐，属同型缺口修复，不单列修订'
+
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []
