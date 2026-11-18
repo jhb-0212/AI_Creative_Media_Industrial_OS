@@ -1533,6 +1533,21 @@ signatures:
     status: string
     title: string
     updated_at: string
+  Scene:
+    audit_ref: string|null
+    created_at: string
+    created_by: string
+    entity_id: string
+    entity_type: string
+    entity_version: integer
+    episode_id: string
+    owner_module: string
+    project_id: string
+    scene_code: string
+    scene_id: string
+    schema_version: integer
+    status: string
+    updated_at: string
   ScriptRevision:
     audit_ref: string|null
     created_at: string

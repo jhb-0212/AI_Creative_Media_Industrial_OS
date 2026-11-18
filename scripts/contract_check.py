@@ -20,6 +20,10 @@
 9. 事件契约（contracts/runtime/event_catalog.yaml ↔ 代码 ↔ action registry）：
    未登记事件报红、陈旧事件报红、emitted_by 漂移报红；已实现非 READ 动作的
    audit_event 必须已登记，否则须在 event_emission_gaps.yaml 显式登记债务。
+10. 对象引用目标（object_schemas 的 x-afs-reference-targets）：声明的字段必须存在、
+    声明的目标必须是已定义对象；悬空引用报红（Scene 曾因此长期缺失而全绿）。
+11. 枚举覆盖（state_machines 对象集 ⊆ enum_registry 对象集）：派生文件与权威源
+    脱钩报红（Project / Episode / ScriptRevision 曾漏登记）。
 
 设计要点（不屎山代码）：
 - 解析逻辑独立成纯函数（parse_state_chain），可单测、无副作用。
@@ -1532,6 +1536,150 @@ def _scan_emitted_events() -> dict[str, set[str]]:
     return emitted
 
 
+# --------------------------------------------------------------------------- #
+# 对象引用目标解析（ADR-R19）
+# --------------------------------------------------------------------------- #
+_REFERENCE_FIELD_RE = re.compile(r"(_id|_ids|_ref|_refs)$")
+
+
+def declared_reference_fields(definitions: dict[str, Any]) -> set[tuple[str, str]]:
+    """返回所有已声明的 ``(对象, 字段)`` 引用对。"""
+    declared: set[tuple[str, str]] = set()
+    for name, spec in definitions.items():
+        if not isinstance(spec, dict):
+            continue
+        targets = spec.get("x-afs-reference-targets")
+        if isinstance(targets, dict):
+            declared.update((name, field) for field in targets)
+    return declared
+
+
+def reference_target_problems(definitions: dict[str, Any]) -> list[str]:
+    """校验 ``x-afs-reference-targets`` 声明的对象引用是否可解析。
+
+    为什么需要：Scene 曾长期没有 schema，而 ``Shot.scene_id`` /
+    ``ShotRevision.scene_id`` 一直指向它——所有闸门全绿。根因是既有校验只看
+    ``action_registry.resource_type`` 引用了哪些类型，**字段级的「对象指向对象」
+    从来没有闸门去看**，悬空引用只能靠人肉比对发现。
+
+    把引用意图显式声明成 ``x-afs-reference-targets``（字段 → 目标对象）后，本函数
+    逐条解析，三条规则：
+    1. 声明的字段必须真的在该对象 properties 里（防声明腐化）；
+    2. 声明的目标必须是已定义对象（悬空引用直接报红）；
+    3. 目标缺失时正确处置是补 schema 或登记缺口台账，**不是删声明**——删声明只会让
+       悬空引用重新变隐形。
+
+    覆盖边界（输出里显式打印，避免假全覆盖）：本函数只保证「已声明的引用不悬空」，
+    不保证「所有引用都已声明」。引用类字段当前共 475 个，其中大量是 ``entity_id`` /
+    ``audit_ref`` 这类非对象引用；按命名自动推导会产出 393 条误报，因此只对场次域与
+    镜头域显式声明，其余作为已知覆盖缺口写在 ADR-R19。
+    """
+    problems: list[str] = []
+    for name, spec in definitions.items():
+        if not isinstance(spec, dict):
+            continue
+        targets = spec.get("x-afs-reference-targets")
+        if targets is None:
+            continue
+        if not isinstance(targets, dict) or not targets:
+            problems.append(
+                f"{name}.x-afs-reference-targets 必须是非空「字段 → 对象」映射"
+            )
+            continue
+        properties = spec.get("properties") or {}
+        for field, target in targets.items():
+            if field not in properties:
+                problems.append(
+                    f"{name}.x-afs-reference-targets 声明了不存在字段: {field}"
+                )
+            if not isinstance(target, str) or not target.strip():
+                problems.append(f"{name}.{field} 的引用目标必须是非空字符串")
+                continue
+            if target not in definitions:
+                problems.append(
+                    f"{name}.{field} 指向未定义对象 {target}：悬空引用"
+                    "（补 schema 或登记缺口台账，不得删声明了事）"
+                )
+    return problems
+
+
+def check_reference_targets() -> bool:
+    """对象引用必须指向已定义对象，悬空引用不得靠删声明变绿。"""
+    data = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    definitions = data.get("definitions", data.get("$defs", {}))
+    problems = reference_target_problems(definitions)
+    for problem in problems:
+        print(f"[FAIL] {problem}")
+    if problems:
+        return False
+
+    declared = declared_reference_fields(definitions)
+    uncovered = sum(
+        1
+        for name, spec in definitions.items()
+        if isinstance(spec, dict)
+        for field in (spec.get("properties") or {})
+        if _REFERENCE_FIELD_RE.search(field) and (name, field) not in declared
+    )
+    print(
+        f"[PASS] 引用目标可解析：{len(declared)} 条声明全部命中已定义对象"
+        f"（覆盖 {len({n for n, _ in declared})} 个对象）；"
+        f"未声明的引用类字段 {uncovered} 个（覆盖边界见 ADR-R19）"
+    )
+    return True
+
+
+def enum_registry_coverage_problems(
+    state_machine_objects: Any, enum_objects: Any
+) -> list[str]:
+    """比对状态机对象集与枚举注册表对象集，返回缺失项。
+
+    只比对**对象名集合**，不比状态集：枚举注册表刻意允许收录转移链尚未覆盖的旁支状态
+    （如 AssetVersion 的 QUARANTINED、Task 的 WAITING_FOR_PROVIDER），强行要求状态集
+    相等会把合法设计判死。
+    """
+    sm_names = {
+        str(item.get("object"))
+        for item in state_machine_objects
+        if isinstance(item, dict) and item.get("object")
+    }
+    en_names = {
+        str(item.get("object"))
+        for item in enum_objects
+        if isinstance(item, dict) and item.get("object")
+    }
+    return [
+        f"状态机登记了 {name}，但枚举注册表没有对应状态集（派生文件已与权威源脱钩）"
+        for name in sorted(sm_names - en_names)
+    ]
+
+
+def check_enum_registry_coverage() -> bool:
+    """状态机登记的对象必须全部在枚举注册表中有状态集。
+
+    为什么需要：enum_registry 自称「由 state_machines 派生」，但 Project / Episode /
+    ScriptRevision 三个对象有状态机却从未登记（实测 41 vs 38），而没有任何闸门比对两个
+    文件的对象集——派生文件与权威源脱钩也不会报红。ADR-R19 补齐三条并新增本闸门，
+    防止下一次「加了状态机、忘了登记」再次静默发生。
+    """
+    sm_path = CONTRACTS / "state_machines" / "state_machines.yaml"
+    en_path = CONTRACTS / "enums" / "enum_registry.yaml"
+    sm_data = load_yaml_mapping(sm_path)
+    en_data = load_yaml_mapping(en_path)
+    problems = enum_registry_coverage_problems(
+        sm_data.get("objects") or [], en_data.get("objects") or []
+    )
+    for problem in problems:
+        print(f"[FAIL] {problem}")
+    if problems:
+        return False
+    print(
+        f"[PASS] 枚举覆盖：{len(en_data.get('objects') or [])} 个对象的状态集"
+        "全部覆盖状态机登记的对象"
+    )
+    return True
+
+
 def check_event_catalog() -> bool:
     """双向校验事件契约：代码不得私发事件，台账不得说谎，缺口不得隐形。"""
     if not EVENT_CATALOG_PATH.exists():
@@ -2113,6 +2261,8 @@ def main() -> int:
         ok &= check_permission_matrix()
         ok &= check_schema_objects()
         ok &= check_schema_field_evolution()
+        ok &= check_reference_targets()
+        ok &= check_enum_registry_coverage()
         ok &= check_event_catalog()
         ok &= check_security_boundary()
         ok &= check_proposal_status()
