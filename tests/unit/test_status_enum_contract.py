@@ -263,6 +263,10 @@ def test_authoritative_post_publish_edges_are_registered() -> None:
         "TimelineDraft": {("DRAFT", "STALE"), ("DRAFT", "ARCHIVED")},
         # 8.6「READY/QUEUED 允许取消」
         "Task": {("READY", "CANCEL_REQUESTED"), ("QUEUED", "CANCEL_REQUESTED")},
+        # 26.3 / 31.5「RIGHTS_CHECK → APPROVED / REJECTED」
+        "ReuseRequest": {("RIGHTS_CHECK", "REJECTED")},
+        # C.3 states_text + conflict_ruling「DRAFT→REVIEW→APPROVED/REJECTED」
+        "ShotVisualPlan": {("REVIEW", "REJECTED")},
     }
     for obj_name, expected in required.items():
         missing = expected - edges.get(obj_name, set())
@@ -595,6 +599,26 @@ def test_field_authority_rejects_unknown_field(tmp_path: Path) -> None:
     tmp.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
     problems = cc.field_authority_problems(tmp, _definitions())
     assert any("ghost_status" in p for p in problems), problems
+
+
+def test_status_split_without_authority_ruling_is_reported(tmp_path: Path) -> None:
+    """每个 status_split 对象都必须有权威裁定——漏登记不能让闸门全绿（PR #14 评审）。
+
+    当前数据恰好全覆盖，所以只删掉文件里的一条来模拟「新增 status_split 对象但忘了裁定」，
+    验证完备性校验真的会发现缺口，而不是等下一个对象悄悄带病进来。
+    """
+    data = yaml.safe_load(
+        (ROOT / "contracts" / "enums" / "field_authority.yaml").read_text(encoding="utf-8")
+    )
+    removed = data["objects"].pop(0)  # ExternalToolAdapterManifest，属 status_split
+    tmp = tmp_path / "field_authority.yaml"
+    tmp.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    problems = cc.field_authority_problems(
+        tmp, _definitions(), required_split={removed["object"]}
+    )
+    assert any(removed["object"] in p and "没有 field_authority" in p for p in problems), (
+        problems
+    )
 
 
 def test_previz_version_status_is_the_authoritative_lifecycle() -> None:

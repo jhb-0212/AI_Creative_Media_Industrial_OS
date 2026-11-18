@@ -2002,9 +2002,27 @@ def schema_gap_problems(
 
 
 def field_authority_problems(
-    path: Path, definitions: dict[str, Any]
+    path: Path,
+    definitions: dict[str, Any],
+    required_split: set[str] | None = None,
 ) -> list[str]:
-    """双 status 对象的权威写入位置必须唯一、字段必须真实存在且论证完整。"""
+    """双 status 对象的权威写入位置必须唯一、字段必须真实存在且论证完整。
+
+    ``required_split`` 是台账里所有 ``basis: status_split`` 的对象。每个这样的对象
+    都必须在本文件里有裁定条目——只校验「已登记的条目合法」不够：新增一个
+    status_split 对象却忘了裁定权威字段时，旧逻辑全绿，「两个事实源」重新隐形
+    （PR #14 评审）。默认从 taxonomy 文件读取，测试可显式传入注入缺口。
+
+    反向不要求相等：``same_fact_on_status`` 类条目（如 PrevizVersion 归位 lifecycle
+    后的裁定）保留在此，证明「某字段不是第二套生命周期」，属合法的历史裁定。
+    """
+    if required_split is None:
+        taxonomy = load_yaml_mapping(STATUS_TAXONOMY_PATH)
+        required_split = {
+            str(e.get("object", "")).strip()
+            for e in taxonomy.get("objects") or []
+            if isinstance(e, dict) and str(e.get("basis", "")).strip() == "status_split"
+        }
     data = load_yaml_mapping(path)
     problems: list[str] = []
     seen: set[str] = set()
@@ -2043,6 +2061,12 @@ def field_authority_problems(
         for key in ("ruling", "reason", "unblocks_when", "source_section"):
             if not str(entry.get(key, "")).strip():
                 problems.append(f"field_authority.{name} 缺 {key}（裁定不能只下结论）")
+    # 完备性：每个 status_split 对象必须有权威裁定，不能靠「没登记」逃逸。
+    for name in sorted(required_split - seen):
+        problems.append(
+            f"{name} 在 status_field_taxonomy 标为 status_split，却没有 field_authority 裁定"
+            "——两个 status 事实必须指出哪个权威，不能让缺口隐形"
+        )
     return problems
 
 
@@ -2177,7 +2201,15 @@ def check_status_enum_consistency() -> bool:
     )
     problems += enum_registry_problems(registry.get("objects"), sm_states)
     problems += schema_enum_problems(definitions, sm_states, classes, layers)
-    problems += field_authority_problems(FIELD_AUTHORITY_PATH, definitions)
+    problems += field_authority_problems(
+        FIELD_AUTHORITY_PATH,
+        definitions,
+        {
+            str(e.get("object", "")).strip()
+            for e in taxonomy.get("objects") or []
+            if isinstance(e, dict) and str(e.get("basis", "")).strip() == "status_split"
+        },
+    )
     problems += alias_layer_problems(layers, sm_states)
     problems += schema_gap_problems(
         taxonomy.get("schema_gaps"),

@@ -203,9 +203,11 @@ Domain Enum 同步到全量状态集。其余 38 个对象没有 ORM、没有表
 | CreatorRelease | PUBLISHED → UNLISTED / TAKEN_DOWN / REVOKED / ARCHIVED（4） | 34.8「发布后可 UNLISTED / TAKEN_DOWN / REVOKED / ARCHIVED」 |
 | TimelineDraft | DRAFT → STALE / ARCHIVED（2） | 33.3「旧版本 → SUPERSEDED/STALE/ARCHIVED」，note 已解释旧版本含 DRAFT |
 | Task | READY / QUEUED → CANCEL_REQUESTED（2） | 8.6「READY/QUEUED 允许取消」 |
+| ReuseRequest | RIGHTS_CHECK → REJECTED（1） | 26.3 / 31.5「RIGHTS_CHECK → APPROVED / REJECTED」 |
+| ShotVisualPlan | REVIEW → REJECTED（1） | C.3 `states_text` 与 conflict_ruling「DRAFT→REVIEW→APPROVED/REJECTED」 |
 
-这不是新增契约，是恢复迁移时丢失的正文语义。补边后新增一条测试逐条锁定这 11 条边，
-防止未来误删仍能全绿。
+后两条是推送后审查器第二轮发现、同样比对正文确认的漏抄。合计 13 条边——全部是恢复迁移时
+丢失的正文语义，不是新增契约。补边后新增一条测试逐条锁定这 13 条边，防止未来误删仍能全绿。
 
 `ReworkTask` 例外：7.6 只给 status 枚举、未画转移图，`VERIFYING→IN_PROGRESS` 与进入
 `REJECTED` 的边无正文依据，按「不猜契约」不推定，改以 `transitions_gap` 登记显式债务
@@ -214,6 +216,11 @@ Domain Enum 同步到全量状态集。其余 38 个对象没有 ORM、没有表
 同时把 `status_field_taxonomy` 的 `basis` 校验从「非空」升级为「必须属于 `basis_kinds`
 封闭枚举」：拼错类别（如 `immutabel_record`）此前会静默通过，台账自称的封闭枚举形同虚设。
 补两个负向测试（非法值报红 / 合法值放行）。
+
+`field_authority` 闸门同样补上完备性：原逻辑只校验「已登记的裁定是否合法」，若新增一个
+`status_split` 对象却忘了登记权威裁定，闸门全绿，ADR-R21 刚消除的「两个事实源」会重新隐形。
+现要求台账里每个 `basis: status_split` 对象都有一条 `field_authority` 裁定（反向不要求相等，
+`same_fact_on_status` 类历史裁定如 PrevizVersion 合法保留）。补负向测试验证缺口会被发现。
 
 **根因与防治**：这次缺陷不是「谁漏抄了一条边」，而是 v2 迁移缺少一条
 「note/正文声明的转移语义 vs transitions 转移表」的一致性校验。补边只能修复当下这批，

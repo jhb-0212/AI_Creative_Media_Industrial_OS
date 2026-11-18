@@ -478,6 +478,12 @@ amendments:
       ReworkTask 的 VERIFYING→IN_PROGRESS 与进入 REJECTED 的边：7.6 正文只给 status
       枚举、未画转移图，不能凭评审措辞推定授权，故按「不猜契约」登记 transitions_gap
       显式债务（含 unblocks_when），待所有者补登边的 owner_action 与前置条件后再写入 transitions。
+      推送后审查器第二轮又指出三处同类问题，逐条比对正文确认后一并修复：26.3/31.5
+      「RIGHTS_CHECK → APPROVED / REJECTED」明示的 ReuseRequest→REJECTED 边、
+      C.3 states_text 与 conflict_ruling 明示的 ShotVisualPlan REVIEW→REJECTED 边（两条漏抄），
+      以及 field_authority 闸门只校验已登记条目、不校验全部 status_split 对象都有裁定的
+      预防性漏洞——现已加双向完备性校验：台账里每个 basis=status_split 对象必须有一条
+      field_authority 裁定，防「两个事实源」再次隐形。第二轮的两条边同样进回归测试锁定。
     adr: 'docs/adr/ADR-R20-status-enum-single-source.md'
     approved_by: '项目所有者（会话内裁定「修复后合并」：修复已证实缺陷、待正文的登记显式债务，再合并 PR #14）'
     approved_at: '2026-11-18'
@@ -492,8 +498,8 @@ amendments:
     residual_risks:
       - '本修订无名称级增删，只改已有状态机的转移边、ReworkTask 的 transitions_gap 债务字段与闸门校验逻辑；冻结闸门按内容哈希判定状态机变更，须随本修订重签清单'
       - 'ReworkTask 的 REJECTED 仍是「合法但无授权入口」的旁支状态，VERIFYING→IN_PROGRESS 回流边未登记，按 31.5 一律拒绝，销项条件写在 transitions_gap.unblocks_when'
-      - '补齐的 11 条边只达契约层；CommunityPost / CreatorRelease / TimelineDraft / Task 均无运行时状态机（PENDING_PHASE1_REVIEW 或纯契约态），边目前不可执行，待各自运行时落地时按此转移表实现'
-      - '本轮以「note 声明 vs transitions」正则审计全部 43 个对象，除 PrevizVersion（已有 transitions_gap 债务）外无其它遗漏；中文措辞授权（如「发布后可」）正则不覆盖，已逐条人工核对 31.5/33.3/34.8/8.6/7.6 正文'
+      - '补齐的 13 条边只达契约层；相关对象均无运行时状态机（PENDING_PHASE1_REVIEW 或纯契约态），边目前不可执行，待各自运行时落地时按此转移表实现'
+      - '本轮两轮正则审计（note + other_definitions.states_text + conflict_rulings）覆盖全部 43 个对象，误报两类已人工排除：QCReviewSession 的 RESOLVED→CLOSED 是 ruling 明令禁止的跳关边、TimelineDraft 的 DRAFT→DRAFT 是正则跨字段错配；除 PrevizVersion（已有 transitions_gap 债务）外无真实遗漏。中文措辞授权（如「发布后可」）正则不覆盖，已逐条人工核对 26.3/31.5/33.3/34.8/8.6 正文'
 
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

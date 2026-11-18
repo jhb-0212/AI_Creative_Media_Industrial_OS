@@ -464,7 +464,11 @@ objects:
   - {from: EXECUTING, to: CREATED}
   - {from: REQUESTED, to: ELIGIBILITY_CHECK}
   - {from: RIGHTS_CHECK, to: APPROVED}
-  note: 审批后进入 EXECUTING；仅完成目标项目/镜头新对象创建并完成权利/Canon/预算/质量校验后进入 CREATED；失败、重试和补偿必须留痕。
+  - {from: RIGHTS_CHECK, to: REJECTED}
+  note: >-
+    审批后进入 EXECUTING；仅完成目标项目/镜头新对象创建并完成权利/Canon/预算/质量校验后进入 CREATED；失败、重试和补偿必须留痕。
+    26.3 / 31.5 正文「RIGHTS_CHECK → APPROVED / REJECTED」明确授权权利校验驳回边，v2 结构化迁移漏抄，本轮补齐。
+    REJECTED 为驳回终态；FAILED / ROLLED_BACK 是执行期异常终态，正文未逐边授权其入口，按 31.5 未登记转移一律拒绝。
   all_sources:
   - 24.11 社区状态机、分享链接与复用状态机
   - 31.5 社区对象状态机最终定义
@@ -527,7 +531,11 @@ objects:
   transitions:
   - {from: DRAFT, to: REVIEW}
   - {from: REVIEW, to: APPROVED}
-  note: 锁定字段单独记录锁定人/时间/理由/版本；变更创建新 revision，并评估 ShotSpec/ConstraintPack 影响
+  - {from: REVIEW, to: REJECTED}
+  note: >-
+    锁定字段单独记录锁定人/时间/理由/版本；变更创建新 revision，并评估 ShotSpec/ConstraintPack 影响。
+    other_definitions.states_text（C.3）与 conflict_rulings 均写明 C.3 链含 REVIEW → REJECTED，
+    v2 结构化迁移只抄了 REVIEW→APPROVED、漏抄驳回边，本轮补齐；REJECTED 为评审驳回终态。
   conflict: true
   conflict_kind: state_set_diff
   other_definitions:
