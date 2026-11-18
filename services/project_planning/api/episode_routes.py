@@ -20,10 +20,11 @@ from packages.shared.contract_models import contract_model
 from packages.shared.unit_of_work import UnitOfWork
 from services.identity_access.deps import (
     Principal,
-    get_read_tenant_uow,
-    get_tenant_uow,
+    get_project_tenant_uow,
+    get_read_project_tenant_uow,
     require_role,
 )
+from services.project_planning.domain.enums import EpisodeStatus
 from services.project_planning.repository.episode_sqlalchemy_repo import (
     SqlAlchemyEpisodeRepository,
 )
@@ -50,6 +51,15 @@ class CreateEpisodeRequest(BaseModel):
     entity_id: str | None = None
 
 
+class ChangeEpisodeStatusRequest(BaseModel):
+    """集数状态变更请求体（EPISODE.STATUS.CHANGE）。
+
+    目标状态作参数；转移合法性由领域状态机在运行时校验。
+    """
+
+    target_status: EpisodeStatus = Field(..., description="目标状态")
+
+
 def _build_service(session: AsyncSession) -> EpisodeService:
     """服务装配：RLS 会话 + episode/project 仓储端口 + Outbox 写入端口。"""
     episode_repository = SqlAlchemyEpisodeRepository(session)
@@ -61,12 +71,12 @@ def _build_service(session: AsyncSession) -> EpisodeService:
     )
 
 
-def _get_service(uow: UnitOfWork = Depends(get_tenant_uow)) -> EpisodeService:
+def _get_service(uow: UnitOfWork = Depends(get_project_tenant_uow)) -> EpisodeService:
     """写用例服务装配（提交点由路由显式控制）。"""
     return _build_service(uow.session)
 
 
-def _get_read_service(uow: UnitOfWork = Depends(get_read_tenant_uow)) -> EpisodeService:
+def _get_read_service(uow: UnitOfWork = Depends(get_read_project_tenant_uow)) -> EpisodeService:
     """只读用例服务装配（只读事务，数据库层拒绝写入）。"""
     return _build_service(uow.session)
 
@@ -75,7 +85,7 @@ def _get_read_service(uow: UnitOfWork = Depends(get_read_tenant_uow)) -> Episode
 async def create_episode(
     body: CreateEpisodeRequest,
     principal: Principal = Depends(require_role("EPISODE.CREATE")),
-    uow: UnitOfWork = Depends(get_tenant_uow),
+    uow: UnitOfWork = Depends(get_project_tenant_uow),
     service: EpisodeService = Depends(_get_service),
 ) -> dict[str, Any]:
     """登记集数（幂等，归属 Project）。created_by / tenant_id 来自 Principal。"""
@@ -99,4 +109,27 @@ async def get_episode(
 ) -> dict[str, Any]:
     """按 id 查询集数（需 EPISODE.READ 授权；租户边界由 RLS 保证）。"""
     episode = await service.get_episode(entity_id)
+    return episode.to_dict()
+
+
+@router.post("/{entity_id}/status", response_model=_EpisodeResponse)
+async def change_episode_status(
+    entity_id: str,
+    body: ChangeEpisodeStatusRequest,
+    principal: Principal = Depends(require_role("EPISODE.STATUS.CHANGE")),
+    uow: UnitOfWork = Depends(get_project_tenant_uow),
+    service: EpisodeService = Depends(_get_service),
+) -> dict[str, Any]:
+    """推进集数状态（EPISODE.STATUS.CHANGE）。
+
+    changed_by = 当前 Principal（调用者本人），tenant_id 来自可信身份；
+    目标状态合法性由领域状态机校验，终态不可原地复活。
+    """
+    episode = await service.change_status(
+        entity_id=entity_id,
+        target_status=body.target_status,
+        changed_by=principal.subject_id,
+        tenant_id=principal.tenant_id,
+    )
+    await uow.commit()
     return episode.to_dict()

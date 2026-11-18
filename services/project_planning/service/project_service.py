@@ -19,8 +19,9 @@ from sqlalchemy.exc import IntegrityError
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.outbox_writer import OutboxWriter
-from services.project_planning.domain.enums import ProjectTier
+from services.project_planning.domain.enums import ProjectStatus, ProjectTier
 from services.project_planning.domain.project import Project
+from services.project_planning.repository._versioning import ConcurrentModificationError
 from services.project_planning.repository.project_repo import ProjectRepository
 
 
@@ -41,6 +42,7 @@ class ProjectService:
         created_by: str,
         tenant_id: UUID,
         entity_id: str | None = None,
+        organization_id: UUID | None = None,
     ) -> Project:
         """创建项目（幂等：重复 entity_id 返回既有项目）。
 
@@ -49,6 +51,8 @@ class ProjectService:
         - project_name、created_by 非空。
         - tenant_id 来自可信身份上下文（Principal），标识项目所属租户，
           是 RLS 行级隔离键（决策 5）。
+        - organization_id 可选（F04）：非空时项目归属指定组织；空=个人租户。
+          组织归属的真实性由数据库外键 fk_projects_organization 兜底。
         """
         project_name = project_name.strip()
         created_by = created_by.strip()
@@ -68,7 +72,9 @@ class ProjectService:
         if entity_id is not None:
             existing = await self._repository.get_by_id(entity_id)
             if existing is not None:
-                _assert_same_request(existing, project_name, project_tier)
+                _assert_same_request(
+                    existing, project_name, project_tier, organization_id
+                )
                 return existing
 
         project = Project(
@@ -77,6 +83,7 @@ class ProjectService:
             project_tier=project_tier,
             created_by=created_by,
             tenant_id=tenant_id,
+            organization_id=organization_id,
         )
 
         # 用 INSERT 语义新增；并发下唯一约束兜底 check-then-act 竞态：
@@ -91,7 +98,9 @@ class ProjectService:
                 ) from exc
             existing = await self._repository.get_by_id(entity_id)
             if existing is not None:
-                _assert_same_request(existing, project_name, project_tier)
+                _assert_same_request(
+                    existing, project_name, project_tier, organization_id
+                )
                 return existing
             raise DomainError(
                 ErrorRegistry.INTERNAL_ERROR, detail="项目写入冲突"
@@ -126,16 +135,92 @@ class ProjectService:
             )
         return project
 
+    async def change_status(
+        self,
+        *,
+        entity_id: str,
+        target_status: ProjectStatus,
+        changed_by: str,
+        tenant_id: UUID,
+    ) -> Project:
+        """推进项目状态（PROJECT.STATUS.CHANGE）。
+
+        契约要求：
+        - 目标状态作参数，转移合法性由 domain/state_machine.py 的单一权威
+          转移表校验（未登记转移一律拒绝，31.5）。
+        - 终态 ARCHIVED 不可原地复活（红线）。
+        - 乐观锁：读取时捕获 entity_version，条件更新；并发冲突抛
+          ConcurrentModificationError。
+        - 状态变更与 PROJECT_STATUS_CHANGED 事件同事务写入（R07/P2-1）。
+        """
+        changed_by = changed_by.strip()
+        if not changed_by:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR, detail="changed_by 不能为空"
+            )
+
+        project = await self._repository.get_by_id(entity_id)
+        if project is None:
+            raise DomainError(
+                ErrorRegistry.NOT_FOUND, detail=f"项目不存在: {entity_id}"
+            )
+
+        # 固化旧状态再迁移：迁移后 project.status 已是目标态，若再用它记
+        # from_status 会丢真实来源态。
+        previous_status = project.status
+        expected_version = project.entity_version
+        project.transition_to(
+            target_status, audit_ref=f"status_change:{changed_by}"
+        )
+        try:
+            await self._repository.save(project, expected_version)
+        except ConcurrentModificationError as exc:
+            raise DomainError(
+                ErrorRegistry.CONCURRENT_MODIFICATION,
+                detail="项目状态并发冲突，请基于最新状态重试",
+            ) from exc
+
+        # 与状态变更同事务写 PROJECT_STATUS_CHANGED（R07：状态可追溯）。
+        self._outbox_writer.record(
+            aggregate_type="Project",
+            aggregate_id=project.entity_id,
+            event_type="PROJECT_STATUS_CHANGED",
+            tenant_id=tenant_id,
+            payload={
+                "project_id": project.entity_id,
+                "from_status": previous_status.value,
+                "to_status": target_status.value,
+                "changed_by": changed_by,
+                "tenant_id": str(tenant_id),
+            },
+        )
+        return project
+
 
 def _assert_same_request(
-    existing: Project, project_name: str, project_tier: ProjectTier
+    existing: Project,
+    project_name: str,
+    project_tier: ProjectTier,
+    organization_id: UUID | None,
 ) -> None:
-    """幂等键复用必须是同一请求：内容不一致一律 409。"""
-    if existing.project_name != project_name or existing.project_tier != project_tier:
+    """幂等键复用必须是同一请求：内容不一致一律 409。
+
+    比较字段必须覆盖「决定这条记录归属与语义」的全部输入，而不只是名字与
+    等级。organization_id 是 F04 引入的归属键（非空=组织项目、空=个人租户），
+    同一 entity_id 换一个组织再提交，是**另一个请求**——若不在幂等比较里，
+    会被误判为「重复提交」而静默返回旧记录，调用方以为归属已变更（审查
+    P2-01）。（tenant_id 由 RLS + 主键所在租户固定，不在请求差异面内。）
+    """
+    if (
+        existing.project_name != project_name
+        or existing.project_tier != project_tier
+        or existing.organization_id != organization_id
+    ):
         raise DomainError(
             ErrorRegistry.IDEMPOTENCY_CONFLICT,
             detail=(
                 "同一 entity_id 已存在且内容不同：幂等键不能复用于另一个请求"
-                f"（existing={existing.project_name}/{existing.project_tier.value}）"
+                f"（existing={existing.project_name}/{existing.project_tier.value}"
+                f"/organization_id={existing.organization_id}）"
             ),
         )

@@ -33,12 +33,15 @@ def test_health_returns_ok(client: TestClient) -> None:
 
 
 def test_readyz_reports_database_up(client: TestClient) -> None:
-    """就绪探针必须真实打库：库可用时 200 且显式给出 database=up。"""
+    """就绪探针必须真实打库：库可用时 200 且显式给出双域池 database=up。"""
     resp = client.get("/readyz")
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "ready"
-    assert body["checks"]["database"] == "up"
+    # 连接池按域拆分后就绪必须覆盖两个池（Codex P2）：只探 project 池时，
+    # asset 凭据/角色损坏仍会回报 ready，资产路由流量进来变成 500。
+    assert body["checks"]["project_planning_database"] == "up"
+    assert body["checks"]["asset_service_database"] == "up"
 
 
 def test_readyz_reports_schema_revision(client: TestClient) -> None:
@@ -48,20 +51,34 @@ def test_readyz_reports_schema_revision(client: TestClient) -> None:
     assert body["schema_revision"]
 
 
-def test_readyz_fails_closed_when_database_unavailable(
+def _broken_sessionmaker() -> None:
+    raise RuntimeError("database unreachable")
+
+
+def test_readyz_fails_closed_when_project_pool_unavailable(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """库不可用时必须 503（fail-closed），不能把流量放进来变成 500。"""
-
-    def _broken_sessionmaker() -> None:
-        raise RuntimeError("database unreachable")
-
-    monkeypatch.setattr(app.state, "sessionmaker", _broken_sessionmaker)
+    """project 池不可用必须 503（fail-closed），不能把流量放进来变成 500。"""
+    monkeypatch.setattr(
+        app.state, "project_planning_sessionmaker", _broken_sessionmaker
+    )
     resp = client.get("/readyz")
     assert resp.status_code == 503
     body = resp.json()
     assert body["status"] == "unready"
-    assert body["checks"]["database"] == "down"
+    assert body["checks"]["project_planning_database"] == "down"
+
+
+def test_readyz_fails_closed_when_asset_pool_unavailable(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """仅 asset 池损坏也必须 503（Codex P2）：单池探针会漏报这种半故障。"""
+    monkeypatch.setattr(app.state, "asset_service_sessionmaker", _broken_sessionmaker)
+    resp = client.get("/readyz")
+    assert resp.status_code == 503
+    body = resp.json()
+    assert body["status"] == "unready"
+    assert body["checks"]["asset_service_database"] == "down"
 
 
 def test_error_catalog_closed_by_default(client: TestClient) -> None:

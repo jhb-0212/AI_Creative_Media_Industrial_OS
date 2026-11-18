@@ -52,6 +52,7 @@ def _to_domain(model: ProjectModel) -> Project:
         created_at=model.created_at,
         updated_at=model.updated_at,
         audit_ref=model.audit_ref,
+        organization_id=model.organization_id,
     )
 
 
@@ -71,6 +72,7 @@ def _to_orm(project: Project) -> ProjectModel:
         audit_ref=project.audit_ref,
         project_name=project.project_name,
         project_tier=project.project_tier.value,
+        organization_id=project.organization_id,
     )
 
 

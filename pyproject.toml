@@ -64,6 +64,17 @@ packages = [
     "apps",
 ]
 
+# 依赖源显式声明（F08 根治）：
+# 此前 uv.lock 把 pypi.tuna.tsinghua.edu.cn 镜像 URL 硬编码进每个包的下载地址
+# （1508 处），导致 GitHub Actions 海外 Runner 访问清华镜像超时、CI 主任务失败。
+# 这里显式声明官方 PyPI 为默认源，使「用哪个源」成为可追溯的权威配置，而非
+# 锁文件生成那一刻的环境偶发固化。国内开发如需加速，可用 UV_INDEX_URL 环境
+# 变量覆盖，不影响锁文件权威性。
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

@@ -16,6 +16,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 import jwt
 from jwt.exceptions import InvalidTokenError
@@ -29,7 +30,9 @@ ALGORITHM = "RS256"
 # 标准 claim 键名（单一事实源，避免散落魔法字符串）。
 CLAIM_SUB = "sub"
 CLAIM_TENANT = "tenant_id"
+CLAIM_ORG = "org"
 CLAIM_ROLES = "roles"
+CLAIM_CAPS = "caps"
 CLAIM_JTI = "jti"
 CLAIM_ISSUER = "iss"
 CLAIM_AUDIENCE = "aud"
@@ -50,12 +53,18 @@ def encode_token(
     issuer: str,
     audience: str,
     ttl_seconds: int = 900,
+    capabilities: list[str] | None = None,
+    organization_id: str | None = None,
 ) -> str:
     """用私钥签发一条 RS256 访问令牌。
 
     参数：
     - signing_key：含私钥的密钥对（私钥仅在此处用于签发）。
     - subject_id / tenant_id / roles：主体身份与租户上下文。
+    - organization_id：组织归属（可选，``org`` claim）。基线 27.3 的
+      资源级 ABAC 判定键；None = 个人租户/未声明组织。
+    - capabilities：能力范围集合（可选，caps claim）。为空等价于「未授予
+      任何能力范围」，需 Capability 校验的动作将拒绝（fail-closed）。
     - issuer / audience：令牌签发方与目标受众（验签时严格比对）。
     - ttl_seconds：有效期（默认 15 分钟）。
 
@@ -66,12 +75,17 @@ def encode_token(
         CLAIM_SUB: subject_id,
         CLAIM_TENANT: tenant_id,
         CLAIM_ROLES: list(roles),
+        CLAIM_CAPS: list(capabilities or []),
         CLAIM_JTI: uuid.uuid4().hex,
         CLAIM_ISSUER: issuer,
         CLAIM_AUDIENCE: audience,
         CLAIM_IAT: now,
         CLAIM_EXP: now + timedelta(seconds=ttl_seconds),
     }
+    # org claim 只在归属组织时写入：absent 与 None 同义（个人租户），
+    # 不写空串，避免下游把 "" 当成「空 UUID」歧义。
+    if organization_id is not None:
+        claims[CLAIM_ORG] = organization_id
     # header 显式携带 kid：验签方据此从 JWKS/KeyStore 按 kid 取公钥（决策 4）。
     headers = {"kid": signing_key.kid}
     return jwt.encode(
@@ -131,9 +145,31 @@ def decode_token(
         raise TokenError("roles claim 必须是字符串数组")
     roles = frozenset(roles_raw)
 
+    # caps 同理：必须是字符串数组（可选，缺省为空集 = 未授予能力范围）。
+    caps_raw = payload.get(CLAIM_CAPS, [])
+    if not isinstance(caps_raw, list) or any(
+        not isinstance(c, str) for c in caps_raw
+    ):
+        raise TokenError("caps claim 必须是字符串数组")
+    capabilities = frozenset(caps_raw)
+
+    # org claim（可选）：存在时必须是合法 UUID（fail-closed——组织是资源级
+    # ABAC 的判定键，非法值宁可拒绝也不降级成 None 放行）。
+    org_raw = payload.get(CLAIM_ORG)
+    organization_id: UUID | None = None
+    if org_raw is not None:
+        if not isinstance(org_raw, str) or not org_raw.strip():
+            raise TokenError("org claim 必须是合法 UUID 字符串")
+        try:
+            organization_id = uuid.UUID(org_raw)
+        except ValueError as exc:
+            raise TokenError(f"org claim 不是合法 UUID: {org_raw!r}") from exc
+
     return Principal(
         subject_id=subject_id,
         tenant_id=tenant_id,
+        organization_id=organization_id,
         roles=roles,
+        capabilities=capabilities,
         jti=payload.get(CLAIM_JTI) if isinstance(payload.get(CLAIM_JTI), str) else None,
     )

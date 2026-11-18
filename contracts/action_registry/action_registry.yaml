@@ -3,7 +3,7 @@
 # 校验口径：action_key 全局唯一、命名规范、audit_event 与 negative_test_id 一一对应
 registry_source: 'AFS-ARCH-MASTER-V2.0.5 / 31.6 Action Registry'
 registry_version: 'V2.0.5'
-total_actions: 81
+total_actions: 84
 actions:
   - action_key: 'PROJECT.CREATE'
     resource_type: 'Project'
@@ -169,6 +169,17 @@ actions:
     audit_event: 'ASSET_VERSION_READ'
     negative_test_id: 'ACT-ASSET-NEG-003'
     negative_test_desc: '无读取权限角色访问资产版本拒绝'
+    status: 'ACTIVE'
+  - action_key: 'ASSET.STATUS.CHANGE'
+    resource_type: 'AssetVersion'
+    scope: 'project/shot/asset'
+    risk_level: 'HIGH'
+    token_required: true
+    allowed_principals: '授权审核人/QC/导演（按职责）'
+    approval_requirement: '目标状态作参数，运行时按 AssetVersion 转移表校验；进入 GOLD 须 APPROVED 前置 + 权利证据 + QC 证据；终态不可原地复活。'
+    audit_event: 'ASSET_VERSION_STATUS_CHANGED'
+    negative_test_id: 'ACT-ASSET-NEG-004'
+    negative_test_desc: '非法/越权状态转移拒绝'
     status: 'ACTIVE'
   - action_key: 'QC.REPORT.CREATE'
     resource_type: 'QCReport'
@@ -895,4 +906,26 @@ actions:
     audit_event: 'SCRIPT_READ'
     negative_test_id: 'ACT-SCRIPT-NEG-004'
     negative_test_desc: '无读取权限角色访问剧本版本拒绝'
+    status: 'ACTIVE'
+  - action_key: 'PROJECT.STATUS.CHANGE'
+    resource_type: 'Project'
+    scope: 'tenant/organization/project'
+    risk_level: 'HIGH'
+    token_required: true
+    allowed_principals: '项目管理员/制片'
+    approval_requirement: '目标状态作参数，运行时按 Project 转移表（state_machines.yaml）校验；终态 ARCHIVED 不可原地复活。'
+    audit_event: 'PROJECT_STATUS_CHANGED'
+    negative_test_id: 'ACT-PROJ-NEG-003'
+    negative_test_desc: '非法/越权状态转移拒绝'
+    status: 'ACTIVE'
+  - action_key: 'EPISODE.STATUS.CHANGE'
+    resource_type: 'Episode'
+    scope: 'project/episode'
+    risk_level: 'MEDIUM'
+    token_required: true
+    allowed_principals: '导演/编剧/制片'
+    approval_requirement: '目标状态作参数，运行时按 Episode 转移表校验；终态 ARCHIVED 不可原地复活。'
+    audit_event: 'EPISODE_STATUS_CHANGED'
+    negative_test_id: 'ACT-EPISODE-NEG-003'
+    negative_test_desc: '非法/越权状态转移拒绝'
     status: 'ACTIVE'

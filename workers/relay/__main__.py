@@ -3,7 +3,9 @@
 - 循环节奏与批量大小来自配置（OUTBOX_RELAY_INTERVAL_SECONDS / BATCH_SIZE）。
 - SIGTERM / SIGINT 触发优雅退出：置位 stop 事件，等在途一轮结束后再关闭引擎，
   避免把「已投递未 ack」的事务半途掐断（那会变成本可避免的重复投递）。
-- 进程只起引擎与会话工厂，不起 API：relay 与 API 共用同一镜像、同一 app_role。
+- 进程只起引擎与会话工厂，不起 API。relay 以专用角色 outbox_relay_role 连接
+  （F03 数据所有权）：该角色仅持有 outbox schema 的 SELECT + UPDATE，不持有
+  业务 schema 写权限，越界写业务表在数据库层被拒绝。
 """
 
 from __future__ import annotations
@@ -13,8 +15,8 @@ import asyncio
 import contextlib
 import signal
 
-from packages.shared.config import get_settings
-from packages.shared.database import create_engine, create_sessionmaker
+from packages.shared.config import get_process_settings
+from packages.shared.database import create_relay_engine, create_sessionmaker
 from packages.shared.logging import get_logger, setup_logging
 from workers.relay.consumer import OutboxRelay
 from workers.relay.handlers import HANDLERS
@@ -35,8 +37,12 @@ async def _run_forever(relay: OutboxRelay, interval: float, stop: asyncio.Event)
 
 
 async def _main_async(*, interval: float, batch_size: int, once: bool) -> None:
-    settings = get_settings()
-    engine = create_engine()
+    settings = get_process_settings("relay")
+    # relay 用专用角色 outbox_relay_role 连接（非 app_role），数据库层隔离其
+    # 越界写业务表的可能。引擎、DSN 角色与连接池参数都来自**同一份** relay
+    # 进程配置（create_relay_engine(settings)）——不在入口另复制一遍 pool 参数，
+    # 也不让 DSN 构造回落到 api 角色的全局配置（审查 P1-04 / R7 的根因）。
+    engine = create_relay_engine(settings)
     sessionmaker = create_sessionmaker(engine)
     # 兜底处理器：配了 webhook 才存在。没配时事件保持未投递（积压可见），
     # 而不是被「成功」丢弃。
@@ -92,7 +98,7 @@ async def _main_async(*, interval: float, batch_size: int, once: bool) -> None:
 
 def main() -> None:
     """命令行入口。"""
-    settings = get_settings()
+    settings = get_process_settings("relay")
     parser = argparse.ArgumentParser(description="Outbox 事件投递消费端")
     parser.add_argument(
         "--interval",

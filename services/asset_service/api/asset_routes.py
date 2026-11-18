@@ -26,7 +26,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from packages.shared.contract_models import contract_model
 from packages.shared.outbox_writer import SqlAlchemyOutboxWriter
 from packages.shared.unit_of_work import UnitOfWork
-from services.asset_service.domain.enums import DeviationClass, IntentMatchStatus
+from services.asset_service.domain.enums import (
+    AssetStatus,
+    DeviationClass,
+    IntentMatchStatus,
+)
 from services.asset_service.repository.sqlalchemy_asset_repo import (
     SqlAlchemyAssetRepository,
 )
@@ -36,8 +40,8 @@ from services.asset_service.repository.sqlalchemy_qc_repo import (
 from services.asset_service.service.asset_service import AssetService
 from services.identity_access.deps import (
     Principal,
-    get_read_tenant_uow,
-    get_tenant_uow,
+    get_asset_tenant_uow,
+    get_read_asset_tenant_uow,
     require_role,
 )
 
@@ -83,6 +87,15 @@ class CreateQCReportRequest(BaseModel):
     qc_report_id: str | None = Field(default=None, max_length=64)
 
 
+class ChangeAssetStatusRequest(BaseModel):
+    """资产状态变更请求体（ASSET.STATUS.CHANGE）。
+
+    目标状态作参数；转移合法性由领域状态机运行时校验，非客户端可绕。
+    """
+
+    target_status: AssetStatus = Field(..., description="目标状态")
+
+
 def _build_service(session: AsyncSession) -> AssetService:
     """服务装配：RLS 会话 + 两个仓储端口 + Outbox 写入端口。"""
     return AssetService(
@@ -92,13 +105,13 @@ def _build_service(session: AsyncSession) -> AssetService:
     )
 
 
-def _get_service(uow: UnitOfWork = Depends(get_tenant_uow)) -> AssetService:
+def _get_service(uow: UnitOfWork = Depends(get_asset_tenant_uow)) -> AssetService:
     """写用例服务装配（提交点由路由显式控制）。"""
     return _build_service(uow.session)
 
 
 def _get_read_service(
-    uow: UnitOfWork = Depends(get_read_tenant_uow),
+    uow: UnitOfWork = Depends(get_read_asset_tenant_uow),
 ) -> AssetService:
     """只读用例装配：走只读 UoW，不占用写事务（P2-3）。"""
     return _build_service(uow.session)
@@ -108,7 +121,7 @@ def _get_read_service(
 async def create_asset_version(
     body: CreateAssetVersionRequest,
     principal: Principal = Depends(require_role("ASSET.VERSION.CREATE")),
-    uow: UnitOfWork = Depends(get_tenant_uow),
+    uow: UnitOfWork = Depends(get_asset_tenant_uow),
     service: AssetService = Depends(_get_service),
 ) -> dict[str, Any]:
     """登记资产版本（GENERATED，幂等；禁止覆盖既有版本内容）。"""
@@ -134,7 +147,7 @@ async def create_qc_report(
     asset_version_id: str,
     body: CreateQCReportRequest,
     principal: Principal = Depends(require_role("QC.REPORT.CREATE")),
-    uow: UnitOfWork = Depends(get_tenant_uow),
+    uow: UnitOfWork = Depends(get_asset_tenant_uow),
     service: AssetService = Depends(_get_service),
 ) -> dict[str, Any]:
     """登记 QC 证据（首个报告把资产推入 TECHNICAL_QC，不改变 Gate）。"""
@@ -159,12 +172,35 @@ async def create_qc_report(
 async def approve_asset_version(
     asset_version_id: str,
     principal: Principal = Depends(require_role("ASSET.VERSION.APPROVE")),
-    uow: UnitOfWork = Depends(get_tenant_uow),
+    uow: UnitOfWork = Depends(get_asset_tenant_uow),
     service: AssetService = Depends(_get_service),
 ) -> dict[str, Any]:
     """批准资产版本（职责分离 + 权利/QC 证据齐备；TECHNICAL_QC 先过 HUMAN_REVIEW）。"""
     asset = await service.approve(
         asset_version_id=asset_version_id, principal=principal
+    )
+    await uow.commit()
+    return asset.to_dict()
+
+
+@router.post("/{asset_version_id}/status", response_model=_AssetVersionResponse)
+async def change_asset_status(
+    asset_version_id: str,
+    body: ChangeAssetStatusRequest,
+    principal: Principal = Depends(require_role("ASSET.STATUS.CHANGE")),
+    uow: UnitOfWork = Depends(get_asset_tenant_uow),
+    service: AssetService = Depends(_get_service),
+) -> dict[str, Any]:
+    """推进资产状态（ASSET.STATUS.CHANGE）。
+
+    changed_by = 当前 Principal；目标状态合法性由领域状态机校验；
+    进入 GOLD 强制证据齐备，终态不可原地复活。
+    """
+    asset = await service.change_status(
+        asset_version_id=asset_version_id,
+        target_status=body.target_status,
+        changed_by=principal.subject_id,
+        principal=principal,
     )
     await uow.commit()
     return asset.to_dict()

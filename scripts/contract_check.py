@@ -317,6 +317,11 @@ _HTTP_METHODS = ("get", "post", "put", "patch", "delete")
 
 def _runtime_endpoints() -> set[str]:
     """加载真实 FastAPI 应用的 OpenAPI，返回 "METHOD /path" 集合。"""
+    # KEYS-1：验签方只认显式注入的公钥，加载运行时 app 前须引导开发/测试密钥，
+    # 否则 apps.api.main 的导入链（deps → get_public_key_store）会因缺公钥拒绝启动。
+    from packages.identity.bootstrap import bootstrap_signing_key_if_missing
+
+    bootstrap_signing_key_if_missing()
     from apps.api.main import app
 
     schema = app.openapi()
@@ -932,6 +937,144 @@ def check_schema_objects() -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# 字段级契约演进诊断（F07）
+# --------------------------------------------------------------------------- #
+SCHEMA_FIELD_SIGNATURES_PATH = CONTRACTS / "runtime" / "schema_field_signatures.yaml"
+
+
+def _field_signature(spec: dict[str, Any]) -> dict[str, str]:
+    """计算一个对象的字段签名：``field → 类型`` 映射（稳定可序列化）。
+
+    类型归一规则：``type`` 取字符串（list 类型连接为 ``a|b``），``$ref`` 取
+    ``#/...`` 末段，``enum`` 记 ``enum``，其余记 ``object``。目的是让「字段
+    新增/删除/改类型」在签名层可精确 diff，而非只看文件哈希。
+    """
+    signature: dict[str, str] = {}
+    properties = spec.get("properties") or {}
+    for field, prop_spec in properties.items():
+        if not isinstance(prop_spec, dict):
+            signature[field] = "<invalid>"
+            continue
+        if "$ref" in prop_spec:
+            signature[field] = f"ref:{prop_spec['$ref'].rsplit('/', 1)[-1]}"
+        elif "type" in prop_spec:
+            t = prop_spec["type"]
+            signature[field] = (
+                "|".join(t) if isinstance(t, list) else str(t)
+            )
+        elif "enum" in prop_spec:
+            signature[field] = "enum"
+        elif "const" in prop_spec:
+            signature[field] = "const"
+        else:
+            signature[field] = "object"
+    return dict(sorted(signature.items()))
+
+
+def _current_field_signatures() -> dict[str, dict[str, str]]:
+    """从 object_schemas.schema.json（唯一权威源）计算全部对象的字段签名。"""
+    data = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    definitions = data.get("definitions", data.get("$defs", {}))
+    return {
+        name: _field_signature(spec)
+        for name, spec in definitions.items()
+        if isinstance(spec, dict) and spec.get("type") == "object"
+    }
+
+
+def check_schema_field_evolution() -> bool:
+    """字段级契约演进诊断（F07）：把「文件哈希变了」细化为「具体字段变了」。
+
+    背景：freeze_manifest 对 object_schemas.schema.json 只做「文件哈希」校验，
+    字段新增/删除/改类型只能体现为「哈希变了」，无法指出「哪个对象的哪个字段
+    怎么变」。本函数补上字段级可见性——它从同一份 schema.json 计算字段签名，
+    与派生台账比对，输出 add/remove/type-change 的精确 diff。
+
+    台账（schema_field_signatures.yaml）是**派生诊断快照**，不是权威事实源：
+    权威源仍是 object_schemas.schema.json；台账只记录「上次显式重签时的字段
+    签名」，供 diff 定位用。字段变化本身不是错误（Phase 1 仍在演进），但必须
+    **显式重签台账**（`--write-schema-signatures`）——未经重签的字段漂移会在
+    这里被点名，引导人去 amendments 登记理由，而不是静默放过。
+    """
+    current = _current_field_signatures()
+    if not current:
+        print("[FAIL] object_schemas.schema.json 无任何 object 定义")
+        return False
+
+    if not SCHEMA_FIELD_SIGNATURES_PATH.exists():
+        print(
+            "[FAIL] 缺少字段签名台账 "
+            f"{SCHEMA_FIELD_SIGNATURES_PATH.relative_to(ROOT)}："
+            "字段级契约演进无法定位，请先执行 --write-schema-signatures 生成"
+        )
+        return False
+
+    baseline = load_yaml_mapping(SCHEMA_FIELD_SIGNATURES_PATH).get("signatures")
+    if not isinstance(baseline, dict):
+        print("[FAIL] schema_field_signatures.yaml 的 signatures 必须是映射")
+        return False
+
+    ok = True
+    # 1. 台账登记但 schema 已无的对象（陈旧签名）。
+    for name in sorted(set(baseline) - set(current)):
+        print(f"[FAIL] 字段签名台账含已删除对象 {name}（陈旧签名，须重签）")
+        ok = False
+    # 2. schema 有但台账未登记的对象（新对象，字段级未纳入诊断）。
+    for name in sorted(set(current) - set(baseline)):
+        print(f"[FAIL] 对象 {name} 未登记字段签名（须重签台账纳入诊断）")
+        ok = False
+    # 3. 字段级 diff：add / remove / type-change。
+    for name in sorted(set(current) & set(baseline)):
+        cur = current[name]
+        base = baseline[name]
+        if not isinstance(base, dict):
+            print(f"[FAIL] 台账里 {name} 的字段签名不是映射")
+            ok = False
+            continue
+        cur_fields = set(cur)
+        base_fields = set(base)
+        for added in sorted(cur_fields - base_fields):
+            print(f"[FAIL] {name} 新增字段 {added}（{cur[added]}）")
+            ok = False
+        for removed in sorted(base_fields - cur_fields):
+            print(f"[FAIL] {name} 删除字段 {removed}")
+            ok = False
+        for changed in sorted(cur_fields & base_fields):
+            if cur[changed] != base[changed]:
+                print(
+                    f"[FAIL] {name}.{changed} 类型变化："
+                    f"{base[changed]} → {cur[changed]}"
+                )
+                ok = False
+
+    if ok:
+        print(
+            f"[PASS] 字段级契约演进：{len(current)} 个对象字段签名与台账一致"
+        )
+    return ok
+
+
+def write_schema_field_signatures() -> None:
+    """按当前 object_schemas.schema.json 重写字段签名台账（派生视图）。"""
+    current = _current_field_signatures()
+    body = {
+        "generated_from": "object_schemas.schema.json",
+        "note": (
+            "派生诊断快照，非权威事实源。字段签名变化须显式重签本台账，"
+            "并在 contract_amendments.yaml 登记字段演进理由（F07）。"
+        ),
+        "signatures": current,
+    }
+    SCHEMA_FIELD_SIGNATURES_PATH.write_text(
+        yaml.safe_dump(body, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    print(
+        f"[PASS] 已重写字段签名台账：{len(current)} 个对象"
+    )
+
+
+# --------------------------------------------------------------------------- #
 # 已实现 action 的授权落点（防「有端点、没授权」）
 # --------------------------------------------------------------------------- #
 def check_implemented_permission_wiring() -> bool:
@@ -1380,6 +1523,164 @@ def check_event_catalog() -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# 安全与数据边界契约校验（Security & Data Boundary Contract）
+# --------------------------------------------------------------------------- #
+# 为什么需要这个校验（R1 一个事实一个权威源 + 边界缺口不可静默增长）
+# ------------------------------------------------------------------------
+# contracts/security_boundary.yaml 是授权/资源归属/数据所有权/进程密钥四条
+# 边界的唯一权威源。它必须是**结构化约束**而非解释文档：本函数把它读进来，
+# 逐条校验结构自洽——每条不变量必须落在 satisfied / partial / debt 三态之一，
+# 且 debt 必须给 reason / contract_ref / unblocks_when 三项完整、partial 必须
+# 给 satisfied / missing / unblocks_when。这样「边界缺口」就与 resource_schema_gaps /
+# state_machine_gaps 一样，成为可双向校验的显式债务，而不是没人读的散文。
+#
+# 校验点：
+# 1. 文件存在且顶层为映射，含四条边界（authorization / resource_scope /
+#    data_ownership / process_keys），缺一报红；
+# 2. 每条不变量有 id / name / statement / fact_source / verification / status；
+# 3. status ∈ {satisfied, partial, debt}，且按状态要求对应字段：
+#    - debt     → reason / contract_ref / unblocks_when 三项完整；
+#    - partial  → satisfied / missing / unblocks_when 三项完整；
+#    - satisfied→ 不得残留 debt / partial 子块（陈旧债务必须清理）。
+# 4. 不变量 id 全局唯一（防复制粘贴出重名）。
+
+SECURITY_BOUNDARY_PATH = CONTRACTS / "security_boundary.yaml"
+
+_SECURITY_BOUNDARY_SECTIONS = (
+    "authorization",
+    "resource_scope",
+    "data_ownership",
+    "process_keys",
+)
+
+_SECURITY_BOUNDARY_INVARIANT_REQUIRED = (
+    "id",
+    "name",
+    "statement",
+    "fact_source",
+    "verification",
+    "status",
+)
+
+_SECURITY_BOUNDARY_STATUSES = ("satisfied", "partial", "debt")
+
+_DEBT_REQUIRED = ("reason", "contract_ref", "unblocks_when")
+_PARTIAL_REQUIRED = ("satisfied", "missing", "unblocks_when")
+
+
+def check_security_boundary() -> bool:
+    """校验安全与数据边界契约的结构自洽（债务/半满足/已满足三态一致）。"""
+    data = load_yaml_mapping(SECURITY_BOUNDARY_PATH)
+    ok = True
+
+    missing_sections = [
+        s for s in _SECURITY_BOUNDARY_SECTIONS if s not in data
+    ]
+    if missing_sections:
+        print(
+            f"[FAIL] security_boundary.yaml 缺少边界分区: {missing_sections}"
+        )
+        ok = False
+
+    seen_ids: set[str] = set()
+    total_invariants = 0
+    debt_count = 0
+    partial_count = 0
+
+    for section in _SECURITY_BOUNDARY_SECTIONS:
+        invariants = data.get(section, {}).get("invariants")
+        if not isinstance(invariants, list):
+            print(
+                f"[FAIL] security_boundary.yaml 的 {section}.invariants 必须是列表"
+            )
+            ok = False
+            continue
+
+        for inv in invariants:
+            if not isinstance(inv, dict):
+                print(
+                    f"[FAIL] {section} 存在非映射的不变量条目: {inv!r}"
+                )
+                ok = False
+                continue
+            total_invariants += 1
+
+            inv_id = str(inv.get("id", "")).strip()
+            missing_fields = [
+                f for f in _SECURITY_BOUNDARY_INVARIANT_REQUIRED
+                if not str(inv.get(f, "")).strip()
+            ]
+            if missing_fields:
+                print(
+                    f"[FAIL] {section}/{inv_id or '?'} 不变量缺字段: {missing_fields}"
+                )
+                ok = False
+
+            if inv_id in seen_ids:
+                print(f"[FAIL] security_boundary.yaml 存在重复不变量 id: {inv_id}")
+                ok = False
+            seen_ids.add(inv_id)
+
+            status = str(inv.get("status", "")).strip()
+            if status not in _SECURITY_BOUNDARY_STATUSES:
+                print(
+                    f"[FAIL] {inv_id} 的 status 非法: {status!r}（须为 "
+                    f"{'/'.join(_SECURITY_BOUNDARY_STATUSES)}）"
+                )
+                ok = False
+                continue
+
+            if status == "debt":
+                debt_count += 1
+                debt = inv.get("debt")
+                if not isinstance(debt, dict):
+                    print(f"[FAIL] {inv_id} 为 debt 但缺少 debt 子块")
+                    ok = False
+                    continue
+                missing = [
+                    k for k in _DEBT_REQUIRED if not str(debt.get(k, "")).strip()
+                ]
+                if missing:
+                    print(f"[FAIL] {inv_id} 债务登记缺字段: {missing}")
+                    ok = False
+                # 防陈旧：status 已是 satisfied 却仍挂 debt 子块。
+                if "debt" in inv and inv.get("status") == "satisfied":
+                    print(
+                        f"[FAIL] {inv_id} 已满足却残留 debt 子块（陈旧债务必须清理）"
+                    )
+                    ok = False
+
+            elif status == "partial":
+                partial_count += 1
+                part = inv.get("partial")
+                if not isinstance(part, dict):
+                    print(f"[FAIL] {inv_id} 为 partial 但缺少 partial 子块")
+                    ok = False
+                    continue
+                missing = [
+                    k for k in _PARTIAL_REQUIRED if not str(part.get(k, "")).strip()
+                ]
+                if missing:
+                    print(f"[FAIL] {inv_id} 半满足登记缺字段: {missing}")
+                    ok = False
+
+            elif status == "satisfied" and ("debt" in inv or "partial" in inv):
+                # 已满足的不变量不得残留任何债务/半满足子块。
+                print(
+                    f"[FAIL] {inv_id} 已满足却残留 debt/partial 子块"
+                    "（陈旧债务必须清理）"
+                )
+                ok = False
+    if ok:
+        print(
+            f"[PASS] 安全与数据边界契约：{total_invariants} 条不变量"
+            f"（debt {debt_count} / partial {partial_count} / satisfied "
+            f"{total_invariants - debt_count - partial_count}）结构自洽"
+        )
+    return ok
+
+
+# --------------------------------------------------------------------------- #
 # 入口
 # --------------------------------------------------------------------------- #
 def main() -> int:
@@ -1405,7 +1706,9 @@ def main() -> int:
         ok &= check_transition_entry_gaps()
         ok &= check_permission_matrix()
         ok &= check_schema_objects()
+        ok &= check_schema_field_evolution()
         ok &= check_event_catalog()
+        ok &= check_security_boundary()
     except ValueError as exc:
         # 契约文件缺失/为空/非映射时，load_yaml_mapping 统一抛 ValueError；
         # 这是脚本级致命错误（契约损坏无法继续校验），在此统一兜底报红。
@@ -1420,4 +1723,7 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if "--write-schema-signatures" in sys.argv:
+        write_schema_field_signatures()
+        sys.exit(0)
     sys.exit(main())

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from services.project_planning.domain.entity import OWNER_MODULE, Entity
@@ -28,6 +29,9 @@ class Project(Entity):
     """项目聚合根。
 
     状态只能沿状态机向前迁移，终态（ARCHIVED）不可原地复活。
+
+    归属（F04）：organization_id 是组织归属键（可空=个人租户），与 tenant_id
+    同构——是内部隔离/归属键，不进对外响应契约（见 to_dict 注释）。
     """
 
     ENTITY_TYPE = "Project"
@@ -39,6 +43,8 @@ class Project(Entity):
     project_name: str = ""
     project_tier: ProjectTier = ProjectTier.B
     status: ProjectStatus = ProjectStatus.DRAFT
+    # 归属键：组织归属（可空 = 个人租户，无组织）。
+    organization_id: UUID | None = None
 
     def __post_init__(self) -> None:
         """防御性校验：信封公共字段 + 业务字段（对齐 ORM 列定义）。"""

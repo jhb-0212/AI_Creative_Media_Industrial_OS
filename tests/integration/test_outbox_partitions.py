@@ -105,8 +105,14 @@ async def test_rls_still_blocks_without_tenant_context(
     assert count == 0
 
 
-async def test_app_role_has_no_delete_privilege(admin_engine: AsyncEngine) -> None:
-    """append-only 不因分区化而回退：app_role 对父表不得有 DELETE。"""
+async def test_app_role_has_only_select_on_outbox(admin_engine: AsyncEngine) -> None:
+    """app_role 对 outbox 父表只剩 SELECT（append-only + 写权限收口）。
+
+    历史口径：app_role 持有 SELECT/INSERT/UPDATE，仅撤销 DELETE（append-only）。
+    审查 P1-02/R9 指出写权限本身就是越界入口——拆域角色后事件写入已归业务域
+    角色，旧 app_role 不再有任何生产写路径，残留 INSERT/UPDATE 等于绕过域
+    角色边界伪造/篡改审计事件。因此现在只允许 SELECT（RLS 隔离验证/兜底读）。
+    """
     async with admin_engine.connect() as conn:
         privileges = (
             await conn.execute(
@@ -118,4 +124,4 @@ async def test_app_role_has_no_delete_privilege(admin_engine: AsyncEngine) -> No
             )
         ).scalars()
         granted = set(privileges)
-    assert granted == {"SELECT", "INSERT", "UPDATE"}
+    assert granted == {"SELECT"}, f"app_role 对 outbox_events 授权越界: {sorted(granted)}"

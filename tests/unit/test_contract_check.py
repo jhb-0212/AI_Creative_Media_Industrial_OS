@@ -720,15 +720,42 @@ def test_transition_entry_gaps_passes_on_current_contract() -> None:
 def test_transition_entry_gaps_detects_dropped_entry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """删掉 Episode 的债务条目 → 反向完备性检查必须报红（不能打印 PASS）。"""
-    monkeypatch.setattr(cc, "STATE_GAPS_PATH", _gaps_without("Episode", tmp_path=tmp_path))
+    """删掉无入口对象的债务条目 → 反向完备性检查必须报红（不能打印 PASS）。
+
+    当前契约里 Project/Episode 均已实现状态变更入口（Phase 6），不再是
+    「无入口对象」；因此这里用 monkeypatch 把 Project 伪装成「无状态变更
+    action」，验证反向完备性逻辑对无入口对象仍然生效。
+    """
+    original = cc._status_change_action_keys
+
+    def _without_status_change(resource_type: str) -> set[str]:
+        keys = original(resource_type)
+        if resource_type == "Project":
+            keys = keys - {"PROJECT.STATUS.CHANGE"}
+        return keys
+
+    monkeypatch.setattr(cc, "_status_change_action_keys", _without_status_change)
+    monkeypatch.setattr(cc, "STATE_GAPS_PATH", _gaps_without("Project", tmp_path=tmp_path))
     assert cc.check_transition_entry_gaps() is False
 
 
 def test_transition_entry_gaps_detects_missing_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """删掉整个债务文件 → 已知无入口的对象必须让闸门报红。"""
+    """删掉整个债务文件，且存在无入口对象 → 必须让闸门报红。
+
+    同理，用 monkeypatch 把 Project 伪装成无入口对象，再删掉债务文件，
+    验证反向完备性不会被「删文件变绿」绕过。
+    """
+    original = cc._status_change_action_keys
+
+    def _without_status_change(resource_type: str) -> set[str]:
+        keys = original(resource_type)
+        if resource_type == "Project":
+            keys = keys - {"PROJECT.STATUS.CHANGE"}
+        return keys
+
+    monkeypatch.setattr(cc, "_status_change_action_keys", _without_status_change)
     monkeypatch.setattr(cc, "STATE_GAPS_PATH", tmp_path / "does-not-exist.yaml")
     assert cc.check_transition_entry_gaps() is False
 
@@ -764,20 +791,117 @@ def test_transition_entry_gaps_detects_stale_entry(
 
 
 def test_transition_entry_gaps_contract_registration_is_not_stale(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """契约先登记、运行时未实现不算陈旧（否则会逼着人删掉真实缺口）。
 
-    「已补上入口」只认运行时台账 implemented；把它伪造成 registry 里已有
-    PROJECT.STATUS.CHANGE（但未实现），债务条目必须仍然合法。
+    「已补上入口」只认运行时台账 implemented，不认 action_registry 的登记。
+    构造：registry 里 Project 有 PROJECT.STATUS.CHANGE，但 implemented 里没有
+    （伪造为未实现），且债务文件里仍登记 Project 债务——此时不得判「陈旧」，
+    闸门应通过（债务仍真实有效）。
+
+    注：Phase 6 后 PROJECT.STATUS.CHANGE 已真实实现，故此处用 monkeypatch
+    把 implemented 里它摘掉，复现「已登记未实现」的历史状态以守护该口径。
     """
-    original = cc._status_change_action_keys
+    original_impl = cc._implemented_action_keys
 
-    def _with_declared_status_change(resource_type: str) -> set[str]:
-        keys = original(resource_type)
-        if resource_type == "Project":
-            keys = keys | {"PROJECT.STATUS.CHANGE"}
-        return keys
+    def _without_project_status_change() -> set[str]:
+        keys = original_impl()
+        return keys - {"PROJECT.STATUS.CHANGE"}
 
-    monkeypatch.setattr(cc, "_status_change_action_keys", _with_declared_status_change)
+    # 构造债务文件：重新登记 Project 债务（模拟「入口尚未实现」的历史状态）。
+    data = yaml.safe_load(cc.STATE_GAPS_PATH.read_text(encoding="utf-8"))
+    data["transition_entry_gaps"]["Project"] = {
+        "reason": "登记了 PROJECT.STATUS.CHANGE 但运行时尚未实现",
+        "contract_ref": "contracts/action_registry/action_registry.yaml",
+        "unblocks_when": "实现 service/route 并登记 action_implementations.yaml",
+    }
+    target = tmp_path / "gaps.yaml"
+    target.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+
+    monkeypatch.setattr(cc, "_implemented_action_keys", _without_project_status_change)
+    monkeypatch.setattr(cc, "STATE_GAPS_PATH", target)
     assert cc.check_transition_entry_gaps() is True
+
+
+# --------------------------------------------------------------------------- #
+# 安全与数据边界契约（check_security_boundary）
+# --------------------------------------------------------------------------- #
+def test_check_security_boundary_passes_on_current_contract() -> None:
+    """当前 security_boundary.yaml 结构自洽，应通过。"""
+    assert cc.check_security_boundary() is True
+
+
+def test_security_boundary_detects_missing_required_field(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """不变量缺 fact_source 字段应被检出（债务不能含糊）。"""
+    data = yaml.safe_load(cc.SECURITY_BOUNDARY_PATH.read_text(encoding="utf-8"))
+    # 删除第一条不变量的 fact_source。
+    del data["authorization"]["invariants"][0]["fact_source"]
+    target = tmp_path / "security_boundary.yaml"
+    target.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    monkeypatch.setattr(cc, "SECURITY_BOUNDARY_PATH", target)
+    assert cc.check_security_boundary() is False
+
+
+def test_security_boundary_detects_invalid_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """非法 status 值应被检出（三态之外一律报红）。"""
+    data = yaml.safe_load(cc.SECURITY_BOUNDARY_PATH.read_text(encoding="utf-8"))
+    data["authorization"]["invariants"][0]["status"] = "maybe"
+    target = tmp_path / "security_boundary.yaml"
+    target.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    monkeypatch.setattr(cc, "SECURITY_BOUNDARY_PATH", target)
+    assert cc.check_security_boundary() is False
+
+
+def test_security_boundary_detects_debt_missing_unblocks_when(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """debt 缺 unblocks_when 字段应被检出（债务不能永久豁免）。"""
+    data = yaml.safe_load(cc.SECURITY_BOUNDARY_PATH.read_text(encoding="utf-8"))
+    # 主动把第一条不变量改成 debt（含 reason/contract_ref，但缺 unblocks_when）。
+    # 当前真实契约 10 条已全部 satisfied，不能靠「找一条 debt」来构造负例。
+    first = data["authorization"]["invariants"][0]
+    first["status"] = "debt"
+    first["debt"] = {
+        "reason": "测试注入的债务（缺 unblocks_when）",
+        "contract_ref": "tests/unit/test_contract_check.py",
+    }
+    target = tmp_path / "security_boundary.yaml"
+    target.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    monkeypatch.setattr(cc, "SECURITY_BOUNDARY_PATH", target)
+    assert cc.check_security_boundary() is False
+
+
+def test_security_boundary_detects_stale_debt_on_satisfied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """已满足的不变量残留 debt 子块应被检出（陈旧债务必须清理）。"""
+    data = yaml.safe_load(cc.SECURITY_BOUNDARY_PATH.read_text(encoding="utf-8"))
+    # 主动给一条 satisfied 不变量附上残留 debt 子块，模拟「已满足却未清理债务」。
+    first = data["authorization"]["invariants"][0]
+    first["debt"] = {
+        "reason": "陈旧债务：已满足却残留",
+        "contract_ref": "tests/unit/test_contract_check.py",
+        "unblocks_when": "已满足，应清理本子块",
+    }
+    target = tmp_path / "security_boundary.yaml"
+    target.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    monkeypatch.setattr(cc, "SECURITY_BOUNDARY_PATH", target)
+    assert cc.check_security_boundary() is False
+
+
+def test_security_boundary_detects_duplicate_invariant_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """重复不变量 id 应被检出（防复制粘贴出重名）。"""
+    data = yaml.safe_load(cc.SECURITY_BOUNDARY_PATH.read_text(encoding="utf-8"))
+    first = data["authorization"]["invariants"][0]
+    data["authorization"]["invariants"].append(dict(first))
+    target = tmp_path / "security_boundary.yaml"
+    target.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    monkeypatch.setattr(cc, "SECURITY_BOUNDARY_PATH", target)
+    assert cc.check_security_boundary() is False

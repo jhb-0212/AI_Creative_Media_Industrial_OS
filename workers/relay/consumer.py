@@ -5,7 +5,10 @@
 堵在数据库层的洞重新打开——relay 一旦被误用/攻破就是全租户审计负载泄露。
 
 关键语义（每一条都是刻意的，不是实现细节）：
-1. 连接角色就是 app_role（与 API 相同）。relay 没有任何特权，越界由 RLS 拒绝。
+1. 连接角色由调用方注入（生产是 outbox_relay_role，见 workers/relay/__main__.py）。
+   relay 没有任何业务特权，越界由 RLS 与数据库角色双重拒绝：relay 角色只持有
+   outbox schema 的 SELECT + UPDATE，不持有业务 schema 的写权限，也不持有
+   outbox 的 INSERT（事件只能由业务域同事务写入）。
 2. 跨租户能力只有一处：``outbox.list_active_tenants()``（SECURITY DEFINER，
    只返回 tenant_id 与积压统计，不返回 payload）。
 3. 租户内一个事务：``SET LOCAL app.current_tenant_id`` → ``SELECT ... FOR UPDATE

@@ -32,7 +32,7 @@ def _write(root: Path, relative: str, source: str) -> None:
 # 仓库现状
 # --------------------------------------------------------------------------- #
 def test_repository_has_no_layering_violation() -> None:
-    """当前仓库必须 0 违规（R0/R1/R2/R3 全部）。"""
+    """当前仓库必须 0 违规（R0/R1/R2/R3/R4 全部）。"""
     results = arch.run_all()
     flattened = {rule: [v.message for v in violations] for rule, violations in results.items()}
     assert flattened == {
@@ -40,6 +40,7 @@ def test_repository_has_no_layering_violation() -> None:
         "R1 层间依赖方向": [],
         "R2 服务间直连": [],
         "R3 导入期循环": [],
+        "R4 进程边界隔离": [],
     }
 
 
@@ -206,6 +207,49 @@ def test_submodule_import_pulls_in_parent_package(tmp_path: Path) -> None:
     _write(tmp_path, "packages/pkg/core.py", "from packages.pkg import __all__ as _a\n")
     violations = arch.check_import_cycles(tmp_path, arch.collect_imports(tmp_path))
     assert len(violations) == 1
+
+
+# --------------------------------------------------------------------------- #
+# R4 进程边界隔离
+# --------------------------------------------------------------------------- #
+def test_apps_cannot_import_identity_issuance(tmp_path: Path) -> None:
+    """apps（验签方）import 签发模块 → 违规（KEYS-1 私钥边界，结构上封死）。"""
+    _write(
+        tmp_path,
+        "apps/api/main.py",
+        "from services.identity_issuance import issue_token\n",
+    )
+    _write(tmp_path, "services/identity_issuance/__init__.py", "def issue_token(): ...\n")
+    violations = arch.check_process_isolation(arch.collect_imports(tmp_path))
+    assert len(violations) == 1
+    assert violations[0].rule == "R4 进程边界隔离"
+    assert "apps 不得 import 签发模块" in violations[0].message
+
+
+def test_worker_may_import_identity_issuance(tmp_path: Path) -> None:
+    """identity 进程（workers/identity）可 import 签发模块——这是签发方，方向正确。"""
+    _write(
+        tmp_path,
+        "workers/identity/main.py",
+        "from services.identity_issuance import issue_token\n",
+    )
+    _write(tmp_path, "services/identity_issuance/__init__.py", "def issue_token(): ...\n")
+    assert arch.check_process_isolation(arch.collect_imports(tmp_path)) == []
+
+
+def test_identity_access_can_be_imported_by_apps(tmp_path: Path) -> None:
+    """apps 验签方 import identity_access（纯公钥）是合法的，不得误报。"""
+    _write(
+        tmp_path,
+        "apps/api/main.py",
+        "from services.identity_access import get_public_key_store\n",
+    )
+    _write(
+        tmp_path,
+        "services/identity_access/__init__.py",
+        "def get_public_key_store(): ...\n",
+    )
+    assert arch.check_process_isolation(arch.collect_imports(tmp_path)) == []
 
 
 # --------------------------------------------------------------------------- #

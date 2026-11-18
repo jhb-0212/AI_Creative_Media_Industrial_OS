@@ -14,25 +14,93 @@
 
 from __future__ import annotations
 
-from sqlalchemy import ForeignKeyConstraint, Index, String, UniqueConstraint
+from datetime import datetime
+from uuid import UUID
+
+from sqlalchemy import (
+    DateTime,
+    ForeignKeyConstraint,
+    Index,
+    String,
+    UniqueConstraint,
+    Uuid,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from packages.shared.database import Base
-from services.project_planning.repository.entity_mixin import EntityMixin
+from packages.shared.orm import EntityMixin
 
 # 独立 schema 名称（数据所有权边界）。
 SCHEMA_NAME = "project_planning"
 
 
+class OrganizationModel(Base):
+    """organizations 表模型（归属根，纯归属/隔离键）。
+
+    定位：organization 是 Tenant → Organization → Project 归属链的中间层，
+    是**纯归属键**而非业务聚合根——无 entity_type、无状态机、无对象 schema，
+    与 tenant_id 同构。字段最小化：organization_id 主键 + tenant_id + name。
+
+    数据所有权：本表属 project_planning 域（当前唯一消费方是项目域），
+    写入权归该域；未来资产域若需归属组织，再按方案 3.3 数据所有权边界演进。
+    """
+
+    __tablename__ = "organizations"
+    __table_args__ = (
+        # 复合外键的被引用键：projects 以 (organization_id, tenant_id) 引用本表，
+        # 使「项目引用的组织必须与项目同租户」在数据库层成立（审查 P1-03）。
+        UniqueConstraint(
+            "organization_id",
+            "tenant_id",
+            name="uq_organizations_owner_tenant",
+        ),
+        {"schema": SCHEMA_NAME},
+    )
+
+    organization_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
 class ProjectModel(EntityMixin, Base):
-    """projects 表模型。"""
+    """projects 表模型。
+
+    归属完整性（决策 2 / 外部审查 F04 / 审查 P1-03）：
+    - organization_id 外键指向 organizations，可空（个人租户无组织）；非空时
+      在数据库层锁死「项目必须归属真实组织」。
+    - 外键是**租户复合外键** (organization_id, tenant_id) →
+      organizations(organization_id, tenant_id)：单列外键只能证明组织存在，
+      无法阻止「项目属租户 A、组织属租户 B」的跨租户错配（P1-03）。复合外键
+      把「同一租户」这条归属不变量放到数据库层；organization_id 为 NULL 时
+      MATCH SIMPLE 语义下不校验，与「个人租户不强制归属」一致。
+    - organization_id 是内部归属键，不进 API 响应（与 tenant_id 一致）。
+    """
 
     __tablename__ = "projects"
-    __table_args__ = {"schema": SCHEMA_NAME}
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["organization_id", "tenant_id"],
+            [
+                f"{SCHEMA_NAME}.organizations.organization_id",
+                f"{SCHEMA_NAME}.organizations.tenant_id",
+            ],
+            name="fk_projects_organization_tenant",
+        ),
+        {"schema": SCHEMA_NAME},
+    )
 
     # 业务字段
     project_name: Mapped[str] = mapped_column(String(200), nullable=False)
     project_tier: Mapped[str] = mapped_column(String(8), nullable=False)
+    # 归属键：组织归属（可空 = 个人租户）。
+    organization_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
 
 
 class ScriptModel(EntityMixin, Base):
@@ -77,9 +145,11 @@ class ScriptModel(EntityMixin, Base):
 class EpisodeModel(EntityMixin, Base):
     """episodes 表模型（集数，归属 Project）。
 
-    归属完整性（决策 2）：
+    归属完整性（决策 2 / 外部审查 F04）：
     - ``(project_id, episode_ref)`` 唯一约束（自然键），是 script_revisions
       复合外键的引用目标，保证「同项目内 episode_ref 唯一、跨项目允许同名」。
+    - ``project_id`` 外键指向 projects(entity_id)，在数据库层锁死「集数必须
+      归属真实存在的项目」，不再仅靠 Service 查询校验（R2 不变量放最可靠层）。
     """
 
     __tablename__ = "episodes"
@@ -89,6 +159,12 @@ class EpisodeModel(EntityMixin, Base):
             "project_id",
             "episode_ref",
             name="ux_episode_ref_per_project",
+        ),
+        # 归属外键：episodes.project_id -> projects.entity_id。
+        ForeignKeyConstraint(
+            ["project_id"],
+            [f"{SCHEMA_NAME}.projects.entity_id"],
+            name="fk_episodes_project",
         ),
         {"schema": SCHEMA_NAME},
     )

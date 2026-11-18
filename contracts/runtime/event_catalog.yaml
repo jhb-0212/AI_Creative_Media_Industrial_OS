@@ -72,6 +72,17 @@ events:
       - tenant_id
     contract_ref: contracts/state_machines/state_machines.yaml#AssetVersion
 
+  - event_type: ASSET_VERSION_STATUS_CHANGED
+    aggregate_type: AssetVersion
+    emitted_by: services/asset_service/service/asset_service.py
+    payload_required:
+      - asset_version_id
+      - from_status
+      - to_status
+      - changed_by
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#AssetVersion
+
   - event_type: SCRIPT_IMPORTED
     aggregate_type: ScriptRevision
     emitted_by: services/project_planning/service/script_service.py
@@ -133,6 +144,17 @@ events:
       - status
     contract_ref: contracts/schemas/object_schemas.schema.json#Project
 
+  - event_type: PROJECT_STATUS_CHANGED
+    aggregate_type: Project
+    emitted_by: services/project_planning/service/project_service.py
+    payload_required:
+      - project_id
+      - from_status
+      - to_status
+      - changed_by
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#Project
+
   - event_type: EPISODE_CREATED
     aggregate_type: Episode
     emitted_by: services/project_planning/service/episode_service.py
@@ -145,3 +167,15 @@ events:
       - tenant_id
       - status
     contract_ref: contracts/schemas/object_schemas.schema.json#Episode
+
+  - event_type: EPISODE_STATUS_CHANGED
+    aggregate_type: Episode
+    emitted_by: services/project_planning/service/episode_service.py
+    payload_required:
+      - episode_id
+      - project_id
+      - from_status
+      - to_status
+      - changed_by
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#Episode

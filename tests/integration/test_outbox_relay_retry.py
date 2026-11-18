@@ -20,7 +20,6 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from apps.api.main import app
 from packages.shared.database import build_migration_url
 from packages.shared.outbox_writer import record_event
 from packages.shared.rls import set_tenant_context
@@ -86,10 +85,14 @@ async def _failing_handler(event: OutboxEvent) -> None:
 
 async def test_failure_backs_off_and_is_not_reclaimed(
     admin_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+    relay_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
-    sm = app.state.sessionmaker
-    event_id = await _append_event(sm)
-    relay = OutboxRelay(sm, {"SCRIPT_LOCK_APPROVED": _failing_handler})
+    writer_sm = db_sessionmaker
+    event_id = await _append_event(writer_sm)
+    relay = OutboxRelay(
+        relay_sessionmaker, {"SCRIPT_LOCK_APPROVED": _failing_handler}
+    )
 
     stats = await relay.drain_tenant(TENANT)
     assert stats.failed == 1
@@ -107,11 +110,15 @@ async def test_failure_backs_off_and_is_not_reclaimed(
     assert second.delivered == 0
 
 
-async def test_max_attempts_marks_dead_letter(admin_engine: AsyncEngine) -> None:
-    sm = app.state.sessionmaker
-    event_id = await _append_event(sm)
+async def test_max_attempts_marks_dead_letter(
+    admin_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+    relay_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
+    writer_sm = db_sessionmaker
+    event_id = await _append_event(writer_sm)
     relay = OutboxRelay(
-        sm, {"SCRIPT_LOCK_APPROVED": _failing_handler}, max_attempts=1
+        relay_sessionmaker, {"SCRIPT_LOCK_APPROVED": _failing_handler}, max_attempts=1
     )
 
     stats = await relay.drain_tenant(TENANT)
@@ -142,16 +149,20 @@ async def test_max_attempts_marks_dead_letter(admin_engine: AsyncEngine) -> None
     assert count == 1
 
 
-async def test_dead_letter_not_counted_in_backlog(admin_engine: AsyncEngine) -> None:
+async def test_dead_letter_not_counted_in_backlog(
+    admin_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+    relay_sessionmaker: async_sessionmaker[AsyncSession],
+) -> None:
     """事件进入死信后，list_active_tenants 的 pending_count 归零、dead_count 为 1。
 
     复核 R2：死信不得计入 backlog——否则 OUTBOX_RELAY_BACKLOG 报警永远消不掉，
     租户也永远留在扫描列表里每轮白扫。证明枚举函数的口径与 _CLAIM 领取口径一致。
     """
-    sm = app.state.sessionmaker
-    await _append_event(sm)
+    writer_sm = db_sessionmaker
+    await _append_event(writer_sm)
     relay = OutboxRelay(
-        sm, {"SCRIPT_LOCK_APPROVED": _failing_handler}, max_attempts=1
+        relay_sessionmaker, {"SCRIPT_LOCK_APPROVED": _failing_handler}, max_attempts=1
     )
     await relay.drain_tenant(TENANT)
 
@@ -176,6 +187,8 @@ async def _deferred_handler(event: OutboxEvent) -> None:
 
 async def test_deferred_delivery_does_not_consume_attempts(
     admin_engine: AsyncEngine,
+    db_sessionmaker: async_sessionmaker[AsyncSession],
+    relay_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> None:
     """「没外发」不得被记成一次失败尝试（审查 N2）。
 
@@ -184,11 +197,11 @@ async def test_deferred_delivery_does_not_consume_attempts(
     ADR-R13「事件不丢弃」。这里用 max_attempts=1 把口径钉死：只要被计一次，
     第一轮就会死信。
     """
-    sm = app.state.sessionmaker
-    first = await _append_event(sm)
-    second = await _append_event(sm)
+    writer_sm = db_sessionmaker
+    first = await _append_event(writer_sm)
+    second = await _append_event(writer_sm)
     relay = OutboxRelay(
-        sm, {"SCRIPT_LOCK_APPROVED": _deferred_handler}, max_attempts=1
+        relay_sessionmaker, {"SCRIPT_LOCK_APPROVED": _deferred_handler}, max_attempts=1
     )
 
     for _ in range(3):

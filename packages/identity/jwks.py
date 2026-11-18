@@ -75,8 +75,3 @@ class PublicKeyStore:
                 public_jwk_from_pem(pem, kid) for kid, pem in self._by_kid.items()
             ]
         }
-
-    @classmethod
-    def from_key_store(cls, store: KeyStore) -> PublicKeyStore:
-        """从签发密钥仓储派生纯公钥视图（开发/单进程场景，公钥与私钥同源）。"""
-        return cls(store.public_keys())

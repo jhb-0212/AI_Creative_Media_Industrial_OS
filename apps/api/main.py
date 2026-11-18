@@ -28,7 +28,7 @@ from packages.errors.error_codes import (
     ErrorRegistry,
     to_response_payload,
 )
-from packages.shared.config import get_settings
+from packages.shared.config import get_process_settings
 from packages.shared.database import lifespan
 from packages.shared.logging import get_logger, set_trace_id, setup_logging
 from packages.shared.metrics import (
@@ -40,7 +40,7 @@ from packages.shared.metrics import (
 from packages.shared.rate_limit import RateLimitDecision
 from packages.telemetry.tracing import setup_telemetry
 
-settings = get_settings()
+settings = get_process_settings("api")
 setup_logging(settings.log_level)
 logger = get_logger("apps.api")
 
@@ -267,25 +267,39 @@ async def readyz() -> JSONResponse:
     实例共用 15432 端口的不同地址族（127.0.0.1 → 旧集群、localhost → Docker），
     「连错库」表现为"迁移像是没跑"。把 revision 暴露在就绪面上，运维一眼可辨；
     读不到版本表同样按 unready 处理（fail-closed，不猜）。
+
+    连接池按域拆分后（project_planning / asset_service 各自独立池与角色），
+    就绪必须**两个池都探活**：只探 project 池时，asset 凭据或角色权限损坏
+    仍会回报 ready，资产路由的流量会进来变成 500（Codex P2）。
     """
+    checks: dict[str, str] = {}
+    revision: str | None = None
     try:
-        sessionmaker = app.state.sessionmaker
-        async with sessionmaker() as session:
-            await session.execute(text("SELECT 1"))
+        for name in ("project_planning_sessionmaker", "asset_service_sessionmaker"):
+            sessionmaker = getattr(app.state, name)
+            async with sessionmaker() as session:
+                await session.execute(text("SELECT 1"))
+            checks[name.removesuffix("_sessionmaker") + "_database"] = "up"
+        # schema revision 只读一次（project 池，alembic_version 全库共享）。
+        async with app.state.project_planning_sessionmaker() as session:
             revision = (
                 await session.execute(text("SELECT version_num FROM alembic_version"))
             ).scalar_one_or_none()
     except Exception:
         logger.error("readiness_check_failed", exc_info=True)
+        failed = next(
+            (n for n in ("project_planning", "asset_service") if n + "_database" not in checks),
+            "database",
+        )
         return JSONResponse(
             status_code=503,
-            content={"status": "unready", "checks": {"database": "down"}},
+            content={"status": "unready", "checks": {failed + "_database": "down"}},
         )
     return JSONResponse(
         status_code=200,
         content={
             "status": "ready",
-            "checks": {"database": "up"},
+            "checks": checks,
             "schema_revision": revision,
         },
     )

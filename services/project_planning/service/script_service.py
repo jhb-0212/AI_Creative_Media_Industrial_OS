@@ -28,6 +28,7 @@ from sqlalchemy.exc import IntegrityError
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.identity.principal import Principal
+from packages.identity.separation import require_different_subject
 from services.project_planning.domain.enums import ScriptStatus
 from services.project_planning.domain.script import ScriptRevision
 from services.project_planning.repository._versioning import ConcurrentModificationError
@@ -237,18 +238,16 @@ class ScriptService:
         # 归属验证（批准前要求归属合法）。
         await self._assert_episode_ownership(script.project_id, script.episode_ref)
 
-        # 红线：职责分离 fail-closed。缺少申请人说明审批链不完整，直接拒绝；
-        # 不能因 requested_by 为空就跳过比对（否则任意主体都能批准空申请）。
-        if script.requested_by is None:
-            raise DomainError(
-                ErrorRegistry.STATE_TRANSITION_DENIED,
-                detail="缺少锁定申请人，禁止批准（职责分离不可绕过）",
-            )
-        if script.requested_by == approved_by:
-            raise DomainError(
-                ErrorRegistry.STATE_TRANSITION_DENIED,
-                detail="申请人与批准人不得为同一主体（职责分离红线）",
-            )
+        # 红线：职责分离 fail-closed。申请人（requested_by）与批准人（当前主体）
+        # 必须是两个不同真实主体；缺少申请人说明审批链不完整，同样拒绝。
+        # 统一判定见 packages/identity/separation.py（消除重复比对逻辑）。
+        require_different_subject(
+            actor=approved_by,
+            counterpart=script.requested_by,
+            action_label="SCRIPT.LOCK.APPROVE",
+            actor_label="批准人",
+            counterpart_label="申请人",
+        )
 
         expected_version = script.entity_version
         script.approve_lock(approved_by)
