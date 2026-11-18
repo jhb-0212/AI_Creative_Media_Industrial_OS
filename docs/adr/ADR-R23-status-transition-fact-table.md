@@ -1,10 +1,10 @@
 # ADR-R23：状态迁移事实表（审批可追溯的第一类事实）
 
-- 状态：已采纳，待实施（2026-11-18；同日按评审 R1–R5 修订）
+- 状态：**已实施（D2a，2026-11-18）**——读接口与会签仍属 D2b
 - 关联：N-02、ADR-R07（状态机单一事实源）、ADR-R11（不可变性与授权基线）、ADR-R06-2（outbox
   保留期与分区）、ADR-R22（基线事实源单一化）
 - 上游依据：`docs/audits/2026-11-18-full-repo-baseline-and-root-cause-audit.md` §7 N-02
-- 触发的契约演进：`V205-R14-A12`（新增 `StatusTransition` 对象 Schema，待登记）
+- 触发的契约演进：`V205-R14-A12`（StatusTransition 对象 Schema，已登记并重签：Schema 84 = 76+8）
 - 修订记录：R1 枚举真实写入路径（原稿误称每域已有唯一 choke point）；R2 `event_id` 改非空并由
   延迟约束触发器保证事件存在；R3 遗留 `audit_ref` 处理；R4 `resource_id` 与实体同型；
   R5 补 `TRUNCATE` 守卫（含既有两表同缺口）
@@ -49,15 +49,15 @@ CREATE TABLE audit.status_transitions (
     transition_id   uuid         PRIMARY KEY,
     tenant_id       uuid         NOT NULL,
     organization_id uuid         NULL,          -- 全局资源（无组织归属）为 NULL
-    resource_type   text         NOT NULL,      -- 对象类型，与 Schema $defs 同名
-    resource_id     varchar(64)  NOT NULL,      -- 与实体表 entity_id 同型（见要点 2）
-    entity_version  integer      NOT NULL,      -- 推进完成后的乐观锁版本
-    from_status     text         NOT NULL,
-    to_status       text         NOT NULL,
-    owner_action    text         NOT NULL,      -- Action Registry 的 action_key
-    actor_subject   text         NOT NULL,      -- 谁触发的
-    authority_ref   text         NULL,          -- 授权凭据 jti（谁授的权），可空
-    evidence_refs   text[]       NOT NULL DEFAULT '{}',  -- 证据对象 id 列表，不是摘要
+    resource_type   varchar(64)   NOT NULL,     -- 对象类型，与 definitions 同名
+    resource_id     varchar(64)   NOT NULL,     -- 与实体表 entity_id 同型（见要点 2）
+    entity_version  integer       NOT NULL,     -- 推进完成后的乐观锁版本
+    from_status     varchar(64)   NOT NULL,
+    to_status       varchar(64)   NOT NULL,
+    owner_action    varchar(64)   NOT NULL,     -- Action Registry 的 action_key
+    actor_subject   varchar(128)  NOT NULL,     -- 谁触发的
+    authority_ref   varchar(128)  NULL,         -- 授权凭据 jti（谁授的权），可空
+    evidence_refs   varchar(64)[] NOT NULL DEFAULT '{}',  -- 证据对象 id 列表，不是摘要
     occurred_at     timestamptz  NOT NULL DEFAULT now(),
     event_id        uuid         NOT NULL,      -- 对应 outbox 事件（非空，见要点 3）
 
@@ -303,3 +303,32 @@ contract_amendments.yaml 登记 A12（schema_objects: StatusTransition）
 | 整表被 TRUNCATE 清空 | 是：语句级触发器，且既有两表同缺口一并补齐 |
 | 证据被二次录入后漂移 | 是：只存 `evidence_refs`，不存快照 |
 | 状态历史需要另一个「日志服务」 | 否（正确）：`audit_log` 若是操作日志就是另一类事实，本 ADR 不建 |
+
+## 9. 实施记录（2026-11-18，D2a 已落地）
+
+实施清单 0–9 全部完成，仅读接口（`AUDIT.STATUS.HISTORY.READ`）与会签事实（`approval_signatures`）
+按 §D2-e 留给 D2b。实施中有三处**设计层面的选择**，都记在这里而不是留在代码注释里：
+
+**1. `record_transition` 挂在既有 `OutboxWriter` 端口上，不新建 Recorder。**
+
+端口方法一次写两条：事件（payload 里带 `transition_id`）与事实（带 `event_id`）。
+理由是不变量本身——两者缺一即为非法状态。若拆成「写事件」与「写事实」两个方法/两个依赖，
+「只写一条」在类型层面就变成可表达的，而它恰恰是这张表要消除的失败形态。
+代价是端口名称比它的职责窄（它现在承载「同一事务内的证据写入」），已在模块 docstring 里写明；
+不为此改名，是因为改名只增加 diff，不改变任何行为。
+
+**2. 剧本取代的 `actor_subject` 来自真实主体，不编造。**
+
+`_supersede_active_version` 原本没有操作者参数。事实表的 `actor_subject` 非空，可以选
+「填一个 system」让它通过——但那是在事实里撒谎。改为把调用方已有的
+`principal.subject_id` 传下来：取代旧版本的「谁」就是导入新版本的人。
+顺带说明：`SCRIPT_SUPERSEDED` 的事件 payload 里**没有**操作者字段（它的「谁」是
+`superseded_by` 这个实体引用），所以 `advance_status` 的 `actor_field` 必须是可选的——
+为了「统一」强行给所有事件加 `changed_by`，等于改已登记的事件契约。
+
+**3. `evidence_refs` 只登记已知引用，不为了填满字段而查库。**
+
+QC 驱动的推进把 `qc_report_id` 写进事实；其余推进为 `()`。没有为了让字段「看起来完整」
+去额外查询证据 id 列表——引用缺失是可接受的事实（可补），编造或过度查询不是。
+另外修掉一个顺带发现的契约缺口：`QC_REPORT_CREATED` 的 `payload_required` 早就声明了
+`quality_profile_version`，而旧代码从未发送（事件闸门只校验字段存在，不校验代码是否真发）。

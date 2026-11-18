@@ -264,6 +264,48 @@ data_ownership:
         - tests/integration/test_ownership_db_roles.py::test_relay_column_privileges_match_contract
       residual_risk: "整表 UPDATE 已由 b9e1c2d3f4a5 收窄为列级授权（父表 + 已存在分区 + 撤销未来分区默认权限）。"
 
+    - id: DATA-4
+      name: 状态推进唯一入口（事实不随路径散落）
+      statement: >-
+        每个业务域只有一个函数可以推进状态并写入迁移事实：asset_service 的
+        ``_advance`` 与 project_planning 的 ``advance_status``。任何新增路径
+        直接调用 ``transition_to`` 即违反——事实表的完整性依赖「有推进 ⇒ 有事实行」，
+        多一条路径就多一个静默缺口（状态改了、事件发了、审计查不到）。
+      fact_source: scripts/boundary_assertions.py（_TRANSITION_ENTRY_WHITELIST）；services/project_planning/service/transition.py；services/asset_service/service/asset_service.py
+      verification: 断言 data.transition_single_entry（AST 查调用点白名单，不查函数是否存在）
+      assertion: data.transition_single_entry
+      runtime_evidence:
+        - tests/integration/test_status_transition_fact.py::test_transition_row_and_event_mutually_reference
+        - tests/integration/test_status_transition_fact.py::test_transition_without_event_is_rejected_at_commit
+      residual_risk: >-
+        白名单按「文件 + 函数名」判定，改名需同步更新；未覆盖通过反射/字符串拼接
+        调用 transition_to 的极端写法（AST 查不到），该类改写会在代码评审兜底。
+
+    - id: DATA-5
+      name: 迁移事实 append-only 且不可假造
+      statement: >-
+        ``audit.status_transitions`` 只追加：UPDATE / DELETE / **TRUNCATE** 一律被
+        触发器拒绝（含表所有者身份）；同一 ``(tenant, resource_type, resource_id,
+        entity_version)`` 只能有一条事实；``from_status = to_status`` 不是迁移；每条
+        事实的 ``event_id`` 必须指向同事务写入的真实事件（提交时校验，而非写入时——
+        因此写入顺序不需要人记）；RLS 同时 ENABLE 与 FORCE。
+      fact_source: data/migrations/versions/d8e9f0a1b2c3_audit_status_transitions.py；packages/shared/status_transition.py
+      verification: 断言 data.transition_fact_table（迁移文本含全部结构性保证 + ORM 同源）
+      assertion: data.transition_fact_table
+      runtime_evidence:
+        - tests/integration/test_status_transition_fact.py::test_append_only_blocks_update_and_delete
+        - tests/integration/test_status_transition_fact.py::test_owner_cannot_truncate_fact_table
+        - tests/integration/test_status_transition_fact.py::test_owner_cannot_truncate_existing_append_only_tables
+        - tests/integration/test_status_transition_fact.py::test_duplicate_entity_version_is_rejected
+        - tests/integration/test_status_transition_fact.py::test_noop_transition_is_rejected
+        - tests/integration/test_status_transition_fact.py::test_domain_role_has_no_mutation_privilege
+      residual_risk: >-
+        所有者/超级用户仍可用 ``ALTER TABLE … DISABLE TRIGGER`` 或
+        ``session_replication_role = replica`` 绕过（运维权限范畴，非应用路径；
+        生产迁移凭据不进业务容器）。历史不回填：迁移前的推进没有事实行，遗留
+        ``audit_ref`` 按 ADR-R23 §D2-c 标记 legacy 而非反推——缺历史是可见的，
+        假历史才是不可见的。
+
 # --------------------------------------------------------------------------- #
 # 4. 进程密钥边界（process_keys）
 # --------------------------------------------------------------------------- #

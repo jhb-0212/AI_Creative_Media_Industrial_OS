@@ -20,8 +20,8 @@ from packages.shared.outbox_writer import OutboxWriter
 from packages.shared.port_errors import DuplicateEntityError, ReferentialIntegrityError
 from services.project_planning.domain.enums import ProjectStatus, ProjectTier
 from services.project_planning.domain.project import Project
-from services.project_planning.repository._versioning import ConcurrentModificationError
 from services.project_planning.repository.project_repo import ProjectRepository
+from services.project_planning.service.transition import advance_status
 
 
 class ProjectService:
@@ -171,34 +171,22 @@ class ProjectService:
                 ErrorRegistry.NOT_FOUND, detail=f"项目不存在: {entity_id}"
             )
 
-        # 固化旧状态再迁移：迁移后 project.status 已是目标态，若再用它记
-        # from_status 会丢真实来源态。
-        previous_status = project.status
-        expected_version = project.entity_version
-        project.transition_to(
-            target_status, audit_ref=f"status_change:{changed_by}"
-        )
-        try:
-            await self._repository.save(project, expected_version)
-        except ConcurrentModificationError as exc:
-            raise DomainError(
-                ErrorRegistry.CONCURRENT_MODIFICATION,
-                detail="项目状态并发冲突，请基于最新状态重试",
-            ) from exc
-
-        # 与状态变更同事务写 PROJECT_STATUS_CHANGED（R07：状态可追溯）。
-        self._outbox_writer.record(
+        # 唯一推进路径（ADR-R23 §D2-b）：守卫求值 → 乐观锁落库 → 写事件
+        # 全部由 transition.advance_status 承载，本处不再复制这四步。
+        await advance_status(
+            project,
+            target_status,
+            repository=self._repository,
+            outbox_writer=self._outbox_writer,
             aggregate_type="Project",
-            aggregate_id=project.entity_id,
             event_type="PROJECT_STATUS_CHANGED",
             tenant_id=tenant_id,
-            payload={
-                "project_id": project.entity_id,
-                "from_status": previous_status.value,
-                "to_status": target_status.value,
-                "changed_by": changed_by,
-                "tenant_id": str(tenant_id),
-            },
+            payload={"project_id": project.entity_id},
+            resource_type="Project",
+            owner_action="PROJECT.STATUS.CHANGE",
+            conflict_detail="项目状态并发冲突，请基于最新状态重试",
+            actor_field="changed_by",
+            actor=changed_by,
         )
         return project
 

@@ -924,3 +924,120 @@ def _all_migrations_text() -> str:
     for path in sorted((ROOT / "data/migrations/versions").glob("*.py")):
         parts.append(path.read_text(encoding="utf-8"))
     return "\n".join(parts)
+
+
+# 状态推进的唯一入口白名单：文件 → 允许调用 transition_to 的函数。
+# 只有这两个函数能推进状态；新增第三个即报红（ADR-R23 §D2-b）。
+_TRANSITION_ENTRY_WHITELIST: dict[tuple[str, str], str] = {
+    ("services/asset_service/service/asset_service.py", "_advance"): "资产域唯一推进点",
+    ("services/project_planning/service/transition.py", "advance_status"): "项目域唯一推进点",
+}
+
+
+@assertion("data.transition_single_entry")
+def data_transition_single_entry() -> AssertionResult:
+    """状态推进只能从每域唯一的入口发生（ADR-R23 §D2-b，不变量 DATA-4）。
+
+    为什么查**调用点**而不是查函数是否存在：事实表的完整性依赖「有推进 ⇒ 有事实行」。
+    只要有人新增第 N 条路径、在服务方法里直接 ``transition_to``，事实行就静默缺失——
+    状态改了、事件发了、审计查不到，而没有任何闸门会红。
+    白名单能指出越界的是谁；统计调用次数只会说「多了一个」。
+    """
+    violations: list[str] = []
+    scanned = 0
+    for root_name in ("services", "packages", "apps"):
+        for path in sorted((ROOT / root_name).rglob("*.py")):
+            rel = path.relative_to(ROOT).as_posix()
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            scanned += 1
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                for call in ast.walk(node):
+                    if not isinstance(call, ast.Call):
+                        continue
+                    func = call.func
+                    if not (isinstance(func, ast.Attribute) and func.attr == "transition_to"):
+                        continue
+                    if (rel, node.name) not in _TRANSITION_ENTRY_WHITELIST:
+                        violations.append(f"{rel}::{node.name}")
+
+    if violations:
+        return (
+            False,
+            "以下位置绕过唯一推进入口调用了 transition_to（事实行会静默缺失）："
+            + "、".join(sorted(set(violations))),
+        )
+    if not _TRANSITION_ENTRY_WHITELIST:
+        return (False, "推进入口白名单为空：断言会无条件通过，等于没有")
+    return (True, "")
+
+
+class _SqlCollector:
+    """假的 alembic ``op``：只记录 ``execute()`` 的 SQL，不连数据库。"""
+
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+
+    def execute(self, sql: object, *args: object, **kwargs: object) -> None:
+        self.statements.append(str(sql))
+
+
+def _rendered_migration_sql(rel_path: str) -> str:
+    """回放一份迁移的 ``upgrade()``，返回它真正会执行的 SQL 文本。
+
+    为什么回放而不是读源码：迁移普遍用 f-string 拼 DDL（schema/表名是常量），
+    源码里根本不存在 ``CREATE TABLE audit.status_transitions`` 这样的字面量。
+    读源码只能匹配到片段，回放才能匹配到语句——后者才是「数据库实际收到了什么」。
+    """
+    import importlib.util
+
+    path = ROOT / rel_path
+    spec = importlib.util.spec_from_file_location("_probe_migration", path)
+    if spec is None or spec.loader is None:
+        raise AssertionError(f"无法加载迁移：{rel_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    collector = _SqlCollector()
+    module.op = collector  # type: ignore[attr-defined]
+    module.upgrade()
+    return "\n".join(collector.statements)
+
+
+@assertion("data.transition_fact_table")
+def data_transition_fact_table() -> AssertionResult:
+    """迁移事实表的结构与守卫必须真实存在（ADR-R23 §D2-a，不变量 DATA-5）。
+
+    只查「表存在」是不够的：本表的价值全在约束上——唯一约束（并发双写不可能）、
+    CHECK（no-op 不是迁移）、提交时事件校验（有迁移必有事件）、TRUNCATE 守卫
+    （整表清空不触发行级触发器）、FORCE RLS（所有者之外也受策略约束）。
+    少任何一条，表还在，但不变量已经不在。
+    """
+    # 迁移用 f-string 拼 DDL，源码文本里没有渲染后的字面量；直接回放 upgrade()
+    # 捕获真实执行的 SQL——断言必须看「跑出来的语句」，而不是「源码长什么样」。
+    text = _rendered_migration_sql(
+        "data/migrations/versions/d8e9f0a1b2c3_audit_status_transitions.py"
+    )
+    required = {
+        "audit schema": "CREATE SCHEMA IF NOT EXISTS audit",
+        "事实表": "CREATE TABLE audit.status_transitions",
+        "版本唯一约束": "uq_status_transition_version",
+        "no-op 禁止": "ck_status_transition_advances",
+        "行级 append-only": "BEFORE UPDATE OR DELETE ON audit.status_transitions",
+        "整表清空守卫": "BEFORE TRUNCATE ON audit.status_transitions",
+        "提交时事件校验": "AFTER INSERT ON audit.status_transitions",
+        "延迟到提交": "DEFERRABLE INITIALLY DEFERRED",
+        "RLS FORCE": "FORCE ROW LEVEL SECURITY",
+        "既有 qc_reports TRUNCATE 守卫": "BEFORE TRUNCATE ON asset_service.qc_reports",
+        "既有 asset_versions TRUNCATE 守卫": "BEFORE TRUNCATE ON asset_service.asset_versions",
+    }
+    missing = [label for label, needle in required.items() if needle not in text]
+    if missing:
+        return (False, "迁移事实表缺少结构性保证：" + "、".join(missing))
+
+    model = (ROOT / "packages/shared/status_transition.py").read_text(encoding="utf-8")
+    if '__tablename__ = "status_transitions"' not in model:
+        return (False, "ORM 映射未指向 status_transitions：规则与持久化不同源")
+    if "SCHEMA_NAME = \"audit\"" not in model:
+        return (False, "ORM 映射未落在 audit schema")
+    return (True, "")

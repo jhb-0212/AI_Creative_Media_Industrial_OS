@@ -30,11 +30,11 @@ from packages.identity.separation import require_different_subject
 from packages.shared.port_errors import DuplicateEntityError, ReferentialIntegrityError
 from services.project_planning.domain.enums import ScriptStatus
 from services.project_planning.domain.script import ScriptRevision
-from services.project_planning.repository._versioning import ConcurrentModificationError
 from services.project_planning.repository.episode_repo import EpisodeRepository
 from services.project_planning.repository.outbox_writer import OutboxWriter
 from services.project_planning.repository.project_repo import ProjectRepository
 from services.project_planning.repository.script_repo import ScriptRepository
+from services.project_planning.service.transition import advance_status
 
 
 class ScriptService:
@@ -113,7 +113,11 @@ class ScriptService:
         # 新版本导入：使「同一项目 + 同一集数」下当前未取代的旧版本转 SUPERSEDED。
         # 版本链按 project_id + episode_ref 隔离，避免跨集误替换。
         await self._supersede_active_version(
-            project_id, episode_ref, new_entity_id, principal.tenant_id
+            project_id,
+            episode_ref,
+            new_entity_id,
+            principal.tenant_id,
+            actor=principal.subject_id,
         )
 
         script = ScriptRevision(
@@ -312,6 +316,8 @@ class ScriptService:
         episode_ref: str,
         new_entity_id: str,
         tenant_id: uuid.UUID,
+        *,
+        actor: str,
     ) -> None:
         """将指定项目 + 集数下的当前活跃版本标记为 SUPERSEDED。
 
@@ -327,37 +333,32 @@ class ScriptService:
             return
         if latest.status == ScriptStatus.SUPERSEDED:
             return
-        # 乐观锁：捕获读取时版本，条件更新。并发下若该活跃版本已被另一请求
-        # 先行取代（版本被推进），save 抛 ConcurrentModificationError——此时
-        # 幂等跳过（终态已达成，无需二次 transition，也避免对终态报错）。
-        expected_version = latest.entity_version
-        # 先固化旧状态再迁移：迁移后 latest.status 已是 SUPERSEDED，
-        # 再用它做 from_status 会记成 SUPERSEDED→SUPERSEDED，丢掉真实来源态。
-        previous_status = latest.status.value
-        latest.transition_to(
-            ScriptStatus.SUPERSEDED, audit_ref=f"superseded_by:{new_entity_id}"
-        )
-        try:
-            await self._repository.save(latest, expected_version)
-        except ConcurrentModificationError:
-            # 并发取代竞态：旧版本已被他人标记 SUPERSEDED，幂等跳过。
-            return
-
-        # 审计事件（决策 3）：版本取代同事务原子记录，保留取代链。
-        self._outbox_writer.record(
+        # 并发取代竞态由 advance_status 的 on_conflict="skip" 表达：若旧版本已被
+        # 他人推进（版本号已变），返回 False 并幂等跳过——终态已达成，不再二次
+        # transition，也不对终态报错。该策略是剧本取代独有的，故显式声明而非默认。
+        advanced = await advance_status(
+            latest,
+            ScriptStatus.SUPERSEDED,
+            repository=self._repository,
+            outbox_writer=self._outbox_writer,
             aggregate_type="ScriptRevision",
-            aggregate_id=latest.entity_id,
             event_type="SCRIPT_SUPERSEDED",
             tenant_id=tenant_id,
             payload={
                 "project_id": project_id,
                 "episode_ref": episode_ref,
                 "superseded_by": new_entity_id,
-                "from_status": previous_status,
-                "to_status": ScriptStatus.SUPERSEDED.value,
-                "tenant_id": str(tenant_id),
             },
+            resource_type="ScriptRevision",
+            # 新版本导入使旧版本 SUPERSEDED（state_machines.yaml#ScriptRevision 的 note）：
+            # 拥有这条边的是 SCRIPT.IMPORT，而不是某个"取代"动作（契约里不存在该动作）。
+            owner_action="SCRIPT.IMPORT",
+            conflict_detail="剧本版本取代并发冲突",
+            actor=actor,
+            on_conflict="skip",
         )
+        if not advanced:
+            return
 
     async def get_script(self, entity_id: str) -> ScriptRevision:
         """查询剧本版本，不存在抛 NOT_FOUND。"""

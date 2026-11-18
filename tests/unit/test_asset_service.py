@@ -65,6 +65,20 @@ class FakeQCRepository(QCReportRepository):
 class FakeOutboxWriter:
     def __init__(self) -> None:
         self.events: list[dict[str, object]] = []
+        self.transitions: list[object] = []
+
+    def record_transition(self, *, fact: object, event: object) -> uuid.UUID:
+        self.transitions.append(fact)
+        return self.record(
+            aggregate_type=event.aggregate_type,  # type: ignore[attr-defined]
+            aggregate_id=event.aggregate_id,  # type: ignore[attr-defined]
+            tenant_id=event.tenant_id,  # type: ignore[attr-defined]
+            event_type=event.event_type,  # type: ignore[attr-defined]
+            payload={
+                **event.payload,  # type: ignore[attr-defined]
+                "transition_id": str(fact.transition_id),  # type: ignore[attr-defined]
+            },
+        )
 
     def record(
         self,
