@@ -244,8 +244,9 @@ def test_invariants_are_declared_and_scoped() -> None:
         assert item["enforced_by"] in {"SCHEMA", "RUNTIME_PENDING"}
 
     schema_enforced = {item["id"] for item in invariants if item["enforced_by"] == "SCHEMA"}
-    assert schema_enforced == {"SR-4", "SR-6"}, (
-        "能由 schema 表达的只有版本链闭合与越权字段排除；"
+    assert schema_enforced == {"SR-4", "SR-6", "SR-11"}, (
+        "能由 schema 表达的只有：版本链闭合、越权字段排除、不含时长与时间线定位。"
+        "新增一条 SCHEMA 级不变量必须在此显式登记，防止把运行时校验悄悄标成已落实；"
         f"实际标注: {sorted(schema_enforced)}"
     )
     assert any(item["enforced_by"] == "RUNTIME_PENDING" for item in invariants), (

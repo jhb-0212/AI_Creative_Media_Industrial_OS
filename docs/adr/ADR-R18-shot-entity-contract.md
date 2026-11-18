@@ -1,8 +1,8 @@
 # ADR-R18：稳定逻辑镜头的对象契约（Shot）
 
-状态：已实施（契约层，2026-11-18）；运行时未实施
+状态：已实施（契约层，2026-11-18；含字段归属裁决）；运行时未实施
 关联：ADR-R17（ShotRevision）、ADR-R16（ShotBreakdownDraft）、ADR-R07（镜头域契约缺口）、ADR-023（支撑资产质量与成片质量分离）、31.5 状态机权威规则、31.6 Action Registry
-上游依据：基线正文《AI影视工业化生产平台V2.0.5.md》8.1 / 8.2 / 8.3 / 31.6 + 项目所有者 2026-11-18《Shot 独立建模裁定》
+上游依据：基线正文《AI影视工业化生产平台V2.0.5.md》8.1 / 8.2 / 8.3 / 8.12 / 31.6 / 33.2 / 33.4 + 项目所有者 2026-11-18《Shot 独立建模裁定》与《字段归属裁决》
 
 ## 结论
 
@@ -115,30 +115,103 @@ Shot（身份 + 编号 + 进度，稳定）
 后续修订只新增 `ShotRevision`、仅前移 `Shot.shot_revision_id`，不重建 `Shot`——这一点写在
 `approval_requirement` 里，避免实现者把「每次确认都建一个新 Shot」当成合理解释。
 
-## 待裁定差异（本轮不动，明确登记）
+## 字段归属裁决：时长归 `ShotSpec`，时间线位置归 `TimelineDraft`
 
-所有者本轮口径为「镜头规格、时长、时间码、相机参数归 `ShotSpec` 等规格对象」，
-但 **`duration_ms` 与 `timecode` 当前在 `ShotRevision` 里**（ADR-R17 落定，已成冻结契约，25 条测试守着）。
+ADR-R17 把 `duration_ms` 与 `timecode` 放进了 `ShotRevision`（当时按 8.3 示例照抄）。经裁定，两者
+**都不再属于 `ShotRevision`**，且不是「整体搬到 `ShotSpec`」，而是按对象边界拆开：
 
-本轮**不偷偷改已冻结的 `ShotRevision`**：那需要一次独立修订、会影响 `ShotSpec` 与下游，
-且与「本次只建模 Shot」的范围不符。差异在此登记，两条路径留待裁定：
+| 字段 | 唯一权威归属 | 裁决理由 |
+|---|---|---|
+| `duration_ms` | `ShotSpec.duration_ms` | 8.12 明定 `ShotSpec` 是镜头结构化描述的单一数据源，且示例已含 `duration_ms: 4200` |
+| `timecode.start_frame` / `end_frame` | `TimelineDraft.clip_in_frame` / `clip_out_frame` | 8.3 的 `timecode` 描述的是「在某条时间线上的位置」，33.2 已用入出点表达该事实 |
+| `timecode.fps_num` / `fps_den` | `TimelineDraft.fps_num` / `fps_den` | 33.4 要求序列时间基准用有理帧率保存 |
+| `fps`（镜头自身） | `ShotSpec.fps` | 与序列帧率是两个概念：一个描述镜头规格，一个描述序列规格 |
 
-- **路径 A（推荐）**：`duration_ms` / `timecode` 迁到 `ShotSpec`，`ShotRevision` 删除两字段。
-  代价：`ShotSpec` 新增两字段、需要 `ShotSpec` 先有 `duration` 的权威口径、改动 A5 记录。
-- **路径 B**：承认「内容时长」属修订、「时间线定位」属规格，`ShotRevision` 保留 `duration_ms`、
-  `timecode` 迁出。代价：需要解释「同一个镜头的时长在修订里、时间码在规格里」是否会造成不一致。
+### 为什么 `duration_ms` 必须归 `ShotSpec`
 
-在裁定前，两边都不能被实现方当成「另一个字段可以随便改」。
+决定性证据是 8.12 的原文：「`ShotSpec` 是镜头结构化描述的单一数据源，必须版本化并绑定
+`ShotRevision`。**不应分别维护冲突的镜头时长或切点**」。
+
+若 `ShotRevision.duration_ms` 与 `ShotSpec.duration_ms` 并存，同一镜头就出现两个可互相矛盾的
+权威值，而且没有任何规则能判定谁对——这正是单一数据源原则要消除的形态。因此 `ShotSpec.duration_ms`
+是唯一权威值，`ShotRevision` 只保存叙事内容、描述与创意意图。
+
+### 为什么 `timecode` 不能塞进 `ShotSpec`
+
+`ShotSpec` 描述镜头**自身**的结构与执行规格；`timecode` 描述镜头在**某条序列**中的位置。同一个
+`ShotRevision` 可以在不同时间线版本里被重排、裁剪或移位。若时间码进规格，一次剪辑重排就会被迫
+产生新的镜头内容修订——版本链会被剪辑行为污染。
+
+### 落点的一处修正：不新增 `start_frame` 作为镜头条目字段
+
+所有者口径写作「`start_frame` / `end_frame` 归 `TimelineDraft` 的镜头条目」。但 33.2 的字段组表已经
+用 **`shot_order` + `duration_per_shot_frames{}` + `clip_in_frame` + `clip_out_frame`** 表达排序、
+每镜头帧数与入出点。若再引入 `start_frame` / `end_frame` 作为镜头条目字段，就会与 `clip_in_*`
+构成同一时间范围的第二个事实源——与被裁决掉的重复完全同型。
+
+因此迁入落点定为 `clip_in_frame` / `clip_out_frame`；`start_frame` / `end_frame` 保留给序列 timebase
+与字幕、音频对齐、转场条目（33.2 中它们本来就是这些条目的字段）。映射关系写在
+`TimelineDraft.x-afs-timecode-intake` 里，机器可读。
+
+### 帧区间语义：左闭右开
+
+所有帧区间一律 `[start, end)`，**`end` 不含末帧**，长度恒为 `end − start`。这条必须写死，否则
+「`end_frame` 是否含末帧」会在剪辑、字幕、音频、导出四个模块里各有一个解释。
+
+8.3 的例子恰好自洽：`240 → 366 @ 30/1` 是 `366 − 240 = 126` 帧，`126 / 30 s = 4200 ms`，与同一示例的
+`duration_ms: 4200` 完全吻合。这也反证了 8.3 里的 `duration_ms` 与 `timecode` 本是同一事实的两处
+表达——正是本轮要消除的重复。
+
+### 承接字段必须先成为真契约，否则迁移是质量暗降
+
+迁移前 `ShotSpec.duration_ms`、`fps`、`cut_points_frames` 与 `TimelineDraft` 的帧字段全是
+`type: "string"`（从正文 YAML 块粗提取的壳），而 `ShotRevision.duration_ms` 是
+`integer + minimum: 0`。直接把字段搬过去，等于把「双事实源」换成「单一无约束事实」——比原来更差。
+
+所以本轮同步把承接方做实：`duration_ms` → `integer, minimum: 1`；`fps` → `{num, den}` 均为
+`integer, minimum: 1` 且 `additionalProperties: false`；`cut_points_frames` → `array<integer>` 且
+`minItems: 1`、`uniqueItems`；`TimelineDraft` 的七个帧字段全部落到 `integer` 约束，
+`duration_per_shot_frames{}` 落到 `object<integer>`。不做这一步，迁移只是把约束丢掉。
+
+## 历史版本与迁移
+
+ADR-R17 已冻结，不回溯改写。收敛方式与迁移口径分开处理：
+
+1. **历史保留可读。** `ShotRevision` 的两个字段标 `retired_at_schema_version: 2`，并登记
+   `historical_ref: git:2192af9#/definitions/ShotRevision/properties/...`。旧版本记录按自身的
+   `schema_version` 读取，不从当前 schema 反推；旧字段的定义可从该 commit 精确取回（有测试校验该
+   引用可解析）。
+2. **新写入收敛。** schema_version 2 起的 `ShotRevision` 不再接受这两个字段；`SR-11` 把「不含时长
+   与时间线定位」写成 SCHEMA 级不变量，闸门可校验。
+3. **时长迁移。** 旧 `duration_ms` 回填对应 `ShotSpec.duration_ms`；回填值与按帧换算值冲突时进入
+   人工复核队列，不得静默覆盖。
+4. **时间码迁移。** 只有能确定所属时间线版本的旧 `timecode` 才迁入该版本的镜头条目；无法确定归属的
+   保留原值并写入迁移台账，不得猜测。
+
+## 基线 8.3 示例待修订（不在本轮权限内）
+
+8.3 的示例把 `duration_ms` 与 `timecode` 与 `Shot` 的身份 / 编号 / 状态混在同一段 JSON 里，容易让
+读者以为它们是稳定 `Shot` 的直接字段。应改为分对象呈现（Shot / ShotRevision / ShotSpec /
+TimelineDraft 各自一段）。
+
+但基线文档已冻结：`frozen_inventory.yaml` 记录 `document_bytes: 489607` 与
+`document_sha256: 9a9940c5…`，改一个字节即触发冻结漂移。**本轮不私改基线**，登记为基线待修订项，
+由基线所有者在下一次基线修订时一并处理；在此之前，以本 ADR 与 `object_schemas` 的口径为准。
 
 ## 影响
 
 - `object_schemas.schema.json` 新增 `Shot`（20 个属性 / 15 个必填），覆盖 81 → 82 个对象。
+- `ShotRevision` 退役 `duration_ms` / `timecode`：属性 40 → 38，必填 32 → 31，新增 `SR-11` 与
+  `x-afs-retired-fields`（含 git 历史引用）。
+- `ShotSpec` 由空壳落为真契约：补 `description`、三字段真类型约束、`SS-1`~`SS-4` 与两条排除项。
+- `TimelineDraft` 补 `description`、七个帧字段的整数约束与 `duration_per_shot_frames{}` 的 map 约束、
+  `TL-1`~`TL-5` 与机器可读的 `x-afs-timecode-intake` 映射。
 - `state_machines.yaml` 登记五态与 10 条转移 + 6 条守卫；总数 40 → 41。
 - `enum_registry.yaml` 登记五态；对象数 37 → 38。
 - `action_registry.yaml` 与 `openapi.draft.yaml`：`SHOT.REVISION.CONFIRM` 资源类型
   `ShotRevision` → `Shot/ShotRevision`，并说明首次原子创建语义。
 - `contract_check.py` 新增 `check_state_machine_guards()`（守卫字段与转移必须真实可校验）。
-- 契约修订 `V205-R14-A6` 记录增补与残余风险。
+- 契约修订 `V205-R14-A6` 记录 `Shot` 建模，`V205-R14-A7` 记录字段归属裁决与退役。
 
 ## 残余风险
 
@@ -153,6 +226,15 @@ Shot（身份 + 编号 + 进度，稳定）
 4. **审批事实仍无独立对象。** `cancellation_ref` / `rework_basis_ref` 指向的是 `ReworkTask` 与
    授权记录，但「谁在什么授权下批准了什么」仍无专用对象——与 AUTH-3 累积式会签同源。
    刻意不在此另造审批子对象，避免第三份审批事实源。
-5. **`duration_ms` / `timecode` 归属待裁定**，见上。这是本轮唯一遗留的口径冲突，不是遗漏。
-6. **五态是所有者设计，不是正文原文。** 下一版正文若给出不同状态集，须走契约修订对齐，
+5. **跨对象时长换算没有取整与容差口径。** `ShotSpec.duration_ms` 与 `TimelineDraft` 的帧数必须能
+   换算（`帧数 = duration_ms × fps_num / (fps_den × 1000)`），但 8.12 自身示例并不严格：`4200 ms`
+   @ `24/1` 是 `100.8` 帧，而 `cut_points_frames` 末点是 `100`。因此实现方**不得**用严格相等做校验，
+   必须先定「取整方向 + 允许偏差」的口径；在此之前 `SS-3` 与 `TL-3` 只能校验各自对象内部的单调性
+   与区间差，跨对象一致性保持 `RUNTIME_PENDING`。
+6. **`ShotSpec` 与 `TimelineDraft` 仍是部分空壳。** 本轮只做实了与本次裁决直接相关的字段
+   （时长、帧率、切点、帧区间、每镜头帧数）；两对象其余字段仍为 `type: "string"`，且
+   `TimelineDraft` 的 `required` 里混入了本应属于子条目的字段（`text` / `language` / `marker_type` /
+   `track_ref`）与带花括号的键名 `duration_per_shot_frames{}`。属既有结构缺陷，独立整改，
+   不在本轮扩权修改。
+7. **五态是所有者设计，不是正文原文。** 下一版正文若给出不同状态集，须走契约修订对齐，
    而不是让实现与契约各自解释。

@@ -3043,7 +3043,7 @@
     },
     "ShotSpec": {
       "type": "object",
-      "description": "",
+      "description": "镜头结构化描述（规格）——时长、帧率、坐标系、相机路径、主体路径、切点与锁定维度的单一数据源（8.12）。必须绑定精确的 shot_revision_id 并随之版本化：修订定义「拍什么」，本对象定义「怎么拍、多长、切在哪」。不得在此承载镜头在时间线上的位置（入出点与顺序归 TimelineDraft）。",
       "required": [
         "aspect_ratio",
         "camera_path",
@@ -3083,13 +3083,34 @@
           "type": "string"
         },
         "cut_points_frames": {
-          "type": "string"
+          "type": "array",
+          "description": "镜头内部切点（整数帧，相对镜头起点，左闭右开区间的起点集合）。8.12 要求不得与时长分别维护冲突的切点；首点必须为 0，严格递增",
+          "items": {"type": "integer", "minimum": 0},
+          "minItems": 1,
+          "uniqueItems": true
         },
         "duration_ms": {
-          "type": "string"
+          "type": "integer",
+          "minimum": 1,
+          "description": "镜头结构化时长（毫秒）。8.12 规定本对象是镜头规格的单一数据源，故这是全系统唯一权威时长；ShotRevision 不再保存同义字段。整数毫秒，不用秒浮点"
         },
         "fps": {
-          "type": "string"
+          "type": "object",
+          "description": "镜头自身的拍摄时间基准（有理帧率）。与 TimelineDraft 的序列帧率 fps_num / fps_den 是两个概念：一个描述镜头规格，一个描述序列规格，不得互相覆盖或混用",
+          "required": ["num", "den"],
+          "properties": {
+            "num": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "帧率分子；30000/1001 用 num=30000、den=1001 表达，不用浮点近似"
+            },
+            "den": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "帧率分母"
+            }
+          },
+          "additionalProperties": false
         },
         "locked_dimensions": {
           "type": "string"
@@ -3141,8 +3162,43 @@
         }
       },
       "x-afs-sources": [
-        "8.12 ShotSpec 契约（YAML 契约块）"
+        "8.12 ShotSpec 契约（YAML 契约块：duration_ms / fps / cut_points_frames / camera_path / subject_paths / locked_dimensions）",
+        "8.3 Shot 契约示例中的 duration_ms 与 timecode 按 ADR-R18 迁出修订：duration_ms 归本对象，timecode 归 TimelineDraft",
+        "docs/adr/ADR-R18-shot-entity-contract.md（时长与帧率归属裁决、时间线帧区间左闭右开）"
       ],
+      "x-afs-invariants": [
+        {
+          "id": "SS-1",
+          "statement": "时长单一权威：duration_ms 只在本对象存在且必填；ShotRevision 与 TimelineDraft 不得各自维护同义时长字段，避免两处可互相矛盾的权威值。",
+          "enforced_by": "SCHEMA"
+        },
+        {
+          "id": "SS-2",
+          "statement": "绑定精确修订：shot_revision_id 必填，规格永远指向某一个确定的修订版本，不得指向「最新版本」或镜头本身。",
+          "enforced_by": "SCHEMA"
+        },
+        {
+          "id": "SS-3",
+          "statement": "切点单调：cut_points_frames 严格递增、首点为 0、互不重复；末点不得超出按 fps 与 duration_ms 换算的帧数。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SS-4",
+          "statement": "不承载时间线定位：本对象不含 start_frame / end_frame / clip_in_frame / clip_out_frame / shot_order；镜头在某条时间线上的位置归 TimelineDraft，否则序列重排会污染镜头规格。",
+          "enforced_by": "SCHEMA"
+        }
+      ],
+      "x-afs-exclusions": [
+        {
+          "field": "start_frame / end_frame / clip_in_frame / clip_out_frame / shot_order",
+          "why": "镜头在特定时间线中的位置与顺序属 TimelineDraft（33.2）；放进规格会让「同一镜头在另一版剪辑里被挪了位置」变成规格变更"
+        },
+        {
+          "field": "status / 生产进度",
+          "why": "生产进度属 Shot 生命周期；规格是版本化的静态描述，不含流程状态"
+        }
+      ],
+      "x-afs-retired-fields": [],
       "additionalProperties": true
     },
     "PrevizVersion": {
@@ -5140,7 +5196,7 @@
     },
     "TimelineDraft": {
       "type": "object",
-      "description": "",
+      "description": "时间线草稿——平台唯一权威、版本化的元数据编排对象（33.2）。负责镜头顺序、每镜头占用帧数与入出点、序列时间基准、字幕/音频/转场标记；引用精确的 ShotRevision 版本，但不复制镜头内容，也不反向修改镜头修订。帧区间一律左闭右开 [start, end)，长度即 end - start。",
       "required": [
         "audio_alignment",
         "audio_sample_rate",
@@ -5203,10 +5259,14 @@
           "type": "string"
         },
         "clip_in_frame": {
-          "type": "string"
+          "type": "integer",
+          "minimum": 0,
+          "description": "镜头在本时间线版本中的入口帧（闭）。与 clip_out_frame 构成左闭右开区间 [clip_in_frame, clip_out_frame)，占用的帧数即 clip_out_frame − clip_in_frame"
         },
         "clip_out_frame": {
-          "type": "string"
+          "type": "integer",
+          "minimum": 0,
+          "description": "镜头在本时间线版本中的出口帧（开，不含末帧）。必须严格大于 clip_in_frame；任何模块都不得把 end 解释为「含末帧」，否则同一区间的长度会出现两个答案"
         },
         "color_space": {
           "type": "string"
@@ -5218,22 +5278,32 @@
           "type": "string"
         },
         "duration_frames": {
-          "type": "string"
+          "type": "integer",
+          "minimum": 0,
+          "description": "本时间线版本的总帧数。必须等于各镜头占用帧数之和，不允许浮点秒累计折算"
         },
         "duration_per_shot_frames{}": {
-          "type": "string"
+          "type": "object",
+          "description": "每镜头占用帧数映射（键为 shot_id，值为整数帧）。只保存本时间线版本的实际占用，不承担镜头规格时长：规格时长归 ShotSpec.duration_ms，本字段是它在一条具体序列里的落地结果，两者按 fps 换算而不互为权威",
+          "additionalProperties": {"type": "integer", "minimum": 0}
         },
         "end_frame": {
-          "type": "string"
+          "type": "integer",
+          "minimum": 0,
+          "description": "序列或条目终点帧（开，不含末帧）。必须严格大于 start_frame；左闭右开是本契约的统一约定，字幕、转场、音频对齐条目共用该约定"
         },
         "episode_id": {
           "type": "string"
         },
         "fps_den": {
-          "type": "string"
+          "type": "integer",
+          "minimum": 1,
+          "description": "序列时间基准的帧率分母；30000/1001 用 30000 / 1001 表达，不用浮点近似"
         },
         "fps_num": {
-          "type": "string"
+          "type": "integer",
+          "minimum": 1,
+          "description": "序列时间基准的帧率分子（有理帧率）。与 ShotSpec.fps 是两个概念：本字段描述序列，ShotSpec.fps 描述镜头"
         },
         "height": {
           "type": "string"
@@ -5284,7 +5354,9 @@
           "type": "string"
         },
         "start_frame": {
-          "type": "string"
+          "type": "integer",
+          "minimum": 0,
+          "description": "序列或条目起点帧（闭）。与 end_frame 构成左闭右开区间 [start_frame, end_frame)，长度即 end_frame − start_frame"
         },
         "status": {
           "type": "string"
@@ -5342,8 +5414,48 @@
         }
       },
       "x-afs-sources": [
-        "33.2 TimelineDraft / EditDecisionList 权威对象（字段组）"
+        "33.2 TimelineDraft / EditDecisionList 权威对象（字段组：shot_order / duration_per_shot_frames / clip_in_frame / clip_out_frame）",
+        "33.4 时间基准：整数帧 + 有理帧率，保存 timebase 与 sequence_start_frame，禁止浮点秒累计漂移",
+        "docs/adr/ADR-R18-shot-entity-contract.md（ShotRevision.timecode 的迁入落点与左闭右开约定）"
       ],
+      "x-afs-invariants": [
+        {
+          "id": "TL-1",
+          "statement": "帧区间左闭右开：clip_in_frame / clip_out_frame 与 start_frame / end_frame 一律为 [start, end)，长度恒为 end − start；任一模块把末端解释为含末帧即违反本契约。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "TL-2",
+          "statement": "区间非空：clip_out_frame 严格大于 clip_in_frame，end_frame 严格大于 start_frame；零长或负长镜头不得进入时间线。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "TL-3",
+          "statement": "帧数自洽：duration_per_shot_frames[s] 必须等于该镜头条目 clip_out_frame − clip_in_frame，且 duration_frames 等于全部镜头占用之和；不允许两套时长各自成立。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "TL-4",
+          "statement": "引用精确修订：source_shot_revision_ids 必须是确定的 shot_revision_id 集合，不得填 shot_id 或「最新版本」；时间线重排不得改变被引用修订的内容。",
+          "enforced_by": "SCHEMA"
+        },
+        {
+          "id": "TL-5",
+          "statement": "不反向修改修订：镜头在时间线中的裁剪、重排、位置调整只产生新的时间线版本，不得因此新建或改写 ShotRevision。",
+          "enforced_by": "RUNTIME_PENDING"
+        }
+      ],
+      "x-afs-timecode-intake": {
+        "from": "ShotRevision.timecode（ADR-R17，已于 schema_version 2 退役）",
+        "mapping": {
+          "start_frame": "clip_in_frame",
+          "end_frame": "clip_out_frame",
+          "fps_num": "fps_num",
+          "fps_den": "fps_den"
+        },
+        "why": "33.2 已用 clip_in_frame / clip_out_frame 表达镜头在时间线上的入出点，再引入 start_frame 作为镜头条目字段会与它构成第二个事实源；start_frame / end_frame 保留给序列与字幕/转场条目",
+        "interval": "左闭右开 [clip_in_frame, clip_out_frame)：240 → 366 @ 30/1 表示 126 帧（4200 ms），不含第 366 帧"
+      },
       "additionalProperties": true
     },
     "ExportPackage": {
@@ -7186,7 +7298,7 @@
         },
         {
           "field": "duration_ms / timecode",
-          "why": "按所有者本轮口径，时长与时间码属镜头规格（ShotSpec）。当前 ShotRevision 已承载这两个字段（ADR-R17），与本口径存在差异，登记为 ADR-R18 的待裁定项，本轮不改已冻结的 ShotRevision 契约"
+          "why": "已裁决（ADR-R18）：时长归 ShotSpec.duration_ms，时间线位置归 TimelineDraft 的 clip_in_frame / clip_out_frame；两者已于 schema_version 2 从 ShotRevision 退役。Shot 作为稳定实体更不得持有随规格或剪辑变化的字段"
         },
         {
           "field": "gate3_result / gate4_result / delivered",
@@ -8168,7 +8280,6 @@
         "revision_no",
         "description",
         "narrative_intent",
-        "duration_ms",
         "character_refs",
         "location_ref",
         "prop_refs",
@@ -8271,11 +8382,6 @@
         "narrative_intent": {
           "type": "string",
           "description": "镜头叙事意图（8.3）；说明这个镜头要完成什么，不是生成提示词"
-        },
-        "duration_ms": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "镜头时长（毫秒）。整数毫秒，不用秒浮点"
         },
         "character_refs": {
           "type": "array",
@@ -8435,37 +8541,6 @@
           },
           "description": "字段级差异清单（可比对，不必解析自然语言摘要）"
         },
-        "timecode": {
-          "type": "object",
-          "description": "镜头在时间线上的定位。帧为单位的整数，避免浮点累积误差。",
-          "required": [
-            "start_frame",
-            "end_frame",
-            "fps_num",
-            "fps_den"
-          ],
-          "properties": {
-            "start_frame": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "end_frame": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "fps_num": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "帧率分子（如 30000/1001 用 30000/1001 表达，不用浮点）"
-            },
-            "fps_den": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "帧率分母"
-            }
-          },
-          "additionalProperties": true
-        },
         "provenance": {
           "type": "object",
           "description": "生成来源（19.3：保留来源段落、模型/Skill 版本和差异）。人工创建时整体为空。",
@@ -8574,7 +8649,9 @@
       "x-afs-sources": [
         "8.1 核心实体（ShotRevision 绑定镜头描述、约束、创意意图和版本）",
         "8.2 标识与版本规则（Shot 是稳定逻辑镜头；ShotRevision 保存每次内容修订；标识不得复用）",
-        "8.3 Shot 契约示例（description / narrative_intent / duration_ms / character_refs / location_ref / prop_refs / constraint_pack_id / creative_autonomy / risk / quality_profile / timecode）",
+        "8.3 Shot 契约示例（description / narrative_intent / character_refs / location_ref / prop_refs / constraint_pack_id / creative_autonomy / risk / quality_profile）——该示例把 duration_ms 与 timecode 混入同一快照，与 8.12 / 33.2 的单一数据源原则冲突，本轮按后者裁决，示例本身待基线修订（ADR-R18）",
+        "8.12 ShotSpec：镜头结构化描述的单一数据源，必须版本化并绑定 ShotRevision；时长、帧率、切点由 ShotSpec 唯一承载",
+        "33.2 / 33.4 TimelineDraft：排序与时长以整数帧表达，入出点归 clip_in_frame / clip_out_frame，时间基准用有理帧率 fps_num / fps_den",
         "8.8 Intent Contract 与授权快照（ShotRevision 引用固定的 intent_id + intent_version）",
         "19.3 AI 剧本拆镜 Skill（人工确认后创建正式 ShotRevision；保留来源段落、模型/Skill 版本和差异）",
         "2.3 Creative Autonomy 等级（L1–L4）",
@@ -8583,8 +8660,16 @@
         "docs/adr/ADR-R17-shot-revision-contract.md",
         "docs/adr/ADR-R18-shot-entity-contract.md（Shot 独立建模，本对象从属于 Shot）"
       ],
-      "x-afs-required-basis": "required = C.3.1 通用信封 + 8.3 示例中归属「修订内容」的字段 + 8.8 意图固定引用 + 19.3 来源段落 + Gate 1-A 的确认人与时间。业务短编号（shot_code）与生产进度状态（IN_PRODUCTION）不进本对象：它们在 8.3 里属于 Shot 而非修订，而 Shot 尚未建模（见 ADR-R17）。",
+      "x-afs-required-basis": "required = C.3.1 通用信封 + 8.3 示例中归属「修订内容」的字段（已按 ADR-R18 剔除 duration_ms 与 timecode）+ 8.8 意图固定引用 + 19.3 来源段落 + Gate 1-A 的确认人与时间。业务短编号（shot_code）与生产进度状态（IN_PRODUCTION）不进本对象，归 Shot（ADR-R18）；duration_ms 归 ShotSpec，timecode 归 TimelineDraft 的镜头条目。",
       "x-afs-exclusions": [
+        {
+          "field": "duration_ms",
+          "why": "镜头结构化时长是 ShotSpec 的唯一权威事实（8.12：ShotSpec 是单一数据源，不得分别维护冲突的时长）；修订再存一份就是双事实源，且两处可以互相矛盾"
+        },
+        {
+          "field": "timecode",
+          "why": "镜头在某条时间线上的位置随剪辑版本变化（33.2：入出点与顺序由 TimelineDraft 的 clip_in_frame / clip_out_frame / shot_order 管理）；位置变化不应产生新的内容修订"
+        },
         {
           "field": "shot_code",
           "why": "业务短编号仅用于展示（8.2），改名不应产生内容修订；归属 Shot"
@@ -8656,6 +8741,29 @@
           "id": "SR-10",
           "statement": "终态不复活：SUPERSEDED 不得回到 ACTIVE；恢复旧内容只能作为新修订重新确认，历史版本保留可查。",
           "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SR-11",
+          "statement": "不承载时长与时间线定位：本契约不含 duration_ms / timecode / clip_in_frame / clip_out_frame；时长归 ShotSpec、时间线位置归 TimelineDraft 的镜头条目，修订只被引用而不复制这些事实。",
+          "enforced_by": "SCHEMA"
+        }
+      ],
+      "x-afs-retired-fields": [
+        {
+          "field": "duration_ms",
+          "retired_at_schema_version": 2,
+          "authoritative_owner": "ShotSpec.duration_ms",
+          "why": "8.12 规定 ShotSpec 是镜头结构化规格的单一数据源；两处并存会让「镜头到底多长」出现两个可互相矛盾的权威值",
+          "historical_ref": "git:2192af9#/definitions/ShotRevision/properties/duration_ms",
+          "migration": "回填对应 ShotSpec.duration_ms；旧值与新算值冲突时进入人工复核队列，不得静默覆盖"
+        },
+        {
+          "field": "timecode",
+          "retired_at_schema_version": 2,
+          "authoritative_owner": "TimelineDraft.clip_in_frame / clip_out_frame / fps_num / fps_den",
+          "why": "33.2 已用 clip_in_frame / clip_out_frame 表达镜头在时间线上的入出点；同一镜头在不同时间线版本里会被重排或裁剪，位置变化不得反向生成新的内容修订",
+          "historical_ref": "git:2192af9#/definitions/ShotRevision/properties/timecode",
+          "migration": "仅当能确定所属时间线版本时迁入该版本镜头条目；无法确定归属的旧值保留在原记录并写入迁移台账，不得猜测"
         }
       ],
       "additionalProperties": true

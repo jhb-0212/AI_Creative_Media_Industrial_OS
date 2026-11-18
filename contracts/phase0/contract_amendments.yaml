@@ -277,5 +277,38 @@ amendments:
       - '冻结闸门按名称集合判定增删，识别不了「同名 action 指向不同对象」：SHOT.REVISION.CONFIRM 的 resource_type 由 ShotRevision 改为 Shot/ShotRevision 属同名改写，登记在案而非靠闸门发现'
       - '审批事实仍无独立对象：cancellation_ref / rework_basis_ref 指向授权记录，但「谁在什么授权下批准了什么」无专用对象，与 AUTH-3 累积式会签同源；刻意不另造审批子对象，避免第三份审批事实源'
 
+  - id: 'V205-R14-A7'
+    title: '镜头字段归属裁决——时长归 ShotSpec、时间线位置归 TimelineDraft（ShotRevision 退役两字段）'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: 'V205-R14-A6 残余风险第 4 条（duration_ms / timecode 归属冲突）；docs/adr/ADR-R18-shot-entity-contract.md「待裁定差异」'
+    reason: >-
+      项目所有者 2026-11-18 正式裁决：duration_ms 归 ShotSpec，timecode 归 TimelineDraft 的镜头时间线条目，
+      两者都不再属于 ShotRevision；A、B 两条路径均不采用。决定性依据是 8.12「ShotSpec 是镜头结构化描述的
+      单一数据源，不应分别维护冲突的镜头时长或切点」与 33.2 的入出点字段组（clip_in_frame / clip_out_frame）。
+      落点有一处修正：timecode 迁入 clip_in_frame / clip_out_frame，而非新增 start_frame / end_frame
+      作为镜头条目字段——后者与 33.2 的入出点构成同型重复，等于把刚消除的双事实源换个字段名再建一遍。
+      同时把承接方（ShotSpec / TimelineDraft）的空壳字段做实：迁入无约束的 type: string 是质量暗降，
+      双事实源会退化为单一无约束事实。帧区间统一左闭右开，避免 end 是否含末帧在剪辑、字幕、音频、
+      导出四处各有解释。
+    adr: 'docs/adr/ADR-R18-shot-entity-contract.md'
+    approved_by: '项目所有者（会话内正式裁决「duration_ms → ShotSpec，timecode → TimelineDraft」）'
+    approved_at: '2026-11-18'
+    source_commits: []
+    additions: {}
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 82
+      state_machines: 41
+    residual_risks:
+      - '本修订无名称级增删（对象/动作/状态机数量不变），只做字段级收敛：冻结闸门按名称集合判定，识别不了字段退役，须靠 schema_field_signatures 的字段级 diff 配合本条目'
+      - '跨对象时长换算未定取整与容差口径：8.12 示例自身不严格（4200 ms @ 24/1 = 100.8 帧，切点末点为 100），实现方不得用严格相等校验，SS-3 与 TL-3 暂只校验对象内部一致性'
+      - 'ShotSpec 与 TimelineDraft 仍为部分空壳：本轮只做实与裁决直接相关的字段；TimelineDraft 的 required 混入子条目字段与 duration_per_shot_frames{} 这类带花括号键名，属既有结构缺陷，独立整改'
+      - '基线 8.3 示例把 duration_ms / timecode 与 Shot 身份字段混在一段 JSON 里，应分对象呈现；基线文档已冻结哈希（489607 字节 / 9a9940c5…），本轮不私改，登记为基线待修订项'
+      - 'Scene 仍未建模：Shot.scene_id 与 ShotRevision.scene_id 同指一个无 schema 的对象，归属一致性只能靠运行时复合外键 (project_id, scene_id) 与 (project_id, shot_code) 唯一索引'
+      - '批注类对象的 timecode 仍是字符串：ReverseKeyframeRef / ClientAnnotation / ReviewAnnotation / QCIssue 用它做单点定位，不构成区间事实，但与正文 3836 行「不得只用字符串时间码」的要求相抵；属独立质量问题，本轮不动'
+      - '本修订解除 A6 残余风险第 4 条（归属冲突）与 ADR-R18「待裁定差异」，其它残余风险不变'
+
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

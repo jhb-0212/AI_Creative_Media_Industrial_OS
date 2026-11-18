@@ -2,6 +2,7 @@
 
 状态：已实施（契约层，2026-11-18）；运行时未实施
 后续：本文第「未做的一件事：Shot 本身没有建模」所述缺口已由 ADR-R18 闭合（Shot 独立建模，2026-11-18 项目所有者裁定），该节保留作为当时的决策记录，不再代表当前契约状态。
+后续修订：`duration_ms` 与 `timecode` 已于 `schema_version 2` 退役（ADR-R18 字段归属裁决）——时长归 `ShotSpec.duration_ms`，时间线位置归 `TimelineDraft.clip_in_frame / clip_out_frame`。本文表格中的这两个字段是当时的决策记录，保留原样不改写；**当前契约以 `object_schemas.schema.json` 与 ADR-R18 为准**。
 关联：ADR-R16（拆镜草案 ShotBreakdownDraft）、ADR-R07（镜头域契约缺口）、ADR-023（支撑资产质量与成片质量分离）、31.6 Action Registry、31.5 状态机权威规则
 上游依据：基线正文《AI影视工业化生产平台V2.0.5.md》8.1 / 8.2 / 8.3 / 8.8 / 2.3 / 4.1 / 19.3 / 31.6 / Gate 1-A
 
@@ -28,6 +29,9 @@
 | 可追溯 | `basis_script_revision_id`、`script_anchors`、`provenance` | 19.3（保留来源段落、模型/Skill 版本和差异） |
 | 版本链 | `revision_no`、`supersedes_shot_revision_id`、`change_summary`、`changed_fields` | 8.2（保存每次内容修订）、2635 行（保留父版本、差异摘要、审批记录、来源引用；禁止覆盖式合并） |
 | 确认事实 | `confirmed_by`、`confirmed_at` | 31.6（人类确认）、Gate 1-A（授权确认人、版本与差异） |
+
+> 表中「修订内容」行的 `duration_ms` 与 `timecode` 已按 ADR-R18 迁出（`schema_version 2`）：前者归
+> `ShotSpec`，后者归 `TimelineDraft` 的镜头条目。保留在此作为当时的来源记录，不代表当前写入契约。
 
 ## 关键取舍
 
@@ -84,6 +88,8 @@ ShotBreakdownDraft（一版草案，人工确认）
 - `action_implementations.yaml` 中 `SHOT.REVISION.CONFIRM` 的理由改为「契约已就绪、缺修订表与版本冲突拒绝」，
   不再声称「缺版本表才能拒绝冲突」这种前半句对、后半句推不出的说法。
 - 契约修订 `V205-R14-A5` 记录增补与残余风险。
+- 后续修订（ADR-R18，`V205-R14-A7`）：退役 `duration_ms` 与 `timecode`，属性 40 → 38、必填 32 → 31，
+  新增 `SR-11` 与 `x-afs-retired-fields`；`ShotSpec` / `TimelineDraft` 同步承接并做实类型约束。
 
 ## 残余风险
 
@@ -99,5 +105,8 @@ ShotBreakdownDraft（一版草案，人工确认）
 4. **正文 8.3 的合并示例仍与契约不一致**：契约把 `shot_code` 与 `IN_PRODUCTION` 划给 `Shot`，
    正文没有明说。本次不改基线正文（改正文等于改所有者文档指纹），差异在 A5 中登记，
    待下一版正文明确 Shot 与 ShotRevision 的字段边界。
+   后续：其中 `duration_ms` / `timecode` 的归属已由 ADR-R18 裁决（分别归 `ShotSpec` 与 `TimelineDraft`），
+   `shot_code` / `IN_PRODUCTION` 归 `Shot` 已由 ADR-R18 落为契约；剩下的只有 8.3 示例本身的表述，
+   登记为基线待修订项。
 5. **`quality_profile` 单值枚举可能过窄**：若将来引入镜头级质量档（例如特殊镜头单独升档），
    需要走契约修订扩展枚举，而不是在实现里偷偷放过其他值。

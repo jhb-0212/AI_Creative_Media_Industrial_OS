@@ -675,12 +675,12 @@ signatures:
     coordinate_system: string
     created_at: string
     created_by: string
-    cut_points_frames: string
-    duration_ms: string
+    cut_points_frames: array
+    duration_ms: integer
     entity_id: string
     entity_type: string
     entity_version: integer
-    fps: string
+    fps: object
     locked_dimensions: string
     owner_module: string
     previz_ref: string
@@ -1159,20 +1159,20 @@ signatures:
     audio_sample_rate: string
     audit_ref: string|null
     change_summary: string
-    clip_in_frame: string
-    clip_out_frame: string
+    clip_in_frame: integer
+    clip_out_frame: integer
     color_space: string
     created_at: string
     created_by: string
-    duration_frames: string
-    duration_per_shot_frames{}: string
-    end_frame: string
+    duration_frames: integer
+    duration_per_shot_frames{}: object
+    end_frame: integer
     entity_id: string
     entity_type: string
     entity_version: integer
     episode_id: string
-    fps_den: string
-    fps_num: string
+    fps_den: integer
+    fps_num: integer
     height: string
     intent_note: string
     language: string
@@ -1191,7 +1191,7 @@ signatures:
     source_rights_snapshot_ref: string
     source_shot_revision_ids: array
     stale_state: string
-    start_frame: string
+    start_frame: integer
     status: string
     style_profile_ref: string
     subtitle_cues: string
@@ -1618,7 +1618,6 @@ signatures:
     created_by: string
     creative_autonomy: string
     description: string
-    duration_ms: integer
     entity_id: string
     entity_type: string
     entity_version: integer
@@ -1642,5 +1641,4 @@ signatures:
     source_draft_ref: object
     status: string
     supersedes_shot_revision_id: string|null
-    timecode: object
     updated_at: string
