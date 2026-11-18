@@ -203,5 +203,41 @@ amendments:
       - 'ShotRevision 仍无 object schema；草案确认产出的 confirmed_shot_revision_refs 指向一个尚未建模的对象'
       - '九条对象不变量中七条为 RUNTIME_PENDING，只有 SBD-2（草案不越权定约束）与 SBD-8（节拍单一方向）可由 schema 表达，不得视为已落地'
 
+  - id: 'V205-R14-A5'
+    title: '镜头内容修订对象契约——ShotRevision（含两态状态机）'
+    reason: >-
+      ADR-R16 留下的断点：草案确认要产出 confirmed_shot_revision_refs，而 ShotRevision 从未建模，
+      链路是「一头有契约、一头是引用字符串」；ShotSpec 的 required.shot_revision_id 同样指向一个不存在的对象。
+      本轮按正文 8.1/8.2/8.3/8.8 + 2.3/4.1 + 19.3 + 31.6 + Gate 1-A 推导字段，把这一环补齐。
+      状态集只登记两态（ACTIVE / SUPERSEDED）：正文未为 ShotRevision 单列状态机，虚构审核或生产进度状态
+      会与 Shot 生命周期混为一谈，故只保留「不可变版本被取代」这一最小必要集，并显式标注为派生而非原文。
+    adr: 'docs/adr/ADR-R17-shot-revision-contract.md'
+    approved_by: '项目所有者（会话内授权「按你的来」：按正文推导，不猜）'
+    approved_at: '2026-11-18'
+    recorded_at: '2026-11-18'
+    discovered_by: 'docs/adr/ADR-R16-shot-breakdown-draft-contract.md 残余风险第 3 条；contracts/runtime/resource_schema_gaps.yaml 的 ShotRevision 条目'
+    retroactive: false
+    source_commits: []
+    additions:
+      schema_objects:
+        - object: 'ShotRevision'
+          why: '不可变的镜头内容版本快照；SHOT.REVISION.CONFIRM 的资源类型，也是 ShotSpec / PrevizVersion / 生成任务的固定输入版本'
+      state_machines:
+        - object: 'ShotRevision'
+          why: 'ACTIVE→SUPERSEDED；确认即产生正式版本（无 DRAFT 态），被更高 revision_no 取代后终态不复活'
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 81
+      state_machines: 40
+    residual_risks:
+      - '关闭 A4 残余风险「ShotRevision 仍无 object schema」：本修订补上该对象，草案确认产出的引用不再悬空'
+      - 'Shot 本身仍未建模：8.3 是 Shot 与 ShotRevision 的合并示例，正文没有给 Shot 的状态集，字段拆分归属需所有者裁定；当前以 shot_id 为稳定身份键 + 父级不漂移（SR-5）保证一致性，不依赖一张不存在的表'
+      - '契约把 shot_code（业务短编号）与 IN_PRODUCTION（生产进度）划归 Shot 而非修订，与正文 8.3 合并示例不一致；不改基线正文，差异在此登记，待下一版正文明确字段边界'
+      - 'SHOT.REVISION.CONFIRM 未实现：修订表、revision_no 分配、版本冲突拒绝、ACTIVE→SUPERSEDED 推进均无运行时落点，两态状态机目前只是钉住的契约'
+      - '十条不变量中仅 SR-4（版本链闭合）与 SR-6（不越权定约束）可由 schema 表达，其余八条标 RUNTIME_PENDING，不得视为已落地'
+      - '确认事实由 confirmed_by/confirmed_at + 信封 audit_ref 承载，审批仍无独立对象；与 AUTH-3 累积式会签同源（缺审批事实契约），刻意不在此另造审批子对象，避免第三份审批事实源'
+      - 'quality_profile 收窄为单值 UNIFIED_HIGH_QUALITY（4.1 统一基线、ADR-023 支撑资产质量分离）；若将来引入镜头级质量档需走契约修订扩展枚举'
+
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

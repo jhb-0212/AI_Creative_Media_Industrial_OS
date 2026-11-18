@@ -7,11 +7,16 @@ authoritative_sources:
   - contracts/runtime/action_implementations.yaml
 open_items:
   - item: >-
-      拆镜草案对象契约已落地（ShotBreakdownDraft，见 ADR-R16）；其余 8 个资源类型
-      仍无 schema 定义，须依据正文或所有者口径补齐，不得猜契约
+      镜头域两个对象契约已落地（ShotBreakdownDraft 见 ADR-R16；ShotRevision 见 ADR-R17）；
+      其余 7 个资源类型仍无 schema 定义，须依据正文或所有者口径补齐，不得猜契约
     source: "contracts/runtime/resource_schema_gaps.yaml#gaps"
   - item: >-
-      镜头域动作（SHOT.DRAFT.CREATE 等）无运行时入口，属 Phase 2 范围
+      Shot 稳定实体本身仍未建模：8.3 是 Shot 与 ShotRevision 的合并示例，正文没有给 Shot 的
+      状态集，字段拆分归属需所有者裁定；当前以 shot_id 为稳定身份键 + 父级不漂移（SR-5）
+      保证一致性，但 shot_code 与生产进度尚无归属对象
+    source: "contracts/phase0/contract_amendments.yaml#amendments"
+  - item: >-
+      镜头域动作（SHOT.DRAFT.CREATE / SHOT.REVISION.CONFIRM 等）无运行时入口，属 Phase 2 范围
     source: "contracts/runtime/action_implementations.yaml#not_implemented"
 ---
 
@@ -28,8 +33,8 @@ ADR-R07 记录的是「ShotDraft 无对象 schema」这**一个**缺口。本轮
 
 | 资源类型 | 引用它的 ACTIVE 动作 |
 |---|---|
-| `ShotDraft` | `SHOT.DRAFT.CREATE` |
-| `ShotRevision` | `SHOT.REVISION.CONFIRM` |
+| `ShotDraft`（已闭：→ `ShotBreakdownDraft`，ADR-R16） | `SHOT.DRAFT.CREATE` |
+| `ShotRevision`（已闭：ADR-R17） | `SHOT.REVISION.CONFIRM` |
 | `ShotBudgetRequest` | `BUDGET.SHOT.REQUEST`、`BUDGET.SHOT.APPROVE` |
 | `BudgetLedger` | `BUDGET.SHOT.APPROVE` |
 | `GenerationTask` | `GENERATION.REQUEST` |
@@ -39,6 +44,11 @@ ADR-R07 记录的是「ShotDraft 无对象 schema」这**一个**缺口。本轮
 | `RightsManifest` | `RIGHTS.STATUS.CHANGE` |
 
 已豁免的 4 个是核心信封对象：`Project`、`Episode`、`ScriptRevision`、`ScriptLock`。
+
+> **2026-11-18 进展**：前两行已闭合——`ShotDraft` 由 `ShotBreakdownDraft` 取代（ADR-R16），
+> `ShotRevision` 按正文 8.1/8.2/8.3/8.8 + 19.3 + 31.6 补齐（ADR-R17）。当前真实缺口 7 项
+> （上表后 7 行，`resource_schema_gaps.yaml` 已同步）。另发现一条新的显式缺口：`Shot` 本身仍未建模，
+> 因为它与 `ShotRevision` 的字段边界需要所有者裁定（8.3 是合并示例，正文未给 Shot 状态集）。
 
 ## 二、根因
 
@@ -57,7 +67,8 @@ ADR-R07 已指出「这条缺口能通过 CI，但它不是契约自洽，只是
    - 已实现动作的资源类型必须落在 schema（豁免仅限核心信封对象）；
    - 豁免条目若不被任何已实现动作引用即视为过期并报红（沿用现有规则）。
    改完后 CI 会立刻报出上述 9 条，缺口由静默变为显性。
-2. **主链必需的两个对象补 schema**：`ShotDraft`、`ShotRevision`（见第四节）。
+2. **主链必需的两个对象补 schema**：`ShotDraft`（→ `ShotBreakdownDraft`，已完成，ADR-R16）、
+   `ShotRevision`（已完成，ADR-R17）。
 3. **补两个动作**，否则状态机没有入口（见第五节）。
 4. **其余 7 个按域批量处理**，不得一次性全塞豁免：业务对象（`GenerationTask`、
    `ProductionRoute`、`ShotBudgetRequest`、`BudgetLedger`、`CanonRevision`、`RightsCase`、

@@ -18,7 +18,7 @@
   ],
   "x-afs-p0-coverage": {
     "note": "已建模对象与显式登记为待补的对象之并集，构成 P0 契约对象全集。待补项按缺口性质分类，不把“正文有字段表但派生未覆盖”与“正文缺字段标识”混为一类。",
-    "total": 80,
+    "total": 81,
     "modeled": [
       "Appeal",
       "AssetReference",
@@ -87,6 +87,7 @@
       "ShotBudgetLedger",
       "ShotProductionProfile",
       "ShotResourceAllocation",
+      "ShotRevision",
       "ShotSpec",
       "ShotTierChangeRequest",
       "ShotVisualPlan",
@@ -7776,6 +7777,509 @@
         {
           "id": "SBD-9",
           "statement": "审阅事实只追加：review_records 进入终态后不得修改或删除；reviewer 不得为 Agent 主体。",
+          "enforced_by": "RUNTIME_PENDING"
+        }
+      ],
+      "additionalProperties": true
+    },
+    "ShotRevision": {
+      "type": "object",
+      "description": "镜头内容修订（不可变版本快照）。Shot 是稳定逻辑镜头，ShotRevision 保存每次内容修订；被任务、ShotSpec、PrevizVersion 引用的版本固定不变，任何修改一律新建修订，禁止覆盖。本对象只承载「这一次被人工确认的镜头内容」：业务短编号与生产进度状态属于 Shot，不属于修订。",
+      "required": [
+        "shot_revision_id",
+        "shot_id",
+        "project_id",
+        "episode_id",
+        "scene_id",
+        "revision_no",
+        "description",
+        "narrative_intent",
+        "duration_ms",
+        "character_refs",
+        "location_ref",
+        "prop_refs",
+        "constraint_pack_applicability",
+        "creative_autonomy",
+        "risk",
+        "quality_profile",
+        "intent_ref",
+        "basis_script_revision_id",
+        "script_anchors",
+        "change_origin",
+        "confirmed_by",
+        "confirmed_at",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "entity_id": {
+          "type": "string",
+          "description": "通用信封主键，必须等于 shot_revision_id；两者各自生成即是两套身份"
+        },
+        "entity_type": {
+          "type": "string",
+          "description": "固定 ShotRevision；不得与 ShotBreakdownDraft / ShotSpec 混用"
+        },
+        "schema_version": {
+          "type": "integer",
+          "description": "本对象契约版本号"
+        },
+        "entity_version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "行级乐观锁版本。确认动作必须携带期望值，版本冲突一律拒绝而不是覆盖"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "SUPERSEDED"
+          ],
+          "description": "ACTIVE：当前有效、可被生产引用；SUPERSEDED：已被同一 shot_id 的更高 revision_no 取代，终态不复活。修订一经确认不可编辑，唯一允许的状态变化就是 ACTIVE→SUPERSEDED"
+        },
+        "owner_module": {
+          "type": "string",
+          "description": "所属领域模块（镜头域）"
+        },
+        "created_at": {
+          "type": "string",
+          "description": "创建时间（UTC，ISO 8601）"
+        },
+        "created_by": {
+          "type": "string",
+          "description": "创建主体；正式修订只能由 SHOT.REVISION.CONFIRM 的人类确认创建"
+        },
+        "updated_at": {
+          "type": "string",
+          "description": "最后变更时间；本对象只有状态可变更，变更即取代"
+        },
+        "audit_ref": {
+          "type": ["string", "null"],
+          "description": "审计记录引用，承载审批事实（专用 Approval 对象仍未建模，见 ADR-R17 残余风险）"
+        },
+        "shot_revision_id": {
+          "type": "string",
+          "description": "镜头修订标识；创建后不可改，且不得复用为 ShotDraft / ShotSpec / ShotVisualPlan 标识"
+        },
+        "shot_id": {
+          "type": "string",
+          "description": "稳定逻辑镜头标识（8.2：不得复用）。同一 shot_id 下的所有修订必须共享父级归属；业务短编号属 Shot，见 ADR-R17"
+        },
+        "project_id": {
+          "type": "string",
+          "description": "所属项目；同时是租户内归属与 RLS 的作用域"
+        },
+        "episode_id": {
+          "type": "string",
+          "description": "所属集数"
+        },
+        "scene_id": {
+          "type": "string",
+          "description": "所属场次"
+        },
+        "revision_no": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "该镜头的第几次内容修订；同一 shot_id 内单调递增且唯一，由确认动作分配"
+        },
+        "description": {
+          "type": "string",
+          "description": "镜头描述（8.3）。与叙事意图、硬约束、对白分字段存储，不得混成一段自由文本"
+        },
+        "narrative_intent": {
+          "type": "string",
+          "description": "镜头叙事意图（8.3）；说明这个镜头要完成什么，不是生成提示词"
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "镜头时长（毫秒）。整数毫秒，不用秒浮点"
+        },
+        "character_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "出场角色引用；只存引用，不复制角色事实（角色事实归 Canon）"
+        },
+        "location_ref": {
+          "type": "string",
+          "description": "场景地点引用"
+        },
+        "prop_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "道具引用；道具状态由连续性约束承载，不在此重复"
+        },
+        "constraint_pack_applicability": {
+          "type": "string",
+          "enum": [
+            "BOUND",
+            "NOT_APPLICABLE"
+          ],
+          "description": "无锁定约束的镜头必须显式标 NOT_APPLICABLE（对应「如适用」口径），不能靠留空表达——留空既可能是「没有约束」也可能是「忘了绑」"
+        },
+        "constraint_pack_id": {
+          "type": ["string", "null"],
+          "description": "硬约束快照引用（8.1：ShotRevision 绑定约束）；applicability=BOUND 时必填"
+        },
+        "creative_autonomy": {
+          "type": "string",
+          "enum": [
+            "L1",
+            "L2",
+            "L3",
+            "L4"
+          ],
+          "description": "确认时生效的创意自主档位（2.3：L1 指令执行 / L2 表达自主 / L3 多方案探索 / L4 主动挑战）。档位只定义 AI 能做什么，不授予 APPROVE / OVERRIDE 权限。临时升降走授权记录，不改本字段；长期变更须新建修订并写明理由"
+        },
+        "risk": {
+          "type": "object",
+          "description": "风险画像：影响验证强度，不是质量分数。高风险镜头需要更多证据，不代表画面必然差。",
+          "required": [
+            "level"
+          ],
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": [
+                "LOW",
+                "MEDIUM",
+                "HIGH",
+                "CRITICAL"
+              ],
+              "description": "风险等级（正文 782 行：LOW / MEDIUM / HIGH / CRITICAL）"
+            },
+            "reasons": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "风险成因，例如「复杂动作」「角色近景」；用于解释为什么需要额外验证"
+            }
+          },
+          "additionalProperties": true
+        },
+        "quality_profile": {
+          "type": "string",
+          "enum": [
+            "UNIFIED_HIGH_QUALITY"
+          ],
+          "description": "质量基线档位。成片镜头一律绑定 UNIFIED_HIGH_QUALITY（4.1：所有 S/A/B 项目绑定同一逻辑质量配置）；支撑资产档位（SUPPORTING_ASSET_QUALITY / SHOWCASE_QUALITY）不得出现在镜头修订上，那正是 ADR-023 要防的「用白模标准衡量成片」"
+        },
+        "intent_ref": {
+          "type": "object",
+          "description": "固定的意图引用。引用的是某一版 Intent Contract，不是「最新意图」——后续意图修改不得覆盖已被生产引用的版本。",
+          "required": [
+            "intent_id",
+            "intent_version"
+          ],
+          "properties": {
+            "intent_id": {
+              "type": "string",
+              "description": "Intent Contract 标识"
+            },
+            "intent_version": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "被固定的意图版本号；不得用「最新」代替"
+            }
+          },
+          "additionalProperties": true
+        },
+        "basis_script_revision_id": {
+          "type": "string",
+          "description": "本修订所依据的剧本版本；script_anchors 的追溯边界。剧本换版不自动改写已确认修订"
+        },
+        "script_anchors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "来源剧本段落定位串（19.3：所有变更保留来源段落）。至少一条——无来源的镜头就是凭空造剧情"
+        },
+        "source_draft_ref": {
+          "type": "object",
+          "description": "来源拆镜草案版本。确认即绑定：草案的哪一版产出了本次修订，必须能指回去。",
+          "required": [
+            "draft_id",
+            "draft_version"
+          ],
+          "properties": {
+            "draft_id": {
+              "type": "string",
+              "description": "ShotBreakdownDraft 标识"
+            },
+            "draft_version": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "被确认的草案版本；同一草案的后续版本不自动改写本修订"
+            }
+          },
+          "additionalProperties": true
+        },
+        "source_candidate_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "来源候选资产引用（PROMOTE 产生修订时填写）"
+        },
+        "change_origin": {
+          "type": "string",
+          "enum": [
+            "BREAKDOWN_CONFIRM",
+            "PROMOTION",
+            "MANUAL_EDIT",
+            "BRANCH_MERGE"
+          ],
+          "description": "本次修订的来源：草案确认 / 候选晋升 / 人工编辑 / 分支合并。来源决定必须携带哪些追溯字段，不能用一个 origin 字段糊过去"
+        },
+        "supersedes_shot_revision_id": {
+          "type": ["string", "null"],
+          "description": "被本次修订取代的上一版；首版为空。禁止覆盖式合并——改就是新增一版"
+        },
+        "change_summary": {
+          "type": ["string", "null"],
+          "description": "相对上一版的差异摘要（Gate 1-A 要求「版本与差异」）；首版为空，非首版必填"
+        },
+        "changed_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "字段级差异清单（可比对，不必解析自然语言摘要）"
+        },
+        "timecode": {
+          "type": "object",
+          "description": "镜头在时间线上的定位。帧为单位的整数，避免浮点累积误差。",
+          "required": [
+            "start_frame",
+            "end_frame",
+            "fps_num",
+            "fps_den"
+          ],
+          "properties": {
+            "start_frame": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "end_frame": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "fps_num": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "帧率分子（如 30000/1001 用 30000/1001 表达，不用浮点）"
+            },
+            "fps_den": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "帧率分母"
+            }
+          },
+          "additionalProperties": true
+        },
+        "provenance": {
+          "type": "object",
+          "description": "生成来源（19.3：保留来源段落、模型/Skill 版本和差异）。人工创建时整体为空。",
+          "properties": {
+            "agent_key": {
+              "type": ["string", "null"],
+              "description": "产出草案的 Agent/Skill 标识"
+            },
+            "model_version": {
+              "type": ["string", "null"],
+              "description": "模型与版本快照"
+            },
+            "skill_version": {
+              "type": ["string", "null"],
+              "description": "Skill 版本快照"
+            }
+          },
+          "additionalProperties": true
+        },
+        "confirmed_by": {
+          "type": "string",
+          "description": "人类确认主体（31.6：导演/镜头负责人）。不得为 Agent 主体，也不得与草案生成主体相同"
+        },
+        "confirmed_at": {
+          "type": "string",
+          "description": "确认时间（UTC，ISO 8601）；Gate 1 准入证据"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "revision_no": {
+                "const": 1
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "supersedes_shot_revision_id": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "revision_no": {
+                "minimum": 2
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "supersedes_shot_revision_id",
+              "change_summary"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "constraint_pack_applicability": {
+                "const": "BOUND"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "constraint_pack_id"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "constraint_pack_applicability": {
+                "const": "NOT_APPLICABLE"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "constraint_pack_id": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "change_origin": {
+                "const": "BREAKDOWN_CONFIRM"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "source_draft_ref"
+            ]
+          }
+        }
+      ],
+      "x-afs-sources": [
+        "8.1 核心实体（ShotRevision 绑定镜头描述、约束、创意意图和版本）",
+        "8.2 标识与版本规则（Shot 是稳定逻辑镜头；ShotRevision 保存每次内容修订；标识不得复用）",
+        "8.3 Shot 契约示例（description / narrative_intent / duration_ms / character_refs / location_ref / prop_refs / constraint_pack_id / creative_autonomy / risk / quality_profile / timecode）",
+        "8.8 Intent Contract 与授权快照（ShotRevision 引用固定的 intent_id + intent_version）",
+        "19.3 AI 剧本拆镜 Skill（人工确认后创建正式 ShotRevision；保留来源段落、模型/Skill 版本和差异）",
+        "2.3 Creative Autonomy 等级（L1–L4）",
+        "4.1 统一质量基线（UNIFIED_HIGH_QUALITY）",
+        "ADF：31.6 SHOT.REVISION.CONFIRM（人类确认，版本冲突必须拒绝）与 Gate 1-A（授权确认人、版本与差异）",
+        "docs/adr/ADR-R17-shot-revision-contract.md"
+      ],
+      "x-afs-required-basis": "required = C.3.1 通用信封 + 8.3 示例中归属「修订内容」的字段 + 8.8 意图固定引用 + 19.3 来源段落 + Gate 1-A 的确认人与时间。业务短编号（shot_code）与生产进度状态（IN_PRODUCTION）不进本对象：它们在 8.3 里属于 Shot 而非修订，而 Shot 尚未建模（见 ADR-R17）。",
+      "x-afs-exclusions": [
+        {
+          "field": "shot_code",
+          "why": "业务短编号仅用于展示（8.2），改名不应产生内容修订；归属 Shot"
+        },
+        {
+          "field": "status.IN_PRODUCTION",
+          "why": "生产进度属 Shot 生命周期，写进不可变修订会让进度变更被迫新建修订"
+        },
+        {
+          "field": "locked_dimensions",
+          "why": "锁定维度只能由 ConstraintPack / ShotSpec 承载，修订越权即破坏 AUTH-4 的守卫语义"
+        },
+        {
+          "field": "prompt / negative_prompt",
+          "why": "Prompt 是 ShotSpec 的派生输出（8.1），不是镜头事实；写进修订会让提示词变成第二份事实源"
+        },
+        {
+          "field": "dialogue",
+          "why": "对白归剧本版本与 ShotVisualPlan，修订只引用来源段落，不复制原文"
+        }
+      ],
+      "x-afs-invariants": [
+        {
+          "id": "SR-1",
+          "statement": "身份单一：entity_id 必须等于 shot_revision_id，不得各自生成两套标识。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SR-2",
+          "statement": "不可变：修订创建后任何业务字段不得原地修改；唯一允许的状态变化是 ACTIVE→SUPERSEDED。内容变更一律新建 revision_no+1。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SR-3",
+          "statement": "版本冲突必拒：确认动作必须携带期望的当前版本（entity_version / head revision），不匹配即拒绝，不得后写覆盖。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SR-4",
+          "statement": "版本链闭合：同一 shot_id 内 revision_no 单调递增且唯一；revision_no=1 不得有前驱，≥2 必须指向上一版并给出差异摘要。",
+          "enforced_by": "SCHEMA"
+        },
+        {
+          "id": "SR-5",
+          "statement": "归属不漂移：同一 shot_id 的所有修订，project_id / episode_id / scene_id 必须完全一致；镜头不得跨场次改挂。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SR-6",
+          "statement": "不越权定约束：本契约不含 locked_dimensions / prompt / dialogue 字段；锁定只能由 ConstraintPack/ShotSpec 承载，Prompt 属 ShotSpec 派生。",
+          "enforced_by": "SCHEMA"
+        },
+        {
+          "id": "SR-7",
+          "statement": "原文可追溯：script_anchors 非空，且每个定位串必须落在 basis_script_revision_id 的文本范围内；不得凭空创造剧情事实。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SR-8",
+          "statement": "意图固定：intent_ref 指向的 intent_id + intent_version 一经引用不得被后续意图修改覆盖；意图改版只能产生新修订。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SR-9",
+          "statement": "唯一入口：正式修订只能由 SHOT.REVISION.CONFIRM（人类确认）创建；草案、Agent、生成任务均不得直写。",
+          "enforced_by": "RUNTIME_PENDING"
+        },
+        {
+          "id": "SR-10",
+          "statement": "终态不复活：SUPERSEDED 不得回到 ACTIVE；恢复旧内容只能作为新修订重新确认，历史版本保留可查。",
           "enforced_by": "RUNTIME_PENDING"
         }
       ],

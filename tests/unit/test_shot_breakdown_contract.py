@@ -220,7 +220,11 @@ def test_gap_ledger_no_longer_lists_the_gap() -> None:
     gaps = GAPS["gaps"]
     assert "ShotDraft" not in gaps, "ShotDraft 已有 schema（改名为 ShotBreakdownDraft），陈旧债务必须删除"
     assert OBJECT not in gaps
-    assert "ShotRevision" in gaps, "ShotRevision 仍无 schema，缺口不能被顺手删掉"
+    assert "ShotRevision" not in gaps, (
+        "ShotRevision 已有 schema（ADR-R17），陈旧债务必须删除；"
+        "若这里报错，说明有人把已闭合的缺口又加回了台账"
+    )
+    assert gaps, "缺口台账不该被清空——剩余 7 个业务对象仍是真实债务"
 
 
 def test_coverage_ledger_counts_match_definitions() -> None:

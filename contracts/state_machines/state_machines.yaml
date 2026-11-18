@@ -2,7 +2,7 @@
 # 未登记状态的转移一律拒绝（31.5 规则）
 source: AFS-ARCH-MASTER-V2.0.5 各章节状态机定义（由 Markdown 基线派生）
 authority_rule: 同一对象多处定义时，按 31.5 唯一权威状态机 > 32.6/C.7 > 34.x > 33.3 > C.3 取权威；24.11 为摘要不计入权威；差异不静默合并，见 conflict 字段。
-total_objects: 39
+total_objects: 40
 conflict_count: 5
 conflict_rulings:
 - object: CharacterCanon
@@ -352,3 +352,27 @@ objects:
   - 项目所有者《拆镜草案字段设计》（2026-11-18）
   - ADR-032（AI 拆镜输出默认草案，人工确认前不得写正式对象）
   - docs/adr/ADR-R16-shot-breakdown-draft-contract.md
+- object: ShotRevision
+  authoritative_source: 8.2 标识与版本规则（Shot 是稳定逻辑镜头，ShotRevision 保存每次内容修订）
+  states: ACTIVE→SUPERSEDED
+  note: >-
+    正文没有为 ShotRevision 单列状态机，也没有给出审核/生产进度状态集；此处的两态是从不可变
+    版本语义推导的最小必要集，不是正文原文。依据：8.2 规定 ShotRevision 保存每次内容修订、
+    标识不得复用；2635 行规定任何分支合并都生成新的 ShotRevision「并保留父版本、差异摘要、
+    审批记录和来源引用；禁止覆盖式合并」；3994 行要求下游「必须引用精确不可变 ShotRevision」。
+    因此一个修订要么当前有效（ACTIVE），要么已被同一 shot_id 的更高 revision_no 取代
+    （SUPERSEDED），不存在第三种可能。31.6 的 SHOT.REVISION.CONFIRM 是唯一创建入口：人类确认、
+    版本冲突必须拒绝；确认即产生正式版本，故不存在 DRAFT 态——草案态属 ShotBreakdownDraft。
+    生产进度（8.3 示例里的 IN_PRODUCTION）属于 Shot 生命周期，不由修订承载：把它写进不可变
+    修订，会让进度推进被迫新建修订，版本链立刻失去意义。Shot 尚未建模，原因与影响见 ADR-R17。
+    本状态机当前无运行时入口（SHOT.REVISION.CONFIRM 未实现），登记它只为先把状态集钉死，
+    避免实现时自创第三态；入口补齐后须按 31.11 复核固化。
+  source_kind: derived_from_version_semantics
+  registration_status: PENDING_PHASE1_REVIEW
+  all_sources:
+  - 8.2 标识与版本规则
+  - 8.3 Shot 契约示例
+  - 19.3 AI 剧本拆镜 Skill
+  - 31.6 SHOT.REVISION.CONFIRM
+  - ADR-032（AI 拆镜输出默认草案，人工确认前不得写正式对象）
+  - docs/adr/ADR-R17-shot-revision-contract.md

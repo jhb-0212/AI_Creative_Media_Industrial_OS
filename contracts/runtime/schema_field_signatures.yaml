@@ -1582,3 +1582,44 @@ signatures:
     status: string
     supersedes_draft_ref: string|null
     updated_at: string
+  ShotRevision:
+    audit_ref: string|null
+    basis_script_revision_id: string
+    change_origin: string
+    change_summary: string|null
+    changed_fields: array
+    character_refs: array
+    confirmed_at: string
+    confirmed_by: string
+    constraint_pack_applicability: string
+    constraint_pack_id: string|null
+    created_at: string
+    created_by: string
+    creative_autonomy: string
+    description: string
+    duration_ms: integer
+    entity_id: string
+    entity_type: string
+    entity_version: integer
+    episode_id: string
+    intent_ref: object
+    location_ref: string
+    narrative_intent: string
+    owner_module: string
+    project_id: string
+    prop_refs: array
+    provenance: object
+    quality_profile: string
+    revision_no: integer
+    risk: object
+    scene_id: string
+    schema_version: integer
+    script_anchors: array
+    shot_id: string
+    shot_revision_id: string
+    source_candidate_refs: array
+    source_draft_ref: object
+    status: string
+    supersedes_shot_revision_id: string|null
+    timecode: object
+    updated_at: string

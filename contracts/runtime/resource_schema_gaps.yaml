@@ -11,7 +11,8 @@
 #   卡在哪一条、什么条件解开」。闸门会双向校验，缺口不会静默增长或永久豁免。
 #
 # 2026-11-18 变更：ShotDraft 已由 ShotBreakdownDraft 取代（对象契约按项目所有者
-# 提供的《拆镜草案字段设计》落地，见 ADR-R16），条目已删除。剩余 8 个类型仍为
+# 同日：ShotRevision 已按正文 8.1/8.2/8.3/8.8 + 19.3 + 31.6 补 schema（ADR-R17），
+# 条目删除。剩余 7 个类型仍为真实缺口，不是豁免。
 # 真实缺口，不是豁免。
 #
 # 写入口径：
@@ -22,11 +23,6 @@
 # - 本文件不是豁免清单：豁免只留给核心信封对象（见 resource_schema_exemptions.yaml）。
 
 gaps:
-  ShotRevision:
-    referenced_by: ["SHOT.REVISION.CONFIRM"]
-    reason: "确认动作的输出对象无 schema：草案确认后必须产出可追溯的镜头版本，否则『确认即绑定』不变式无处落地"
-    contract_ref: "docs/adr/ADR-R16-shot-breakdown-draft-contract.md; docs/proposals/shot-domain-contract-closure.md#四"
-    unblocks_when: "草案侧的产出关系已固定（ShotBreakdownDraft.confirmed_shot_revision_refs，ADR-R16）；ShotRevision 自身字段与版本表仍需正文或所有者口径，给出后补 schema"
   ShotBudgetRequest:
     referenced_by: ["BUDGET.SHOT.REQUEST", "BUDGET.SHOT.APPROVE"]
     reason: "单镜头预算申请对象无 schema：预算申请与审批的金额、口径、幂等键无法被机器校验"
