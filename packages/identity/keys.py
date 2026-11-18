@@ -25,6 +25,7 @@ import base64
 import hashlib
 import json
 from dataclasses import dataclass, field
+from functools import cached_property
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -36,35 +37,44 @@ DEFAULT_KEY_SIZE = 2048
 
 @dataclass(frozen=True)
 class SigningKey:
-    """一对 RSA 密钥（kid + 私钥 + 公钥），用于签发/验签令牌。
+    """一对 RSA 密钥（私钥 + 公钥），用于签发/验签令牌。
 
-    private_pem / public_pem 均为 PEM 字节流（DER 编码的 ASCII PEM）。
+    ``kid`` **不是字段，而是公钥的 RFC 7638 指纹**（:func:`public_key_thumbprint`），
+    以只读派生属性的形式暴露。
+
+    为什么不做成可传参字段：上一版把它当字段（``kid: str``），于是「构造时传一个
+    与公钥无关的 kid」在类型层面完全合法——令牌头写 A、验签方按指纹索引到 B，
+    令牌全部拒收且现象极难定位。把 kid 变成派生属性后，这个非法状态**无法表达**：
+    只要拿到 SigningKey，它报出的 kid 必然是这把公钥的指纹。
     """
 
-    kid: str
     # repr=False：防止日志/调试打印对象时把完整私钥 PEM 落盘（红线「密钥不落日志」）。
     private_pem: bytes = field(repr=False)
     public_pem: bytes
 
+    @cached_property
+    def kid(self) -> str:
+        """公钥指纹（RFC 7638）。签发路径每个令牌都要读一次，故缓存。"""
+        return public_key_thumbprint(self.public_pem)
+
     @property
     def public_jwk(self) -> dict[str, str]:
         """导出公钥为 JWK 结构（RSA，含 n/e/kty/kid/alg/use），供 JWKS 文档使用。"""
-        return public_jwk_from_pem(self.public_pem, self.kid)
+        return public_jwk_from_pem(self.public_pem)
 
 
-def public_jwk_from_pem(public_pem: bytes, kid: str | None = None) -> dict[str, str]:
+def public_jwk_from_pem(public_pem: bytes) -> dict[str, str]:
     """把公钥 PEM 转为 JWK 结构（签发侧与纯公钥验签侧共用，避免两份编码实现）。
 
-    ``kid`` 缺省时取公钥指纹（:func:`public_key_thumbprint`），保证 JWKS 文档
-    里的 kid 与令牌头部的 kid 同源——两者都从同一把公钥算出，不依赖任何
-    调用方记得传参。
+    JWK 里的 ``kid`` 恒为公钥指纹，**不接受传入**：JWKS 文档与令牌头部若各自
+    接受一个 kid，就有了两个事实源，漂移即全平台验签失败。
     """
     numbers = _rsa_public_numbers(public_pem)
     n_bytes = numbers.n.to_bytes((numbers.n.bit_length() + 7) // 8, "big")
     e_bytes = numbers.e.to_bytes((numbers.e.bit_length() + 7) // 8, "big")
     return {
         "kty": "RSA",
-        "kid": kid if kid is not None else _thumbprint_from_numbers(numbers.n, numbers.e),
+        "kid": _thumbprint_from_numbers(numbers.n, numbers.e),
         "use": "sig",
         "alg": "RS256",
         "n": _b64url(n_bytes),
@@ -119,11 +129,11 @@ def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
-def generate_signing_key(kid: str | None = None, key_size: int = DEFAULT_KEY_SIZE) -> SigningKey:
-    """生成一对 RSA 密钥（默认 2048 位），返回带 kid 的 SigningKey。
+def generate_signing_key(key_size: int = DEFAULT_KEY_SIZE) -> SigningKey:
+    """生成一对 RSA 密钥（默认 2048 位）。
 
-    ``kid`` 缺省取公钥指纹（:func:`public_key_thumbprint`），而非随机串：
-    随机 kid 让同一把密钥在不同进程/重启后得到不同标识，轮换与排障都失去依据。
+    没有 ``kid`` 参数：kid 由公钥派生，调用方即便想「指定标识」也没有入口
+    （随机 kid 会让同一把密钥在重启后换标识，轮换与排障都失去依据）。
 
     用于密钥轮换或测试环境；生产环境应从密钥管理服务加载既有私钥，
     而非每次启动随机生成（随机生成会导致验签方无法获得匹配公钥）。
@@ -138,25 +148,17 @@ def generate_signing_key(kid: str | None = None, key_size: int = DEFAULT_KEY_SIZ
         encoding=serialization.Encoding.PEM,
         format=serialization.PublicFormat.SubjectPublicKeyInfo,
     )
-    return SigningKey(
-        kid=kid if kid is not None else public_key_thumbprint(public_pem),
-        private_pem=private_pem,
-        public_pem=public_pem,
-    )
+    return SigningKey(private_pem=private_pem, public_pem=public_pem)
 
 
-def load_signing_key(
-    private_pem: bytes,
-    public_pem: bytes,
-    kid: str | None = None,
-) -> SigningKey:
+def load_signing_key(private_pem: bytes, public_pem: bytes) -> SigningKey:
     """从既有 PEM 字节构造 SigningKey（生产从密钥管理服务加载）。
 
     校验内容：
     - 两个 PEM 都能解析；
     - 私钥与公钥**确实是同一对**——此前不校验，配置张冠李戴时会签出
       「私钥 A 签、JWKS 播报公钥 B」的令牌，全部验签失败且现象极难定位。
-    - ``kid`` 缺省取公钥指纹（内容派生，见 :func:`public_key_thumbprint`）。
+    - kid 由公钥派生（见 :func:`public_key_thumbprint`），不可指定。
     """
     private_key = serialization.load_pem_private_key(private_pem, password=None)
     if not isinstance(private_key, rsa.RSAPrivateKey):
@@ -167,8 +169,4 @@ def load_signing_key(
             "IDENTITY_PRIVATE_KEY_PEM 与 IDENTITY_PUBLIC_KEY_PEM 不是同一对密钥："
             "签发方会用私钥签名，而 JWKS/验签方按公钥验签，令牌将全部失败。"
         )
-    return SigningKey(
-        kid=kid if kid is not None else _thumbprint_from_numbers(numbers.n, numbers.e),
-        private_pem=private_pem,
-        public_pem=public_pem,
-    )
+    return SigningKey(private_pem=private_pem, public_pem=public_pem)

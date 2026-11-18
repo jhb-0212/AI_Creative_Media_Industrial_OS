@@ -26,6 +26,7 @@ from jwt import get_unverified_header
 from packages.identity.jwks import KeyStore, PublicKeyStore
 from packages.identity.jwt_core import encode_token
 from packages.identity.keys import (
+    SigningKey,
     _thumbprint_from_numbers,
     generate_signing_key,
     load_signing_key,
@@ -64,9 +65,8 @@ def test_thumbprint_is_of_public_key_content_only() -> None:
 
     assert public_key_thumbprint(key.public_pem) == key.kid
     reloaded = load_signing_key(key.private_pem, key.public_pem)
+    # 重新加载同一对 PEM，必须得到同一个 kid——否则重启即换标识。
     assert reloaded.kid == key.kid
-    # 换一个 kid 显式传入，不应影响「内容指纹」本身的计算结果。
-    assert public_key_thumbprint(key.public_pem) == public_key_thumbprint(key.public_pem)
 
 
 def test_different_keys_get_different_kids() -> None:
@@ -77,18 +77,33 @@ def test_different_keys_get_different_kids() -> None:
     assert first.kid != second.kid
 
 
-def test_jwk_thumbprint_ignores_kid_use_alg() -> None:
-    """JWK 里的 kid 缺省即指纹；且指纹输入不包含 kid/use/alg（RFC 7638 必需成员）"""
+def test_key_entrypoints_expose_no_kid_parameter() -> None:
+    """任何构造入口都不得接受 kid——能传就能造出「头 A / 索引 B」的令牌。
+
+    这条是**结构断言**而非行为断言：kid 一旦可以传入，调用方即使算错也不会
+    立刻报错，而是签出一批验不过的令牌（评审 P2 指出的正是这一点）。
+    把入口参数面钉死，这类错误才在写代码时就不可表达。
+    """
+    import dataclasses
+    import inspect
+
+    for fn in (generate_signing_key, load_signing_key, public_jwk_from_pem):
+        assert "kid" not in inspect.signature(fn).parameters, fn.__name__
+    assert "kid" not in inspect.signature(PublicKeyStore.__init__).parameters
+    assert "kid" not in inspect.signature(KeyStore.public_pems).parameters
+    # SigningKey 也没有 kid 字段：它是派生属性，不是可赋值状态。
+    assert "kid" not in {f.name for f in dataclasses.fields(SigningKey)}
+
+
+def test_jwk_kid_is_always_the_thumbprint() -> None:
+    """JWK 里的 kid 恒为指纹；指纹输入不含 kid/use/alg（RFC 7638 必需成员）。"""
     key = generate_signing_key()
 
-    default_jwk = public_jwk_from_pem(key.public_pem)
-    overridden_jwk = public_jwk_from_pem(key.public_pem, "explicit-kid")
-
-    assert default_jwk["kid"] == key.kid
-    assert overridden_jwk["kid"] == "explicit-kid"
-    # n/e 与 kid 无关：改 kid 不该改动任何密钥材料字段。
-    assert default_jwk["n"] == overridden_jwk["n"]
-    assert default_jwk["e"] == overridden_jwk["e"]
+    jwk = public_jwk_from_pem(key.public_pem)
+    assert jwk["kid"] == key.kid == public_key_thumbprint(key.public_pem)
+    # 多传一个 kid 只能得到 TypeError：覆盖入口已被删除，不是靠「缺省就对了」。
+    with pytest.raises(TypeError):
+        public_jwk_from_pem(key.public_pem, "explicit-kid")  # type: ignore[call-arg]
 
 
 def test_keystore_rejects_duplicate_kid() -> None:
@@ -124,8 +139,8 @@ def test_token_header_kid_equals_jwks_kid_and_verifier_index() -> None:
 
     token_kid = get_unverified_header(token)["kid"]
     jwks_kid = key_store.jwks()["keys"][0]["kid"]
-    # 验签方只持公钥，独立算出索引键，不接收任何 kid 参数。
-    verifier = PublicKeyStore({public_key_thumbprint(key.public_pem): key.public_pem})
+    # 验签方只交出公钥，kid 由仓储内部算出——调用方连「提供 kid」这个动作都没有。
+    verifier = PublicKeyStore([key.public_pem])
 
     assert token_kid == jwks_kid == key.kid
     assert verifier.public_pem(token_kid) == key.public_pem

@@ -92,6 +92,41 @@ def _tree(rel_path: str) -> ast.Module:
     return ast.parse(_read(rel_path), filename=rel_path)
 
 
+def _param_names(node: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+    args = node.args
+    positional = [*args.posonlyargs, *args.args, *args.kwonlyargs]
+    return {a.arg for a in positional}
+
+
+def _parameter_names(rel_path: str, symbol: str) -> set[str]:
+    """取函数（或类的 ``__init__``）的形参名集合。
+
+    用于「入口不得接受某个参数」这类**结构断言**：字符串搜索会把注释、文档
+    一并算进去，而这里只认真正的形参——判据才与意图一致。
+    """
+    for node in ast.walk(_tree(rel_path)):
+        if isinstance(node, ast.ClassDef) and node.name == symbol:
+            for sub in node.body:
+                if isinstance(sub, ast.FunctionDef | ast.AsyncFunctionDef) and sub.name == "__init__":
+                    return _param_names(sub)
+            return set()
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name == symbol:
+            return _param_names(node)
+    raise AssertionError(f"{rel_path} 中找不到 {symbol}（断言目标被重命名或删除）")
+
+
+def _annotated_fields(rel_path: str, class_name: str) -> set[str]:
+    """取数据类里**带注解的字段名**（不含方法与派生属性）。"""
+    for node in ast.walk(_tree(rel_path)):
+        if isinstance(node, ast.ClassDef) and node.name == class_name:
+            return {
+                sub.target.id
+                for sub in node.body
+                if isinstance(sub, ast.AnnAssign) and isinstance(sub.target, ast.Name)
+            }
+    raise AssertionError(f"{rel_path} 中找不到类 {class_name}")
+
+
 def _string_literals(rel_path: str) -> set[str]:
     """源码中出现的**字符串字面量**集合（AST 级，注释天然不计入）。
 
@@ -711,8 +746,31 @@ def keys_kid_content_addressed() -> AssertionResult:
     if hardcoded:
         return (False, f"仍存在字面量 kid 赋值（多密钥会同名覆盖）: {hardcoded}")
 
-    if "public_key_thumbprint" not in _read("services/identity_access/__init__.py"):
-        return (False, "验签方未从公钥派生 kid：签发方与验签方会各自维护 kid 副本")
+    # 参数面断言（评审 P2 的教训）：kid 只要能作为形参传入，调用方就能给公钥
+    # 贴一个与内容无关的标签——令牌头写 A、验签方按指纹索引 B，令牌全部拒收。
+    # 上一版把 kid 的「缺省值」改成指纹就算修完了，可入口仍然接受 kid，
+    # 于是这个缺口从「写死」变成了「可绕过」。根治是让入口**没有**这个形参。
+    offenders = [
+        f"{path}::{name}"
+        for path, name in (
+            ("packages/identity/keys.py", "generate_signing_key"),
+            ("packages/identity/keys.py", "load_signing_key"),
+            ("packages/identity/keys.py", "public_jwk_from_pem"),
+            ("packages/identity/jwks.py", "PublicKeyStore"),
+        )
+        if "kid" in _parameter_names(path, name)
+    ]
+    if offenders:
+        return (False, f"以下入口仍可传入 kid（标签可与公钥内容不一致）: {offenders}")
+
+    # kid 必须是 SigningKey 的派生属性而不是可赋值字段，否则「构造时传错」
+    # 依然是一个合法状态。
+    if "kid" in _annotated_fields("packages/identity/keys.py", "SigningKey"):
+        return (False, "SigningKey 仍把 kid 作为可赋值字段（应改为公钥指纹派生属性）")
+
+    # 验签侧必须自己从公钥算索引键，而不是接收外部标签。
+    if "public_key_thumbprint" not in _read("packages/identity/jwks.py"):
+        return (False, "验签仓储未从公钥派生 kid：签发方与验签方会各自维护 kid 副本")
     return (True, "")
 
 

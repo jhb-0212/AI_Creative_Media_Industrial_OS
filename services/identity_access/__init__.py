@@ -21,7 +21,6 @@ from __future__ import annotations
 from functools import lru_cache
 
 from packages.identity.jwks import PublicKeyStore
-from packages.identity.keys import public_key_thumbprint
 from packages.shared.config import get_settings
 
 
@@ -50,5 +49,5 @@ def get_public_key_store() -> PublicKeyStore:
     # 头部 kid 的算法同源，因此**不需要**在两端配置同一个 kid 字符串。
     # 此前这里写死 {"current": ...}，与签发侧硬编码的 "current" 靠巧合对齐，
     # 一旦引入轮换就会失配。
-    pem = public_pem.encode("utf-8")
-    return PublicKeyStore({public_key_thumbprint(pem): pem})
+    # 现在只交出公钥 PEM：kid 由仓储内部算出，连「贴标签」这个动作都不存在。
+    return PublicKeyStore([public_pem.encode("utf-8")])

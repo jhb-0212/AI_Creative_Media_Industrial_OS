@@ -37,6 +37,20 @@
 - 契约新增不变量 `KEYS-4`（`contracts/security_boundary.yaml`），断言
   `keys.kid_content_addressed`（AST 级检查：不得再出现字面量 kid 赋值）。
 
+**评审拦截（PR #15 P2）与二次加固**：第一版只把 kid 的**缺省值**改成指纹，
+三个入口（`generate_signing_key` / `load_signing_key` / `public_jwk_from_pem`）
+仍保留 `kid` 形参，`PublicKeyStore` 仍接受 `{kid: pem}`——等于把「写死」换成了
+「可绕过」，缺陷形态没变。二次加固改为**让非法状态无法表达**：
+
+- `SigningKey.kid` 从字段改为 `cached_property`（由 `public_pem` 现场算），
+  dataclass 字段只剩 `private_pem` / `public_pem`；
+- 三个构造函数与 `PublicKeyStore.__init__` 全部删除 `kid` 形参；
+- `KeyStore.public_keys()` → `public_pems()`（返回列表），验签仓储只收公钥、
+  索引键内部算——调用方连「提供 kid」这个动作都不存在；
+- 断言从「查字符串标识符」升级为「查函数签名 + 查类字段」：`_parameter_names()`
+  用 AST 取形参名，`_annotated_fields()` 取可赋值字段名。上一版正是只查了标识符
+  才漏掉这个缺口。
+
 **证据**：
 
 - `test_thumbprint_matches_rfc7638_test_vector`：用 RFC 7638 §3.1 官方示例密钥，
