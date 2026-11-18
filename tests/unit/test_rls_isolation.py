@@ -16,6 +16,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from tests.conftest import set_test_scope
+
 # 测试租户（历史数据已回填到默认租户）。
 DEFAULT_TENANT = "00000000-0000-0000-0000-000000000000"
 # 另一个不匹配的租户。
@@ -38,10 +40,7 @@ async def _count_projects_with_context(
 ) -> int:
     """注入 tenant 上下文后查询。"""
     async with sessionmaker() as session:
-        await session.execute(
-            text("SELECT set_config('app.current_tenant_id', :tid, true)"),
-            {"tid": tenant_id},
-        )
+        await set_test_scope(session, tenant_id=tenant_id)
         result = await session.execute(
             text("SELECT count(*) FROM project_planning.projects")
         )
@@ -114,10 +113,7 @@ async def test_rls_blocks_cross_tenant_write(
 
     # 反向确认：以正确租户上下文回查，该行确实没有落库。
     async with db_sessionmaker() as s2:
-        await s2.execute(
-            text("SELECT set_config('app.current_tenant_id', :t, true)"),
-            {"t": DEFAULT_TENANT},
-        )
+        await set_test_scope(s2, tenant_id=DEFAULT_TENANT)
         count = await s2.scalar(
             text(
                 "SELECT count(*) FROM project_planning.projects WHERE entity_id = :eid"

@@ -30,6 +30,7 @@ from packages.shared.config import Settings, get_settings
 from packages.shared.logging import get_logger
 from packages.shared.rate_limit import RateLimiter
 from packages.shared.readiness import ReadinessProbe, ReadinessResult
+from packages.shared.rls import verify_rls_enforcement
 from packages.telemetry.tracing import shutdown_telemetry
 
 logger = get_logger("packages.shared.database")
@@ -280,12 +281,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # /readyz 已不依赖此别名——池拆分后它显式探测两个域池（Codex P2）。
     app.state.engine = project_engine
     app.state.sessionmaker = project_sessionmaker
+    # RLS 生效性验证（ADR-R24 §D3a-5）：业务连接是不是超级用户/BYPASSRLS/表所有者。
+    # 放在启动期而不是每请求：运行期发现「安全属性未知」时请求已经在跑了；放在
+    # 建池之后、接流量之前，是因为它必须用**即将用于业务查询的同一条连接**去问。
+    # 生产环境失败即拒绝启动；开发环境降级为告警（本地用 postgres 连库是既有事实）。
+    settings = get_settings()
+    await verify_rls_enforcement(project_engine, app_env=settings.app_env)
+    await verify_rls_enforcement(asset_engine, app_env=settings.app_env)
     # 限流器与数据库同属「进程级基础设施」，生命周期统一在这里收口：
     # 漏关连接池比漏开更隐蔽，集中一处才不会各写一遍。
     app.state.rate_limiter = RateLimiter.from_settings()
     # 就绪探针：探测逻辑在这里（它探的就是本模块管的池），缓存/单飞/超时在
     # ReadinessProbe 里。/readyz 因此是内存读，不会每个请求真打三次连接。
-    settings = get_settings()
     app.state.readiness_probe = ReadinessProbe(
         lambda: probe_domain_databases(app),
         ttl_seconds=settings.readiness_cache_ttl_seconds,

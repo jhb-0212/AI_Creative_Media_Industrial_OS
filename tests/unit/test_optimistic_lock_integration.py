@@ -21,7 +21,7 @@ from services.project_planning.repository._versioning import ConcurrentModificat
 from services.project_planning.repository.script_sqlalchemy_repo import (
     SqlAlchemyScriptRepository,
 )
-from tests.conftest import make_test_token
+from tests.conftest import make_test_token, set_test_scope
 
 TEST_TENANT = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
@@ -60,13 +60,8 @@ async def _setup_project_and_episode(
 
 
 async def _set_rls_context(session: object) -> None:
-    """在直接操作仓储的会话里注入 RLS 上下文（app_role 下 RLS 生效）。"""
-    from sqlalchemy import text
-
-    await session.execute(  # type: ignore[attr-defined]
-        text("SELECT set_config('app.current_tenant_id', :tid, true)"),
-        {"tid": str(TEST_TENANT)},
-    )
+    """在直接操作仓储的会话里注入作用域上下文（租户 + 组织，ADR-R24）。"""
+    await set_test_scope(session, tenant_id=TEST_TENANT)  # type: ignore[arg-type]
 
 
 async def test_optimistic_lock_prevents_lost_update(

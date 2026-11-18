@@ -21,7 +21,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.api.main import app
-from tests.conftest import TEST_TENANT_ID, make_test_token
+from tests.conftest import TEST_TENANT_ID, make_test_token, set_test_scope
 
 _SHA = "d" * 64
 # 资产归属键（SCOPE-3）：资产必须挂在真实项目上，归属判定才成立。
@@ -32,10 +32,7 @@ _PROJECT_ID = "project-1"
 async def _seed_project(db_sessionmaker) -> None:
     """播种归属项目（幂等）：资产无法脱离项目存在，测试也不能例外。"""
     async with db_sessionmaker() as session:
-        await session.execute(
-            text("SELECT set_config('app.current_tenant_id', :t, true)"),
-            {"t": str(TEST_TENANT_ID)},
-        )
+        await set_test_scope(session)
         await session.execute(
             text(
                 """
@@ -135,10 +132,7 @@ async def test_asset_lifecycle_end_to_end(
     async with asset_sessionmaker() as session:
         from sqlalchemy import text
 
-        await session.execute(
-            text("SELECT set_config('app.current_tenant_id', :tid, true)"),
-            {"tid": "00000000-0000-0000-0000-000000000000"},
-        )
+        await set_test_scope(session)
         row = (
             await session.execute(
                 text(
@@ -327,10 +321,7 @@ async def test_asset_status_change_to_gold_with_evidence(
     async with asset_sessionmaker() as session:
         from sqlalchemy import text
 
-        await session.execute(
-            text("SELECT set_config('app.current_tenant_id', :tid, true)"),
-            {"tid": "00000000-0000-0000-0000-000000000000"},
-        )
+        await set_test_scope(session)
         row = (
             await session.execute(
                 text(

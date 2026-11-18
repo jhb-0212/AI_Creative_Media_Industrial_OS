@@ -1,12 +1,15 @@
-"""仓储端口失败契约（P2-03）的单元测试。
+"""仓储端口失败契约（P2-03 + ADR-R24）的单元测试。
 
 这组用例守的不是"异常类存在"，而是**语义没有被压平**：
 ``IntegrityError`` 一个类型同时覆盖唯一冲突与外键冲突，服务层曾用同一分支处理，
 于是"引用的项目刚被并发删掉"会被解释成"同一 id 重复提交，返回既有记录"。
 把错误降级成成功，比报错更难发现。
 
-因此核心用例是 ``test_foreign_key_violation_is_not_treated_as_duplicate``：
-它断言的是"外键失败**不会**被翻译成可幂等的重复冲突"。
+ADR-R24 之后多了第二种数据库形态：组织维度的行级安全把「父实体不在当前作用域」
+表达成 ``42501``（``ProgrammingError``）而不是外键冲突。用例因此分成两组：
+
+- 完整性约束类（23xxx）：原样收敛，判不出时走"不可幂等"的保守分支；
+- 权限类（42501）：**只有 RLS 拒绝**才收敛成引用失败，缺表授权必须冒泡。
 """
 
 from __future__ import annotations
@@ -19,7 +22,8 @@ from packages.shared.port_errors import (
     DuplicateEntityError,
     ReferentialIntegrityError,
     RepositoryContractError,
-    classify_integrity_error,
+    classify_write_error,
+    translate_write_error,
 )
 from packages.shared.versioning import ConcurrentModificationError
 from services.project_planning.domain.project import Project
@@ -27,10 +31,14 @@ from services.project_planning.repository.in_memory_repo import InMemoryProjectR
 
 
 class _FakeDriverError(Exception):
-    """模拟驱动异常：携带 SQLSTATE（asyncpg 用 sqlstate，psycopg2 用 pgcode）。"""
+    """模拟驱动异常：携带 SQLSTATE（asyncpg 用 sqlstate，psycopg2 用 pgcode）。
 
-    def __init__(self, sqlstate: str = "") -> None:
-        super().__init__("driver error")
+    ``message`` 会被保留，因为 ``42501`` 有两个来源（RLS 拒绝 / 缺表授权），
+    区分它们**只能**靠数据库消息文本。
+    """
+
+    def __init__(self, sqlstate: str = "", message: str = "driver error") -> None:
+        super().__init__(message)
         if sqlstate:
             self.sqlstate = sqlstate
 
@@ -49,7 +57,7 @@ class _FakeSqlAlchemyError(Exception):
 def test_unique_violation_becomes_duplicate_entity_error() -> None:
     """23505（唯一冲突）→ 可幂等恢复的 DuplicateEntityError。"""
     exc = _FakeSqlAlchemyError(_FakeDriverError("23505"))
-    classified = classify_integrity_error(exc, entity_id="proj-1", constraint="pk_projects")
+    classified = classify_write_error(exc, entity_id="proj-1", constraint="pk_projects")
     assert isinstance(classified, DuplicateEntityError)
     assert classified.entity_id == "proj-1"
     assert classified.constraint == "pk_projects"
@@ -65,7 +73,7 @@ def test_foreign_key_violation_is_not_treated_as_duplicate() -> None:
     正确语义是"引用不成立，不可幂等"，必须上抛。
     """
     exc = _FakeSqlAlchemyError(_FakeDriverError("23503"))
-    classified = classify_integrity_error(exc, entity_id="ep-1")
+    classified = classify_write_error(exc, entity_id="ep-1")
     assert isinstance(classified, ReferentialIntegrityError)
     assert not isinstance(classified, DuplicateEntityError)
     assert classified.idempotent_recoverable is False
@@ -74,7 +82,7 @@ def test_foreign_key_violation_is_not_treated_as_duplicate() -> None:
 
 def test_check_violation_is_referential_not_duplicate() -> None:
     """23514（CHECK 违反）同样不可幂等：值不成立不是"已存在"。"""
-    classified = classify_integrity_error(
+    classified = classify_write_error(
         _FakeSqlAlchemyError(_FakeDriverError("23514")), entity_id="x"
     )
     assert isinstance(classified, ReferentialIntegrityError)
@@ -86,7 +94,7 @@ def test_pgcode_attribute_is_also_recognized() -> None:
     class _PgError(Exception):
         pgcode = "23505"
 
-    classified = classify_integrity_error(_FakeSqlAlchemyError(_PgError()), entity_id="p")
+    classified = classify_write_error(_FakeSqlAlchemyError(_PgError()), entity_id="p")
     assert isinstance(classified, DuplicateEntityError)
 
 
@@ -95,9 +103,7 @@ def test_text_fallback_detects_duplicate_when_no_sqlstate() -> None:
     exc = _FakeSqlAlchemyError(
         Exception('duplicate key value violates unique constraint "pk_projects"')
     )
-    assert isinstance(
-        classify_integrity_error(exc, entity_id="p"), DuplicateEntityError
-    )
+    assert isinstance(classify_write_error(exc, entity_id="p"), DuplicateEntityError)
 
 
 def test_unknown_integrity_error_falls_back_to_referential() -> None:
@@ -106,8 +112,67 @@ def test_unknown_integrity_error_falls_back_to_referential() -> None:
     保守方向选错（把不认识的情况当重复提交）就等于把未知错误变成"成功返回"，
     这是最危险的一种失败：错误被吞掉，调用方看不出任何异常。
     """
-    classified = classify_integrity_error(_FakeSqlAlchemyError(Exception("boom")), entity_id="p")
+    classified = classify_write_error(_FakeSqlAlchemyError(Exception("boom")), entity_id="p")
     assert isinstance(classified, ReferentialIntegrityError)
+
+
+# --------------------------------------------------------------------------- #
+# 行级安全拒绝（ADR-R24）：与外键冲突收敛，与缺授权区分
+# --------------------------------------------------------------------------- #
+def test_rls_rejection_becomes_referential_not_duplicate() -> None:
+    """42501 + row-level security → 引用失败，且**不可**幂等。
+
+    场景：向集数表插入一条指向「属于另一组织、当前作用域不可见」的项目的记录。
+    数据库的拒绝形态是 ``new row violates row-level security policy``（42501），
+    不是外键冲突（23503）——但调用方看到的事实是同一个：引用的父实体不成立。
+    """
+    exc = _FakeSqlAlchemyError(
+        _FakeDriverError(
+            "42501",
+            'new row violates row-level security policy for table "episodes"',
+        )
+    )
+    classified = classify_write_error(exc, entity_id="ep-1")
+    assert isinstance(classified, ReferentialIntegrityError)
+    assert classified.idempotent_recoverable is False
+    assert classified.sqlstate == "42501"
+
+
+def test_missing_table_grant_is_not_translated() -> None:
+    """42501 但消息是「缺表授权」→ **不翻译**（部署缺陷必须按 5xx 暴露）。
+
+    这是 42501 的第二个来源：迁移漏授 / 角色配错。把它翻译成「引用不成立」
+    会让运维事故伪装成业务 409，排障方向直接跑偏。
+    """
+    exc = _FakeSqlAlchemyError(
+        _FakeDriverError("42501", 'permission denied for table episodes')
+    )
+    assert classify_write_error(exc, entity_id="ep-1") is None
+
+
+def test_syntax_error_is_not_translated() -> None:
+    """42601（语法错误）等已知非业务状态一律不翻译：认得出来就不要硬猜。"""
+    exc = _FakeSqlAlchemyError(_FakeDriverError("42601", "syntax error at or near"))
+    assert classify_write_error(exc, entity_id="p") is None
+
+
+def test_translate_write_error_reraises_unknown_unchanged() -> None:
+    """判不出来的失败必须原样冒泡，不能被包装成端口契约异常。
+
+    「未知失败」被包成业务失败就等于把它降级——这是本模块反复强调的同一条纪律。
+    """
+    original = _FakeSqlAlchemyError(_FakeDriverError("42P01", 'relation "x" does not exist'))
+    with pytest.raises(_FakeSqlAlchemyError) as exc_info:
+        translate_write_error(original, entity_id="p")
+    assert exc_info.value is original
+
+
+def test_translate_write_error_raises_port_contract_with_cause() -> None:
+    """翻译成功时保留驱动原始因果链（``raise ... from exc``）。"""
+    original = _FakeSqlAlchemyError(_FakeDriverError("23505"))
+    with pytest.raises(DuplicateEntityError) as exc_info:
+        translate_write_error(original, entity_id="p")
+    assert exc_info.value.__cause__ is original
 
 
 def test_both_errors_share_contract_base() -> None:

@@ -16,7 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.api.main import app
-from tests.conftest import TEST_TENANT_ID, make_test_token
+from tests.conftest import make_test_token, set_test_scope
 
 
 @pytest.fixture
@@ -57,10 +57,7 @@ async def _count_events(
 ) -> int:
     async with sessionmaker() as session:
         # outbox 表启用 RLS：查询前必须注入租户上下文，否则按 RLS 语义看不到任何行。
-        await session.execute(
-            text("SELECT set_config('app.current_tenant_id', :t, true)"),
-            {"t": str(TEST_TENANT_ID)},
-        )
+        await set_test_scope(session)
         result = await session.execute(
             text(
                 "SELECT count(*) FROM outbox.outbox_events WHERE aggregate_id = :aid"
@@ -127,10 +124,7 @@ async def test_lock_writes_outbox_event_append_only(
 
     # 验证事件类型正确。
     async with db_sessionmaker() as session:
-        await session.execute(
-            text("SELECT set_config('app.current_tenant_id', :t, true)"),
-            {"t": str(TEST_TENANT_ID)},
-        )
+        await set_test_scope(session)
         result = await session.execute(
             text(
                 "SELECT event_type FROM outbox.outbox_events "
@@ -162,10 +156,7 @@ async def test_outbox_events_isolated_by_tenant(
 
     other_tenant = uuid.uuid4()
     async with db_sessionmaker() as session:
-        await session.execute(
-            text("SELECT set_config('app.current_tenant_id', :t, true)"),
-            {"t": str(other_tenant)},
-        )
+        await set_test_scope(session, tenant_id=other_tenant)
         count = await session.scalar(
             text("SELECT count(*) FROM outbox.outbox_events WHERE aggregate_id = :aid"),
             {"aid": script_id},

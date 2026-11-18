@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from packages.shared.database import build_migration_url
 from packages.shared.unit_of_work import unit_of_work
-from tests.conftest import TEST_TENANT_ID
+from tests.conftest import TEST_TENANT_ID, set_test_scope
 
 
 @pytest.fixture(autouse=True)
@@ -48,10 +48,7 @@ async def _insert_event(
     session: AsyncSession, *, aggregate_id: str, event_id: uuid.UUID
 ) -> None:
     """插入一条 outbox 事件（不提交，提交语义由被测工作单元决定）。"""
-    await session.execute(
-        text("SELECT set_config('app.current_tenant_id', :t, true)"),
-        {"t": str(TEST_TENANT_ID)},
-    )
+    await set_test_scope(session)
     await session.execute(
         text(
             "INSERT INTO outbox.outbox_events "
@@ -71,10 +68,7 @@ async def _count_events(
     sessionmaker: async_sessionmaker[AsyncSession], *, aggregate_id: str
 ) -> int:
     async with sessionmaker() as session:
-        await session.execute(
-            text("SELECT set_config('app.current_tenant_id', :t, true)"),
-            {"t": str(TEST_TENANT_ID)},
-        )
+        await set_test_scope(session)
         result = await session.execute(
             text("SELECT count(*) FROM outbox.outbox_events WHERE aggregate_id = :aid"),
             {"aid": aggregate_id},

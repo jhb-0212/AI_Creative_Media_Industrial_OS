@@ -23,6 +23,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from apps.api.main import app
+from tests.conftest import set_test_scope
 
 # 两个互不相干的租户（随机 UUID，避免与历史数据冲突）。
 TENANT_A = uuid.uuid4()
@@ -44,10 +45,7 @@ _INSERT_PROJECT = text(
 async def _insert_project(sm, tenant_id, entity_id: str, name: str) -> None:
     """在指定租户上下文内插入一行项目。"""
     async with sm() as session:
-        await session.execute(
-            text("SELECT set_config('app.current_tenant_id', :tenant, true)"),
-            {"tenant": str(tenant_id)},
-        )
+        await set_test_scope(session, tenant_id=tenant_id)
         await session.execute(
             _INSERT_PROJECT,
             {
@@ -63,10 +61,7 @@ async def _insert_project(sm, tenant_id, entity_id: str, name: str) -> None:
 async def _delete_project(sm, tenant_id, entity_id: str) -> None:
     """在指定租户上下文内删除一行项目（清理用）。"""
     async with sm() as session:
-        await session.execute(
-            text("SELECT set_config('app.current_tenant_id', :tenant, true)"),
-            {"tenant": str(tenant_id)},
-        )
+        await set_test_scope(session, tenant_id=tenant_id)
         await session.execute(
             text("DELETE FROM project_planning.projects WHERE entity_id = :e"),
             {"e": entity_id},
@@ -80,10 +75,7 @@ async def test_cross_tenant_insert_rejected() -> None:
     entity_id = f"rls_bad_{uuid.uuid4().hex[:8]}"
     with pytest.raises(DBAPIError) as exc_info:
         async with sm() as session:
-            await session.execute(
-                text("SELECT set_config('app.current_tenant_id', :tenant, true)"),
-                {"tenant": str(TENANT_A)},
-            )
+            await set_test_scope(session, tenant_id=TENANT_A)
             await session.execute(
                 _INSERT_PROJECT,
                 {
@@ -109,10 +101,7 @@ async def test_cross_tenant_rows_invisible_and_not_writable() -> None:
 
         # 1) A 上下文只能看到自己的行（B 的行被 RLS 过滤）。
         async with sm() as session:
-            await session.execute(
-                text("SELECT set_config('app.current_tenant_id', :tenant, true)"),
-                {"tenant": str(TENANT_A)},
-            )
+            await set_test_scope(session, tenant_id=TENANT_A)
             visible = await session.scalar(
                 text(
                     "SELECT count(*) FROM project_planning.projects "
@@ -124,10 +113,7 @@ async def test_cross_tenant_rows_invisible_and_not_writable() -> None:
 
         # 2) A 上下文 UPDATE B 的行 → 0 行受影响。
         async with sm() as session:
-            await session.execute(
-                text("SELECT set_config('app.current_tenant_id', :tenant, true)"),
-                {"tenant": str(TENANT_A)},
-            )
+            await set_test_scope(session, tenant_id=TENANT_A)
             result = await session.execute(
                 text(
                     "UPDATE project_planning.projects SET project_name = '越权改名' "
@@ -140,10 +126,7 @@ async def test_cross_tenant_rows_invisible_and_not_writable() -> None:
 
         # 3) A 上下文 DELETE B 的行 → 0 行受影响。
         async with sm() as session:
-            await session.execute(
-                text("SELECT set_config('app.current_tenant_id', :tenant, true)"),
-                {"tenant": str(TENANT_A)},
-            )
+            await set_test_scope(session, tenant_id=TENANT_A)
             result = await session.execute(
                 text("DELETE FROM project_planning.projects WHERE entity_id = :e"),
                 {"e": eid_b},
@@ -153,10 +136,7 @@ async def test_cross_tenant_rows_invisible_and_not_writable() -> None:
 
         # 4) B 的行仍在，且 B 上下文可见（A 的删除未生效）。
         async with sm() as session:
-            await session.execute(
-                text("SELECT set_config('app.current_tenant_id', :tenant, true)"),
-                {"tenant": str(TENANT_B)},
-            )
+            await set_test_scope(session, tenant_id=TENANT_B)
             count_b = await session.scalar(
                 text(
                     "SELECT count(*) FROM project_planning.projects "

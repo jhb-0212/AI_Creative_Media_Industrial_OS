@@ -14,28 +14,62 @@
    错误"都当"同一 id 重复提交"，于是外键失败（引用的项目刚被并发删除）会被降级
    成幂等返回把错误吞掉，而不是 fail-closed 地暴露"你的引用不成立"。
 
+第三类失败（ADR-R24 之后成为常态）
+------------------------------------------------------------
+行级安全把「父实体不在当前作用域」表达成**写入被拒绝**（SQLSTATE ``42501``，
+驱动异常类型是 ``InsufficientPrivilegeError`` → SQLAlchemy ``ProgrammingError``），
+不是外键冲突。子表插入（episode / script / asset）在父项目不可见时，``WITH CHECK``
+会先于外键 AFTER 触发器求值，因此同一个业务事实有两种数据库形态：
+
+| 场景 | 数据库形态 | 端口语义 |
+| --- | --- | --- |
+| 父实体不存在，且作用域内不可见 | 42501（RLS 拒绝） | 引用不成立 |
+| 父实体不存在，RLS 未生效（管理员连接） | 23503（外键冲突） | 引用不成立 |
+
+两者对调用方是同一件事：**你引用的父实体在当前作用域不成立**。因此端口必须把
+它们收敛到同一个异常，否则「同一种业务失败」会在服务层分叉成两种处理——而其中
+一种（未翻译的 ``ProgrammingError``）会直接冒到 API 层变成 500。
+
+这里同时要**避免过度收敛**：``42501`` 还覆盖「角色缺少表授权」（部署/迁移缺陷）。
+那是运维事故，不是业务失败，把它翻译成「引用不成立」会让真实缺陷伪装成 409。
+判定依据是数据库消息：RLS 拒绝的消息含 ``row-level security``，缺授权的是
+``permission denied for table ...``。
+
 契约（端口层唯一事实源）
 ------------------------------------------------------------
 - ``DuplicateEntityError``：**唯一 / 主键冲突**（23505）。这是服务层唯一允许
   捕获并降级为"回读 + 幂等返回"的失败——因为冲突本身就证明目标行已存在。
-- ``ReferentialIntegrityError``：其他完整性失败（外键 / CHECK / NOT NULL）。
-  它表示调用方给的关系或值不成立，**不可**幂等、**不可**重试，直接上抛。
+- ``ReferentialIntegrityError``：其他完整性失败（外键 / CHECK / NOT NULL）与
+  **行级安全拒绝写入**。它表示调用方给的关系或值在当前作用域不成立，**不可**
+  幂等、**不可**重试，直接上抛。
 
-``classify_integrity_error`` 是给适配器用的翻译器：只有适配器知道自己在用什么
-驱动，因此也只有它能做这个判定。它惰性导入 SQLAlchemy，保证本模块的异常类型
-在零 ORM 环境下可 import（内存适配器、领域单测、契约闸门都只依赖异常类型）。
+``classify_write_error`` / ``translate_write_error`` 是给适配器用的翻译器：只有
+适配器知道自己在用什么驱动，因此也只有它能做这个判定。本模块惰性导入 SQLAlchemy
+的**异常类型**（仅在 ``translate_write_error`` 里按需判断），保证异常类型本身在
+零 ORM 环境下可 import（内存适配器、领域单测、契约闸门都只依赖异常类型）。
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NoReturn
 
 # PostgreSQL 唯一约束违反的 SQLSTATE（asyncpg / psycopg / psycopg2 同值）。
 UNIQUE_VIOLATION_SQLSTATE = "23505"
 
+# 权限不足（含行级安全拒绝）。它既是「父实体不在作用域」的数据库形态，
+# 也是「角色缺表授权」的形态——必须靠消息文本区分（见模块 docstring）。
+INSUFFICIENT_PRIVILEGE_SQLSTATE = "42501"
+
+# 完整性约束违反的 SQLSTATE 类别前缀（23xxx：唯一 / 外键 / CHECK / NOT NULL ...）。
+_INTEGRITY_CLASS_PREFIX = "23"
+
 # 驱动对象上可能携带 SQLSTATE 的属性名（按优先级）。asyncpg 用 sqlstate，
 # psycopg2 用 pgcode，老版本 / 包装层还可能是 code。
 _SQLSTATE_ATTRS: tuple[str, ...] = ("sqlstate", "pgcode", "code")
+
+# 行级安全拒绝的消息特征（PostgreSQL 固定措辞，本地化会失效——因此只在
+# 拿不到 SQLSTATE 或需要区分 42501 的两个来源时作为辅助判据）。
+_RLS_TEXT = "row-level security"
 
 
 class RepositoryContractError(Exception):
@@ -67,11 +101,12 @@ class DuplicateEntityError(RepositoryContractError):
 
 
 class ReferentialIntegrityError(RepositoryContractError):
-    """引用 / 取值不成立（外键、CHECK、NOT NULL 等）。
+    """引用 / 取值在当前作用域不成立（外键、CHECK、NOT NULL、行级安全拒绝写入）。
 
     语义：**不可幂等、不可重试**。它说明调用方给出的关系或值在数据库层不成立
-    （例如引用的父实体已被并发删除），必须 fail-closed 上抛——把它降级成
-    "重复提交、返回既有记录"会把真实的数据一致性问题藏在幂等语义后面。
+    （例如引用的父实体已被并发删除，或父实体属于另一个组织、当前作用域不可见），
+    必须 fail-closed 上抛——把它降级成"重复提交、返回既有记录"会把真实的数据
+    一致性问题藏在幂等语义后面。
     """
 
     def __init__(
@@ -111,23 +146,79 @@ def _text_of(exc: BaseException) -> str:
     return " ".join(parts).lower()
 
 
-def classify_integrity_error(
+def _is_rls_rejection(text: str) -> bool:
+    """``42501`` 是否来自行级安全（而不是缺表授权）。"""
+    return _RLS_TEXT in text
+
+
+def classify_write_error(
     exc: BaseException, *, entity_id: str, constraint: str = ""
-) -> RepositoryContractError:
-    """把驱动的完整性异常翻译成端口契约异常（返回实例，由调用方 raise）。
+) -> RepositoryContractError | None:
+    """把「写失败」的驱动异常翻译成端口契约异常；判不出来返回 ``None``。
 
-    返回而不直接 raise：适配器要 ``raise classified from exc`` 保留驱动原始
-    因果链，异常可读性不能因为翻译而丢失。
+    返回 ``None`` 而不是保守地归入 ``ReferentialIntegrityError``，是因为调用方
+    （适配器）现在捕获的是 ``IntegrityError`` **和** ``ProgrammingError`` 两类：
+    后者还包括语法错误（42601）、对象不存在（42P01）、缺授权（42501 的另一种
+    来源）——那都是代码或部署缺陷，必须原样上抛，不能被翻译成业务失败。
 
-    判定顺序：SQLSTATE 优先；取不到 SQLSTATE 时退回文本特征（"duplicate key"），
-    两者都不匹配即按"引用完整性"保守处理——**保守方向必须是"不幂等"**，
-    否则偶发的外键失败会被误降级成幂等返回。
+    判定顺序：
+    1. ``23505`` → 唯一冲突（可幂等）；
+    2. ``23xxx`` → 引用/取值不成立（不可幂等）；
+    3. ``42501`` 且消息含 ``row-level security`` → 行级安全拒绝写入
+       （= 父实体不在当前作用域），语义同 2；
+    4. 取不到 SQLSTATE 时退回文本特征（``duplicate key`` / ``row-level security``），
+       两者都不匹配则按"引用完整性"保守处理——**保守方向必须是"不幂等"**，否则
+       偶发的外键失败会被误降级成幂等返回。
     """
     state = _sqlstate_of(exc)
-    if state == UNIQUE_VIOLATION_SQLSTATE or (
-        not state and "duplicate key" in _text_of(exc)
-    ):
+    text = _text_of(exc)
+
+    if state == UNIQUE_VIOLATION_SQLSTATE:
         return DuplicateEntityError(entity_id, constraint=constraint)
-    return ReferentialIntegrityError(
-        entity_id, constraint=constraint, sqlstate=state
+    if state.startswith(_INTEGRITY_CLASS_PREFIX):
+        return ReferentialIntegrityError(
+            entity_id, constraint=constraint, sqlstate=state
+        )
+    if state == INSUFFICIENT_PRIVILEGE_SQLSTATE:
+        if _is_rls_rejection(text):
+            return ReferentialIntegrityError(
+                entity_id, constraint=constraint, sqlstate=state
+            )
+        # 缺表/序列/函数授权：部署缺陷，交给上层按 5xx 暴露，不伪装成业务失败。
+        return None
+    if state:
+        # 语法错误、对象不存在、连接中断……都不是端口契约里的业务失败。
+        return None
+
+    # 取不到 SQLSTATE（驱动被中间层包装过）：只能按文本保守判定。
+    if "duplicate key" in text:
+        return DuplicateEntityError(entity_id, constraint=constraint)
+    return ReferentialIntegrityError(entity_id, constraint=constraint)
+
+
+def translate_write_error(
+    exc: BaseException, *, entity_id: str, constraint: str = ""
+) -> NoReturn:
+    """在 ``except`` 块里调用：翻译成端口契约异常，**判不出来就原样抛。**
+
+    设计成一个总是抛出的函数（而不是「返回 ``None`` 让调用方再 raise」），是为了
+    让适配器只写一行、且不可能「忘了上抛」——把「未知失败必须冒泡」这条纪律
+    写进调用形态里，而不是写进注释里等人遵守。
+    """
+    translated = classify_write_error(
+        exc, entity_id=entity_id, constraint=constraint
     )
+    if translated is None:
+        raise exc
+    raise translated from exc
+
+
+__all__ = [
+    "INSUFFICIENT_PRIVILEGE_SQLSTATE",
+    "UNIQUE_VIOLATION_SQLSTATE",
+    "DuplicateEntityError",
+    "ReferentialIntegrityError",
+    "RepositoryContractError",
+    "classify_write_error",
+    "translate_write_error",
+]

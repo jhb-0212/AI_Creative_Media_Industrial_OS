@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from httpx import AsyncClient
 from sqlalchemy import text
 
-from tests.conftest import TEST_TENANT_ID
+from tests.conftest import TEST_TENANT_ID, set_test_scope
 
 
 async def test_create_project_success(auth_client: AsyncClient) -> None:
@@ -113,12 +113,13 @@ async def _seed_organization(db_sessionmaker, org_id: uuid.UUID) -> None:
     组织与项目必须同租户（TEST_TENANT_ID，与测试令牌的 tenant_id claim 一致），
     否则复合外键会在数据库层拒绝——那正是 SCOPE-1 想要的负向行为，不该被
     本组用例（组织范围 ABAC）误触发。
+
+    会话上下文必须同时注入**组织**维度：organizations 表自身也受组织谓词保护，
+    只注租户会得到 ``new row violates row-level security policy``。这里注入
+    待播种组织的 id 是自洽的——插入行的 organization_id 恰等于当前组织。
     """
     async with db_sessionmaker() as session:
-        await session.execute(
-            text("SELECT set_config('app.current_tenant_id', :t, true)"),
-            {"t": str(TEST_TENANT_ID)},
-        )
+        await set_test_scope(session, org_id)
         await session.execute(
             text(
                 """
@@ -149,12 +150,16 @@ def _client_with_org(organization_id: uuid.UUID | None, subject_id: str = "org_u
 
 
 async def test_create_project_in_other_organization_rejected(db_sessionmaker) -> None:
-    """A 组织成员不得把项目挂到 B 组织：创建即越权 → 403。
+    """A 组织成员不得把项目挂到 B 组织 → 404（B 组织对 A 不可见）。
+
+    语义（ADR-R24）：组织边界下沉到数据库后，「他组织」不是「看得见但无权碰」，
+    而是**看不见**——organization 解析在 RLS 之下拿不到 B 的行，于是归属路径
+    解析不出，返回与「不存在」同形的 404。这比 403 更严格：403 仍承认了
+    「B 组织存在」这一事实，404 连存在性都不泄漏。
 
     前置条件必须显式播种 B 组织：本用例的语义是「同租户、**存在但不同**的
-    组织」。此前实现不校验组织是否真实存在（拿请求体拼归属路径），漏播种也
-    能碰巧得到 403；现在归属按数据库事实判定，不播种会正确地变成 404
-    （不可见与不存在同形），测到的就不是本条要证明的语义了。
+    组织」。不播种也能得到 404，但那是「真的不存在」——测到的就不是本条要
+    证明的语义了。
     """
     await _seed_organization(db_sessionmaker, _ORG_B)
     async with _client_with_org(_ORG_A) as c:
@@ -166,8 +171,8 @@ async def test_create_project_in_other_organization_rejected(db_sessionmaker) ->
                 "organization_id": str(_ORG_B),
             },
         )
-    assert resp.status_code == 403
-    assert resp.json()["error_code"] == "AUTH_SCOPE_DENIED"
+    assert resp.status_code == 404
+    assert resp.json()["error_code"] == "NOT_FOUND"
 
 
 async def test_create_project_in_own_organization_succeeds(db_sessionmaker) -> None:
@@ -185,8 +190,16 @@ async def test_create_project_in_own_organization_succeeds(db_sessionmaker) -> N
     assert resp.status_code == 201
 
 
-async def test_personal_principal_cannot_create_organization_project() -> None:
-    """无 org claim 的个人主体不能创建组织项目（fail-closed）→ 403。"""
+async def test_personal_principal_cannot_create_organization_project(
+    db_sessionmaker,
+) -> None:
+    """无 org claim 的个人主体不能创建组织项目（fail-closed）→ 404。
+
+    个人主体的会话组织上下文为空，``organization_id IS NULL OR organization_id
+    = current_org`` 只剩「个人行可见」，于是任何组织行都解析不到 → 404。
+    组织行显式播种，确保 404 来自「不可见」而不是「不存在」（ADR-R24）。
+    """
+    await _seed_organization(db_sessionmaker, _ORG_A)
     async with _client_with_org(None) as c:
         resp = await c.post(
             "/projects",
@@ -196,12 +209,16 @@ async def test_personal_principal_cannot_create_organization_project() -> None:
                 "organization_id": str(_ORG_A),
             },
         )
-    assert resp.status_code == 403
-    assert resp.json()["error_code"] == "AUTH_SCOPE_DENIED"
+    assert resp.status_code == 404
+    assert resp.json()["error_code"] == "NOT_FOUND"
 
 
 async def test_org_project_read_by_other_organization_rejected(db_sessionmaker) -> None:
-    """A 组织创建的项目，B 组织成员读取 → 403（租户一致、组织不同）。"""
+    """A 组织创建的项目，B 组织成员读取 → 404（租户一致、组织不同）。
+
+    同租户、组织不同：项目行真实存在于同一个租户里，但被组织谓词过滤掉，
+    于是「他组织的项目」与「不存在的项目」在响应上完全同形（ADR-R24）。
+    """
     await _seed_organization(db_sessionmaker, _ORG_A)
     async with _client_with_org(_ORG_A, subject_id="org_a_creator") as c:
         created = await c.post(
@@ -217,8 +234,8 @@ async def test_org_project_read_by_other_organization_rejected(db_sessionmaker) 
 
     async with _client_with_org(_ORG_B, subject_id="org_b_reader") as c:
         resp = await c.get(f"/projects/{eid}")
-    assert resp.status_code == 403
-    assert resp.json()["error_code"] == "AUTH_SCOPE_DENIED"
+    assert resp.status_code == 404
+    assert resp.json()["error_code"] == "NOT_FOUND"
 
 
 async def test_org_project_read_by_same_organization_succeeds(db_sessionmaker) -> None:
@@ -239,7 +256,11 @@ async def test_org_project_read_by_same_organization_succeeds(db_sessionmaker) -
 
 
 async def test_org_project_status_change_by_other_organization_rejected(db_sessionmaker) -> None:
-    """B 组织成员推进 A 组织项目的状态 → 403，且项目状态不被改变。"""
+    """B 组织成员推进 A 组织项目的状态 → 404，且项目状态不被改变。
+
+    「不可见即不可推进」比「可见但拒绝」更强：读不到的行连状态转移的入口
+    都不存在，`advance_status` 的守卫（乐观锁 + 状态机）根本不会被触发。
+    """
     await _seed_organization(db_sessionmaker, _ORG_A)
     async with _client_with_org(_ORG_A, subject_id="org_a_creator") as c:
         created = await c.post(
@@ -257,8 +278,8 @@ async def test_org_project_status_change_by_other_organization_rejected(db_sessi
             f"/projects/{eid}/status",
             json={"target_status": "ACTIVE"},
         )
-    assert resp.status_code == 403
-    assert resp.json()["error_code"] == "AUTH_SCOPE_DENIED"
+    assert resp.status_code == 404
+    assert resp.json()["error_code"] == "NOT_FOUND"
 
     # 落库前校验：状态不得已被推进（fail-closed，不是事后补救）。
     async with _client_with_org(_ORG_A, subject_id="org_a_creator") as c:
