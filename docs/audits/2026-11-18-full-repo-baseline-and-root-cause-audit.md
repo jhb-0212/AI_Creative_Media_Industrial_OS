@@ -367,7 +367,7 @@ Bearer JWT
 2. 与状态变更**同事务**写入（沿用 R07），并作为 outbox 事件的 `source_ref`——事件不再承担「唯一历史」职责，只承担「通知下游」职责。
 3. 该表 append-only：收回 UPDATE/DELETE/**TRUNCATE**（对齐 `qc_reports` 的既有做法；后者实测只装了行级守卫，`TRUNCATE` 仍可清空，同批补齐）。
 4. 明确它与 `audit_ref` 的关系：`audit_ref` 降级为「指向最新一条迁移记录的指针」，不再是自由字符串；迁移前的自由串按 `legacy` 处理，不参与指针解析（否则升级即误报，见 ADR-R23 D2-c）。
-5. ~~会签在此表上表达为「同一 `(resource, from, to)` 下多条席位签署记录，凑齐后放行」——AUTH-5 的 `unblocks_when` 因此可以关闭。~~
+5. ~~会签在此表上表达为「同一 `(resource, from, to)` 下多条席位签署记录，凑齐后放行」——AUTH-5 因此可以关闭。~~
    **此条已撤回（2026-11-18 写 ADR 时发现不成立）**：本表记录「推进已经发生」，会签是「推进之前某席位签了字」，是另一类事实（可驳回/可超时/可凑不齐）。塞进本表只能靠 no-op 行或 `kind` 判别列。AUTH-5 改由 `audit.approval_signatures`（D2b 单独 ADR）解锁。
 
 **需删除的旧机制**：把 outbox 当审计主表的隐含假设；`audit_ref` 作为自由字符串承载审批语义。

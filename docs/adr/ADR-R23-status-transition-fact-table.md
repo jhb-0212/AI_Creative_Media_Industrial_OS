@@ -207,14 +207,16 @@ contract_amendments.yaml 登记 A12（schema_objects: StatusTransition）
 ### D2-e 本 ADR 只做 D2a；读接口与会签拆到 D2b（并修正一处此前的判断）
 
 **纠正核验报告的结论**：报告 §N-02 写「会签在此表上表达为同一 `(resource, from, to)` 下多条
-席位签署记录，凑齐后放行——AUTH-5 的 unblocks_when 因此可以关闭」。**这个说法不成立，撤回。**
+席位签署记录，凑齐后放行——AUTH-5 因此可以关闭」。**这个说法不成立，撤回。**
 
 - 本表记录的是「推进**已经**发生」，一行 = 一次推进（且 `CHECK (from_status <> to_status)`
   已经把 no-op 行堵死）；
 - 会签需要的是「推进**之前**，某个席位签了字」——这是**另一类事实**，有独立的生命周期
   （可能被驳回、可能超时失效、可能凑不齐）；
-- 因此 AUTH-5 的 `unblocks_when` 改写为：**需 `audit.approval_signatures` 表（D2b 单独 ADR）**，
-  本表只关闭「迁移可追溯」，不关闭会签。
+- 因此本项的依赖改写为：**需 `audit.approval_signatures` 表（D2b 单独 ADR）**，本表只关闭
+  「迁移可追溯」，不关闭会签。该依赖已**同批写入 AUTH-5 的 `residual_risk`**
+  （`contracts/security_boundary.yaml`）——安全边界契约才是本项的权威事实源，
+  ADR 是决策记录，不替代契约（初稿只写在 ADR 里、契约文件未改，属事实源分裂，已修正）。
 
 **宁可承认多一张表，也不把两类事实挤进一张表**——后者正是「用配置/判别列代替建模」。
 
@@ -257,9 +259,17 @@ contract_amendments.yaml 登记 A12（schema_objects: StatusTransition）
 | 8 | 边界断言 `data.transition_fact_table` | 迁移缺表/缺触发器（含 TRUNCATE）/缺唯一约束/缺 RLS force 任一 → 报红 |
 | 9 | 负向用例组 | 并发同版本双写 → 唯一约束冲突；事务失败 → 状态/事实/事件同时回滚；归档 outbox 分区后历史仍可查 |
 
-**第 7 条的可执行判据**（AST，不查字符串）：
-`audit_ref` 的赋值只允许出现在 `packages/shared/entity.py::_advance_version`；
-其他 `.py` 里出现 `self.audit_ref =` 或 `audit_ref=` 传参即失败。
+**第 7 条的可执行判据**（AST，不查字符串，也**不查关键字实参**）：
+判据只针对**赋值目标**——`audit_ref` 的赋值（`self.audit_ref = …` / `<obj>.audit_ref = …`）
+只允许出现在 `packages/shared/entity.py::_advance_version`，其他文件出现 Attribute 赋值即失败。
+
+不能把「出现 `audit_ref=`」当作判据：那是关键字实参，现有代码里合法使用就有 13 处——
+8 处是 repository 水合/落库（`audit_ref=model.audit_ref` 等，字段本就在信封里、必须能读写），
+5 处是 `transition_to(..., audit_ref=…)`。按实参判会把正常代码全判红，
+逼着下一个人去给断言开白名单——断言一旦有白名单，就等于没有。
+
+「谁允许传 `audit_ref` 给 `transition_to`」这个问题由 §D2-b 的**调用点白名单**回答
+（`transition_to(` 只许出现在每域唯一的推进函数里），两件事分开管，各管各的面。
 
 ## 7. 残余风险
 
@@ -276,7 +286,8 @@ contract_amendments.yaml 登记 A12（schema_objects: StatusTransition）
    这不是应用路径，属运维权限范畴：生产迁移角色凭据不进业务容器（F05 已落地），DDL 变更走评审。
    登记为已知边界，不假装已被应用层防住。
 6. **D2b 未立项**：`approval_signatures` 与读接口需所有者裁定新动作；在此之前，
-   「会签」与「按资源查历史」都不可用（但**不是**静默缺失——AUTH-5 的 `unblocks_when` 已指向 D2b）。
+   「会签」与「按资源查历史」都不可用（但**不是**静默缺失——AUTH-5 的 `residual_risk`
+   已点名 `audit.approval_signatures` 与目标动作运行时入口两项依赖）。
 
 ## 8. 为什么这是「根治」而不是「加一张表」
 

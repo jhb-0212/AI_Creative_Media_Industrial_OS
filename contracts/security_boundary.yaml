@@ -154,8 +154,12 @@ authorization:
         - tests/unit/test_countersignature.py::test_contract_plus_actions_are_all_multi_seat
       residual_risk: >-
         只解决了「语义正确 + 不静默降级」；累积式会签（多主体分次签署、凑齐后
-        放行）仍未实现，依赖审批事实契约（谁签了哪个席位）与目标动作的运行时
-        入口。在两者就位前，多席位动作一律 fail-closed，属有意为之而非缺陷。
+        放行）仍未实现。缺口已定位到具体依赖，不再泛称「审批事实契约」：需
+        ``audit.approval_signatures``（「推进之前某席位已签署」的独立事实表）与
+        目标动作的运行时入口。ADR-R23 §D2-e 已判定 ``audit.status_transitions``
+        记录的是「推进已发生」，不能承载签署，故本项不由该表关闭；该表与签署
+        事实均未立项（D2b），故本项维持当前口径。在两者就位前，多席位动作一律
+        fail-closed，属有意为之而非缺陷。
 
 # --------------------------------------------------------------------------- #
 # 2. 资源归属边界（resource_scope）
