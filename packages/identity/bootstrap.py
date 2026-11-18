@@ -32,6 +32,6 @@ def bootstrap_signing_key_if_missing() -> None:
     """
     if os.environ.get("IDENTITY_PUBLIC_KEY_PEM"):
         return
-    key = generate_signing_key(kid="current")
+    key = generate_signing_key()
     os.environ["IDENTITY_PRIVATE_KEY_PEM"] = key.private_pem.decode("utf-8")
     os.environ["IDENTITY_PUBLIC_KEY_PEM"] = key.public_pem.decode("utf-8")

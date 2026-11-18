@@ -109,7 +109,8 @@ docs/          # 架构/ADR/runbook/SOP
 > 说明：原表「跨模块数据所有权」「Capability 运行时授权」「状态推进入口」
 > 「审批与执行分离」四项已由 F01–F06 系统性重构根治，不再属于「未覆盖」；
 > 身份签发已拆为独立进程 `workers/identity`（持私钥 + JWKS 端点，API 只持公钥），
-> 详见 `contracts/security_boundary.yaml`（11 条不变量 satisfied，含 KEYS-3）与
+> 密钥标识 kid 为公钥内容指纹（RFC 7638，签发/分发/验签三方零配置同源），
+> 详见 `contracts/security_boundary.yaml`（17 条不变量 satisfied，含 KEYS-3/KEYS-4）与
 > `docs/proposals/F01-F05-security-data-boundary-refactor.md`。
 
 ## 快速开始

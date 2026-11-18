@@ -25,8 +25,17 @@ class KeyStore:
     def __init__(self, keys: list[SigningKey]) -> None:
         if not keys:
             raise ValueError("KeyStore 至少需要一个签名密钥")
+        # kid 现在是公钥指纹（RFC 7638），重复即代表同一把密钥被注册两次或
+        # 调用方自行指派了相同 kid——两种情况都会让索引静默覆盖，
+        # 因此这里显式拒绝，而不是让「后注册的赢」变成一个隐性事实。
+        seen: set[str] = set()
+        for key in keys:
+            if key.kid in seen:
+                raise ValueError(f"KeyStore 中存在重复 kid：{key.kid}（同 kid 会静默覆盖前一把密钥）")
+            seen.add(key.kid)
         self._by_kid: dict[str, SigningKey] = {k.kid: k for k in keys}
         # 当前密钥取列表最后一个（约定：新轮换的密钥追加在末尾）。
+        # kid 是内容指纹，无法按字典序判断新旧，因此「谁是当前密钥」由顺序表达。
         self._current: SigningKey = keys[-1]
 
     @property

@@ -21,6 +21,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 from packages.identity.jwks import PublicKeyStore
+from packages.identity.keys import public_key_thumbprint
 from packages.shared.config import get_settings
 
 
@@ -45,4 +46,9 @@ def get_public_key_store() -> PublicKeyStore:
             "验签方缺少公钥：必须配置 IDENTITY_PUBLIC_KEY_PEM（API 进程只持公钥"
             "验签，不得从签发私钥派生）。开发/测试由测试装配层显式注入同源公钥。"
         )
-    return PublicKeyStore({"current": public_pem.encode("utf-8")})
+    # kid 是公钥指纹（RFC 7638），由本进程从公钥独立算出——与签发方构造令牌
+    # 头部 kid 的算法同源，因此**不需要**在两端配置同一个 kid 字符串。
+    # 此前这里写死 {"current": ...}，与签发侧硬编码的 "current" 靠巧合对齐，
+    # 一旦引入轮换就会失配。
+    pem = public_pem.encode("utf-8")
+    return PublicKeyStore({public_key_thumbprint(pem): pem})

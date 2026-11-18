@@ -92,6 +92,20 @@ def _tree(rel_path: str) -> ast.Module:
     return ast.parse(_read(rel_path), filename=rel_path)
 
 
+def _string_literals(rel_path: str) -> set[str]:
+    """源码中出现的**字符串字面量**集合（AST 级，注释天然不计入）。
+
+    与 ``"x" in _read(path)`` 的区别：后者会把注释与文档里的追述也算成违规，
+    判据就从「代码里还有硬编码」退化成「文档里不许提旧实现」。这里取字面量
+    精确值，注释被 AST 丢弃，docstring 虽被收集但因不**等于**目标值而不命中。
+    """
+    return {
+        node.value
+        for node in ast.walk(_tree(rel_path))
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+
+
 def _module_string_lists(rel_path: str, name: str) -> list[str] | None:
     """读取模块级赋值的字符串序列（元组/列表）字面量；找不到返回 None。
 
@@ -660,6 +674,45 @@ def keys_physical_separation() -> AssertionResult:
     identity_app = _read("workers/identity/app.py")
     if "jwks" not in identity_app.lower():
         return (False, "workers/identity 未提供 JWKS 端点：验签方拿不到公钥")
+    return (True, "")
+
+
+@assertion("keys.kid_content_addressed")
+def keys_kid_content_addressed() -> AssertionResult:
+    """kid 必须是公钥内容指纹（RFC 7638），各方零配置地算出同一个值。
+
+    为什么这是不变量而不是实现细节：kid 是验签方索引公钥的唯一键。
+    若 kid 是配置项或随机串，签发方与验签方就各自持有一份「同一事实的副本」，
+    副本漂移即全平台验签失败；若 kid 是固定字面量（曾经的 "current"），
+    多把密钥同名会静默覆盖，轮换根本无法表达。
+
+    行为断言（不是查注释）：
+    1. 签发侧生成的 kid 必须等于从公钥独立算出的指纹；
+    2. 关键模块不得再出现字面量 kid 赋值；
+    3. 验签方必须自己从公钥派生（而非接收传入的 kid）。
+    """
+    from packages.identity.keys import generate_signing_key, public_key_thumbprint
+
+    key = generate_signing_key()
+    if key.kid != public_key_thumbprint(key.public_pem):
+        return (False, "签发侧 kid 不等于公钥指纹（kid 不再是内容派生）")
+
+    # 检查的是**代码里的字符串字面量**，不是文本包含：注释里追述「此前写成
+    # "current"」属于历史说明，不应报红；只有真正参与赋值的字面量才是违规。
+    hardcoded = [
+        path
+        for path in (
+            "services/identity_issuance/__init__.py",
+            "services/identity_access/__init__.py",
+            "packages/identity/bootstrap.py",
+        )
+        if "current" in _string_literals(path)
+    ]
+    if hardcoded:
+        return (False, f"仍存在字面量 kid 赋值（多密钥会同名覆盖）: {hardcoded}")
+
+    if "public_key_thumbprint" not in _read("services/identity_access/__init__.py"):
+        return (False, "验签方未从公钥派生 kid：签发方与验签方会各自维护 kid 副本")
     return (True, "")
 
 

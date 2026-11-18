@@ -303,7 +303,26 @@ process_keys:
       assertion: keys.physical_separation
       runtime_evidence:
         - tests/unit/test_identity_process.py::test_jwks_exposes_public_keys_only
-      residual_risk: "密钥轮换编排（多 kid 并行、旧 kid 退役）仍属运维面；JWKS 未内置限流，暴露面由网络层控制。"
+      residual_risk: "多密钥并行/旧 kid 退役的调度仍属运维面；JWKS 未内置限流，暴露面由网络层控制。"
+
+    - id: KEYS-4
+      name: kid 是公钥内容指纹（可自证、可轮换）
+      statement: >-
+        密钥标识 kid 必须由公钥内容派生（RFC 7638 JWK Thumbprint，SHA-256 +
+        base64url 无填充），且只取必需成员 {e,kty,n}；不得是配置项、随机串或
+        固定字面量。签发方（令牌头部）、分发方（JWKS 文档）与验签方（公钥仓储
+        索引）三方各自从同一把公钥独立计算即得同一 kid，**不需要任何一方配置
+        kid 字符串**。
+      fact_source: packages/identity/keys.py（public_key_thumbprint 为唯一实现）
+      verification: 断言 keys.kid_content_addressed（内容派生 + 无字面量 + 验签方自算）
+      assertion: keys.kid_content_addressed
+      runtime_evidence:
+        - tests/unit/test_identity_kid_thumbprint.py::test_thumbprint_matches_rfc7638_test_vector
+        - tests/unit/test_identity_kid_thumbprint.py::test_token_header_kid_equals_jwks_kid_and_verifier_index
+      residual_risk: >-
+        验签进程当前只持单把公钥（IDENTITY_PUBLIC_KEY_PEM），轮换过渡期内无法同时
+        验旧 kid 的令牌；多公钥注入与 JWKS 回源缓存属后续运维面工作。kid 改为内容
+        派生后，该能力的实现入口已存在（多 kid 不再同名覆盖）。
 
 # --------------------------------------------------------------------------- #
 # 5. 进程凭证边界（credential_scope）
