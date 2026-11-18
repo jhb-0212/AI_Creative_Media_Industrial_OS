@@ -17,6 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.api.main import app
 from services.project_planning.domain.script import ScriptRevision
+from services.project_planning.domain.state_machine import (
+    SCRIPT_LOCK_REQUEST_ACTION,
+)
 from services.project_planning.repository._versioning import ConcurrentModificationError
 from services.project_planning.repository.script_sqlalchemy_repo import (
     SqlAlchemyScriptRepository,
@@ -96,7 +99,9 @@ async def test_optimistic_lock_prevents_lost_update(
         script_a = await repo_a.get_by_id(script_id)
         assert script_a is not None
         expected_a = script_a.entity_version
-        script_a.request_lock("writer_a", "tr:req")
+        script_a.request_lock(
+            "writer_a", "tr:req", SCRIPT_LOCK_REQUEST_ACTION
+        )
         await repo_a.save(script_a, expected_a)
         await session_a.commit()
 

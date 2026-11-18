@@ -15,6 +15,8 @@ import pytest
 from packages.errors.error_codes import DomainError
 from services.project_planning.domain.enums import ScriptStatus
 from services.project_planning.domain.script import ScriptRevision
+from services.project_planning.domain.state_machine import SCRIPT_IMPORT_ACTION
+from services.project_planning.domain.state_machine import SCRIPT_IMPORT_ACTION
 
 _TENANT = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
@@ -61,4 +63,6 @@ def test_superseded_is_terminal_and_not_revivable() -> None:
     """终态不可原地复活（红线），即使构造时已 SUPERSEDED 也不可再迁移。"""
     s = _make(status=ScriptStatus.SUPERSEDED)
     with pytest.raises(DomainError):
-        s.transition_to(ScriptStatus.DRAFT, audit_ref="revive")
+        s.transition_to(
+            ScriptStatus.DRAFT, audit_ref="revive", action=SCRIPT_IMPORT_ACTION
+        )

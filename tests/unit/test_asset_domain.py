@@ -17,7 +17,11 @@ from services.asset_service.domain.asset_version import AssetVersion
 from services.asset_service.domain.enums import AssetStatus
 from services.asset_service.domain.qc_report import QCReport
 from services.asset_service.domain.state_machine import (
+    APPROVE_ACTION,
     ASSET_ALLOWED_TRANSITIONS,
+    ASSET_TRANSITIONS,
+    QC_REPORT_ACTION,
+    STATUS_CHANGE_ACTION,
     can_transition_asset,
 )
 
@@ -43,10 +47,10 @@ def test_legal_chain_advances_version() -> None:
     """契约主链可逐跳推进，每跳 entity_version +1。"""
     asset = _asset()
     assert asset.status is AssetStatus.GENERATED
-    asset.transition_to(AssetStatus.TECHNICAL_QC, "qc")
-    asset.transition_to(AssetStatus.HUMAN_REVIEW, "review")
-    asset.transition_to(AssetStatus.APPROVED, "approve")
-    asset.transition_to(AssetStatus.GOLD, "gold")
+    asset.transition_to(AssetStatus.TECHNICAL_QC, "qc", QC_REPORT_ACTION)
+    asset.transition_to(AssetStatus.HUMAN_REVIEW, "review", APPROVE_ACTION)
+    asset.transition_to(AssetStatus.APPROVED, "approve", APPROVE_ACTION)
+    asset.transition_to(AssetStatus.GOLD, "gold", STATUS_CHANGE_ACTION)
     assert asset.status is AssetStatus.GOLD
     assert asset.entity_version == 5
 
@@ -59,21 +63,21 @@ def test_side_branch_is_not_enterable() -> None:
     """
     asset = _asset()
     with pytest.raises(DomainError):
-        asset.transition_to(AssetStatus.APPROVED, "skip")
+        asset.transition_to(AssetStatus.APPROVED, "skip", STATUS_CHANGE_ACTION)
 
 
 def test_gold_is_terminal() -> None:
     """GOLD 无出边：任何回退/复活一律拒绝。"""
     asset = _asset()
-    for target, ref in (
-        (AssetStatus.TECHNICAL_QC, "qc"),
-        (AssetStatus.HUMAN_REVIEW, "review"),
-        (AssetStatus.APPROVED, "approve"),
-        (AssetStatus.GOLD, "gold"),
+    for target, ref, action in (
+        (AssetStatus.TECHNICAL_QC, "qc", QC_REPORT_ACTION),
+        (AssetStatus.HUMAN_REVIEW, "review", APPROVE_ACTION),
+        (AssetStatus.APPROVED, "approve", APPROVE_ACTION),
+        (AssetStatus.GOLD, "gold", STATUS_CHANGE_ACTION),
     ):
-        asset.transition_to(target, ref)
+        asset.transition_to(target, ref, action)
     with pytest.raises(DomainError):
-        asset.transition_to(AssetStatus.APPROVED, "revive")
+        asset.transition_to(AssetStatus.APPROVED, "revive", STATUS_CHANGE_ACTION)
     assert ASSET_ALLOWED_TRANSITIONS[AssetStatus.GOLD] == frozenset()
 
 
@@ -95,6 +99,41 @@ def test_transition_table_matches_contract_shape() -> None:
 def test_can_transition_helper_semantics() -> None:
     assert can_transition_asset(AssetStatus.GENERATED, AssetStatus.TECHNICAL_QC)
     assert not can_transition_asset(AssetStatus.GENERATED, AssetStatus.APPROVED)
+
+
+@pytest.mark.parametrize(
+    ("source", "target"),
+    [(edge.source, edge.target) for edge in ASSET_TRANSITIONS],
+    ids=[edge.label for edge in ASSET_TRANSITIONS],
+)
+def test_edge_ownership_is_enforced_by_aggregate(
+    source: AssetStatus, target: AssetStatus
+) -> None:
+    """每条边只对它自己的动作可达（N-07）。
+
+    这是「所有权被记录」与「所有权被执行」的分界线：整改前 ``owner_action``
+    只是写进审计事实的一个字符串，任何调用方都能带着它走任意已登记的边。
+    现在聚合根的 ``transition_to`` 自己判定——不依赖服务层「记得先查」，
+    因此这条测试直接对聚合调用，绕过全部服务层代码。
+
+    夹具用 ``_asset(status=source)`` 构造一个「已在 source 态」的新对象，
+    而不是把旧对象的状态字段改写：后者正是断言 ``data.transition_single_entry``
+    禁止的写法，测试自己也不该示范。
+    """
+    asset = _asset(status=source)
+    owner = next(e.owner_action for e in ASSET_TRANSITIONS if e.key == (source, target))
+    foreign = next(
+        action
+        for action in (QC_REPORT_ACTION, APPROVE_ACTION, STATUS_CHANGE_ACTION)
+        if action != owner
+    )
+
+    with pytest.raises(DomainError) as denied:
+        asset.transition_to(target, "ref", foreign)
+    assert "独占" in str(denied.value)
+    # 拒绝必须是「没发生」：状态与版本号都不动，否则拒绝只挡住了返回值。
+    assert asset.status is source
+    assert asset.entity_version == 1
 
 
 @pytest.mark.parametrize(
