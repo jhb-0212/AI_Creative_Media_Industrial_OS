@@ -199,6 +199,47 @@ def _require(cond: bool, message: str) -> AssertionResult:
     return (True, "") if cond else (False, message)
 
 
+def _iter_python_files(
+    roots: tuple[str, ...], *, root: Path | None = None
+) -> list[str]:
+    """遍历若干目录下的 ``.py`` 相对路径（按字典序，保证报错顺序稳定）。"""
+    base = ROOT if root is None else root
+    files: list[str] = []
+    for root_name in roots:
+        files.extend(
+            path.relative_to(base).as_posix()
+            for path in sorted((base / root_name).rglob("*.py"))
+        )
+    return files
+
+
+def _injects_organization_from_principal(rel_path: str) -> bool:
+    """该文件是否把 ``principal.organization_id`` 传给 ``set_session_scope``。
+
+    查 AST 而不是查文本：``organization_id=principal.organization_id`` 出现在
+    注释或文档里也能被字符串搜索命中，而这里要的是「真的作为实参传进去」。
+    """
+    for node in ast.walk(_tree(rel_path)):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
+        if name != "set_session_scope":
+            continue
+        for keyword in node.keywords:
+            if keyword.arg != "organization_id":
+                continue
+            value = keyword.value
+            if (
+                isinstance(value, ast.Attribute)
+                and value.attr == "organization_id"
+                and isinstance(value.value, ast.Name)
+                and value.value.id == "principal"
+            ):
+                return True
+    return False
+
+
 # --------------------------------------------------------------------------- #
 # 1. 授权边界
 # --------------------------------------------------------------------------- #
@@ -592,6 +633,218 @@ def scope_asset_ownership_chain() -> AssertionResult:
             "冗余列会在项目换组织时产生第二事实源",
         )
     return (True, "")
+
+
+# 组织维度 RLS 的实施迁移与「每张表该有的组织规则形态」。
+# "column"：表自身带组织列，谓词必须**等于**单一事实源生成的那一段；
+# "parent"：子表无组织列（组织归属从项目派生，冗余存储会产生第二事实源），
+#           必须用父项目存在性表达，让组织规则经父表策略传递。
+_ORG_RLS_MIGRATION = (
+    "data/migrations/versions/e9f0a1b2c3d4_organization_scope_rls.py"
+)
+_ORG_RLS_TABLES: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
+    ("project_planning", "projects", "column", ()),
+    ("project_planning", "organizations", "column", ()),
+    (
+        "project_planning",
+        "episodes",
+        "parent",
+        (
+            "p.entity_id = project_planning.episodes.project_id",
+            "p.tenant_id = project_planning.episodes.tenant_id",
+        ),
+    ),
+    (
+        "project_planning",
+        "script_revisions",
+        "parent",
+        (
+            "p.entity_id = project_planning.script_revisions.project_id",
+            "p.tenant_id = project_planning.script_revisions.tenant_id",
+        ),
+    ),
+    (
+        "asset_service",
+        "asset_versions",
+        "parent",
+        (
+            "p.entity_id = asset_service.asset_versions.project_id",
+            "p.tenant_id = asset_service.asset_versions.tenant_id",
+        ),
+    ),
+    (
+        "asset_service",
+        "qc_reports",
+        # qc_reports 没有 project_id：链是 qc_reports → asset_versions → projects，
+        # 两跳都必须带自身行的关联，否则「任一跳丢条件」就会把整表子行放出去。
+        "parent",
+        (
+            "a.entity_id = asset_service.qc_reports.asset_version_id",
+            "a.tenant_id = asset_service.qc_reports.tenant_id",
+            "p.entity_id = a.project_id",
+            "p.tenant_id = a.tenant_id",
+        ),
+    ),
+)
+_ORG_RLS_FORCED: tuple[tuple[str, str], ...] = (
+    *((schema, table) for schema, table, _, _ in _ORG_RLS_TABLES),
+    ("audit", "status_transitions"),
+)
+
+
+def evaluate_org_rls(
+    statements: list[str],
+    *,
+    database_text: str,
+    injects_organization: bool,
+    self_injected_paths: list[str],
+) -> list[str]:
+    """纯判定：返回组织维度 RLS 未落地的位置（空列表 = 成立）。
+
+    入参是**数据**而不是仓库根目录：断言的价值全在「判据能不能识别坏样本」，
+    而坏样本不可能长在真实仓库里。把判定与取数分开，测试才能喂构造语句证明
+    它真的会报红（与 ``evaluate_role_name_literals`` 同一手法）。
+    """
+    from packages.shared.rls import (
+        RLS_ORGANIZATION_SETTING,
+        organization_scope_predicate,
+        tenant_scope_predicate,
+    )
+
+    def _policy_statement(schema: str, table: str) -> str | None:
+        """取某张表上的 ``CREATE POLICY`` 语句（按语句判定，不按整段文本搜索）。
+
+        匹配键是 ``ON <schema>.<table> ``（DDL 里的定位点）而不是 ``.<table> ``：
+        子表的 EXISTS 子句里也写着 ``project_planning.projects``，只按表名找会把
+        子表的策略当成 projects 的——判据仍会报红（策略名对不上），但报的是错的原因。
+        """
+        for statement in statements:
+            if not statement.startswith("CREATE POLICY "):
+                continue
+            if f" ON {schema}.{table} " in statement:
+                return statement
+        return None
+
+    problems: list[str] = []
+    for schema, table, form, correlations in _ORG_RLS_TABLES:
+        policy = _policy_statement(schema, table)
+        if policy is None:
+            problems.append(f"{schema}.{table} 缺少策略")
+            continue
+        if f"tenant_isolation_{table}" not in policy:
+            problems.append(f"{schema}.{table} 策略名不是 tenant_isolation_{table}")
+        if tenant_scope_predicate() not in policy:
+            problems.append(f"{schema}.{table} 策略缺租户谓词")
+        if form == "column":
+            if organization_scope_predicate() not in policy:
+                problems.append(
+                    f"{schema}.{table} 组织谓词与 organization_scope_predicate() 不一致"
+                    "（手抄的副本会与单一事实源漂移）"
+                )
+            if RLS_ORGANIZATION_SETTING not in policy:
+                problems.append(
+                    f"{schema}.{table} 策略未读取组织上下文 {RLS_ORGANIZATION_SETTING}"
+                )
+        else:
+            if "EXISTS (SELECT 1 FROM" not in policy or (
+                "project_planning.projects" not in policy
+            ):
+                problems.append(
+                    f"{schema}.{table} 未用父项目存在性表达组织规则"
+                    "（子表复制组织列会成为第二事实源）"
+                )
+            else:
+                # 只出现 ``EXISTS`` 还不够：谓词必须与**本表这一行**关联
+                # （``p.entity_id = <本表>.project_id``）。丢了关联的 EXISTS 是
+                # 「租户里有任意一个可见项目」即真——他组织的子行会整片泄漏，
+                # 而只查子串的判据照样报 PASS（评审 F2）。
+                missing = [fragment for fragment in correlations if fragment not in policy]
+                if missing:
+                    problems.append(
+                        f"{schema}.{table} 的父项目存在性未与自身行关联，缺 {missing}"
+                        "（未关联的 EXISTS 会把全部他组织子行放行）"
+                    )
+
+    forced = {
+        statement.removeprefix("ALTER TABLE ")
+        .removesuffix(" FORCE ROW LEVEL SECURITY")
+        .strip()
+        for statement in statements
+        if statement.startswith("ALTER TABLE ") and "FORCE ROW LEVEL SECURITY" in statement
+    }
+    for schema, table in _ORG_RLS_FORCED:
+        if f"{schema}.{table}" not in forced:
+            problems.append(f"{schema}.{table} 未 FORCE ROW LEVEL SECURITY")
+
+    # 判据 3：业务代码不得自行注入作用域（唯一注入点是 build_tenant_uow_dependency）。
+    # outbox relay 例外：它按租户枚举事件、没有组织维度（ADR-R24 §4 的设计选择）。
+    if self_injected_paths:
+        problems.append(
+            f"业务代码自行注入 RLS 作用域（应经唯一依赖）: {self_injected_paths}"
+        )
+
+    # 判据 4：注入点必须带组织维度，且启动期验证被接线到每个业务域引擎。
+    if not injects_organization:
+        problems.append("build_tenant_uow_dependency 未把 principal.organization_id 注入会话")
+    if database_text.count("verify_rls_enforcement(") < 2:
+        problems.append(
+            "database.py 启动期未对每个业务域引擎验证 RLS 生效"
+            "（只定义一个不接线的检查等于没有检查）"
+        )
+    return problems
+
+
+# 唯一的上下文注入点是 ``build_tenant_uow_dependency``；业务代码出现这三个调用
+# 就是在另开一条绕过路径（多一个注入点，就多一处「以为注入了、其实没注」）。
+_SCOPE_INJECTION_MARKERS: tuple[str, ...] = (
+    "set_tenant_context(",
+    "set_organization_context(",
+    "set_session_scope(",
+)
+
+
+def find_self_injected_scope_paths(
+    root: Path | None = None, *, roots: tuple[str, ...] = ("services", "apps")
+) -> list[str]:
+    """纯判定：业务代码里自行注入 RLS 作用域的文件（空列表 = 成立）。
+
+    ``root`` 可注入，测试才能喂一个只含坏样本的临时目录证明它真的会报红；
+    真实调用不传参数，扫仓库根。
+    """
+    base = ROOT if root is None else root
+    return [
+        rel
+        for rel in _iter_python_files(roots, root=base)
+        if any(
+            marker in (base / rel).read_text(encoding="utf-8")
+            for marker in _SCOPE_INJECTION_MARKERS
+        )
+    ]
+
+
+@assertion("scope.org_rls_enforced")
+def scope_org_rls_enforced() -> AssertionResult:
+    """组织边界必须在数据库层强制，且与应用层同源、有启动期生效验证（SCOPE-4）。
+
+    为什么不是「查迁移里有没有 organization 字样」：组织谓词在两个维度上都会
+    漂移——(a) 迁移里手抄一份 SQL、规则改了不跟着改；(b) 只在某个入口注入上下文，
+    没注入的入口看起来正常，只是恰好只看得见个人租户的数据。四个判据分别封死：
+
+    1. 每张表的策略都带租户谓词，且**组织规则以正确形态存在**（有组织列的表用
+       单一事实源生成的那一段，子表用父项目存在性）；
+    2. ``FORCE ROW LEVEL SECURITY`` 覆盖全部受控表（防所有权转移后静默失效）；
+    3. 上下文注入点唯一：业务代码（services/apps）不得自己 ``SET`` 作用域；
+    4. 启动期验证真的被调用（每个业务域引擎一次），而不是只定义不接线。
+    """
+    problems = evaluate_org_rls(
+        _rendered_migration_statements(_ORG_RLS_MIGRATION),
+        database_text=_read("packages/shared/database.py"),
+        injects_organization=_injects_organization_from_principal(
+            "packages/shared/rls.py"
+        ),
+        self_injected_paths=find_self_injected_scope_paths(),
+    )
+    return _require(not problems, "；".join(problems))
 
 
 # --------------------------------------------------------------------------- #
@@ -1165,12 +1418,16 @@ class _SqlCollector:
         self.statements.append(str(sql))
 
 
-def _rendered_migration_sql(rel_path: str) -> str:
-    """回放一份迁移的 ``upgrade()``，返回它真正会执行的 SQL 文本。
+def _rendered_migration_statements(
+    rel_path: str, *, direction: str = "upgrade"
+) -> list[str]:
+    """回放一份迁移的 ``upgrade()``（或 ``downgrade()``），返回语句列表。
 
-    为什么回放而不是读源码：迁移普遍用 f-string 拼 DDL（schema/表名是常量），
-    源码里根本不存在 ``CREATE TABLE audit.status_transitions`` 这样的字面量。
-    读源码只能匹配到片段，回放才能匹配到语句——后者才是「数据库实际收到了什么」。
+    与 ``_rendered_migration_sql`` 同源（后者只是本函数的拼接结果）。需要按语句
+    判定时用本函数：把多条 DDL 拼成一个字符串再按行切，会随迁移的排版变化而失效。
+
+    ``direction="downgrade"`` 用来验证「回滚只撤销自己动过的东西」——回滚把上游
+    迁移建立的安全属性一并摘掉时，正向断言看不出来（评审 F1）。
     """
     import importlib.util
 
@@ -1182,8 +1439,19 @@ def _rendered_migration_sql(rel_path: str) -> str:
     spec.loader.exec_module(module)
     collector = _SqlCollector()
     module.op = collector  # type: ignore[attr-defined]
-    module.upgrade()
-    return "\n".join(collector.statements)
+    getattr(module, direction)()
+    return list(collector.statements)
+
+
+def _rendered_migration_sql(rel_path: str) -> str:
+    """回放一份迁移的 ``upgrade()``，返回它真正会执行的 SQL 文本。
+
+    为什么回放而不是读源码：迁移普遍用 f-string 拼 DDL（schema/表名是常量），
+    源码里根本不存在 ``CREATE TABLE audit.status_transitions`` 这样的字面量。
+    读源码只能匹配到片段，回放才能匹配到语句——后者才是「数据库实际收到了什么」。
+    """
+    return "\n".join(_rendered_migration_statements(rel_path))
+
 
 
 @assertion("data.transition_fact_table")

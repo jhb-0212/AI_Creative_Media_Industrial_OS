@@ -21,7 +21,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
 
-from tests.conftest import TEST_TENANT_ID, make_test_token
+from tests.conftest import TEST_TENANT_ID, make_test_token, set_test_scope
 
 _ORG_A = uuid.uuid4()
 _ORG_B = uuid.uuid4()
@@ -29,12 +29,13 @@ _SHA = "a" * 64
 
 
 async def _seed_organization(db_sessionmaker, org_id: uuid.UUID) -> None:
-    """播种组织行（复合外键要求组织真实存在且与项目同租户）。"""
+    """播种组织行（复合外键要求组织真实存在且与项目同租户）。
+
+    必须以该组织为当前组织写入：organization_id 的组织谓词是
+    ``organization_id = current_org``，它自己的行就是归属链的根（ADR-R24 §D3a-3）。
+    """
     async with db_sessionmaker() as session:
-        await session.execute(
-            text("SELECT set_config('app.current_tenant_id', :t, true)"),
-            {"t": str(TEST_TENANT_ID)},
-        )
+        await set_test_scope(session, org_id)
         await session.execute(
             text(
                 """
@@ -88,7 +89,7 @@ async def _organizations(db_sessionmaker) -> None:
 
 
 async def test_project_create_into_other_organization_rejected() -> None:
-    """以 A 组织成员身份创建「B 组织」项目 → 403（组织归属写入即授权）。
+    """以 A 组织成员身份创建「B 组织」项目 → 404（组织行不可见即 404）。
 
     此前该路径**没有判定**：路由拿 principal 的租户 + 请求体组织拼一条必然
     自洽的归属路径，组织是否真实属于本租户无人过问。此处钉住语义。
@@ -102,8 +103,11 @@ async def test_project_create_into_other_organization_rejected() -> None:
                 "organization_id": str(_ORG_B),
             },
         )
-    assert resp.status_code == 403
-    assert resp.json()["error_code"] == "AUTH_SCOPE_DENIED"
+    # ADR-R24 §D3a-7：组织边界下沉到数据库后，他组织的行**查不出来**，
+    # 于是「存在但无权」与「不存在」在响应上同形（404）。403 只在调用方能
+    # 看到该行时才可能出现——而看到本身就意味着边界没生效。
+    assert resp.status_code == 404
+    assert resp.json()["error_code"] == "NOT_FOUND"
 
 
 async def test_project_create_referencing_invisible_organization_is_not_found() -> None:
@@ -142,7 +146,7 @@ async def test_project_create_referencing_invisible_organization_is_not_found() 
 
 
 async def test_episode_create_into_other_organization_project_rejected() -> None:
-    """往他组织项目里登记集数 → 403（写入即越权，P1-03 的写侧）。"""
+    """往他组织项目里登记集数 → 404（写入即越权；组织边界下沉到库后不可见即 404）。"""
     async with _client(organization_id=_ORG_A, subject_id="ep_owner") as owner:
         project_id = await _create_project(owner, _ORG_A)
 
@@ -155,12 +159,15 @@ async def test_episode_create_into_other_organization_project_rejected() -> None
                 "title": "越权集数",
             },
         )
-    assert resp.status_code == 403
-    assert resp.json()["error_code"] == "AUTH_SCOPE_DENIED"
+    # ADR-R24 §D3a-7：组织边界下沉到数据库后，他组织的行**查不出来**，
+    # 于是「存在但无权」与「不存在」在响应上同形（404）。403 只在调用方能
+    # 看到该行时才可能出现——而看到本身就意味着边界没生效。
+    assert resp.status_code == 404
+    assert resp.json()["error_code"] == "NOT_FOUND"
 
 
 async def test_episode_read_across_organizations_rejected() -> None:
-    """跨组织读集数 → 403（读路径，报告未提；此前只靠 RLS 挡住跨租户）。"""
+    """跨组织读集数 → 404（读路径；组织边界下沉到库后不可见即 404）。"""
     async with _client(organization_id=_ORG_A, subject_id="ep_owner") as owner:
         project_id = await _create_project(owner, _ORG_A)
         created = await owner.post(
@@ -172,12 +179,15 @@ async def test_episode_read_across_organizations_rejected() -> None:
 
     async with _client(organization_id=_ORG_B, subject_id="ep_other") as other:
         resp = await other.get(f"/episodes/{episode_id}")
-    assert resp.status_code == 403
-    assert resp.json()["error_code"] == "AUTH_SCOPE_DENIED"
+    # ADR-R24 §D3a-7：组织边界下沉到数据库后，他组织的行**查不出来**，
+    # 于是「存在但无权」与「不存在」在响应上同形（404）。403 只在调用方能
+    # 看到该行时才可能出现——而看到本身就意味着边界没生效。
+    assert resp.status_code == 404
+    assert resp.json()["error_code"] == "NOT_FOUND"
 
 
 async def test_episode_status_change_across_organizations_rejected() -> None:
-    """跨组织推进集数状态 → 403（第二轮审查 P1-03 原案）。"""
+    """跨组织推进集数状态 → 404（第二轮审查 P1-03；不可见即 404）。"""
     async with _client(organization_id=_ORG_A, subject_id="ep_owner") as owner:
         project_id = await _create_project(owner, _ORG_A)
         created = await owner.post(
@@ -190,8 +200,11 @@ async def test_episode_status_change_across_organizations_rejected() -> None:
         resp = await other.post(
             f"/episodes/{episode_id}/status", json={"target_status": "ACTIVE"}
         )
-    assert resp.status_code == 403
-    assert resp.json()["error_code"] == "AUTH_SCOPE_DENIED"
+    # ADR-R24 §D3a-7：组织边界下沉到数据库后，他组织的行**查不出来**，
+    # 于是「存在但无权」与「不存在」在响应上同形（404）。403 只在调用方能
+    # 看到该行时才可能出现——而看到本身就意味着边界没生效。
+    assert resp.status_code == 404
+    assert resp.json()["error_code"] == "NOT_FOUND"
 
 
 async def test_episode_read_in_same_organization_succeeds() -> None:
@@ -226,7 +239,7 @@ async def _create_asset(client: AsyncClient, project_id: str) -> str:
 
 
 async def test_asset_create_into_other_organization_project_rejected() -> None:
-    """往他组织项目登记资产 → 403（P1-04 的写侧）。"""
+    """往他组织项目登记资产 → 404（P1-04 写侧；不可见即 404）。"""
     async with _client(organization_id=_ORG_A, subject_id="proj_owner") as proj_owner:
         project_id = await _create_project(proj_owner, _ORG_A)
 
@@ -240,12 +253,15 @@ async def test_asset_create_into_other_organization_project_rejected() -> None:
                 "storage_ref": {"uri": "s3://bucket/other.png"},
             },
         )
-    assert resp.status_code == 403
-    assert resp.json()["error_code"] == "AUTH_SCOPE_DENIED"
+    # ADR-R24 §D3a-7：组织边界下沉到数据库后，他组织的行**查不出来**，
+    # 于是「存在但无权」与「不存在」在响应上同形（404）。403 只在调用方能
+    # 看到该行时才可能出现——而看到本身就意味着边界没生效。
+    assert resp.status_code == 404
+    assert resp.json()["error_code"] == "NOT_FOUND"
 
 
 async def test_asset_read_across_organizations_rejected() -> None:
-    """跨组织读资产 → 403（P1-04：此前资产无归属，只能靠租户 RLS）。"""
+    """跨组织读资产 → 404（P1-04；不可见即 404）。"""
     async with _client(organization_id=_ORG_A, subject_id="proj_owner") as proj_owner:
         project_id = await _create_project(proj_owner, _ORG_A)
     async with _client(organization_id=_ORG_A, subject_id="asset_owner", roles=["Worker"]) as owner:
@@ -253,8 +269,11 @@ async def test_asset_read_across_organizations_rejected() -> None:
 
     async with _client(organization_id=_ORG_B, subject_id="asset_reader") as other:
         resp = await other.get(f"/assets/{asset_id}")
-    assert resp.status_code == 403
-    assert resp.json()["error_code"] == "AUTH_SCOPE_DENIED"
+    # ADR-R24 §D3a-7：组织边界下沉到数据库后，他组织的行**查不出来**，
+    # 于是「存在但无权」与「不存在」在响应上同形（404）。403 只在调用方能
+    # 看到该行时才可能出现——而看到本身就意味着边界没生效。
+    assert resp.status_code == 404
+    assert resp.json()["error_code"] == "NOT_FOUND"
 
 
 async def test_asset_read_in_same_organization_succeeds() -> None:

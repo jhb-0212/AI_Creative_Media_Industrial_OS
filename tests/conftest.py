@@ -46,6 +46,29 @@ from services.identity_issuance import issue_token  # noqa: E402
 TEST_TENANT_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
 
+async def set_test_scope(
+    executor,
+    organization_id: uuid.UUID | None = None,
+    *,
+    tenant_id: uuid.UUID = TEST_TENANT_ID,
+) -> None:
+    """把测试会话切到与生产同款的作用域（租户 + 组织）。
+
+    为什么必须有这个 helper（ADR-R24 之后的新约束）：RLS 现在是双维度。只注入
+    租户的会话会退化成「只看得到个人租户的行」——用它播种组织数据既插不进去
+    （WITH CHECK 不过）也查不出来，而报错信息看起来像「权限不足」，很容易被
+    理解成策略太严、然后去放宽策略。
+
+    实现直接调生产函数 ``set_session_scope``，不在这里重写一份 SQL：测试要验证的
+    正是「生产路径注入的那对上下文对不对」，自己拼一份就等于测了个平行实现。
+    """
+    from packages.shared.rls import set_session_scope
+
+    await set_session_scope(
+        executor, tenant_id=tenant_id, organization_id=organization_id
+    )
+
+
 @pytest.fixture(scope="session")
 def anyio_backend() -> str:
     return "asyncio"
@@ -113,6 +136,46 @@ async def asset_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]
     engine = create_async_engine(build_asset_service_database_url())
     sessionmaker = create_sessionmaker(engine)
     try:
+        yield sessionmaker
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture(scope="session")
+async def admin_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """超级用户连接（**唯一用途**：在 RLS 不生效的连接上验证约束本身）。
+
+    为什么测试里需要一条超级用户连接（ADR-R24 §5 判据）：
+    组织维度 RLS 生效后，子表策略用 ``EXISTS (父表)`` 表达归属，于是「父实体不存在」
+    与「父实体不在当前作用域」变成同一个谓词，写入**先被 RLS 拒绝**（42501），
+    外键（23503）永远轮不到。若只用业务连接做负向测试，就再也无法证明
+    「外键真的在数据库里独立生效」——而那正是不变量 SCOPE-2/SCOPE-3 的内容。
+
+    所以这里换一条**不做行级安全**的连接跑同一句 INSERT：外键若真的存在且有效，
+    它就必须拒绝。两层各自独立成立，才是「两层防线」而不是「一层防线两处描述」。
+
+    前提必须被验证而不是假设：fixture 先断言当前角色确实是超级用户（否则
+    「绕过 RLS」这个前提不成立，用例会变成一个静默的假阳性）。
+    **禁止**用它验证任何授权逻辑——那会绕过被测对象本身。
+    """
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from packages.shared.database import build_migration_url
+
+    engine = create_async_engine(build_migration_url())
+    sessionmaker = create_sessionmaker(engine)
+    try:
+        async with engine.connect() as conn:
+            is_super = await conn.scalar(
+                text(
+                    "SELECT rolsuper FROM pg_roles WHERE rolname = current_user"
+                )
+            )
+            assert is_super, (
+                "admin_sessionmaker 必须以超级用户连接（否则无法绕过 RLS，"
+                "本 fixture 的存在前提不成立）"
+            )
         yield sessionmaker
     finally:
         await engine.dispose()

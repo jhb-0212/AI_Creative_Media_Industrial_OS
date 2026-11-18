@@ -94,8 +94,11 @@ async def create_project(
     # 开特例。但归属必须来自**数据库事实**，不能拿请求体 + principal 拼一条必然
     # 自洽的路径——那等于组织这一环自证，跨租户要等外键报错才被发现，且会被
     # 映射成「并发修改」掩盖真实原因。这里按 resource_id 解析组织：
-    # 跨租户在 RLS 下解析不到 → authorize 转 404（与「不可见」同形）；
-    # 同租户跨组织 → 403 AUTH_SCOPE_DENIED。
+    # 解析语句本身跑在 RLS 之下（ADR-R24 的组织谓词），因此
+    # 跨租户 与 同租户跨组织 **都在解析阶段就解析不到** → authorize 转 404
+    # （与「不存在」同形，不泄漏他组织是否存在）。
+    # 应用层的 403 AUTH_SCOPE_DENIED 分支因此在这条路径上不再触发——它不是
+    # 被删掉，而是变成「解析链路被绕过时」的 fail-closed 兜底。
     ownership = (
         await SqlOwnershipResolver(uow.session).resolve(
             "Organization", str(body.organization_id)

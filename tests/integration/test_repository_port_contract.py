@@ -7,9 +7,10 @@ SQLAlchemy 的包装层会把驱动异常藏在 ``exc.orig`` 里，属性名也�
 三个用例对应三种必须区分的失败：
 
 1. 同 id 重复 INSERT → ``DuplicateEntityError``（可幂等回读）；
-2. 归属项目不存在（外键 23503）→ ``ReferentialIntegrityError``，**不得**被当成
-   重复提交——旧实现把所有 ``IntegrityError`` 一律幂等降级，这条负向断言正是
-   防止那种"把错误变成成功"的回归；
+2. 归属项目不存在或不在当前作用域 → ``ReferentialIntegrityError``，**不得**被
+   当成重复提交——旧实现把所有 ``IntegrityError`` 一律幂等降级，这条负向断言
+   正是防止那种"把错误变成成功"的回归（ADR-R24 后数据库形态是 RLS 42501，
+   不是外键 23503，两种形态对端口是同一语义）；
 3. 同一路径下 session 仍可用（SAVEPOINT 生效）：翻译不能靠把连接搞坏来实现。
 
 依赖真实 PostgreSQL；无 PG 环境时本文件跳过（与 tests/integration 同口径）。
@@ -28,6 +29,7 @@ from services.asset_service.domain.asset_version import AssetVersion
 from services.asset_service.repository.sqlalchemy_asset_repo import (
     SqlAlchemyAssetRepository,
 )
+from tests.conftest import set_test_scope
 
 
 def _now() -> datetime:
@@ -37,10 +39,7 @@ def _now() -> datetime:
 async def _seed_project(db_sessionmaker, tenant: uuid.UUID, project_id: str) -> None:
     """播种归属项目（project_planning 域角色写入，asset_service 角色无写权限）。"""
     async with db_sessionmaker() as session:
-        await session.execute(
-            text("SELECT set_config('app.current_tenant_id', :t, true)"),
-            {"t": str(tenant)},
-        )
+        await set_test_scope(session, tenant_id=tenant)
         await session.execute(
             text(
                 """
@@ -73,10 +72,7 @@ def _asset(tenant: uuid.UUID, project_id: str, entity_id: str | None = None) -> 
 async def _asset_session(asset_sessionmaker, tenant: uuid.UUID):
     """打开资产域会话并设置租户上下文（RLS 依赖会话级 GUC）。"""
     session = asset_sessionmaker()
-    await session.execute(
-        text("SELECT set_config('app.current_tenant_id', :t, true)"),
-        {"t": str(tenant)},
-    )
+    await set_test_scope(session, tenant_id=tenant)
     return session
 
 
@@ -106,11 +102,19 @@ async def test_duplicate_primary_key_translates_to_duplicate_entity_error(
 async def test_missing_project_translates_to_referential_integrity_error(
     db_sessionmaker, asset_sessionmaker
 ) -> None:
-    """归属项目不存在（23503）→ ReferentialIntegrityError，**不得**是重复冲突。
+    """归属项目不存在/不可见 → ReferentialIntegrityError，**不得**是重复冲突。
 
     这条断言守的是"错误不能被降级成成功"：若译成 DuplicateEntityError，服务层
     会回读、找不到既有记录，然后把一个真实的归属失效报成 500 或（更糟）在
     存在同名记录时幂等返回，调用方以为资产已入库。
+
+    ADR-R24 之后数据库形态变了，端口语义没变：`asset_versions` 的策略用
+    ``EXISTS (SELECT 1 FROM projects ...)`` 表达归属，父项目不存在与父项目不在
+    当前作用域是**同一个谓词**，所以生产路径上先触发的是 RLS 拒绝（42501），
+    外键（23503）永远轮不到。这里断言 42501 而不是"两者皆可"：若哪天它退化成
+    23503，说明归属谓词不再先于外键求值——那是组织边界失效的信号，必须报红。
+    外键自身在 RLS 不生效的连接上仍独立生效，证据见
+    ``test_ownership_fk_constraints.py`` 的两层用例。
     """
     tenant = uuid.uuid4()
     session = await _asset_session(asset_sessionmaker, tenant)
@@ -119,7 +123,8 @@ async def test_missing_project_translates_to_referential_integrity_error(
         with pytest.raises(ReferentialIntegrityError) as exc_info:
             await repo.add(_asset(tenant, f"ghost-{uuid.uuid4().hex[:8]}"))
         assert not isinstance(exc_info.value, DuplicateEntityError)
-        assert exc_info.value.sqlstate == "23503"
+        assert exc_info.value.idempotent_recoverable is False
+        assert exc_info.value.sqlstate == "42501"
     finally:
         await session.rollback()
         await session.close()

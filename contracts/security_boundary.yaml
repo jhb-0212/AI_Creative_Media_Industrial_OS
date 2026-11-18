@@ -212,6 +212,34 @@ resource_scope:
         资产按项目列举的索引已建。跨域只读被限制为 projects 的三列
         (entity_id, tenant_id, organization_id) 列级 SELECT。
 
+    - id: SCOPE-4
+      name: 组织边界的数据库强制（与授权同源，且有生效验证）
+      statement: >-
+        租户内的组织边界必须在**数据库层**执行：受控表的策略同时带租户谓词与
+        组织规则（有组织列的表用统一谓词，子表用父项目存在性传递），并对表
+        FORCE ROW LEVEL SECURITY；组织上下文与租户上下文在**同一处**注入，业务
+        代码不得自行 SET；进程启动时验证「RLS 对该连接真实生效」。
+      fact_source: >-
+        data/migrations/versions/e9f0a1b2c3d4_organization_scope_rls.py；
+        packages/shared/rls.py（organization_scope_predicate / set_session_scope /
+        verify_rls_enforcement）；packages/shared/database.py（lifespan 接线）
+      verification: >-
+        断言 scope.org_rls_enforced（回放迁移判定每张表的策略形态与 FORCE，并检查
+        注入点唯一、启动期验证已接线）
+      assertion: scope.org_rls_enforced
+      runtime_evidence:
+        - tests/integration/test_org_scope_parity.py::test_matrix_verdict_matches_between_layers
+        - tests/integration/test_org_scope_parity.py::test_other_organization_rows_are_invisible
+        - tests/unit/test_project_api.py::test_org_project_read_by_other_organization_rejected
+        - tests/unit/test_rls_enforcement.py::test_production_superuser_connection_refuses_to_start
+        - tests/unit/test_boundary_org_rls.py::test_real_migration_is_clean
+        - tests/unit/test_boundary_org_rls.py::test_hand_copied_predicate_without_null_branch_is_reported
+      residual_risk: >-
+        1) 表所有者仍是超级用户，FORCE 对超级用户无效（ADR-R24 §6 债务 1，待 D3b
+        把所有权转给独立 NOSUPERUSER 角色）；2) audit.status_transitions 暂不加组织
+        维度（子资源组织归属未落值，加了反而更宽）；3) 组织归属只支持单一组织；
+        4) 策略表达式文本不可断言，一致性用例测的是**行为**而非文本。
+
 # --------------------------------------------------------------------------- #
 # 3. 数据所有权边界（data_ownership）
 # --------------------------------------------------------------------------- #

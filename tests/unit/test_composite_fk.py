@@ -6,6 +6,16 @@ episodes(project_id, episode_ref) 在**数据库层**锁死「跨项目乱挂载
 Episode 的 (project_id, episode_ref)，PostgreSQL 也会因外键违反而拒绝。
 
 这证明归属不变量落到了最可靠的层级（数据库），而非仅靠应用层查询校验。
+
+**前置条件为什么必须是一个真实项目（ADR-R24）**
+------------------------------------------------
+script_revisions 的组织谓词写成 ``EXISTS (SELECT 1 FROM projects ...)``：
+项目不存在时，``WITH CHECK`` 会先以 42501 拒绝，复合外键根本轮不到求值。
+所以这条用例先建一个真实项目、只让 ``episode_ref`` 悬空——这样策略通过、
+外键接管，测到的才是「复合外键锁死跨项目挂载」这件事本身。
+
+项目**不存在**那一类（「写不进去」但拒绝者是策略）由
+``tests/integration/test_ownership_fk_constraints.py`` 的两层用例覆盖。
 """
 
 from __future__ import annotations
@@ -19,7 +29,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.api.main import app
-from tests.conftest import make_test_token
+from tests.conftest import make_test_token, set_test_scope
 
 
 @pytest.fixture
@@ -39,22 +49,35 @@ async def test_composite_fk_rejects_dangling_episode(
 ) -> None:
     """数据库层拒绝引用不存在 Episode 的 script_revision。
 
-    场景：直接 INSERT 一条 (project_id, episode_ref) 无对应 Episode 的
-    script_revisions 记录，绕过 Service 层归属验证，验证外键兜底。
+    场景：项目真实存在（策略通过），但 (project_id, episode_ref) 指向一个
+    不存在的集数，绕过 Service 层归属验证直接 INSERT，验证复合外键兜底。
     """
-    # 用一个不存在的 project/episode 组合，确保无对应 Episode。
-    dangling_project = f"proj_dangling_{uuid.uuid4().hex[:8]}"
+    # 项目真实存在、集数悬空：策略放行，拒绝者只能是复合外键。
+    project_id = f"proj_dangling_{uuid.uuid4().hex[:8]}"
     dangling_ref = f"EP{uuid.uuid4().hex[:4].upper()}"
 
     async with db_sessionmaker() as session:
         # 注入 RLS 上下文（app_role 连接下 RLS 生效，需设置 tenant 才能写）。
+        await set_test_scope(session)
+        # 0. 先落一个真实项目（归属个人租户：organization_id 为空）。
         await session.execute(
             text(
-                "SELECT set_config('app.current_tenant_id', :tid, true)"
+                """
+                INSERT INTO project_planning.projects
+                    (entity_id, entity_type, schema_version, entity_version, status,
+                     owner_module, tenant_id, created_at, created_by, updated_at,
+                     project_name, project_tier, organization_id)
+                VALUES
+                    (:entity_id, 'Project', 205, 1, 'DRAFT', 'project-planning',
+                     :tenant_id, now(), 'user_dangling', now(), '悬空剧本项目', 'B', NULL)
+                """
             ),
-            {"tid": "00000000-0000-0000-0000-000000000000"},
+            {
+                "entity_id": project_id,
+                "tenant_id": "00000000-0000-0000-0000-000000000000",
+            },
         )
-        # 直接 SQL INSERT 一条悬空的 script_revision（绕过 ORM/Service）。
+        # 1. 直接 SQL INSERT 一条悬空的 script_revision（绕过 ORM/Service）。
         insert = text(
             """
             INSERT INTO project_planning.script_revisions
@@ -74,7 +97,7 @@ async def test_composite_fk_rejects_dangling_episode(
                     "entity_id": f"scr_dangling_{uuid.uuid4().hex[:8]}",
                     "tenant_id": "00000000-0000-0000-0000-000000000000",
                     "created_by": "user_dangling",
-                    "project_id": dangling_project,
+                    "project_id": project_id,
                     "episode_ref": dangling_ref,
                 },
             )

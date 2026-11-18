@@ -37,6 +37,7 @@ from packages.shared.status_transition import (
     parse_audit_ref,
     transition_audit_ref,
 )
+from tests.conftest import set_test_scope
 
 _FACT_COLUMNS = (
     "transition_id, tenant_id, resource_type, resource_id, entity_version, "
@@ -116,10 +117,7 @@ async def test_transition_row_and_event_mutually_reference(
     transition_id = uuid.uuid4()
 
     async with AsyncSession(domain_engine) as session, session.begin():
-        await session.execute(
-            text("SELECT set_config('app.current_tenant_id', :t, true)"),
-            {"t": str(tenant)},
-        )
+        await set_test_scope(session, tenant_id=tenant)
         event_id = SqlAlchemyOutboxWriter(session).record_transition(
             fact=TransitionFact(
                 transition_id=transition_id,
@@ -142,10 +140,7 @@ async def test_transition_row_and_event_mutually_reference(
         )
 
     async with domain_engine.connect() as conn:
-        await conn.execute(
-            text("SELECT set_config('app.current_tenant_id', :t, true)"),
-            {"t": str(tenant)},
-        )
+        await set_test_scope(conn, tenant_id=tenant)
         fact = (
             await conn.execute(
                 text(
@@ -175,10 +170,7 @@ async def test_transition_without_event_is_rejected_at_commit(
     tenant = uuid.uuid4()
     with pytest.raises(DBAPIError) as excinfo:
         async with domain_engine.begin() as conn:
-            await conn.execute(
-                text("SELECT set_config('app.current_tenant_id', :t, true)"),
-                {"t": str(tenant)},
-            )
+            await set_test_scope(conn, tenant_id=tenant)
             await _insert_fact(
                 conn,
                 tenant=tenant,
@@ -227,10 +219,7 @@ async def test_domain_role_has_no_mutation_privilege(
     tenant = uuid.uuid4()
     with pytest.raises(DBAPIError) as excinfo:
         async with domain_engine.begin() as conn:
-            await conn.execute(
-                text("SELECT set_config('app.current_tenant_id', :t, true)"),
-                {"t": str(tenant)},
-            )
+            await set_test_scope(conn, tenant_id=tenant)
             await conn.execute(text("DELETE FROM audit.status_transitions"))
     assert "permission denied" in str(excinfo.value)
 
@@ -260,10 +249,7 @@ async def test_duplicate_entity_version_is_rejected(domain_engine: AsyncEngine) 
     event_id = uuid.uuid4()
 
     async with domain_engine.begin() as conn:
-        await conn.execute(
-            text("SELECT set_config('app.current_tenant_id', :t, true)"),
-            {"t": str(tenant)},
-        )
+        await set_test_scope(conn, tenant_id=tenant)
         await _insert_event(conn, tenant, event_id)
         await _insert_fact(
             conn,
@@ -276,10 +262,7 @@ async def test_duplicate_entity_version_is_rejected(domain_engine: AsyncEngine) 
 
     with pytest.raises(IntegrityError):
         async with domain_engine.begin() as conn:
-            await conn.execute(
-                text("SELECT set_config('app.current_tenant_id', :t, true)"),
-                {"t": str(tenant)},
-            )
+            await set_test_scope(conn, tenant_id=tenant)
             await _insert_fact(
                 conn,
                 tenant=tenant,
@@ -297,10 +280,7 @@ async def test_noop_transition_is_rejected(domain_engine: AsyncEngine) -> None:
 
     with pytest.raises(IntegrityError):
         async with domain_engine.begin() as conn:
-            await conn.execute(
-                text("SELECT set_config('app.current_tenant_id', :t, true)"),
-                {"t": str(tenant)},
-            )
+            await set_test_scope(conn, tenant_id=tenant)
             await _insert_event(conn, tenant, event_id)
             await _insert_fact(
                 conn,
@@ -321,10 +301,7 @@ async def test_cross_tenant_insert_rejected_by_rls(domain_engine: AsyncEngine) -
 
     with pytest.raises(DBAPIError) as excinfo:
         async with domain_engine.begin() as conn:
-            await conn.execute(
-                text("SELECT set_config('app.current_tenant_id', :t, true)"),
-                {"t": str(tenant_a)},
-            )
+            await set_test_scope(conn, tenant_id=tenant_a)
             await _insert_fact(
                 conn,
                 tenant=tenant_b,
@@ -378,10 +355,7 @@ async def test_event_link_must_be_same_tenant(
 
     with pytest.raises(DBAPIError) as excinfo:
         async with domain_engine.begin() as conn:
-            await conn.execute(
-                text("SELECT set_config('app.current_tenant_id', :t, true)"),
-                {"t": str(tenant_a)},
-            )
+            await set_test_scope(conn, tenant_id=tenant_a)
             await _insert_fact(
                 conn,
                 tenant=tenant_a,
@@ -406,10 +380,7 @@ async def test_non_positive_entity_version_is_rejected(
 
     with pytest.raises(IntegrityError) as excinfo:
         async with domain_engine.begin() as conn:
-            await conn.execute(
-                text("SELECT set_config('app.current_tenant_id', :t, true)"),
-                {"t": str(tenant)},
-            )
+            await set_test_scope(conn, tenant_id=tenant)
             await _insert_event(conn, tenant, event_id)
             await _insert_fact(
                 conn,

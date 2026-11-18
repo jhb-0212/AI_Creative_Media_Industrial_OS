@@ -9,11 +9,11 @@
 from __future__ import annotations
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
-from packages.shared.port_errors import classify_integrity_error
+from packages.shared.port_errors import translate_write_error
 from services.project_planning.domain.enums import ProjectStatus, ProjectTier
 from services.project_planning.domain.project import Project
 from services.project_planning.repository._versioning import (
@@ -88,11 +88,14 @@ class SqlAlchemyProjectRepository(ProjectRepository):
         # INSERT 语义 + SAVEPOINT：并发重复插入相同主键时由数据库唯一约束拒绝，
         # 用嵌套事务隔离使 session 不进入 aborted 态，服务层可安全降级为幂等查询。
         # 驱动异常在此翻译为端口契约（唯一冲突 / 引用失败），服务层不依赖 ORM。
+        # 必须同时捕获 ProgrammingError：组织维度的 RLS 把「归属不在当前作用域」
+        # 表达成 42501 而不是外键冲突（ADR-R24），只捕 IntegrityError 会让它
+        # 以未翻译的驱动异常冒到 API 层变成 500。
         try:
             async with self._session.begin_nested():
                 self._session.add(_to_orm(project))
-        except IntegrityError as exc:
-            raise classify_integrity_error(exc, entity_id=project.entity_id) from exc
+        except (IntegrityError, ProgrammingError) as exc:
+            translate_write_error(exc, entity_id=project.entity_id)
 
     async def save(self, project: Project, expected_version: int) -> None:
         # 乐观锁条件更新（语义同 ScriptRepository.save）；仅登记变更，不 commit。

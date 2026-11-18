@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
-from packages.shared.port_errors import classify_integrity_error
+from packages.shared.port_errors import translate_write_error
 from packages.shared.versioning import conditional_update
 from services.asset_service.domain.asset_version import AssetVersion
 from services.asset_service.domain.enums import AssetStatus
@@ -85,12 +85,14 @@ class SqlAlchemyAssetRepository(AssetRepository):
         # SAVEPOINT：主键冲突只回滚本次 INSERT，session 不进入 aborted 态，
         # 调用方仍可查询既有记录做幂等判断。
         # 完整性异常在此翻译成端口契约异常（唯一冲突 vs 引用失败），服务层
-        # 因此不需要认识 SQLAlchemy——P2-03。
+        # 因此不需要认识 SQLAlchemy——P2-03。同时捕获 ProgrammingError：
+        # 项目不在当前组织作用域时 RLS 以 42501 拒绝写入（ADR-R24），必须与
+        # 外键冲突收敛成同一端口语义，否则会冒到 API 层变成 500。
         try:
             async with self._session.begin_nested():
                 self._session.add(_to_orm(asset))
-        except IntegrityError as exc:
-            raise classify_integrity_error(exc, entity_id=asset.entity_id) from exc
+        except (IntegrityError, ProgrammingError) as exc:
+            translate_write_error(exc, entity_id=asset.entity_id)
 
     async def save(self, asset: AssetVersion, expected_version: int) -> None:
         # 白名单更新：状态迁移只允许改「状态列」。内容列（sha256/storage_ref/
