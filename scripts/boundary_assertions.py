@@ -882,6 +882,256 @@ def data_domain_role_split() -> AssertionResult:
     return (True, "")
 
 
+# --------------------------------------------------------------------------- #
+# 授权面等于动作面（DATA-6）：矩阵是声明处，收敛迁移是执行器
+# --------------------------------------------------------------------------- #
+_LEAST_PRIVILEGE_REVISION = "c1a2b3d4e5f6"
+
+
+def _non_docstring_literals(rel_path: str) -> list[str]:
+    """源码中的字符串字面量，**排除文档字符串**。
+
+    为什么要排除：迁移的模块 docstring 会写「``GRANT … ON ALL TABLES`` 是错的」
+    这类说明。把它算成违规，等价于「文档里不许提旧实现」——判据会从
+    「代码里还有手写 GRANT」退化成「注释里提过 GRANT」。与
+    ``evaluate_role_name_literals`` 踩过的坑同型。
+    """
+    tree = _tree(rel_path)
+    docstrings: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(
+            node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
+        ):
+            continue
+        body = getattr(node, "body", [])
+        if (
+            body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)
+        ):
+            docstrings.add(id(body[0].value))
+    return [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in docstrings
+    ]
+
+
+def _unfrozen_converge_calls(rel_paths: list[str]) -> list[str]:
+    """调用 ``converge_statements`` 但没传 ``tables=`` 快照的位置（``path:line``）。
+
+    判据只看**调用点**，不看结果：读活矩阵的迁移在「结果」上完全正常——它生成
+    的就是矩阵，语句比对当然相等。问题在时间轴上：历史迁移会随矩阵漂移，未来
+    新表的建表迁移之前就有人对它 ``REVOKE ALL``，clean install 崩在一个看起来
+    与授权无关的位置。这类缺陷无法用「当前是否等于矩阵」发现（评审 F1）。
+    """
+    found: list[str] = []
+    for rel_path in rel_paths:
+        path = ROOT / rel_path
+        if not path.exists():
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = (
+                func.attr
+                if isinstance(func, ast.Attribute)
+                else getattr(func, "id", "")
+            )
+            if name != "converge_statements":
+                continue
+            if not any(kw.arg == "tables" for kw in node.keywords):
+                found.append(f"{rel_path}:{node.lineno}")
+    return found
+
+
+def _migration_chain(revision: str) -> tuple[str, list[str]]:
+    """按 alembic 版本链返回 ``(该迁移的相对路径, 它之后的迁移相对路径列表)``。
+
+    用版本链而不是文件名排序：迁移 id 是随机前缀，字典序与执行序无关。判据
+    「此后的迁移不得手写 GRANT」必须按**执行顺序**划界，否则换成随机 id 就失效。
+    用 revision id 而不是文件路径定位，则让「迁移文件被改名」不再让断言失明。
+    """
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    directory = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
+    ordered = [script.revision for script in directory.walk_revisions("base", "heads")][::-1]
+    if revision not in ordered:
+        raise AssertionError(f"版本链里找不到 {revision}（断言目标被删除或改名）")
+
+    def _relative(rev: str) -> str:
+        script = directory.get_revision(rev)
+        return Path(str(script.path)).resolve().relative_to(ROOT).as_posix()
+
+    index = ordered.index(revision)
+    return _relative(revision), [_relative(rev) for rev in ordered[index + 1 :]]
+
+
+def evaluate_least_privilege(
+    *,
+    matrix_problems: list[str],
+    business: dict[str, frozenset[tuple[str, str]]],
+    orm_tables: dict[str, frozenset[str]],
+    converge: dict[str, list[str]],
+    rendered: list[str],
+    grant_forbidden_literals: dict[str, list[str]],
+    unfrozen_converge_calls: list[str],
+) -> list[str]:
+    """判定「域角色的授权面 == 矩阵声明」（纯函数，供负向用例喂构造数据）。
+
+    五类判据，各自封一个失效模式：
+
+    1. **矩阵覆盖**：本域 schema 的每张 ORM 表都必须在矩阵里；矩阵里声明的表
+       也必须真实存在。前者防「新增表静默无权限」，后者防「表已删、矩阵还留着」
+       （收敛迁移会直接失败，但那是在部署时才发现）。
+    2. **迁移 == 矩阵**：回放**全部授权迁移**得到的语句，必须与矩阵生成的语句
+       逐条相等。防「矩阵改了、迁移没跟上」以及「迁移里手写了一份看似相同的 DDL」。
+       为什么是「全部迁移」而不只是收敛那次：迁移是时间胶囊，新表由新迁移授权，
+       并集才等于矩阵（评审 F1）。
+    3. **此后的迁移不得手写 GRANT**：授权只能经矩阵收敛。这条把「下一次有人
+       用 ``GRANT … ON ALL TABLES`` 图省事」挡在 CI，而不是等运行库审计发现。
+       大小写不敏感——SQL 关键字不分大小写，``grant`` 与 ``GRANT`` 同权（评审 F2）。
+    4. **授权迁移必须声明自己的表范围**：``converge_statements`` 的调用必须显式
+       传 ``tables=``。不传就是读活矩阵，历史迁移会在未来新表的建表迁移之前
+       对它 ``REVOKE ALL``，clean install 直接失败（评审 F1 的复发防线）。
+    5. 矩阵自身的问题（``validate_matrix``）原样上报。
+    """
+    problems: list[str] = list(matrix_problems)
+
+    # 1. 覆盖（双向）。
+    for domain, tables in orm_tables.items():
+        declared = {table for schema, table in business.get(domain, frozenset()) if schema == domain}
+        missing = sorted(tables - declared)
+        if missing:
+            problems.append(
+                f"{domain}: ORM 表 {missing} 未在授权矩阵声明"
+                "（新表要么声明最小权限，要么它根本没有写入路径）"
+            )
+        stale = sorted(declared - tables)
+        if stale:
+            problems.append(
+                f"{domain}: 授权矩阵声明了不存在的表 {stale}"
+                "（收敛迁移会 GRANT 失败，陈旧声明必须先删除）"
+            )
+
+    # 2. 迁移语句 == 矩阵生成。
+    expected = [statement for domain in sorted(converge) for statement in converge[domain]]
+    if sorted(rendered) != sorted(expected):
+        missing = [s for s in expected if s not in rendered]
+        unexpected = [s for s in rendered if s not in expected]
+        detail: list[str] = []
+        if missing:
+            detail.append(f"迁移少执行 {len(missing)} 条（首条：{missing[0]}）")
+        if unexpected:
+            detail.append(f"迁移多执行 {len(unexpected)} 条（首条：{unexpected[0]}）")
+        problems.append(
+            "收敛迁移的语句与授权矩阵不一致："
+            + "；".join(detail)
+            + "（迁移必须是矩阵的执行器，不得手写 DDL）"
+        )
+
+    # 3. 此后的迁移不得手写 GRANT（含 ALTER DEFAULT PRIVILEGES … GRANT）。
+    #    SQL 关键字大小写不敏感：`grant` / `Grant` 与 `GRANT` 同权。正则若只认
+    #    大写，一句小写 grant 就能让矩阵被绕过而闸门仍然 PASS（评审 F2）。
+    for rel_path, literals in sorted(grant_forbidden_literals.items()):
+        offenders = [
+            literal.strip().splitlines()[0][:80]
+            for literal in literals
+            if re.search(r"(?<![A-Za-z])GRANT\b", literal, re.IGNORECASE)
+        ]
+        if offenders:
+            problems.append(
+                f"{rel_path} 手写 GRANT（应改为在 db_grants.py 声明 + converge_statements 执行）："
+                f"{offenders[:3]}"
+            )
+
+    # 4. 授权迁移必须声明自己的表范围（评审 F1）。
+    #    判据针对「调用点」而不是「结果」：结果看起来一样，但读活矩阵的迁移会在
+    #    未来新表上先于建表执行，clean install 崩在建表迁移之前——那时报错指向
+    #    REVOKE 而不是「有人把时间胶囊写成了镜像」，排障成本极高。
+    for location in unfrozen_converge_calls:
+        problems.append(
+            f"{location} 调用 converge_statements 未传 tables= 快照："
+            "历史迁移读了活矩阵，未来新增表会让 clean install 在建表前对它 REVOKE（评审 F1）"
+        )
+
+    return problems
+
+
+@assertion("data.role_grants_least_privilege")
+def data_role_grants_least_privilege() -> AssertionResult:
+    """域角色的表级权限 == 矩阵声明，且授权只能经矩阵收敛（DATA-6 / N-06）。
+
+    为什么不能只做「运行库实测」：实测只在有 PG 的 CI 里跑，且只反映**当前**
+    数据库——迁移里再写一句 ``GRANT … DELETE``，实测要等它被应用才发现，而
+    那时已经授出去了。静态判据看的是「迁移会执行什么」，能在合并前拦住。
+
+    也不能只做静态：矩阵与真实 ACL 是否一致（部署是否被手工改过）只能实测。
+    两部分合起来才是完整的证据链，缺一半都会留一个盲区。
+    """
+    from packages.shared.db_grants import (
+        DOMAINS,
+        business_tables,
+        converge_statements,
+        declared_privileges,
+        validate_matrix,
+    )
+    from packages.shared.db_roles import domain_role
+    from services.asset_service.repository import orm as asset_orm
+    from services.project_planning.repository import orm as planning_orm
+
+    # ORM 是「schema 里有哪些业务表」的权威视图：alembic check 保证它与迁移
+    # 无漂移，因此用它做覆盖判据既准确又不需要连库。
+    # 两个域模块都要导入：它们共用同一个 Base，只导入一个就只注册一个 schema，
+    # 覆盖判据会误报「矩阵声明了不存在的表」（本地实测踩过）。
+    by_schema: dict[str, set[str]] = {}
+    for module in (planning_orm, asset_orm):
+        for table in module.Base.metadata.tables.values():
+            by_schema.setdefault(table.schema or "", set()).add(table.name)
+
+    converge_migration, later_migrations = _migration_chain(_LEAST_PRIVILEGE_REVISION)
+    scan_paths = [converge_migration, *later_migrations]
+
+    problems = evaluate_least_privilege(
+        matrix_problems=validate_matrix(),
+        business={domain: business_tables(domain) for domain in DOMAINS},
+        orm_tables={
+            domain: frozenset(by_schema.get(domain, set())) for domain in DOMAINS
+        },
+        converge={
+            domain: converge_statements(domain_role(domain), domain)
+            for domain in DOMAINS
+        },
+        # 回放**全部**授权迁移并取并集：迁移是时间胶囊，新表由新迁移授权，
+        # 只看收敛那一次会在「矩阵加表」后误报（评审 F1）。
+        rendered=[
+            statement
+            for path in scan_paths
+            for statement in _rendered_migration_statements(path)
+        ],
+        grant_forbidden_literals={
+            path: _non_docstring_literals(path) for path in scan_paths
+        },
+        unfrozen_converge_calls=_unfrozen_converge_calls(scan_paths),
+    )
+    if problems:
+        return (False, "；".join(problems))
+
+    # 矩阵必须真的被「按域取值」而不是靠元组下标：这里顺带确认两个域的角色
+    # 都能解析出来（配置缺失时 domain_role 会直接报错，比静默空串好）。
+    declared_counts = {domain: len(declared_privileges(domain)) for domain in DOMAINS}
+    return _require(
+        all(count > 0 for count in declared_counts.values()),
+        f"授权矩阵为空：{declared_counts}（空矩阵会让「最小权限」变成「没有权限」）",
+    )
+
+
 # 角色名的默认值只允许出现在 config.py（那是「默认值」的唯一定义处）。
 # 其余任何位置写死角色名，都会让「按配置建的角色」与「被授权的角色」不是同一个。
 _ROLE_NAME_LITERAL_ALLOWED_FILES = frozenset({"packages/shared/config.py"})
@@ -1408,6 +1658,31 @@ def _is_self_status_setattr(call: ast.Call) -> bool:
     )
 
 
+class _EmptyResult:
+    """空查询结果：迁移里的「先查后判」在回放时一律得到空集。"""
+
+    def scalars(self) -> list[object]:
+        return []
+
+    def all(self) -> list[object]:
+        return []
+
+    def one(self) -> None:
+        return None
+
+
+class _EmptyBind:
+    """迁移动态查库时的假连接。
+
+    回放迁移是为了看它**会执行什么 DDL**，不是为了拿真实数据；查询给空集，
+    判据（如「有没有未声明的表」）在回放中自然不触发。若这里返回自记录对象，
+    ``SELECT`` 文本会混进语句列表，导致「生成的 DDL」与「实际执行」对不上。
+    """
+
+    def execute(self, *args: object, **kwargs: object) -> _EmptyResult:
+        return _EmptyResult()
+
+
 class _SqlCollector:
     """假的 alembic ``op``：只记录 ``execute()`` 的 SQL，不连数据库。"""
 
@@ -1416,6 +1691,9 @@ class _SqlCollector:
 
     def execute(self, sql: object, *args: object, **kwargs: object) -> None:
         self.statements.append(str(sql))
+
+    def get_bind(self) -> _EmptyBind:
+        return _EmptyBind()
 
 
 def _rendered_migration_statements(

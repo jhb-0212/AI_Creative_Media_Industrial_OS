@@ -37,13 +37,49 @@ def relay_role_name() -> str:
     return get_settings().postgres_relay_user
 
 
+# 业务域 → 配置字段。键就是 schema 名（DATA-1：一域一角色一 schema）。
+# 这张表存在的理由：调用方按**域**取角色（``domain_role("asset_service")``），
+# 而不是靠 ``domain_role_names()`` 的元组下标——下标用法一旦有人调整顺序，
+# 就会「把 A 域的权限授给 B 域角色」，而代码看起来毫无问题。
+_DOMAIN_ROLE_FIELDS: dict[str, str] = {
+    "project_planning": "postgres_project_planning_user",
+    "asset_service": "postgres_asset_service_user",
+}
+
+
+def domain_role(domain: str) -> str:
+    """业务域对应的数据库角色名（未知域直接报错，不返回空串）。"""
+    try:
+        field = _DOMAIN_ROLE_FIELDS[domain]
+    except KeyError:
+        raise LookupError(
+            f"未知业务域 {domain!r}；已知域：{sorted(_DOMAIN_ROLE_FIELDS)}"
+        ) from None
+    # 用带注解的中间变量而不是直接 return getattr(...)：字段名是运行期字符串，
+    # getattr 的返回类型是 Any，直接返回会把「角色名是字符串」这个事实丢掉。
+    value: str = getattr(get_settings(), field)
+    return value
+
+
+def domain_roles() -> dict[str, str]:
+    """``域 -> 角色名`` 全量映射（授权矩阵、集成用例按域取用）。"""
+    return {domain: domain_role(domain) for domain in _DOMAIN_ROLE_FIELDS}
+
+
 def domain_role_names() -> tuple[str, str]:
-    """两个业务域角色名（``project_planning``、``asset_service``，DATA-1）。"""
-    settings = get_settings()
-    return (
-        settings.postgres_project_planning_user,
-        settings.postgres_asset_service_user,
-    )
+    """两个业务域角色名（``project_planning``、``asset_service``，DATA-1）。
+
+    保留元组形态供既有调用方（迁移、断言）使用；顺序由 ``_DOMAIN_ROLE_FIELDS``
+    的插入序决定，新增域时需同步确认调用方是否依赖位置。
+    """
+    roles = domain_roles()
+    return (roles["project_planning"], roles["asset_service"])
 
 
-__all__ = ["app_role_name", "domain_role_names", "relay_role_name"]
+__all__ = [
+    "app_role_name",
+    "domain_role",
+    "domain_role_names",
+    "domain_roles",
+    "relay_role_name",
+]

@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from httpx import AsyncClient
 from sqlalchemy import text
 
-from tests.conftest import TEST_TENANT_ID, set_test_scope
+from tests.conftest import TEST_TENANT_ID
 
 
 async def test_create_project_success(auth_client: AsyncClient) -> None:
@@ -107,19 +107,23 @@ _ORG_A = uuid.uuid4()
 _ORG_B = uuid.uuid4()
 
 
-async def _seed_organization(db_sessionmaker, org_id: uuid.UUID) -> None:
+async def _seed_organization(admin_sessionmaker, org_id: uuid.UUID) -> None:
     """播种组织行：复合外键 (organization_id, tenant_id) 要求组织真实存在。
 
     组织与项目必须同租户（TEST_TENANT_ID，与测试令牌的 tenant_id claim 一致），
     否则复合外键会在数据库层拒绝——那正是 SCOPE-1 想要的负向行为，不该被
     本组用例（组织范围 ABAC）误触发。
 
-    会话上下文必须同时注入**组织**维度：organizations 表自身也受组织谓词保护，
-    只注租户会得到 ``new row violates row-level security policy``。这里注入
-    待播种组织的 id 是自洽的——插入行的 organization_id 恰等于当前组织。
+    **为什么用管理连接而不是业务连接**（DATA-6 之后的新约束）：契约里没有任何
+    ``ORGANIZATION.*`` 动作，组织是平台级归属根，业务域角色只有 SELECT。
+    播种是**测试基础设施**，对应的是「管理面创建组织」这条尚不存在的路径，
+    用业务角色播不出来才是对的。若改用放宽授权来让播种成功，就等于用测试
+    需求反过来削弱生产的最小权限——方向反了。
+
+    管理连接本身不受 RLS 约束（超级用户），因此不需要注入作用域；这也是
+    fixture 先断言 superuser 的原因（前提不成立时用例必须报错而不是静默通过）。
     """
-    async with db_sessionmaker() as session:
-        await set_test_scope(session, org_id)
+    async with admin_sessionmaker() as session:
         await session.execute(
             text(
                 """
@@ -149,7 +153,7 @@ def _client_with_org(organization_id: uuid.UUID | None, subject_id: str = "org_u
     return AsyncClient(transport=transport, base_url="http://test", headers=headers)
 
 
-async def test_create_project_in_other_organization_rejected(db_sessionmaker) -> None:
+async def test_create_project_in_other_organization_rejected(admin_sessionmaker) -> None:
     """A 组织成员不得把项目挂到 B 组织 → 404（B 组织对 A 不可见）。
 
     语义（ADR-R24）：组织边界下沉到数据库后，「他组织」不是「看得见但无权碰」，
@@ -161,7 +165,7 @@ async def test_create_project_in_other_organization_rejected(db_sessionmaker) ->
     组织」。不播种也能得到 404，但那是「真的不存在」——测到的就不是本条要
     证明的语义了。
     """
-    await _seed_organization(db_sessionmaker, _ORG_B)
+    await _seed_organization(admin_sessionmaker, _ORG_B)
     async with _client_with_org(_ORG_A) as c:
         resp = await c.post(
             "/projects",
@@ -175,9 +179,9 @@ async def test_create_project_in_other_organization_rejected(db_sessionmaker) ->
     assert resp.json()["error_code"] == "NOT_FOUND"
 
 
-async def test_create_project_in_own_organization_succeeds(db_sessionmaker) -> None:
+async def test_create_project_in_own_organization_succeeds(admin_sessionmaker) -> None:
     """A 组织成员在自己的组织下创建项目 → 201（不误伤）。"""
-    await _seed_organization(db_sessionmaker, _ORG_A)
+    await _seed_organization(admin_sessionmaker, _ORG_A)
     async with _client_with_org(_ORG_A) as c:
         resp = await c.post(
             "/projects",
@@ -191,7 +195,7 @@ async def test_create_project_in_own_organization_succeeds(db_sessionmaker) -> N
 
 
 async def test_personal_principal_cannot_create_organization_project(
-    db_sessionmaker,
+    admin_sessionmaker,
 ) -> None:
     """无 org claim 的个人主体不能创建组织项目（fail-closed）→ 404。
 
@@ -199,7 +203,7 @@ async def test_personal_principal_cannot_create_organization_project(
     = current_org`` 只剩「个人行可见」，于是任何组织行都解析不到 → 404。
     组织行显式播种，确保 404 来自「不可见」而不是「不存在」（ADR-R24）。
     """
-    await _seed_organization(db_sessionmaker, _ORG_A)
+    await _seed_organization(admin_sessionmaker, _ORG_A)
     async with _client_with_org(None) as c:
         resp = await c.post(
             "/projects",
@@ -213,13 +217,13 @@ async def test_personal_principal_cannot_create_organization_project(
     assert resp.json()["error_code"] == "NOT_FOUND"
 
 
-async def test_org_project_read_by_other_organization_rejected(db_sessionmaker) -> None:
+async def test_org_project_read_by_other_organization_rejected(admin_sessionmaker) -> None:
     """A 组织创建的项目，B 组织成员读取 → 404（租户一致、组织不同）。
 
     同租户、组织不同：项目行真实存在于同一个租户里，但被组织谓词过滤掉，
     于是「他组织的项目」与「不存在的项目」在响应上完全同形（ADR-R24）。
     """
-    await _seed_organization(db_sessionmaker, _ORG_A)
+    await _seed_organization(admin_sessionmaker, _ORG_A)
     async with _client_with_org(_ORG_A, subject_id="org_a_creator") as c:
         created = await c.post(
             "/projects",
@@ -238,9 +242,9 @@ async def test_org_project_read_by_other_organization_rejected(db_sessionmaker) 
     assert resp.json()["error_code"] == "NOT_FOUND"
 
 
-async def test_org_project_read_by_same_organization_succeeds(db_sessionmaker) -> None:
+async def test_org_project_read_by_same_organization_succeeds(admin_sessionmaker) -> None:
     """同组织成员读取组织项目 → 200（不误伤）。"""
-    await _seed_organization(db_sessionmaker, _ORG_A)
+    await _seed_organization(admin_sessionmaker, _ORG_A)
     async with _client_with_org(_ORG_A, subject_id="org_a_creator") as c:
         created = await c.post(
             "/projects",
@@ -255,13 +259,13 @@ async def test_org_project_read_by_same_organization_succeeds(db_sessionmaker) -
     assert resp.status_code == 200
 
 
-async def test_org_project_status_change_by_other_organization_rejected(db_sessionmaker) -> None:
+async def test_org_project_status_change_by_other_organization_rejected(admin_sessionmaker) -> None:
     """B 组织成员推进 A 组织项目的状态 → 404，且项目状态不被改变。
 
     「不可见即不可推进」比「可见但拒绝」更强：读不到的行连状态转移的入口
     都不存在，`advance_status` 的守卫（乐观锁 + 状态机）根本不会被触发。
     """
-    await _seed_organization(db_sessionmaker, _ORG_A)
+    await _seed_organization(admin_sessionmaker, _ORG_A)
     async with _client_with_org(_ORG_A, subject_id="org_a_creator") as c:
         created = await c.post(
             "/projects",

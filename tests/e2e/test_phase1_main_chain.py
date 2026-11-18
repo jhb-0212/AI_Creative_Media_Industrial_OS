@@ -38,7 +38,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
 from apps.api.main import app
-from tests.conftest import TEST_TENANT_ID, make_test_token, set_test_scope
+from tests.conftest import TEST_TENANT_ID, make_test_token
 
 # 主链全程在同一个组织内完成：组织维度是归属链的一环（tenant → org → project），
 # 用无组织项目会让这条链少一段，测不出 SCOPE-3 的真实路径。
@@ -47,14 +47,15 @@ _SHA = "e" * 64
 
 
 @pytest.fixture(scope="module", autouse=True)
-async def _organization(db_sessionmaker) -> None:
+async def _organization(admin_sessionmaker) -> None:
     """播种组织行（复合外键要求组织真实存在且与项目同租户）。
 
-    以该组织为当前组织写入：组织行是归属链的根，策略要求
-    ``organization_id = current_org``（ADR-R24 §D3a-3）。
+    走**管理连接**：契约里没有 ``ORGANIZATION.*`` 动作，业务域角色对
+    organizations 只有 SELECT（DATA-6），业务连接根本插不进去。组织是平台级
+    归属根，由管理面创建；测试播种对应的是这条尚不存在的路径。管理连接不受
+    RLS 约束，因此不需要注入作用域。
     """
-    async with db_sessionmaker() as session:
-        await set_test_scope(session, _ORG)
+    async with admin_sessionmaker() as session:
         await session.execute(
             text(
                 """

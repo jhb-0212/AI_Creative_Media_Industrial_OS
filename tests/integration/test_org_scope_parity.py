@@ -94,11 +94,16 @@ def _app_verdict(
 
 
 async def _seed_organization(
-    sessionmaker, tenant_id: uuid.UUID, organization_id: uuid.UUID
+    admin_sessionmaker, tenant_id: uuid.UUID, organization_id: uuid.UUID
 ) -> None:
-    """播种组织行（会话上下文设成该组织：组织表自身的策略也要求匹配）。"""
-    async with sessionmaker() as session:
-        await set_test_scope(session, organization_id, tenant_id=tenant_id)
+    """播种组织行（管理连接）。
+
+    DATA-6 之后业务域角色对 ``organizations`` 只有 SELECT——契约里没有
+    ``ORGANIZATION.*`` 动作，组织由管理面创建。播种是测试基础设施，用管理连接
+    对应尚不存在的管理面路径；放宽授权让业务角色能插，才是方向反了。
+    管理连接不受 RLS 约束，因此不需要注入作用域（前提由 fixture 断言）。
+    """
+    async with admin_sessionmaker() as session:
         await session.execute(
             text(
                 """
@@ -162,7 +167,9 @@ async def _db_verdict(
         return bool(visible)
 
 
-async def test_matrix_verdict_matches_between_layers(db_sessionmaker) -> None:
+async def test_matrix_verdict_matches_between_layers(
+    db_sessionmaker, admin_sessionmaker
+) -> None:
     """同一张矩阵打两层：应用层裁决必须与数据库可见性逐一相同。
 
     只比较 **裁决**（允许/拒绝），不比较响应形态：应用层拒绝是 403，数据库层
@@ -171,8 +178,8 @@ async def test_matrix_verdict_matches_between_layers(db_sessionmaker) -> None:
     """
     tenant_id = uuid.uuid4()
     org_a, org_b = uuid.uuid4(), uuid.uuid4()
-    await _seed_organization(db_sessionmaker, tenant_id, org_a)
-    await _seed_organization(db_sessionmaker, tenant_id, org_b)
+    await _seed_organization(admin_sessionmaker, tenant_id, org_a)
+    await _seed_organization(admin_sessionmaker, tenant_id, org_b)
 
     project_by_org: dict[uuid.UUID | None, str] = {
         None: await _seed_project(db_sessionmaker, tenant_id, None),
@@ -199,11 +206,13 @@ async def test_matrix_verdict_matches_between_layers(db_sessionmaker) -> None:
     assert not mismatches, "组织范围判定两层不一致：\n" + "\n".join(mismatches)
 
 
-async def test_other_organization_rows_are_invisible(db_sessionmaker) -> None:
+async def test_other_organization_rows_are_invisible(
+    db_sessionmaker, admin_sessionmaker
+) -> None:
     """他组织的行不是「可见但被拒」，而是**查不到**（RLS 过滤，ADR-R24 D3a-2）。"""
     tenant_id = uuid.uuid4()
     org_a, org_b = uuid.uuid4(), uuid.uuid4()
-    await _seed_organization(db_sessionmaker, tenant_id, org_a)
+    await _seed_organization(admin_sessionmaker, tenant_id, org_a)
     project_id = await _seed_project(db_sessionmaker, tenant_id, org_a)
 
     # 组织 A 自己看得见。
@@ -214,7 +223,9 @@ async def test_other_organization_rows_are_invisible(db_sessionmaker) -> None:
     assert await _db_verdict(db_sessionmaker, tenant_id, project_id, None) is False
 
 
-async def test_child_resource_follows_parent_scope(db_sessionmaker) -> None:
+async def test_child_resource_follows_parent_scope(
+    db_sessionmaker, admin_sessionmaker
+) -> None:
     """子资源（集数）随父项目的组织一起收敛：组织规则只写一次，靠父表传递。
 
     这是 ADR-R24 §D3a-3 的行为证据：episodes 没有 organization_id 列，若它的
@@ -222,7 +233,7 @@ async def test_child_resource_follows_parent_scope(db_sessionmaker) -> None:
     """
     tenant_id = uuid.uuid4()
     org_a, org_b = uuid.uuid4(), uuid.uuid4()
-    await _seed_organization(db_sessionmaker, tenant_id, org_a)
+    await _seed_organization(admin_sessionmaker, tenant_id, org_a)
     project_id = await _seed_project(db_sessionmaker, tenant_id, org_a)
     episode_id = uuid.uuid4().hex
 
