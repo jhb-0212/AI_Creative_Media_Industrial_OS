@@ -14,13 +14,17 @@ FastAPI 路由的依赖对象，避免每个路由重复拼装 KeyStore / 依赖
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+
+from fastapi import Depends, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.identity.principal import Principal
 from packages.identity.token_revocation import check_request_revocation
 from packages.shared.config import get_settings
 from packages.shared.rls import build_tenant_uow_dependency
 from packages.shared.unit_of_work import (
+    UnitOfWork,
     get_read_uow,
     get_uow,
     make_read_uow_dependency,
@@ -62,17 +66,76 @@ get_read_asset_tenant_uow = build_tenant_uow_dependency(
 
 
 def require_role(action_key: str) -> Callable[..., Awaitable[Principal]]:
-    """构造绑定 ``get_principal`` 的角色授权依赖（所有写入口的统一授权闸门）。
+    """构造绑定 ``get_principal`` 的角色授权依赖（动作级闸门）。
 
-    每个写路由按自身动作注入，例如 ``Depends(require_role("PROJECT.CREATE"))``。
-    依赖先复用 ``get_principal`` 解析可信 Principal，再用其 roles 与
-    ``action_registry[action_key].allowed_principals`` 求交，越权抛 403。
+    用于「被操作资源尚不存在」或「无受控资源」的动作（如健康检查旁路）。
+    一旦动作作用于某个受控资源，必须改用 :func:`require_resource_role`——
+    动作级通过只说明「你能做这类事」，不说明「这个对象归你」。
     """
     return build_authorize_dependency(get_principal, action_key)
 
 
+def require_resource_role(
+    action_key: str,
+    *,
+    resource_type: str,
+    param_name: str,
+    uow_dep: Callable[..., AsyncIterator[UnitOfWork]],
+) -> Callable[..., Awaitable[Principal]]:
+    """资源级授权依赖：动作级判定 + 归属范围判定，一次完成。
+
+    ``param_name`` 是路径参数名（``entity_id`` / ``asset_version_id``）。
+    归属解析在依赖内完成（异步 IO），判定仍在 ``authorize`` 内（单一入口），
+    路由层因此不需要、也不允许再写任何归属判断。
+    """
+    from packages.identity.ownership import ResourceRef, SqlOwnershipResolver
+    from services.identity_access.rbac import authorize
+
+    async def _dep(
+        request: Request,
+        principal: Principal = Depends(get_principal),
+        uow: UnitOfWork = Depends(uow_dep),
+    ) -> Principal:
+        resource_id = request.path_params.get(param_name)
+        ownership = (
+            await SqlOwnershipResolver(uow.session).resolve(resource_type, resource_id)
+            if resource_id is not None
+            else None
+        )
+        return authorize(
+            action_key,
+            principal,
+            ResourceRef(resource_type, resource_id),
+            ownership,
+        )
+
+    return _dep
+
+
+async def authorize_on_parent(
+    action_key: str,
+    principal: Principal,
+    session: AsyncSession,
+    *,
+    parent_type: str,
+    parent_id: str,
+) -> Principal:
+    """创建类动作的授权：判定主体能否在给定父资源下新建子资源。
+
+    子资源尚不存在，因此把父资源（项目）的归属作为判定对象——创建集数、
+    登记资产都要先证明「这个项目归你」，否则可以先在别人项目里造数据，
+    再借后续流程读取。
+    """
+    from packages.identity.ownership import ResourceRef, SqlOwnershipResolver
+    from services.identity_access.rbac import authorize
+
+    ownership = await SqlOwnershipResolver(session).resolve(parent_type, parent_id)
+    return authorize(action_key, principal, ResourceRef(parent_type, parent_id), ownership)
+
+
 __all__ = [
     "Principal",
+    "authorize_on_parent",
     "get_asset_tenant_uow",
     "get_principal",
     "get_project_tenant_uow",
@@ -80,5 +143,6 @@ __all__ = [
     "get_read_project_tenant_uow",
     "get_read_tenant_uow",
     "get_tenant_uow",
+    "require_resource_role",
     "require_role",
 ]

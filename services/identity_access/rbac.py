@@ -30,6 +30,11 @@ from collections.abc import Awaitable, Callable
 from fastapi import Depends
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.identity.ownership import (
+    OwnershipPath,
+    ResourceRef,
+    assert_ownership_scope,
+)
 from packages.identity.principal import Principal
 from services.identity_access.action_registry import (
     action_definition,
@@ -40,14 +45,32 @@ from services.identity_access.action_registry import (
 PrincipalDependency = Callable[..., Awaitable[Principal]]
 
 
-def authorize(action_key: str, principal: Principal) -> Principal:
+def authorize(
+    action_key: str,
+    principal: Principal,
+    resource: ResourceRef | None = None,
+    ownership: OwnershipPath | None = None,
+) -> Principal:
     """统一授权决策入口（同步纯函数，供依赖层与单元测试直接调用）。
 
-    按顺序执行 RBAC → Capability 授权链，任一步不满足抛 403
-    ``AUTH_SCOPE_DENIED``；全部通过则原样返回 Principal（供路由继续取身份）。
+    授权链：Action 解析 → RBAC → Capability → **资源归属范围**。
+    任一步不满足即拒绝（动作级 403 / 资源级 404 或 403，语义见
+    ``packages/identity/ownership.py``），全部通过则原样返回 Principal。
 
-    此函数是唯一的运行时授权判定点——业务路由不得再自行实现角色/能力
-    比对逻辑（红线：单一事实源 + 单一执行责任）。
+    为什么资源参数在这里而不是在路由里（第二轮审查 P1-03/P1-04 的根因）：
+    此前签名只有 ``(action_key, principal)``，决策函数无法回答「能不能碰这个
+    对象」，资源级判定只能长在调用点上——project 手写了一段、episode 没有、
+    asset 写不了。把资源作为入参是本轮唯一的修法；在三个路由各补一段判断，
+    第四个资源还会漏。
+
+    职责边界：
+    - 归属**解析**（查库）由调用方在异步边界完成并传入 ``ownership``，
+      本函数保持同步纯函数（可单测、无 IO）；
+    - 范围**判定**在本函数内完成（``assert_ownership_scope``），
+      业务模块不接触该规则。
+
+    此函数是唯一的运行时授权判定点——业务路由不得再自行实现角色/能力/归属比对
+    （红线：单一事实源 + 单一执行责任）。
     """
     definition = action_definition(action_key)
 
@@ -70,6 +93,10 @@ def authorize(action_key: str, principal: Principal) -> Principal:
             ErrorRegistry.AUTH_SCOPE_DENIED,
             detail=f"缺少执行 {action_key} 所需的能力范围（Capability Token）",
         )
+
+    # 3. 资源归属范围：动作级通过后，才判定「这个对象归不归你」。
+    if resource is not None:
+        assert_ownership_scope(principal, resource, ownership)
 
     return principal
 

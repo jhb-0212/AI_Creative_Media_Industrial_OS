@@ -17,12 +17,41 @@ import uuid
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.api.main import app
-from tests.conftest import make_test_token
+from tests.conftest import TEST_TENANT_ID, make_test_token
 
 _SHA = "d" * 64
+# 资产归属键（SCOPE-3）：资产必须挂在真实项目上，归属判定才成立。
+_PROJECT_ID = "project-1"
+
+
+@pytest.fixture(scope="module", autouse=True)
+async def _seed_project(db_sessionmaker) -> None:
+    """播种归属项目（幂等）：资产无法脱离项目存在，测试也不能例外。"""
+    async with db_sessionmaker() as session:
+        await session.execute(
+            text("SELECT set_config('app.current_tenant_id', :t, true)"),
+            {"t": str(TEST_TENANT_ID)},
+        )
+        await session.execute(
+            text(
+                """
+                INSERT INTO project_planning.projects
+                    (entity_id, entity_type, schema_version, entity_version,
+                     status, owner_module, tenant_id, created_at, created_by,
+                     updated_at, project_name, project_tier, organization_id)
+                VALUES
+                    (:eid, 'Project', 205, 1, 'DRAFT', 'project_planning',
+                     :tid, now(), 'tester', now(), '资产测试项目', 'B', NULL)
+                ON CONFLICT (entity_id) DO NOTHING
+                """
+            ),
+            {"eid": _PROJECT_ID, "tid": TEST_TENANT_ID},
+        )
+        await session.commit()
 
 
 def _client(subject: str, roles: list[str]) -> AsyncClient:
@@ -71,6 +100,7 @@ async def test_asset_lifecycle_end_to_end(
     created = await worker_client.post(
         "/assets",
         json={
+            "project_id": _PROJECT_ID,
             "asset_type": "IMAGE",
             "sha256": _SHA,
             "storage_ref": {"uri": "s3://bucket/frame.png"},
@@ -128,6 +158,7 @@ async def test_create_asset_wrong_role_is_403(approver_client: AsyncClient) -> N
     resp = await approver_client.post(
         "/assets",
         json={
+            "project_id": _PROJECT_ID,
             "asset_type": "IMAGE",
             "sha256": _SHA,
             "storage_ref": {"uri": "s3://bucket/frame.png"},
@@ -143,6 +174,7 @@ async def test_worker_cannot_approve(worker_client: AsyncClient) -> None:
     created = await worker_client.post(
         "/assets",
         json={
+            "project_id": _PROJECT_ID,
             "asset_type": "IMAGE",
             "sha256": _SHA,
             "storage_ref": {"uri": "s3://bucket/frame.png"},
@@ -159,6 +191,7 @@ async def test_duplicate_asset_id_is_idempotent(worker_client: AsyncClient) -> N
     """同 id 同内容重复登记 → 幂等返回同一版本（不是新建版本）。"""
     asset_id = f"asset_{uuid.uuid4().hex[:12]}"
     payload = {
+        "project_id": _PROJECT_ID,
         "asset_type": "IMAGE",
         "sha256": _SHA,
         "storage_ref": {"uri": "s3://bucket/frame.png"},
@@ -176,6 +209,7 @@ async def test_overwriting_asset_version_is_rejected(worker_client: AsyncClient)
     """同 id 不同 sha256 = 覆盖旧版本，必须 409（不可变红线）。"""
     asset_id = f"asset_{uuid.uuid4().hex[:12]}"
     base = {
+        "project_id": _PROJECT_ID,
         "asset_type": "IMAGE",
         "storage_ref": {"uri": "s3://bucket/frame.png"},
         "entity_id": asset_id,
@@ -209,6 +243,7 @@ async def test_read_asset_version_returns_envelope(
     created = await worker_client.post(
         "/assets",
         json={
+            "project_id": _PROJECT_ID,
             "asset_type": "IMAGE",
             "sha256": _SHA,
             "storage_ref": {"uri": "s3://bucket/frame.png"},
@@ -255,6 +290,7 @@ async def test_asset_status_change_to_gold_with_evidence(
     created = await worker_client.post(
         "/assets",
         json={
+            "project_id": _PROJECT_ID,
             "asset_type": "IMAGE",
             "sha256": _SHA,
             "storage_ref": {"uri": "s3://bucket/frame.png"},
@@ -314,6 +350,7 @@ async def test_asset_status_change_illegal_transition_rejected(
     created = await worker_client.post(
         "/assets",
         json={
+            "project_id": _PROJECT_ID,
             "asset_type": "IMAGE",
             "sha256": _SHA,
             "storage_ref": {"uri": "s3://bucket/frame.png"},
@@ -339,6 +376,7 @@ async def test_asset_status_change_wrong_role_is_403(
     created = await worker_client.post(
         "/assets",
         json={
+            "project_id": _PROJECT_ID,
             "asset_type": "IMAGE",
             "sha256": _SHA,
             "storage_ref": {"uri": "s3://bucket/frame.png"},
@@ -364,6 +402,7 @@ async def test_asset_status_change_self_promotion_rejected(
     created = await worker_client.post(
         "/assets",
         json={
+            "project_id": _PROJECT_ID,
             "asset_type": "IMAGE",
             "sha256": _SHA,
             "storage_ref": {"uri": "s3://bucket/frame.png"},
