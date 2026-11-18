@@ -28,6 +28,7 @@ from typing import Any
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.identity.principal import Principal
+from packages.shared.lifecycle import Transition
 from packages.shared.outbox_writer import OutboxWriter
 from packages.shared.port_errors import DuplicateEntityError, ReferentialIntegrityError
 from packages.shared.status_transition import (
@@ -48,7 +49,6 @@ from services.asset_service.domain.state_machine import (
     APPROVE_ACTION,
     QC_REPORT_ACTION,
     STATUS_CHANGE_ACTION,
-    Transition,
     edge_owned_by,
     next_edge_owned_by,
 )
@@ -450,7 +450,7 @@ class AssetService:
     async def _guard_context(
         self,
         asset: AssetVersion,
-        edges: tuple[Transition | None, ...],
+        edges: tuple[Transition[AssetStatus] | None, ...],
         actor: str,
     ) -> GuardContext:
         """按边的需要取齐外部事实（只有 QC 计数需要一次查库）。"""
@@ -468,7 +468,7 @@ class AssetService:
     async def _advance(
         self,
         asset: AssetVersion,
-        edge: Transition,
+        edge: Transition[AssetStatus],
         context: GuardContext,
         *,
         principal: Principal,

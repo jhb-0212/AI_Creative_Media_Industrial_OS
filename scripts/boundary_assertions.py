@@ -46,9 +46,12 @@ import ast
 import importlib
 import re
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
+from packages.shared.lifecycle import Lifecycle
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACTS_PATH = ROOT / "contracts"
@@ -549,7 +552,7 @@ class LifecycleSpec:
     """一个状态机的判定输入（由 wrapper 收集，纯函数只消费）。"""
 
     object_name: str
-    lifecycle: object  # packages.shared.lifecycle.Lifecycle 实例
+    lifecycle: Lifecycle[Any]  # 各域边表（共享层形态，域间无类型耦合）
     exported_allowed: object  # 模块导出的邻接集投影（契约闸门读它）
     aggregate_path: str  # 聚合根源码路径（相对 root）
     aggregate_class: str  # 聚合根类名
@@ -648,13 +651,13 @@ def evaluate_lifecycle_edge_ownership(
 
     for spec in specs:
         lifecycle = spec.lifecycle
-        edges = tuple(getattr(lifecycle, "edges", ()))
+        edges = tuple(lifecycle.edges)
         if not edges:
             problems.append(f"{spec.object_name}：边表为空，所有权无从判定")
             continue
 
         # 判据 1：投影同源
-        derived = getattr(lifecycle, "allowed_transitions")()
+        derived = lifecycle.allowed_transitions()
         exported = _normalize_allowed_map(spec.exported_allowed)
         if derived != exported:
             problems.append(
@@ -664,9 +667,9 @@ def evaluate_lifecycle_edge_ownership(
             )
 
         for edge in edges:
-            source = _status_value(getattr(edge, "source"))
-            target = _status_value(getattr(edge, "target"))
-            owner = getattr(edge, "owner_action", "")
+            source = _status_value(edge.source)
+            target = _status_value(edge.target)
+            owner = edge.owner_action
 
             # 判据 2：所有者是真动作
             status = spec.registry.get(owner)
@@ -698,7 +701,7 @@ def evaluate_lifecycle_edge_ownership(
     return problems
 
 
-def _asset_edge_specific(specs: tuple[LifecycleSpec, ...]) -> list[str]:
+def _asset_edge_specific(specs: Sequence[LifecycleSpec]) -> list[str]:
     """P1-02 的资产域回归防线（跨域不变量之外，资产域还有自己的具体形状）。
 
     三条都比「边有所有者」更具体：审批边的所有者必须正是 APPROVE 动作、
@@ -836,7 +839,7 @@ def _normalize_allowed_map(raw: object) -> dict[str, frozenset[str]]:
     if not hasattr(raw, "items"):
         return {}
     result: dict[str, frozenset[str]] = {}
-    for source, targets in raw.items():  # type: ignore[attr-defined]
+    for source, targets in raw.items():
         result[_status_value(source)] = frozenset(
             _status_value(target) for target in targets
         )

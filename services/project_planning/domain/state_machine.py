@@ -33,7 +33,6 @@
 
 from __future__ import annotations
 
-from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.lifecycle import Lifecycle, Transition
 from services.project_planning.domain.enums import (
     EpisodeStatus,
@@ -139,7 +138,9 @@ def can_transition(source: ProjectStatus, target: ProjectStatus) -> bool:
     return PROJECT_LIFECYCLE.edge_for(source, target) is not None
 
 
-def assert_transition(source: ProjectStatus, target: ProjectStatus) -> Transition:
+def assert_transition(
+    source: ProjectStatus, target: ProjectStatus
+) -> Transition[ProjectStatus]:
     """校验 Project 转移结构，未登记则抛 DomainError（31.5）。
 
     返回该边，便于调用方复用同一条声明（避免「校验一遍、再查一遍」）。
@@ -154,7 +155,7 @@ def can_transition_script(source: ScriptStatus, target: ScriptStatus) -> bool:
 
 def assert_transition_script(
     source: ScriptStatus, target: ScriptStatus
-) -> Transition:
+) -> Transition[ScriptStatus]:
     """校验 ScriptRevision 转移结构，未登记则抛 DomainError。"""
     return SCRIPT_LIFECYCLE.assert_registered(source, target)
 
@@ -166,7 +167,7 @@ def can_transition_episode(source: EpisodeStatus, target: EpisodeStatus) -> bool
 
 def assert_transition_episode(
     source: EpisodeStatus, target: EpisodeStatus
-) -> Transition:
+) -> Transition[EpisodeStatus]:
     """校验 Episode 转移结构，未登记则抛 DomainError。"""
     return EPISODE_LIFECYCLE.assert_registered(source, target)
 

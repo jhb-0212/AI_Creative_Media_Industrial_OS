@@ -38,17 +38,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any, Generic, TypeVar
+from typing import Any
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 
-StatusT = TypeVar("StatusT")
-
 
 @dataclass(frozen=True)
-class Transition(Generic[StatusT]):
+class Transition[StatusT]:
     """一条已登记的转移边：结构 + 所有者 + 准入构件。
 
     ``owner_action`` 是**准入凭据**，不是标签：``Lifecycle.edge_owned_by()`` 会拿
@@ -78,7 +76,7 @@ class Transition(Generic[StatusT]):
 
 
 @dataclass(frozen=True)
-class Lifecycle(Generic[StatusT]):
+class Lifecycle[StatusT]:
     """一个对象的状态机：全状态集 + 边表（唯一权威）。
 
     ``states`` 必填且必须覆盖每条边的两端：漏一个状态，邻接集投影就会缺一行，
@@ -200,7 +198,7 @@ class Lifecycle(Generic[StatusT]):
         return None
 
 
-def validate_lifecycle(
+def validate_lifecycle[StatusT](
     object_name: str,
     states: Iterable[StatusT],
     edges: Iterable[Transition[StatusT]],
@@ -255,7 +253,7 @@ def validate_lifecycle(
     return problems
 
 
-def _duplicates(items: list[object]) -> list[str]:
+def _duplicates(items: Sequence[object]) -> list[str]:
     """返回重复出现过的元素（按首次出现序，转成字符串便于报错）。"""
     seen: set[object] = set()
     result: list[str] = []

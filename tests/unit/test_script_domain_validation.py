@@ -16,7 +16,6 @@ from packages.errors.error_codes import DomainError
 from services.project_planning.domain.enums import ScriptStatus
 from services.project_planning.domain.script import ScriptRevision
 from services.project_planning.domain.state_machine import SCRIPT_IMPORT_ACTION
-from services.project_planning.domain.state_machine import SCRIPT_IMPORT_ACTION
 
 _TENANT = uuid.UUID("00000000-0000-0000-0000-000000000000")
 

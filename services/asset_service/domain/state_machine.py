@@ -136,6 +136,7 @@ __all__ = [
     "ASSET_TRANSITIONS",
     "QC_REPORT_ACTION",
     "STATUS_CHANGE_ACTION",
+    "AssetStatus",
     "assert_transition_asset",
     "can_transition_asset",
     "edge_for",
