@@ -299,7 +299,7 @@ async def readyz() -> JSONResponse:
         status_code=200,
         content={
             "status": "ready",
-            "checks": {"database": "up"},
+            "checks": checks,
             "schema_revision": revision,
         },
     )

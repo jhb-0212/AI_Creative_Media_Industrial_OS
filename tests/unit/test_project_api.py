@@ -10,8 +10,12 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 from httpx import AsyncClient
+from sqlalchemy import text
+
+from tests.conftest import TEST_TENANT_ID
 
 
 async def test_create_project_success(auth_client: AsyncClient) -> None:
@@ -103,6 +107,32 @@ _ORG_A = uuid.uuid4()
 _ORG_B = uuid.uuid4()
 
 
+async def _seed_organization(db_sessionmaker, org_id: uuid.UUID) -> None:
+    """播种组织行：复合外键 (organization_id, tenant_id) 要求组织真实存在。
+
+    组织与项目必须同租户（TEST_TENANT_ID，与测试令牌的 tenant_id claim 一致），
+    否则复合外键会在数据库层拒绝——那正是 SCOPE-1 想要的负向行为，不该被
+    本组用例（组织范围 ABAC）误触发。
+    """
+    async with db_sessionmaker() as session:
+        await session.execute(
+            text("SELECT set_config('app.current_tenant_id', :t, true)"),
+            {"t": str(TEST_TENANT_ID)},
+        )
+        await session.execute(
+            text(
+                """
+                INSERT INTO project_planning.organizations
+                    (organization_id, tenant_id, name, created_at, created_by, updated_at)
+                VALUES (:org, :tid, '组织范围测试组织', :now, 'tester', :now)
+                ON CONFLICT DO NOTHING
+                """
+            ),
+            {"org": str(org_id), "tid": str(TEST_TENANT_ID), "now": datetime.now(UTC)},
+        )
+        await session.commit()
+
+
 def _client_with_org(organization_id: uuid.UUID | None, subject_id: str = "org_user") -> AsyncClient:
     """构造带指定 org claim 的 client（真实 JWT + 真实 ASGI 端点）。"""
     from httpx import ASGITransport
@@ -133,8 +163,9 @@ async def test_create_project_in_other_organization_rejected() -> None:
     assert resp.json()["error_code"] == "AUTH_SCOPE_DENIED"
 
 
-async def test_create_project_in_own_organization_succeeds() -> None:
+async def test_create_project_in_own_organization_succeeds(db_sessionmaker) -> None:
     """A 组织成员在自己的组织下创建项目 → 201（不误伤）。"""
+    await _seed_organization(db_sessionmaker, _ORG_A)
     async with _client_with_org(_ORG_A) as c:
         resp = await c.post(
             "/projects",
@@ -162,8 +193,9 @@ async def test_personal_principal_cannot_create_organization_project() -> None:
     assert resp.json()["error_code"] == "AUTH_SCOPE_DENIED"
 
 
-async def test_org_project_read_by_other_organization_rejected() -> None:
+async def test_org_project_read_by_other_organization_rejected(db_sessionmaker) -> None:
     """A 组织创建的项目，B 组织成员读取 → 403（租户一致、组织不同）。"""
+    await _seed_organization(db_sessionmaker, _ORG_A)
     async with _client_with_org(_ORG_A, subject_id="org_a_creator") as c:
         created = await c.post(
             "/projects",
@@ -182,8 +214,9 @@ async def test_org_project_read_by_other_organization_rejected() -> None:
     assert resp.json()["error_code"] == "AUTH_SCOPE_DENIED"
 
 
-async def test_org_project_read_by_same_organization_succeeds() -> None:
+async def test_org_project_read_by_same_organization_succeeds(db_sessionmaker) -> None:
     """同组织成员读取组织项目 → 200（不误伤）。"""
+    await _seed_organization(db_sessionmaker, _ORG_A)
     async with _client_with_org(_ORG_A, subject_id="org_a_creator") as c:
         created = await c.post(
             "/projects",
@@ -198,8 +231,9 @@ async def test_org_project_read_by_same_organization_succeeds() -> None:
     assert resp.status_code == 200
 
 
-async def test_org_project_status_change_by_other_organization_rejected() -> None:
+async def test_org_project_status_change_by_other_organization_rejected(db_sessionmaker) -> None:
     """B 组织成员推进 A 组织项目的状态 → 403，且项目状态不被改变。"""
+    await _seed_organization(db_sessionmaker, _ORG_A)
     async with _client_with_org(_ORG_A, subject_id="org_a_creator") as c:
         created = await c.post(
             "/projects",
