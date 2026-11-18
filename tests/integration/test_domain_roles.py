@@ -4,7 +4,8 @@
 1. project_planning_role 能写 project_planning schema、能写 outbox（同事务事件）。
 2. project_planning_role 不能写 asset_service schema（越界写他域表被拒绝）。
 3. asset_service_role 能写 asset_service schema、能写 outbox。
-4. asset_service_role 不能写 project_planning schema（越界写他域表被拒绝）。
+4. asset_service_role 对 project_planning 只有**归属三列**的列级 SELECT：
+   能解析归属链，读不到项目业务字段，更不能写（SCOPE-3 收窄后的真实边界）。
 
 这是 DATA-1「模块级数据库角色隔离」的负向证明：即使某域代码被攻破或误改，
 它也无法直接写另一业务域的数据——边界由数据库权限物理保证，而非代码自觉。
@@ -92,13 +93,46 @@ async def test_asset_role_can_write_outbox(asset_engine: AsyncEngine) -> None:
         assert rows.scalar() == 0
 
 
-async def test_asset_role_cannot_access_project_planning(
+async def test_asset_role_can_read_project_ownership_projection(
     asset_engine: AsyncEngine,
 ) -> None:
-    """asset_service_role 不能读 project_planning schema（越界被他域拒绝）。"""
+    """asset_service_role 可读 projects 的**归属三列**（SCOPE-3 归属链解析所需）。
+
+    跨域只读被收窄到 (entity_id, tenant_id, organization_id)：资产业务需要沿
+    project → organization 解析归属，否则项目/组织级授权无从判定；但这不是
+    「开放整表读」——下一组测试证明它拿不到项目业务字段。
+    """
+    async with asset_engine.connect() as conn:
+        await conn.execute(
+            text(
+                "SELECT entity_id, tenant_id, organization_id "
+                "FROM project_planning.projects LIMIT 1"
+            )
+        )
+
+
+async def test_asset_role_cannot_read_project_business_fields(
+    asset_engine: AsyncEngine,
+) -> None:
+    """asset_service_role 不能读项目业务字段（列级授权不做整表开放）。"""
     async with asset_engine.connect() as conn:
         with pytest.raises(Exception) as exc_info:
             await conn.execute(
-                text("SELECT count(*) FROM project_planning.projects")
+                text("SELECT project_name FROM project_planning.projects LIMIT 1")
+            )
+    assert "permission denied" in str(exc_info.value).lower()
+
+
+async def test_asset_role_cannot_write_project_planning(
+    asset_engine: AsyncEngine,
+) -> None:
+    """asset_service_role 不能写 project_planning（跨域写仍由 DATA-1 拦住）。"""
+    async with asset_engine.connect() as conn:
+        with pytest.raises(Exception) as exc_info:
+            await conn.execute(
+                text(
+                    "INSERT INTO project_planning.projects (entity_id) "
+                    "VALUES ('x')"
+                )
             )
     assert "permission denied" in str(exc_info.value).lower()

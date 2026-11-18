@@ -23,6 +23,7 @@ from packages.shared.database import build_migration_url
 
 # 测试自造的样本主键（确定性，避免与真实数据冲突）。
 _SAMPLE_ASSET_ID = "immut-sample-0001"
+_SAMPLE_PROJECT_ID = "immut-project-0001"
 _SAMPLE_QC_ID = "immut-qc-0001"
 
 
@@ -44,23 +45,39 @@ async def _seed_samples(admin_engine: AsyncEngine) -> None:
     幂等（ON CONFLICT DO NOTHING），跑多轮不重复。
     """
     now = datetime.now(UTC)
+    tenant = uuid.UUID("00000000-0000-0000-0000-000000000001")
     async with admin_engine.begin() as conn:
+        # 归属前提（SCOPE-3）：资产必须挂到真实项目上，复合外键才放行。
+        await conn.execute(
+            sa.text(
+                "INSERT INTO project_planning.projects "
+                "(entity_id, entity_type, schema_version, entity_version, status, "
+                " owner_module, tenant_id, created_at, created_by, updated_at, "
+                " project_name, project_tier, organization_id) "
+                "VALUES (:pid, 'Project', 205, 1, 'DRAFT', 'project_planning', "
+                " :tid, :now, 'test-seeder', :now, '不可变性样本项目', 'B', NULL) "
+                "ON CONFLICT (entity_id) DO NOTHING"
+            ),
+            {"pid": _SAMPLE_PROJECT_ID, "tid": tenant, "now": now},
+        )
         await conn.execute(
             sa.text(
                 "INSERT INTO asset_service.asset_versions "
                 "(entity_id, entity_type, schema_version, entity_version, status, "
                 " owner_module, tenant_id, created_at, created_by, updated_at, "
-                " asset_type, sha256, storage_ref, source_asset_version_ids, version) "
+                " project_id, asset_type, sha256, storage_ref, "
+                " source_asset_version_ids, version) "
                 "VALUES (:id, 'AssetVersion', 1, 1, 'APPROVED', 'asset_service', "
-                " :tid, :now, 'test-seeder', :now, 'image', :sha, "
+                " :tid, :now, 'test-seeder', :now, :pid, 'image', :sha, "
                 " '{}'::jsonb, '[]'::jsonb, 'v1') "
                 "ON CONFLICT (entity_id) DO NOTHING"
             ),
             {
                 "id": _SAMPLE_ASSET_ID,
-                "tid": uuid.UUID("00000000-0000-0000-0000-000000000001"),
+                "tid": tenant,
                 "now": now,
                 "sha": "a" * 64,
+                "pid": _SAMPLE_PROJECT_ID,
             },
         )
         await conn.execute(

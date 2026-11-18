@@ -81,6 +81,10 @@ class ProjectModel(EntityMixin, Base):
       把「同一租户」这条归属不变量放到数据库层；organization_id 为 NULL 时
       MATCH SIMPLE 语义下不校验，与「个人租户不强制归属」一致。
     - organization_id 是内部归属键，不进 API 响应（与 tenant_id 一致）。
+    - ``uq_projects_entity_tenant``：跨域复合外键的**引用目标**。asset_service 的
+      ``asset_versions(project_id, tenant_id)`` 必须指向唯一键，否则复合外键无法建立。
+      它必须声明在模型里——只在迁移里建、模型不写，`alembic check` 就会把它当成
+      「待删除的约束」，下一个人「修 CI」时删掉它，跨域归属外键随之失效。
     """
 
     __tablename__ = "projects"
@@ -92,6 +96,11 @@ class ProjectModel(EntityMixin, Base):
                 f"{SCHEMA_NAME}.organizations.tenant_id",
             ],
             name="fk_projects_organization_tenant",
+        ),
+        UniqueConstraint(
+            "entity_id",
+            "tenant_id",
+            name="uq_projects_entity_tenant",
         ),
         {"schema": SCHEMA_NAME},
     )

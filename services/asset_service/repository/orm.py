@@ -6,6 +6,17 @@
 - 信封列复用 packages.shared.orm.EntityMixin（跨模块单一事实源）。
 - tenant_id 是 RLS 隔离键（决策 5），与信封一同落库。
 
+归属完整性（SCOPE-3，第二轮审查 P1-04 根治）：
+- asset_versions.project_id 是**唯一**归属键，指向
+  project_planning.projects(entity_id, tenant_id) 的复合外键：资产必然属于一个
+  真实存在、且与资产同租户的项目，在数据库层成立，不靠 Service 查询兜底。
+- 组织归属**不落库**：organization 由 project 派生（project → organization）。
+  冗余存一列会在「项目改归属组织」时产生第二事实源——这正是第三轮审查指认
+  的 audit_ref 式漂移面，不能重犯。
+- 镜头级资产是「被镜头引用」而非「归属镜头」：action_registry 的
+  scope: project/shot/asset 描述的是**授权作用域**，不是归属层级。引用关系在
+  Shot 域落地时以引用表表达，不能在此用多态归属列冒充（多态键无法建外键）。
+
 为什么没有 asset_version_id 列：
 - 契约对象同时暴露 entity_id 与 asset_version_id；本实现让两者同值，
   只持久化 entity_id 一个主键，序列化时派生 asset_version_id。两个同值
@@ -18,7 +29,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Uuid
+from sqlalchemy import DateTime, ForeignKey, ForeignKeyConstraint, Index, String, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -26,6 +37,8 @@ from packages.shared.database import Base
 from packages.shared.orm import EntityMixin
 
 SCHEMA_NAME = "asset_service"
+# 归属目标（跨 schema 只引用，不拥有）。
+PROJECT_SCHEMA = "project_planning"
 
 
 class AssetVersionModel(EntityMixin, Base):
@@ -35,8 +48,22 @@ class AssetVersionModel(EntityMixin, Base):
     __table_args__ = (
         # 资产类型 + 摘要索引：按「同类型同内容」快速定位，供去重/溯源查询。
         Index("ix_asset_service_asset_versions_type_sha256", "asset_type", "sha256"),
+        # 归属索引：按项目列举资产（授权与业务查询共用）。
+        Index("ix_asset_service_asset_versions_project", "project_id"),
+        # 复合外键：资产所属项目必须与资产同租户（跨租户挂靠被数据库拒绝）。
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id"],
+            [
+                f"{PROJECT_SCHEMA}.projects.entity_id",
+                f"{PROJECT_SCHEMA}.projects.tenant_id",
+            ],
+            name="fk_asset_versions_project_tenant",
+        ),
         {"schema": SCHEMA_NAME},
     )
+
+    # 归属键（唯一）：资产属于哪个项目。
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False)
 
     asset_type: Mapped[str] = mapped_column(String(32), nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)

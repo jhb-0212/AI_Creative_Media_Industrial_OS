@@ -30,6 +30,7 @@ def _asset(**overrides: object) -> AssetVersion:
         "entity_id": "asset-1",
         "created_by": "worker-1",
         "tenant_id": _TENANT,
+        "project_id": "project-1",
         "asset_type": "IMAGE",
         "sha256": _SHA,
         "storage_ref": {"uri": "s3://bucket/key.png"},
@@ -172,3 +173,16 @@ def test_qc_report_serializes_enums_as_strings() -> None:
     data = report.to_dict()
     assert data["deviation_class"] == "INTENTIONAL"
     assert data["intent_match_status"] is None
+
+
+def test_asset_requires_project_ownership() -> None:
+    """无项目归属的资产不得构造（SCOPE-3：无归属即无法授权）。"""
+    with pytest.raises(DomainError):
+        _asset(project_id="")
+
+
+def test_asset_serialization_hides_project_id() -> None:
+    """归属键与 tenant_id 同待遇：只用于服务端判定，不下发响应。"""
+    data = _asset().to_dict()
+    assert "project_id" not in data
+    assert "tenant_id" not in data
