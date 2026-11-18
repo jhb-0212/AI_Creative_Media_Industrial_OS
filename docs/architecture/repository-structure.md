@@ -2,7 +2,7 @@
 
 > 仓库地址：https://github.com/jhb-0212/AI_Creative_Media_Industrial_OS.git
 > 仓库名：AI_Creative_Media_Industrial_OS（当前为空仓库，待初始化）
-> 配套基线：`AI影视工业化生产平台V2.0.5.md`（AFS-ARCH-MASTER-V2.0.5）
+> 权威基线：`docs/baseline/AI影视工业化生产平台V2.0.5.md`（AFS-ARCH-MASTER-V2.0.5；唯一副本，受冻结清单哈希校验）
 > 权威依据：第 1.4 六层架构 / 1.5 部署建议 / 1.6 技术基线 / 第 14 章工程目录与数据所有权 / 17.11 目录建议 / ADR-009
 > 设计原则：不屎山框架、不屎山代码、高并发/高流量/高标准、全程 AI 辅助开发
 

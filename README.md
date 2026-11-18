@@ -2,7 +2,7 @@
 
 AI 影视工业化生产平台的工程实现仓库（monorepo）。
 
-> 配套基线文档：`AI影视工业化生产平台V2.0.5.md`（AFS-ARCH-MASTER-V2.0.5，Phase 0 契约冻结）
+> 权威基线文档：`docs/baseline/AI影视工业化生产平台V2.0.5.md`（AFS-ARCH-MASTER-V2.0.5，Phase 0 契约冻结）。仓库内**只有这一份**，其字节数与 SHA-256 受 `freeze_manifest` 校验（ADR-R22）。
 > 仓库形态：模块化单体 + 异步 Worker（ADR-009），单 GitHub monorepo，不拆微服务。
 
 ## 项目定位
