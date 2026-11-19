@@ -1,0 +1,708 @@
+{
+  "identity": [
+    {
+      "database_name": "ai_film_industrial",
+      "current_user": "postgres",
+      "server_version": "PostgreSQL 16.16 (Debian 16.16-1.pgdg13+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit"
+    }
+  ],
+  "alembic_version": [
+    {
+      "version_num": "c1a2b3d4e5f6"
+    }
+  ],
+  "databases": [
+    {
+      "datname": "ai_film_industrial",
+      "owner": "postgres",
+      "datallowconn": true,
+      "datistemplate": false
+    },
+    {
+      "datname": "postgres",
+      "owner": "postgres",
+      "datallowconn": true,
+      "datistemplate": false
+    },
+    {
+      "datname": "template0",
+      "owner": "postgres",
+      "datallowconn": false,
+      "datistemplate": true
+    },
+    {
+      "datname": "template1",
+      "owner": "postgres",
+      "datallowconn": true,
+      "datistemplate": true
+    }
+  ],
+  "roles": [
+    {
+      "rolname": "app_role",
+      "rolsuper": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolcanlogin": true,
+      "rolbypassrls": false,
+      "rolinherit": true
+    },
+    {
+      "rolname": "asset_service_role",
+      "rolsuper": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolcanlogin": true,
+      "rolbypassrls": false,
+      "rolinherit": true
+    },
+    {
+      "rolname": "outbox_relay_role",
+      "rolsuper": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolcanlogin": true,
+      "rolbypassrls": false,
+      "rolinherit": true
+    },
+    {
+      "rolname": "pg_checkpoint",
+      "rolsuper": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolcanlogin": false,
+      "rolbypassrls": false,
+      "rolinherit": true
+    },
+    {
+      "rolname": "pg_create_subscription",
+      "rolsuper": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolcanlogin": false,
+      "rolbypassrls": false,
+      "rolinherit": true
+    },
+    {
+      "rolname": "pg_database_owner",
+      "rolsuper": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolcanlogin": false,
+      "rolbypassrls": false,
+      "rolinherit": true
+    },
+    {
+      "rolname": "pg_execute_server_program",
+      "rolsuper": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolcanlogin": false,
+      "rolbypassrls": false,
+      "rolinherit": true
+    },
+    {
+      "rolname": "pg_monitor",
+      "rolsuper": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolcanlogin": false,
+      "rolbypassrls": false,
+      "rolinherit": true
+    },
+    {
+      "rolname": "pg_read_all_data",
+      "rolsuper": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolcanlogin": false,
+      "rolbypassrls": false,
+      "rolinherit": true
+    },
+    {
+      "rolname": "pg_read_all_settings",
+      "rolsuper": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolcanlogin": false,
+      "rolbypassrls": false,
+      "rolinherit": true
+    },
+    {
+      "rolname": "pg_read_all_stats",
+      "rolsuper": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolcanlogin": false,
+      "rolbypassrls": false,
+      "rolinherit": true
+    },
+    {
+      "rolname": "pg_read_server_files",
+      "rolsuper": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolcanlogin": false,
+      "rolbypassrls": false,
+      "rolinherit": true
+    },
+    {
+      "rolname": "pg_signal_backend",
+      "rolsuper": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolcanlogin": false,
+      "rolbypassrls": false,
+      "rolinherit": true
+    },
+    {
+      "rolname": "pg_stat_scan_tables",
+      "rolsuper": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolcanlogin": false,
+      "rolbypassrls": false,
+      "rolinherit": true
+    },
+    {
+      "rolname": "pg_use_reserved_connections",
+      "rolsuper": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolcanlogin": false,
+      "rolbypassrls": false,
+      "rolinherit": true
+    },
+    {
+      "rolname": "pg_write_all_data",
+      "rolsuper": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolcanlogin": false,
+      "rolbypassrls": false,
+      "rolinherit": true
+    },
+    {
+      "rolname": "pg_write_server_files",
+      "rolsuper": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolcanlogin": false,
+      "rolbypassrls": false,
+      "rolinherit": true
+    },
+    {
+      "rolname": "postgres",
+      "rolsuper": true,
+      "rolcreaterole": true,
+      "rolcreatedb": true,
+      "rolcanlogin": true,
+      "rolbypassrls": true,
+      "rolinherit": true
+    },
+    {
+      "rolname": "project_planning_role",
+      "rolsuper": false,
+      "rolcreaterole": false,
+      "rolcreatedb": false,
+      "rolcanlogin": true,
+      "rolbypassrls": false,
+      "rolinherit": true
+    }
+  ],
+  "role_memberships": [
+    {
+      "granted_role": "pg_read_all_settings",
+      "member_role": "pg_monitor",
+      "admin_option": false,
+      "inherit_option": true,
+      "set_option": true
+    },
+    {
+      "granted_role": "pg_read_all_stats",
+      "member_role": "pg_monitor",
+      "admin_option": false,
+      "inherit_option": true,
+      "set_option": true
+    },
+    {
+      "granted_role": "pg_stat_scan_tables",
+      "member_role": "pg_monitor",
+      "admin_option": false,
+      "inherit_option": true,
+      "set_option": true
+    }
+  ],
+  "relations": [
+    {
+      "schema_name": "asset_service",
+      "object_name": "asset_versions",
+      "relkind": "b'r'",
+      "owner": "postgres",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "schema_name": "asset_service",
+      "object_name": "qc_reports",
+      "relkind": "b'r'",
+      "owner": "postgres",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "schema_name": "audit",
+      "object_name": "status_transitions",
+      "relkind": "b'r'",
+      "owner": "postgres",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "schema_name": "auth",
+      "object_name": "revoked_tokens",
+      "relkind": "b'r'",
+      "owner": "postgres",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "schema_name": "outbox",
+      "object_name": "maintenance_runs",
+      "relkind": "b'r'",
+      "owner": "postgres",
+      "rls_enabled": false,
+      "rls_forced": false
+    },
+    {
+      "schema_name": "outbox",
+      "object_name": "outbox_events",
+      "relkind": "b'p'",
+      "owner": "postgres",
+      "rls_enabled": true,
+      "rls_forced": false
+    },
+    {
+      "schema_name": "outbox",
+      "object_name": "outbox_events_default",
+      "relkind": "b'r'",
+      "owner": "postgres",
+      "rls_enabled": true,
+      "rls_forced": false
+    },
+    {
+      "schema_name": "outbox",
+      "object_name": "outbox_events_y202611",
+      "relkind": "b'r'",
+      "owner": "postgres",
+      "rls_enabled": true,
+      "rls_forced": false
+    },
+    {
+      "schema_name": "outbox",
+      "object_name": "outbox_events_y202612",
+      "relkind": "b'r'",
+      "owner": "postgres",
+      "rls_enabled": true,
+      "rls_forced": false
+    },
+    {
+      "schema_name": "project_planning",
+      "object_name": "episodes",
+      "relkind": "b'r'",
+      "owner": "postgres",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "schema_name": "project_planning",
+      "object_name": "organizations",
+      "relkind": "b'r'",
+      "owner": "postgres",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "schema_name": "project_planning",
+      "object_name": "projects",
+      "relkind": "b'r'",
+      "owner": "postgres",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "schema_name": "project_planning",
+      "object_name": "script_revisions",
+      "relkind": "b'r'",
+      "owner": "postgres",
+      "rls_enabled": true,
+      "rls_forced": true
+    },
+    {
+      "schema_name": "public",
+      "object_name": "alembic_version",
+      "relkind": "b'r'",
+      "owner": "postgres",
+      "rls_enabled": false,
+      "rls_forced": false
+    }
+  ],
+  "constraints": [
+    {
+      "schema_name": "asset_service",
+      "table_name": "asset_versions",
+      "conname": "asset_versions_pkey",
+      "contype": "b'p'",
+      "definition": "PRIMARY KEY (entity_id)"
+    },
+    {
+      "schema_name": "asset_service",
+      "table_name": "asset_versions",
+      "conname": "ck_asset_versions_status",
+      "contype": "b'c'",
+      "definition": "CHECK (((status)::text = ANY ((ARRAY['APPROVED'::character varying, 'ARCHIVED'::character varying, 'GENERATED'::character varying, 'GOLD'::character varying, 'HUMAN_REVIEW'::character varying, 'QUARANTINED'::character varying, 'REJECTED'::character varying, 'REWORK'::character varying, 'SUPERSEDED'::character varying, 'TECHNICAL_QC'::character varying])::text[])))"
+    },
+    {
+      "schema_name": "asset_service",
+      "table_name": "asset_versions",
+      "conname": "fk_asset_versions_project_tenant",
+      "contype": "b'f'",
+      "definition": "FOREIGN KEY (project_id, tenant_id) REFERENCES project_planning.projects(entity_id, tenant_id)"
+    },
+    {
+      "schema_name": "asset_service",
+      "table_name": "qc_reports",
+      "conname": "qc_reports_asset_version_id_fkey",
+      "contype": "b'f'",
+      "definition": "FOREIGN KEY (asset_version_id) REFERENCES asset_service.asset_versions(entity_id)"
+    },
+    {
+      "schema_name": "asset_service",
+      "table_name": "qc_reports",
+      "conname": "qc_reports_pkey",
+      "contype": "b'p'",
+      "definition": "PRIMARY KEY (qc_report_id)"
+    },
+    {
+      "schema_name": "audit",
+      "table_name": "status_transitions",
+      "conname": "ck_status_transition_advances",
+      "contype": "b'c'",
+      "definition": "CHECK (((from_status)::text <> (to_status)::text))"
+    },
+    {
+      "schema_name": "audit",
+      "table_name": "status_transitions",
+      "conname": "ck_status_transition_version_positive",
+      "contype": "b'c'",
+      "definition": "CHECK ((entity_version >= 1))"
+    },
+    {
+      "schema_name": "audit",
+      "table_name": "status_transitions",
+      "conname": "status_transitions_pkey",
+      "contype": "b'p'",
+      "definition": "PRIMARY KEY (transition_id)"
+    },
+    {
+      "schema_name": "audit",
+      "table_name": "status_transitions",
+      "conname": "trg_status_transitions_event_exists",
+      "contype": "b't'",
+      "definition": "TRIGGER DEFERRABLE INITIALLY DEFERRED"
+    },
+    {
+      "schema_name": "audit",
+      "table_name": "status_transitions",
+      "conname": "uq_status_transition_version",
+      "contype": "b'u'",
+      "definition": "UNIQUE (tenant_id, resource_type, resource_id, entity_version)"
+    },
+    {
+      "schema_name": "auth",
+      "table_name": "revoked_tokens",
+      "conname": "revoked_tokens_pkey",
+      "contype": "b'p'",
+      "definition": "PRIMARY KEY (jti)"
+    },
+    {
+      "schema_name": "outbox",
+      "table_name": "maintenance_runs",
+      "conname": "maintenance_runs_pkey",
+      "contype": "b'p'",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "schema_name": "outbox",
+      "table_name": "outbox_events",
+      "conname": "outbox_events_pkey",
+      "contype": "b'p'",
+      "definition": "PRIMARY KEY (event_id, occurred_at)"
+    },
+    {
+      "schema_name": "outbox",
+      "table_name": "outbox_events_default",
+      "conname": "outbox_events_default_pkey",
+      "contype": "b'p'",
+      "definition": "PRIMARY KEY (event_id, occurred_at)"
+    },
+    {
+      "schema_name": "outbox",
+      "table_name": "outbox_events_y202611",
+      "conname": "outbox_events_y202611_pkey",
+      "contype": "b'p'",
+      "definition": "PRIMARY KEY (event_id, occurred_at)"
+    },
+    {
+      "schema_name": "outbox",
+      "table_name": "outbox_events_y202612",
+      "conname": "outbox_events_y202612_pkey",
+      "contype": "b'p'",
+      "definition": "PRIMARY KEY (event_id, occurred_at)"
+    },
+    {
+      "schema_name": "project_planning",
+      "table_name": "episodes",
+      "conname": "ck_episodes_status",
+      "contype": "b'c'",
+      "definition": "CHECK (((status)::text = ANY ((ARRAY['ACTIVE'::character varying, 'ARCHIVED'::character varying, 'DRAFT'::character varying])::text[])))"
+    },
+    {
+      "schema_name": "project_planning",
+      "table_name": "episodes",
+      "conname": "episodes_pkey",
+      "contype": "b'p'",
+      "definition": "PRIMARY KEY (entity_id)"
+    },
+    {
+      "schema_name": "project_planning",
+      "table_name": "episodes",
+      "conname": "fk_episodes_project",
+      "contype": "b'f'",
+      "definition": "FOREIGN KEY (project_id) REFERENCES project_planning.projects(entity_id)"
+    },
+    {
+      "schema_name": "project_planning",
+      "table_name": "episodes",
+      "conname": "ux_episode_ref_per_project",
+      "contype": "b'u'",
+      "definition": "UNIQUE (project_id, episode_ref)"
+    },
+    {
+      "schema_name": "project_planning",
+      "table_name": "organizations",
+      "conname": "organizations_pkey",
+      "contype": "b'p'",
+      "definition": "PRIMARY KEY (organization_id)"
+    },
+    {
+      "schema_name": "project_planning",
+      "table_name": "organizations",
+      "conname": "uq_organizations_owner_tenant",
+      "contype": "b'u'",
+      "definition": "UNIQUE (organization_id, tenant_id)"
+    },
+    {
+      "schema_name": "project_planning",
+      "table_name": "projects",
+      "conname": "ck_projects_status",
+      "contype": "b'c'",
+      "definition": "CHECK (((status)::text = ANY ((ARRAY['ACTIVE'::character varying, 'ARCHIVED'::character varying, 'COMPLETED'::character varying, 'DRAFT'::character varying, 'ON_HOLD'::character varying])::text[])))"
+    },
+    {
+      "schema_name": "project_planning",
+      "table_name": "projects",
+      "conname": "fk_projects_organization_tenant",
+      "contype": "b'f'",
+      "definition": "FOREIGN KEY (organization_id, tenant_id) REFERENCES project_planning.organizations(organization_id, tenant_id)"
+    },
+    {
+      "schema_name": "project_planning",
+      "table_name": "projects",
+      "conname": "projects_pkey",
+      "contype": "b'p'",
+      "definition": "PRIMARY KEY (entity_id)"
+    },
+    {
+      "schema_name": "project_planning",
+      "table_name": "projects",
+      "conname": "uq_projects_entity_tenant",
+      "contype": "b'u'",
+      "definition": "UNIQUE (entity_id, tenant_id)"
+    },
+    {
+      "schema_name": "project_planning",
+      "table_name": "script_revisions",
+      "conname": "ck_script_revisions_status",
+      "contype": "b'c'",
+      "definition": "CHECK (((status)::text = ANY ((ARRAY['DRAFT'::character varying, 'LOCKED'::character varying, 'LOCK_PENDING'::character varying, 'SUPERSEDED'::character varying])::text[])))"
+    },
+    {
+      "schema_name": "project_planning",
+      "table_name": "script_revisions",
+      "conname": "fk_script_revisions_episode",
+      "contype": "b'f'",
+      "definition": "FOREIGN KEY (project_id, episode_ref) REFERENCES project_planning.episodes(project_id, episode_ref)"
+    },
+    {
+      "schema_name": "project_planning",
+      "table_name": "script_revisions",
+      "conname": "script_revisions_pkey",
+      "contype": "b'p'",
+      "definition": "PRIMARY KEY (entity_id)"
+    },
+    {
+      "schema_name": "public",
+      "table_name": "alembic_version",
+      "conname": "alembic_version_pkc",
+      "contype": "b'p'",
+      "definition": "PRIMARY KEY (version_num)"
+    }
+  ],
+  "policies": [
+    {
+      "schemaname": "asset_service",
+      "tablename": "asset_versions",
+      "policyname": "tenant_isolation_asset_versions",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "((tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid) AND (EXISTS ( SELECT 1\n   FROM project_planning.projects p\n  WHERE (((p.entity_id)::text = (asset_versions.project_id)::text) AND (p.tenant_id = asset_versions.tenant_id)))))",
+      "with_check": null
+    },
+    {
+      "schemaname": "asset_service",
+      "tablename": "qc_reports",
+      "policyname": "tenant_isolation_qc_reports",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "((tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid) AND (EXISTS ( SELECT 1\n   FROM (asset_service.asset_versions a\n     JOIN project_planning.projects p ON ((((p.entity_id)::text = (a.project_id)::text) AND (p.tenant_id = a.tenant_id))))\n  WHERE (((a.entity_id)::text = (qc_reports.asset_version_id)::text) AND (a.tenant_id = qc_reports.tenant_id)))))",
+      "with_check": null
+    },
+    {
+      "schemaname": "audit",
+      "tablename": "status_transitions",
+      "policyname": "tenant_isolation_status_transitions",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "(tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid)",
+      "with_check": null
+    },
+    {
+      "schemaname": "outbox",
+      "tablename": "outbox_events",
+      "policyname": "tenant_isolation_outbox_events",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "(tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid)",
+      "with_check": null
+    },
+    {
+      "schemaname": "outbox",
+      "tablename": "outbox_events_default",
+      "policyname": "tenant_isolation_outbox_events",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "(tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid)",
+      "with_check": null
+    },
+    {
+      "schemaname": "outbox",
+      "tablename": "outbox_events_y202611",
+      "policyname": "tenant_isolation_outbox_events",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "(tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid)",
+      "with_check": null
+    },
+    {
+      "schemaname": "outbox",
+      "tablename": "outbox_events_y202612",
+      "policyname": "tenant_isolation_outbox_events",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "(tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid)",
+      "with_check": null
+    },
+    {
+      "schemaname": "project_planning",
+      "tablename": "episodes",
+      "policyname": "tenant_isolation_episodes",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "((tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid) AND (EXISTS ( SELECT 1\n   FROM project_planning.projects p\n  WHERE (((p.entity_id)::text = (episodes.project_id)::text) AND (p.tenant_id = episodes.tenant_id)))))",
+      "with_check": null
+    },
+    {
+      "schemaname": "project_planning",
+      "tablename": "organizations",
+      "policyname": "tenant_isolation_organizations",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "((tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid) AND ((organization_id IS NULL) OR (organization_id = (NULLIF(current_setting('app.current_organization_id'::text, true), ''::text))::uuid)))",
+      "with_check": null
+    },
+    {
+      "schemaname": "project_planning",
+      "tablename": "projects",
+      "policyname": "tenant_isolation_projects",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "((tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid) AND ((organization_id IS NULL) OR (organization_id = (NULLIF(current_setting('app.current_organization_id'::text, true), ''::text))::uuid)))",
+      "with_check": null
+    },
+    {
+      "schemaname": "project_planning",
+      "tablename": "script_revisions",
+      "policyname": "tenant_isolation_script_revisions",
+      "permissive": "PERMISSIVE",
+      "roles": [
+        "public"
+      ],
+      "cmd": "ALL",
+      "qual": "((tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid) AND (EXISTS ( SELECT 1\n   FROM project_planning.projects p\n  WHERE (((p.entity_id)::text = (script_revisions.project_id)::text) AND (p.tenant_id = script_revisions.tenant_id)))))",
+      "with_check": null
+    }
+  ],
+  "default_acl": [
+    {
+      "owner_role": "postgres",
+      "schema_name": "outbox",
+      "defaclobjtype": "b'r'",
+      "defaclacl": [
+        "outbox_relay_role=r/postgres",
+        "project_planning_role=ar/postgres",
+        "asset_service_role=ar/postgres"
+      ]
+    }
+  ]
+}

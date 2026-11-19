@@ -1,0 +1,161 @@
+=== 1. 迁移版本（唯一的「库执行到哪」的事实源）===
+ version_num  
+--------------
+ c1a2b3d4e5f6
+(1 row)
+
+=== 2. schema 清单（分支独有域是否存在）===
+     nspname      
+------------------
+ asset_service
+ audit
+ auth
+ outbox
+ project_planning
+ public
+(6 rows)
+
+=== 3. 表/分区：属主、RLS、FORCE ===
+      schema      |        object         |    kind     |  owner   | rls | forced 
+------------------+-----------------------+-------------+----------+-----+--------
+ asset_service    | asset_versions        | table       | postgres | t   | t
+ asset_service    | qc_reports            | table       | postgres | t   | t
+ audit            | status_transitions    | table       | postgres | t   | t
+ auth             | revoked_tokens        | table       | postgres | f   | f
+ outbox           | maintenance_runs      | table       | postgres | f   | f
+ outbox           | outbox_events         | partitioned | postgres | t   | f
+ outbox           | outbox_events_default | table       | postgres | t   | f
+ outbox           | outbox_events_y202611 | table       | postgres | t   | f
+ outbox           | outbox_events_y202612 | table       | postgres | t   | f
+ project_planning | episodes              | table       | postgres | t   | t
+ project_planning | organizations         | table       | postgres | t   | t
+ project_planning | projects              | table       | postgres | t   | t
+ project_planning | script_revisions      | table       | postgres | t   | t
+ public           | alembic_version       | table       | postgres | f   | f
+(14 rows)
+
+=== 4. 角色（集群级对象：两个库共享，不能各自无脑执行）===
+        rolname        | rolsuper | rolcreaterole | rolcreatedb | rolcanlogin | rolbypassrls 
+-----------------------+----------+---------------+-------------+-------------+--------------
+ app_role              | f        | f             | f           | t           | f
+ asset_service_role    | f        | f             | f           | t           | f
+ outbox_relay_role     | f        | f             | f           | t           | f
+ postgres              | t        | t             | t           | t           | t
+ project_planning_role | f        | f             | f           | t           | f
+(5 rows)
+
+=== 5. 表级 ACL（relacl）===
+              object               |                                                                    relacl                                                                     
+-----------------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------
+ asset_service.asset_versions      | {postgres=arwdDxt/postgres,asset_service_role=arw/postgres}
+ asset_service.qc_reports          | {postgres=arwdDxt/postgres,asset_service_role=ar/postgres}
+ audit.status_transitions          | {postgres=arwdDxt/postgres,project_planning_role=ar/postgres,asset_service_role=ar/postgres}
+ auth.revoked_tokens               | {postgres=arwdDxt/postgres,project_planning_role=r/postgres,asset_service_role=r/postgres}
+ outbox.maintenance_runs           | {postgres=arwdDxt/postgres}
+ outbox.outbox_events              | {postgres=arwdDxt/postgres,app_role=r/postgres,outbox_relay_role=r/postgres,project_planning_role=ar/postgres,asset_service_role=ar/postgres}
+ outbox.outbox_events_default      | {postgres=arwdDxt/postgres,project_planning_role=ar/postgres,asset_service_role=ar/postgres,outbox_relay_role=r/postgres}
+ outbox.outbox_events_y202611      | {postgres=arwdDxt/postgres,project_planning_role=ar/postgres,asset_service_role=ar/postgres,outbox_relay_role=r/postgres}
+ outbox.outbox_events_y202612      | {postgres=arwdDxt/postgres,project_planning_role=ar/postgres,asset_service_role=ar/postgres,outbox_relay_role=r/postgres}
+ project_planning.episodes         | {postgres=arwdDxt/postgres,project_planning_role=arw/postgres}
+ project_planning.organizations    | {postgres=arwdDxt/postgres,project_planning_role=r/postgres}
+ project_planning.projects         | {postgres=arwdDxt/postgres,project_planning_role=arw/postgres}
+ project_planning.script_revisions | {postgres=arwdDxt/postgres,project_planning_role=arw/postgres}
+ public.alembic_version            | {postgres=arwdDxt/postgres,project_planning_role=r/postgres,asset_service_role=r/postgres}
+(14 rows)
+
+=== 6. 列级 ACL（attacl）——跨域只读与 relay 列级 UPDATE 的真实落点 ===
+                 column_object                 |             attacl              
+-----------------------------------------------+---------------------------------
+ outbox.outbox_events.attempts                 | {outbox_relay_role=w/postgres}
+ outbox.outbox_events.dead_lettered_at         | {outbox_relay_role=w/postgres}
+ outbox.outbox_events.next_attempt_at          | {outbox_relay_role=w/postgres}
+ outbox.outbox_events.published_at             | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_default.attempts         | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_default.dead_lettered_at | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_default.next_attempt_at  | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_default.published_at     | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_y202611.attempts         | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_y202611.dead_lettered_at | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_y202611.next_attempt_at  | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_y202611.published_at     | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_y202612.attempts         | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_y202612.dead_lettered_at | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_y202612.next_attempt_at  | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_y202612.published_at     | {outbox_relay_role=w/postgres}
+ project_planning.projects.entity_id           | {asset_service_role=r/postgres}
+ project_planning.projects.organization_id     | {asset_service_role=r/postgres}
+ project_planning.projects.tenant_id           | {asset_service_role=r/postgres}
+(19 rows)
+
+=== 7. schema 级 ACL（USAGE 是表权限的前置条件）===
+     nspname      |                                                                 nspacl                                                                 
+------------------+----------------------------------------------------------------------------------------------------------------------------------------
+ asset_service    | {postgres=UC/postgres,asset_service_role=U/postgres}
+ audit            | {postgres=UC/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres}
+ auth             | {postgres=UC/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres}
+ outbox           | {postgres=UC/postgres,app_role=U/postgres,outbox_relay_role=U/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres}
+ project_planning | {postgres=UC/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres}
+ public           | {pg_database_owner=UC/pg_database_owner,=U/pg_database_owner}
+(6 rows)
+
+=== 8. 默认权限（未来建的表的授权口令）===
+ owner_role | schema | defaclobjtype |                                            defaclacl                                            
+------------+--------+---------------+-------------------------------------------------------------------------------------------------
+ postgres   | outbox | r             | {outbox_relay_role=r/postgres,project_planning_role=ar/postgres,asset_service_role=ar/postgres}
+(1 row)
+
+=== 9. RLS 策略（USING / WITH CHECK 是否都写了）===
+    schemaname    |       tablename       |             policyname              | cmd | has_using | has_check 
+------------------+-----------------------+-------------------------------------+-----+-----------+-----------
+ asset_service    | asset_versions        | tenant_isolation_asset_versions     | ALL | t         | f
+ asset_service    | qc_reports            | tenant_isolation_qc_reports         | ALL | t         | f
+ audit            | status_transitions    | tenant_isolation_status_transitions | ALL | t         | f
+ outbox           | outbox_events         | tenant_isolation_outbox_events      | ALL | t         | f
+ outbox           | outbox_events_default | tenant_isolation_outbox_events      | ALL | t         | f
+ outbox           | outbox_events_y202611 | tenant_isolation_outbox_events      | ALL | t         | f
+ outbox           | outbox_events_y202612 | tenant_isolation_outbox_events      | ALL | t         | f
+ project_planning | episodes              | tenant_isolation_episodes           | ALL | t         | f
+ project_planning | organizations         | tenant_isolation_organizations      | ALL | t         | f
+ project_planning | projects              | tenant_isolation_projects           | ALL | t         | f
+ project_planning | script_revisions      | tenant_isolation_script_revisions   | ALL | t         | f
+(11 rows)
+
+=== 10. 约束类型分布（外键/检查/唯一是否有真实约束）===
+      schema      |         table         | contype | n 
+------------------+-----------------------+---------+---
+ asset_service    | asset_versions        | c       | 1
+ asset_service    | asset_versions        | f       | 1
+ asset_service    | asset_versions        | p       | 1
+ asset_service    | qc_reports            | f       | 1
+ asset_service    | qc_reports            | p       | 1
+ audit            | status_transitions    | c       | 2
+ audit            | status_transitions    | p       | 1
+ audit            | status_transitions    | t       | 1
+ audit            | status_transitions    | u       | 1
+ auth             | revoked_tokens        | p       | 1
+ outbox           | maintenance_runs      | p       | 1
+ outbox           | outbox_events         | p       | 1
+ outbox           | outbox_events_default | p       | 1
+ outbox           | outbox_events_y202611 | p       | 1
+ outbox           | outbox_events_y202612 | p       | 1
+ project_planning | episodes              | c       | 1
+ project_planning | episodes              | f       | 1
+ project_planning | episodes              | p       | 1
+ project_planning | episodes              | u       | 1
+ project_planning | organizations         | p       | 1
+ project_planning | organizations         | u       | 1
+ project_planning | projects              | c       | 1
+ project_planning | projects              | f       | 1
+ project_planning | projects              | p       | 1
+ project_planning | projects              | u       | 1
+ project_planning | script_revisions      | c       | 1
+ project_planning | script_revisions      | f       | 1
+ project_planning | script_revisions      | p       | 1
+ public           | alembic_version       | p       | 1
+(29 rows)
+
+=== 11. 越权扫描：业务角色是否持有 DELETE / TRUNCATE / REFERENCES ===
+ rolname | object | can_delete | can_truncate 
+---------+--------+------------+--------------
+(0 rows)
+
