@@ -26,6 +26,11 @@
     allowed_states 与转移边、枚举注册表、Schema 的 status.enum、status 字段分类台账、
     别名/跨域标记层、已实现对象的 Domain Enum 与数据库 CHECK 全部逐值对齐。
     （旧版只比对象名不比状态集，于是三处状态集合可以各自漂移而全绿。）
+12. 授权单一事实源（contracts/authorization/authorization_registry.yaml）：
+    域必须恰好 8 项且 runtime_role 唯一、资源 id 四段式自洽、Policy 命名与命令子句
+    按 PG16 规则派生、AST 只引用该资源真实具备的隔离维度、SECDEF 例外八字段齐备
+    且目标 OWNER / search_path / public_execute 合规。
+    （数字看似琐碎，但「策略子句与命令不匹配」在库里是语法错误、在测试里是假通过。）
 
 设计要点（不屎山代码）：
 - 状态值与转移边一律结构化（allowed_states / transitions / guards.transition）；
@@ -2807,6 +2812,62 @@ def check_proposal_status() -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# 12. 授权单一事实源（Authorization Registry）
+# --------------------------------------------------------------------------- #
+def check_authorization_registry() -> bool:
+    """校验 ADR-R40 附录 D 定义的授权 Registry（静态，不连数据库）。
+
+    为什么不是「文件能被 YAML 解析就通过」：本文件的价值全在语义——域数量、
+    策略子句与命令的匹配、AST 引用的列是否真实存在、例外是否满足 SECDEF 目标配置。
+    这些一旦错，生成出来的 DDL 要么语法非法（PG16 直接拒绝），要么语义安全但
+    永远零行，两者都不会被「YAML 合法」发现。
+    """
+    from packages.shared.authorization.registry import (
+        RegistryError,
+        load_registry,
+        validate,
+    )
+
+    path = CONTRACTS / "authorization" / "authorization_registry.yaml"
+    if not path.exists():
+        print(
+            "[FAIL] 缺少 contracts/authorization/authorization_registry.yaml"
+            "（ADR-R40 附录 D.1 指定的唯一授权事实源）"
+        )
+        return False
+    try:
+        registry = load_registry(path)
+    except RegistryError as exc:
+        print(f"[FAIL] 授权 Registry 形状错误：{exc}")
+        return False
+
+    problems = validate(registry)
+    # 指向既有事实源的指针必须真的指向一个文件：悬空指针比「没有指针」更危险，
+    # 它会让「权限由谁声明」这个问题得到一个看起来有答案、实际读不到的回答。
+    source = registry.permissions_source
+    if source is not None and not (ROOT / source.module).is_file():
+        problems.append(
+            f"permissions_source.module 指向的文件不存在：{source.module}"
+        )
+    for problem in problems:
+        print(f"[FAIL] 授权 Registry：{problem}")
+    if problems:
+        return False
+
+    policies = sum(
+        len(resource.rls.policies)
+        for resource in registry.resources
+        if resource.rls is not None
+    )
+    print(
+        f"[PASS] 授权 Registry：{len(registry.domains)} 域 / "
+        f"{len(registry.resources)} 资源 / {policies} 条策略 / "
+        f"{len(registry.exceptions)} 条例外（status={registry.status}）"
+    )
+    return True
+
+
+# --------------------------------------------------------------------------- #
 # 入口
 # --------------------------------------------------------------------------- #
 def main() -> int:
@@ -2838,6 +2899,7 @@ def main() -> int:
         ok &= check_status_enum_consistency()
         ok &= check_event_catalog()
         ok &= check_security_boundary()
+        ok &= check_authorization_registry()
         ok &= check_proposal_status()
     except ValueError as exc:
         # 契约文件缺失/为空/非映射时，load_yaml_mapping 统一抛 ValueError；
