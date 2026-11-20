@@ -1,4 +1,4 @@
-"""14 行归属闭环验收台账（ADR-R40 §13 D-10.1 / 附录 J.2 的唯一验收判据）。
+"""17 行归属闭环验收台账（ADR-R40 §13 D-10.1 / 附录 J.2 的唯一验收判据）。
 
 判据（三条件合取，缺一即不通过）::
 
@@ -27,6 +27,8 @@ from pathlib import Path
 
 import asyncpg
 
+import lab
+
 REPO = Path(__file__).resolve().parents[3]
 OUT_MD = Path(__file__).resolve().parent / "acceptance-ledger.md"
 OUT_JSON = Path(__file__).resolve().parent / "acceptance-ledger.json"
@@ -45,10 +47,18 @@ class Row:
 
 
 def ledger_rows() -> list[Row]:
-    """14 行。前 13 行是域表（含 1 张组织级），第 14 行是归属根 projects。
+    """17 行。前 16 行是域表（含 1 张组织级），第 17 行是归属根 projects。
 
-    刻意**不含** shot_specs / approval_steps（C 派生级）：本轮不为它们建归属外键，
-    把它们计入台账会让「闭环」变成假指标——为了让数字好看去建不该建的约束。
+    **为什么从 14 涨到 17**：09 版把 `qc_reports` / `shot_specs` / `approval_steps`
+    排除在外——`qc_reports` 是漏了（既不在 PROJECT_LEVEL 也不在 DERIVED_NO_FK），
+    另两张是「刻意不建」。逐表覆盖矩阵随后证明这个排除有代价：三张表都在不可变
+    守卫下、都被受控例外覆盖，例外放行后能把 `project_id` 改成不存在的项目且
+    数据库不拦（实测 UPDATE 1 成功）。归属事实已落库，却在闭环之外。
+    故 `f8a9b0c1d2e3` 补了三条三列外键，台账同步纳入——不是为了让数字好看，
+    而是原先的数字掩盖了三张真实的表。
+
+    仍然**不含**的是：任何没有 `project_id`/`organization_id` 事实列的表。
+    台账的行集必须能逐行对应一条真实约束，凑数没有意义。
     """
     return [
         Row("generation_execution.production_routes", "B",
@@ -61,14 +71,17 @@ def ledger_rows() -> list[Row]:
         Row("shot_planning.shot_revisions", "A", "fk_shot_revisions_project_tenant_org"),
         Row("shot_planning.shot_visual_plans", "A", "fk_shot_visual_plans_project_tenant_org"),
         Row("shot_planning.constraint_packs", "A", "fk_constraint_packs_project_tenant_org"),
+        Row("shot_planning.shot_specs", "A", "fk_shot_specs_project_tenant_org"),
         Row("asset_service.delivery_manifests", "A",
             "fk_delivery_manifests_project_tenant_org"),
         Row("asset_service.asset_versions", "A", "fk_asset_versions_project_tenant_org"),
+        Row("asset_service.qc_reports", "A", "fk_qc_reports_project_tenant_org"),
         Row("qc_governance.gate_decisions", "A", "fk_gate_decisions_project_tenant_org"),
         Row("qc_governance.qc_review_sessions", "A",
             "fk_qc_review_sessions_project_tenant_org"),
         Row("workflow.approval_flows", "A", "fk_approval_flows_project_tenant_org"),
         Row("workflow.approval_tickets", "A", "fk_approval_tickets_project_tenant_org"),
+        Row("workflow.approval_steps", "A", "fk_approval_steps_project_tenant_org"),
         Row(PROJECTS, "ROOT", "fk_projects_organization_tenant"),
     ]
 
@@ -180,7 +193,7 @@ async def quarantine_stats(conn: asyncpg.Connection) -> dict[str, object]:
 
 def render_md(rows: list[dict[str, object]], q: dict[str, object], meta: dict[str, object]) -> str:
     passed = sum(1 for r in rows if r["pass"])
-    overall = "PASS（14/14 闭环）" if passed == len(rows) else f"未通过（{passed}/{len(rows)}）"
+    overall = f"PASS（{len(rows)}/{len(rows)} 闭环）" if passed == len(rows) else f"未通过（{passed}/{len(rows)}）"
     lines = [
         "# 归属闭环验收台账（机器生成，勿手改）",
         "",
@@ -246,26 +259,74 @@ async def run(db: str, port: int, host: str = "localhost", write: bool = True) -
 
 # ─────────────────────────── 自检：证明台账不是恒真 ───────────────────────────
 
-def load_migration():
-    path = next((REPO / "data/migrations/pending/feat-ownership").glob("*_ownership_fk_backfill.py"))
-    spec = importlib.util.spec_from_file_location("ownership_migration", path)
+PENDING = REPO / "data/migrations/pending/feat-ownership"
+
+#: 参与自检的迁移，按**应用顺序**排列：(文件名 glob, 模块名)。
+#: 台账从 14 行涨到 17 行是因为 `batch2` 补了三张表的归属外键，
+#: 所以自检必须同时应用两批，否则 pending 场景只会有 14 条待验证。
+SELFTEST_MIGRATIONS: tuple[tuple[str, str], ...] = (
+    ("*_ownership_fk_backfill.py", "ownership_fk_a9b8"),
+    ("*_ownership_fk_batch2.py", "ownership_fk_batch2"),
+)
+
+
+def _load(path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
     assert spec and spec.loader
     mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod  # dataclass 需要模块已登记
+    # 必须先登记再 exec：dataclass 解析注解会回查 sys.modules[cls.__module__]，
+    # 未登记时拿到 None 而抛 AttributeError（a9b8 当年的原坑）。
+    sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
     return mod
 
 
-async def _recreate(db: str, template: str, port: int) -> None:
-    conn = await asyncpg.connect(
+def load_migrations() -> list:
+    """按应用顺序加载迁移体。
+
+    一律读 `pending/feat-ownership/`，不读 alembic 的 `versions/`：pending 是这批迁移
+    的登记处，versions 里的是副本。读副本会把「副本漂移」变成自检看不见的事。
+    """
+    return [_load(next(PENDING.glob(pattern)), name) for pattern, name in SELFTEST_MIGRATIONS]
+
+
+def ownership_fks(mods) -> list[tuple[str, str]]:
+    """把两批迁移的外键拼成一份全量清单（17 条）。"""
+    return [fk for m in mods for fk in m.OWNERSHIP_FKS]
+
+
+async def _recreate(db: str, template: str, port: int) -> str:
+    """克隆模板库并把归属五层迁移回退到激活前基线，返回回退说明。
+
+    为什么不能直接用模板库当「未迁移」场景
+    --------------------------------------
+    自检的 `ledger_nomig` 场景要求「14/17 条约束一条都不存在」。但模板库
+    `ai_film_industrial` 已经升到 `e3f4a5b6c7d8`，归属约束全都在，且含指向隔离项目的
+    行。直接克隆会让 nomig 场景实测 14 条约束 → 判定 14/14，与「未迁移」完全相反；
+    更隐蔽的是 `pending` 场景（约束在、未 VALIDATE）会与 `clean` 场景难以区分。
+    这与验证脚本曾经踩过的坑同源：**装置假设模板停在某个版本**。故这里显式回退，
+    回退的实现复用 `lab.prepare_pre_activation_baseline`，不另写一份。
+    """
+    admin = await asyncpg.connect(
         host="localhost", port=port, user="postgres",
         password="replay_super_pw", database="postgres",
     )
     try:
-        await conn.execute(f'DROP DATABASE IF EXISTS "{db}"')
-        await conn.execute(f'CREATE DATABASE "{db}" TEMPLATE "{template}"')
+        await lab.fresh_clone(admin, db, template)
+    finally:
+        await admin.close()
+
+    conn = await asyncpg.connect(
+        host="localhost", port=port, user="postgres",
+        password="replay_super_pw", database=db,
+    )
+    try:
+        purge, _order, checks = await lab.prepare_pre_activation_baseline(conn, PENDING)
     finally:
         await conn.close()
+    if not all(v.endswith("=0") for v in checks):
+        raise RuntimeError(f"自检基线回退未生效，判定不可信：{checks}")
+    return purge
 
 
 async def _drop(db: str, port: int) -> None:
@@ -282,13 +343,13 @@ async def _drop(db: str, port: int) -> None:
 # 自检场景：同一脚本、不同库状态，判定必须不同。
 # 旧版只有三种状态（未迁移 / 全验证 / 一张脏），缺「约束全建但一个都没 VALIDATE」——
 # 而这恰恰是迁移刚激活后的真实形态，也是「约束存在 ≠ 不变量成立」最容易被误读的形态：
-# 14 条约束都在、`NOT VALID` 也在，若台账把「存在」当「闭环」，这一态会被判 14/14。
+# 17 条约束都在、`NOT VALID` 也在，若台账把「存在」当「闭环」，这一态会被判 17/17。
 SELFTEST_SCENARIOS = (
     # db              migrate  validate       dirty  passed pending
     dict(db="ledger_nomig",   migrate=False, validate="none",       dirty=False, passed=0,  pending=0),
-    dict(db="ledger_pending", migrate=True,  validate="none",       dirty=False, passed=0,  pending=14),
-    dict(db="ledger_clean",   migrate=True,  validate="all",        dirty=False, passed=14, pending=0),
-    dict(db="ledger_dirty",   migrate=True,  validate="all_but_av", dirty=True,  passed=13, pending=0),
+    dict(db="ledger_pending", migrate=True,  validate="none",       dirty=False, passed=0,  pending=17),
+    dict(db="ledger_clean",   migrate=True,  validate="all",        dirty=False, passed=17, pending=0),
+    dict(db="ledger_dirty",   migrate=True,  validate="all_but_av", dirty=True,  passed=16, pending=0),
 )
 
 
@@ -303,7 +364,8 @@ async def _apply_validation(conn: asyncpg.Connection, fks, mode: str) -> None:
 
 
 async def selftest(port: int, template: str) -> int:
-    mig = load_migration()
+    mods = load_migrations()
+    fks = ownership_fks(mods)
     results = []
     try:
         for sc in SELFTEST_SCENARIOS:
@@ -316,10 +378,13 @@ async def selftest(port: int, template: str) -> int:
             try:
                 if sc["migrate"]:
                     if sc["dirty"]:
-                        await seed_dirty(conn)
-                    for step in mig.upgrade_steps():
-                        await conn.execute(step.sql)
-                    await _apply_validation(conn, mig.OWNERSHIP_FKS, sc["validate"])
+                        await seed_dirty_pre_fk(conn)
+                    for m in mods:
+                        for step in m.upgrade_steps():
+                            await conn.execute(step.sql)
+                    if sc["dirty"]:
+                        await seed_dirty_post_fk(conn)
+                    await _apply_validation(conn, fks, sc["validate"])
             finally:
                 await conn.close()
             r = await run(db, port, write=False)
@@ -344,28 +409,27 @@ async def selftest(port: int, template: str) -> int:
         )
     print("-" * 80)
     print(
-        "预期：nomig 全未建立 → 0；pending 约束全建但未 VALIDATE → 0 PASS 且 14 行待验证；\n"
-        "      clean 全部 VALIDATE → 14/14；dirty 仅 asset_versions 存量违规 → 13/14（精确定位）。"
+        "预期：nomig 全未建立 → 0；pending 约束全建但未 VALIDATE → 0 PASS 且 17 行待验证；\n"
+        "      clean 全部 VALIDATE → 17/17；dirty 仅 asset_versions 存量违规 → 16/17（精确定位）。"
     )
     print("结论：" + ("台账可区分「未建立 / 待验证 / 存量违规 / 闭环」四种状态，不是恒真。"
                     if ok else "自检失败——台账判定不可信，禁止用于验收。"))
     return 0 if ok else 1
 
 
-async def seed_dirty(conn: asyncpg.Connection) -> None:
-    """造一行指向不存在项目的资产，模拟 legacy-unassigned 类存量。"""
-    t1 = "11111111-1111-1111-1111-111111111111"
-    o1 = "22222222-2222-2222-2222-222222222222"
-    await conn.execute(
-        f"""
-        INSERT INTO {PROJECTS}
-            (entity_id, entity_type, schema_version, entity_version, status, owner_module,
-             created_at, created_by, updated_at, project_name, project_tier,
-             tenant_id, organization_id)
-        VALUES ('proj-1', 'Project', 2, 1, 'ACTIVE', 'project_planning',
-                now(), 'ledger', now(), 'proj-1', 'P1', '{t1}', '{o1}')
-        """
-    )
+#: 脏态夹具用的归属三元组：一个**真实存在**的组织 + 项目，配一行指向
+#: **不存在**项目的资产。两类行必须分两步造，见下面两个函数的注释。
+DIRTY_TENANT = "11111111-1111-1111-1111-111111111111"
+DIRTY_ORG = "22222222-2222-2222-2222-222222222222"
+
+
+async def seed_dirty_pre_fk(conn: asyncpg.Connection) -> None:
+    """造脏行（指向不存在的项目）。**必须在归属外键建立之前**。
+
+    外键一旦建立（哪怕 `NOT VALID`），**新插入**就会被检查——`NOT VALID` 只豁免
+    历史行扫描。所以「造脏 → 建约束 → VALIDATE 失败」这个证明链只能按这个顺序搭，
+    反过来根本造不出脏行。
+    """
     await conn.execute(
         f"""
         INSERT INTO asset_service.asset_versions
@@ -373,20 +437,97 @@ async def seed_dirty(conn: asyncpg.Connection) -> None:
              tenant_id, organization_id, project_id, created_at, created_by, updated_at,
              asset_type, sha256, storage_ref, source_asset_version_ids)
         VALUES ('av-ghost', 'AssetVersion', 2, 1, 'GENERATED', 'asset_service',
-                '{t1}', '{o1}', 'ghost-project', now(), 'ledger', now(),
+                '{DIRTY_TENANT}', '{DIRTY_ORG}', 'ghost-project', now(), 'ledger', now(),
                 'VIDEO', repeat('a', 64),
                 '{{"bucket":"b","key":"av-ghost"}}'::jsonb, '[]'::jsonb)
         """
     )
 
 
+async def seed_dirty_post_fk(conn: asyncpg.Connection) -> None:
+    """造**合规**的组织与项目行。必须在 `a9b8` 之后——`organizations` 表由它创建。
+
+    组织行不可省：`projects` 挂着 `fk_projects_organization_tenant`，缺组织行会让
+    `projects` 自己也违规 → 台账判 15/17，而用例要证明的是「**只**精确定位到
+    asset_versions 这一张」。脏要脏得单一，否则「能否精确定位」无从判断。
+    """
+    await conn.execute(
+        f"""
+        INSERT INTO {ORGS} (organization_id, tenant_id, name, created_at, created_by, updated_at)
+        VALUES ('{DIRTY_ORG}', '{DIRTY_TENANT}', 'ledger-dirty-org', now(), 'ledger', now())
+        """
+    )
+    await conn.execute(
+        f"""
+        INSERT INTO {PROJECTS}
+            (entity_id, entity_type, schema_version, entity_version, status, owner_module,
+             created_at, created_by, updated_at, project_name, project_tier,
+             tenant_id, organization_id)
+        VALUES ('proj-1', 'Project', 2, 1, 'ACTIVE', 'project_planning',
+                now(), 'ledger', now(), 'proj-1', 'B', '{DIRTY_TENANT}', '{DIRTY_ORG}')
+        """
+    )
+
+
+async def apply_validate(db: str, port: int, host: str) -> list[tuple[str, str, str]]:
+    """对处于「待验证」的行执行 `VALIDATE CONSTRAINT`，逐行报告结果。
+
+    为什么把 VALIDATE 做成脚本动作而不是手敲 SQL
+    --------------------------------------------
+    `VALIDATE` 是闭环的**唯一**动作（D-10.1 拒绝把「约束已建」当闭环）。手敲有三个
+    退化路径，本脚本都用「逐行执行 + 逐行报告 + 失败即抛」堵住：
+      1. 漏行——只验了印象深刻的两三张；
+      2. 失败后当成功——`23503` 被当成「已验证过」；
+      3. 用 `NOT VALID` 长期顶着——台账会一直红，红着久了就没人看。
+    这里**不做**任何「失败就跳过」的容错：存量脏行本来就该让 VALIDATE 失败，
+    订正走例外工单，不由台账代劳。
+    """
+    conn = await asyncpg.connect(
+        host=host, port=port, user="postgres",
+        password="replay_super_pw", database=db,
+    )
+    out: list[tuple[str, str, str]] = []
+    try:
+        for row in ledger_rows():
+            state = await conn.fetchrow(
+                "SELECT convalidated FROM pg_constraint "
+                "WHERE conname = $1 AND conrelid = $2::regclass",
+                row.constraint, row.table,
+            )
+            if state is None:
+                out.append((row.table, "SKIP", "约束不存在，先执行迁移"))
+                continue
+            if state["convalidated"]:
+                out.append((row.table, "DONE", "已闭环，无需重复验证"))
+                continue
+            try:
+                await conn.execute(
+                    f"ALTER TABLE {row.table} VALIDATE CONSTRAINT {row.constraint}"
+                )
+                out.append((row.table, "OK", "VALIDATE 通过"))
+            except asyncpg.PostgresError as exc:
+                # 存量脏行 → 23503。如实登记并继续下一行，最后由退出码体现失败。
+                out.append((row.table, "FAIL", f"{exc.sqlstate}: {str(exc).splitlines()[0][:100]}"))
+    finally:
+        await conn.close()
+    return out
+
+
 async def main_async(args: argparse.Namespace) -> int:
     if args.selftest:
         return await selftest(args.port, args.template)
 
+    if args.validate:
+        print("\n执行 VALIDATE CONSTRAINT（逐行）")
+        print("-" * 80)
+        res = await apply_validate(args.db, args.port, args.host)
+        for table, state, detail in res:
+            print(f"[{state:<4}] {table:<48} {detail}")
+        print("-" * 80)
+
     r = await run(args.db, args.port, args.host)
     passed, total = r["passed"], r["total"]
-    verdict = "PASS（14/14 闭环）" if r["closed"] else f"未通过（{passed}/{total}）"
+    verdict = f"PASS（{total}/{total} 闭环）" if r["closed"] else f"未通过（{passed}/{total}）"
 
     print(f"\n写入 {OUT_MD}")
     print(f"写入 {OUT_JSON}")
@@ -398,12 +539,16 @@ async def main_async(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="14 行归属闭环验收台账")
+    ap = argparse.ArgumentParser(description="17 行归属闭环验收台账")
     ap.add_argument("--db", default="ai_film_industrial")
     ap.add_argument("--port", type=int, default=15444)
     ap.add_argument("--host", default="localhost")
     ap.add_argument("--template", default="ai_film_industrial", help="自检时用作克隆模板")
     ap.add_argument("--selftest", action="store_true", help="三种库各跑一次，证明可 FAIL")
+    ap.add_argument(
+        "--validate", action="store_true",
+        help="先对未闭环的行执行 VALIDATE CONSTRAINT，再出台账（闭环动作，一次性）",
+    )
     return asyncio.run(main_async(ap.parse_args()))
 
 

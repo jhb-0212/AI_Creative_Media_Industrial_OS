@@ -1,15 +1,17 @@
 # 逐表覆盖矩阵（受控例外，13 张守卫表）
 
-- 执行时间：2026-11-20T14:54:05+08:00
+- 执行时间：2026-11-20T15:18:24+08:00
 - 目标：`localhost:15444` 克隆库 `t3cov_lab`（模板 `ai_film_industrial`），用完即删
 - 归属外键：已建（a9b8c7d6e5f4_ownership_fk_backfill.py）
-- 结果：**66/66**（另有 3 条 N/A，不计入通过率）
+- 批次二：已建（f8a9b0c1d2e3_ownership_fk_batch2.py）
+- 结果：**70/70**
 
 | # | 阶段 | 用例 | 结果 | 说明 |
 | --- | --- | --- | --- | --- |
-| B0 | 前置 | 回退归属五层迁移至激活前基线（5 层） | PASS | projects 3→0，asset_versions 3→0; 归属三列外键=0; 两列组织外键=0; 例外映射表=0; 例外判定函数=0; RLS 表达式备份表=0 |
+| B0 | 前置 | 回退归属栈至激活前基线（6 层） | PASS | projects 3→0，asset_versions 3→0; 归属三列外键=0; 两列组织外键=0; 例外映射表=0; 例外判定函数=0; RLS 表达式备份表=0; 批次二归属外键=0 |
 | U0 | 前置 | 执行归属外键迁移（21 步） | PASS | projects 已 seed，O0 通过 |
 | U0b | 前置 | 归属外键已建（NOT VALID 亦对新写入生效） | PASS | 三列外键=12 |
+| U0c | 前置 | 批次二三条归属外键已建（7 步） | PASS | 命中=3/3 |
 | U1 | 前置 | 执行受控例外迁移（25 条） | PASS | 无异常 |
 | asset_versions.N1 | 无令牌 | 改归属列 → P0001（守卫仍在） | PASS | P0001: asset_versions.project_id 为不可变内容列，禁止改写（ADR-R11） |
 | asset_versions.N2 | 例外放行 | 四条件齐备 → UPDATE 1 且 project_id 回读为新值 | PASS | UPDATE 1 now=proj-2 |
@@ -25,7 +27,7 @@
 | qc_reports.N2 | 例外放行 | 四条件齐备 → UPDATE 1 且 project_id 回读为新值 | PASS | UPDATE 1 now=proj-2 |
 | qc_reports.N3 | 内容列 | 有令牌但改内容列 detector_versions → P0001 | PASS | P0001: qc_reports 是追加型检测证据，禁止 UPDATE（ADR-R11） |
 | qc_reports.N4 | 非成员 | 非成员即使令牌+映射齐备 → P0001（不是 42501） | PASS | P0001: qc_reports 是追加型检测证据，禁止 UPDATE（ADR-R11） |
-| qc_reports.N5 | 外键 | project_id 上是否存在归属外键 | N/A | 无外键 → N5 不适用；实测该更新到不存在的目标**成功**（UPDATE 1） |
+| qc_reports.N5 | 外键 | 例外放行后仍受 fk_qc_reports_project_tenant_org 约束 → 23503（非 0 行静默） | PASS | 23503: insert or update on table "qc_reports" violates foreign key constraint "fk_qc_reports_project_tenant_org" |
 | generation_tasks.N1 | 无令牌 | 改归属列 → P0001（守卫仍在） | PASS | P0001: generation_execution.generation_tasks.project_id 为不可变内容列，禁止改写 |
 | generation_tasks.N2 | 例外放行 | 四条件齐备 → UPDATE 1 且 project_id 回读为新值 | PASS | UPDATE 1 now=proj-2 |
 | generation_tasks.N3 | 内容列 | 有令牌但改内容列 schema_version → P0001 | PASS | P0001: generation_execution.generation_tasks.schema_version 为不可变内容列，禁止改写 |
@@ -60,7 +62,7 @@
 | shot_specs.N2 | 例外放行 | 四条件齐备 → UPDATE 1 且 project_id 回读为新值 | PASS | UPDATE 1 now=proj-2 |
 | shot_specs.N3 | 内容列 | 有令牌但改内容列 schema_version → P0001 | PASS | P0001: shot_planning.shot_specs.schema_version 为不可变内容列，禁止改写（ADR-R27/C2） |
 | shot_specs.N4 | 非成员 | 非成员即使令牌+映射齐备 → P0001（不是 42501） | PASS | P0001: shot_planning.shot_specs.project_id 为不可变内容列，禁止改写（ADR-R27/C2） |
-| shot_specs.N5 | 外键 | project_id 上是否存在归属外键 | N/A | 无外键 → N5 不适用；实测该更新到不存在的目标**成功**（UPDATE 1） |
+| shot_specs.N5 | 外键 | 例外放行后仍受 fk_shot_specs_project_tenant_org 约束 → 23503（非 0 行静默） | PASS | 23503: insert or update on table "shot_specs" violates foreign key constraint "fk_shot_specs_project_tenant_org" |
 | shot_visual_plans.N1 | 无令牌 | 改归属列 → P0001（守卫仍在） | PASS | P0001: shot_planning.shot_visual_plans.project_id 为不可变内容列，禁止改写（ADR-R27/C2） |
 | shot_visual_plans.N2 | 例外放行 | 四条件齐备 → UPDATE 1 且 project_id 回读为新值 | PASS | UPDATE 1 now=proj-2 |
 | shot_visual_plans.N3 | 内容列 | 有令牌但改内容列 schema_version → P0001 | PASS | P0001: shot_planning.shot_visual_plans.schema_version 为不可变内容列，禁止改写（ADR-R27/C2） |
@@ -75,15 +77,7 @@
 | approval_steps.N2 | 例外放行 | 四条件齐备 → UPDATE 1 且 project_id 回读为新值 | PASS | UPDATE 1 now=proj-2 |
 | approval_steps.N3 | 内容列 | 有令牌但改内容列 schema_version → P0001 | PASS | P0001: approval_steps 是 append-only 审批事实，禁止 UPDATE（修正须追加新事实） |
 | approval_steps.N4 | 非成员 | 非成员即使令牌+映射齐备 → P0001（不是 42501） | PASS | P0001: approval_steps 是 append-only 审批事实，禁止 UPDATE（修正须追加新事实） |
-| approval_steps.N5 | 外键 | project_id 上是否存在归属外键 | N/A | 无外键 → N5 不适用；实测该更新到不存在的目标**成功**（UPDATE 1） |
-
-## 待裁决缺口（N/A 背后的真实问题，不得并入下一轮「已修」）
-
-| # | 事项 | 缺口 |
-| --- | --- | --- |
-| qc_reports.G1 | asset_service.qc_reports 无归属外键 | 受控例外可把 project_id 指向**不存在的项目/组织**且数据库不拦（I-1 未保护）；唯一约束是映射表里的 new_* 记录，属流程约束而非数据库约束 |
-| shot_specs.G1 | shot_planning.shot_specs 无归属外键 | 受控例外可把 project_id 指向**不存在的项目/组织**且数据库不拦（I-1 未保护）；唯一约束是映射表里的 new_* 记录，属流程约束而非数据库约束 |
-| approval_steps.G1 | workflow.approval_steps 无归属外键 | 受控例外可把 project_id 指向**不存在的项目/组织**且数据库不拦（I-1 未保护）；唯一约束是映射表里的 new_* 记录，属流程约束而非数据库约束 |
+| approval_steps.N5 | 外键 | 例外放行后仍受 fk_approval_steps_project_tenant_org 约束 → 23503（非 0 行静默） | PASS | 23503: insert or update on table "approval_steps" violates foreign key constraint "fk_approval_steps_project_tenant_o |
 
 ## 口径提醒
 

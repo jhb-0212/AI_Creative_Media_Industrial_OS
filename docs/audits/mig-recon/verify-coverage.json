@@ -1,32 +1,16 @@
 {
-  "at": "2026-11-20T14:54:05+08:00",
-  "passed": 66,
+  "at": "2026-11-20T15:18:24+08:00",
+  "passed": 70,
   "failed": 0,
-  "not_applicable": 3,
-  "open_findings": [
-    {
-      "id": "qc_reports.G1",
-      "desc": "asset_service.qc_reports 无归属外键",
-      "gap": "受控例外可把 project_id 指向**不存在的项目/组织**且数据库不拦（I-1 未保护）；唯一约束是映射表里的 new_* 记录，属流程约束而非数据库约束"
-    },
-    {
-      "id": "shot_specs.G1",
-      "desc": "shot_planning.shot_specs 无归属外键",
-      "gap": "受控例外可把 project_id 指向**不存在的项目/组织**且数据库不拦（I-1 未保护）；唯一约束是映射表里的 new_* 记录，属流程约束而非数据库约束"
-    },
-    {
-      "id": "approval_steps.G1",
-      "desc": "workflow.approval_steps 无归属外键",
-      "gap": "受控例外可把 project_id 指向**不存在的项目/组织**且数据库不拦（I-1 未保护）；唯一约束是映射表里的 new_* 记录，属流程约束而非数据库约束"
-    }
-  ],
+  "not_applicable": 0,
+  "open_findings": [],
   "results": [
     {
       "id": "B0",
       "phase": "前置",
-      "desc": "回退归属五层迁移至激活前基线（5 层）",
+      "desc": "回退归属栈至激活前基线（6 层）",
       "ok": true,
-      "detail": "projects 3→0，asset_versions 3→0; 归属三列外键=0; 两列组织外键=0; 例外映射表=0; 例外判定函数=0; RLS 表达式备份表=0"
+      "detail": "projects 3→0，asset_versions 3→0; 归属三列外键=0; 两列组织外键=0; 例外映射表=0; 例外判定函数=0; RLS 表达式备份表=0; 批次二归属外键=0"
     },
     {
       "id": "U0",
@@ -41,6 +25,13 @@
       "desc": "归属外键已建（NOT VALID 亦对新写入生效）",
       "ok": true,
       "detail": "三列外键=12"
+    },
+    {
+      "id": "U0c",
+      "phase": "前置",
+      "desc": "批次二三条归属外键已建（7 步）",
+      "ok": true,
+      "detail": "命中=3/3"
     },
     {
       "id": "U1",
@@ -150,9 +141,9 @@
     {
       "id": "qc_reports.N5",
       "phase": "外键",
-      "desc": "project_id 上是否存在归属外键",
-      "ok": null,
-      "detail": "无外键 → N5 不适用；实测该更新到不存在的目标**成功**（UPDATE 1）"
+      "desc": "例外放行后仍受 fk_qc_reports_project_tenant_org 约束 → 23503（非 0 行静默）",
+      "ok": true,
+      "detail": "23503: insert or update on table \"qc_reports\" violates foreign key constraint \"fk_qc_reports_project_tenant_org\""
     },
     {
       "id": "generation_tasks.N1",
@@ -395,9 +386,9 @@
     {
       "id": "shot_specs.N5",
       "phase": "外键",
-      "desc": "project_id 上是否存在归属外键",
-      "ok": null,
-      "detail": "无外键 → N5 不适用；实测该更新到不存在的目标**成功**（UPDATE 1）"
+      "desc": "例外放行后仍受 fk_shot_specs_project_tenant_org 约束 → 23503（非 0 行静默）",
+      "ok": true,
+      "detail": "23503: insert or update on table \"shot_specs\" violates foreign key constraint \"fk_shot_specs_project_tenant_org\""
     },
     {
       "id": "shot_visual_plans.N1",
@@ -500,9 +491,9 @@
     {
       "id": "approval_steps.N5",
       "phase": "外键",
-      "desc": "project_id 上是否存在归属外键",
-      "ok": null,
-      "detail": "无外键 → N5 不适用；实测该更新到不存在的目标**成功**（UPDATE 1）"
+      "desc": "例外放行后仍受 fk_approval_steps_project_tenant_org 约束 → 23503（非 0 行静默）",
+      "ok": true,
+      "detail": "23503: insert or update on table \"approval_steps\" violates foreign key constraint \"fk_approval_steps_project_tenant_o"
     }
   ]
 }

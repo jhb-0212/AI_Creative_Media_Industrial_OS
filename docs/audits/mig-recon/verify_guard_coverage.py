@@ -278,6 +278,9 @@ async def main() -> int:
     ap.add_argument("--guard-migration", required=True)
     ap.add_argument("--fk-migration", default=None,
                     help="给出 a9b8 路径则先建归属外键，N5 才有意义")
+    ap.add_argument("--batch2-migration", default=None,
+                    help="给出批次二（f8a9）路径则再补三条外键，"
+                         "使 qc_reports / shot_specs / approval_steps 的 N5 从 N/A 变实测")
     ap.add_argument("--out-dir", default=None)
     ap.add_argument(
         "--versions-dir",
@@ -294,6 +297,11 @@ async def main() -> int:
 
     guard_mig = lab.load_migration(args.guard_migration, "mig_guard")
     fk_mig = lab.load_migration(args.fk_migration, "mig_fk") if args.fk_migration else None
+    b2_mig = (
+        lab.load_migration(args.batch2_migration, "mig_batch2")
+        if args.batch2_migration
+        else None
+    )
 
     admin = await lab.admin_conn(args.host, args.port, args.user, args.password)
     try:
@@ -312,7 +320,7 @@ async def main() -> int:
             vd = Path(args.versions_dir) if args.versions_dir else Path(args.guard_migration).parent
             purge, order, checks = await lab.prepare_pre_activation_baseline(conn, vd)
             ok = all(v.endswith("=0") for v in checks)
-            rec("B0", "前置", f"回退归属五层迁移至激活前基线（{len(order)} 层）", ok,
+            rec("B0", "前置", f"回退归属栈至激活前基线（{len(order)} 层）", ok,
                 f"{purge}; " + "; ".join(checks))
             if not ok:
                 raise RuntimeError(f"基线回退未生效：{checks}")
@@ -343,6 +351,18 @@ async def main() -> int:
             )
             rec("U0b", "前置", "归属外键已建（NOT VALID 亦对新写入生效）",
                 (fks or 0) >= 12, f"三列外键={fks}")
+
+        # 批次二必须在 b0c9 之前应用：例外迁移会按真实表权限动态补 EXECUTE，
+        # 但外键本身与例外无关；放在前面只是为了让 N5 在全部 13 张表上都有约束可撞。
+        if b2_mig is not None:
+            n2 = await lab.apply_steps(conn, b2_mig.upgrade_steps())
+            got = await conn.fetchval(
+                "SELECT count(*) FROM pg_constraint WHERE contype='f' AND conname IN "
+                "('fk_qc_reports_project_tenant_org','fk_shot_specs_project_tenant_org',"
+                "'fk_approval_steps_project_tenant_org')"
+            )
+            rec("U0c", "前置", f"批次二三条归属外键已建（{n2} 步）", (got or 0) == 3,
+                f"命中={got}/3")
 
         # 授权必须在受控例外迁移**之前**：迁移按真实表权限动态补 EXECUTE，
         # 反序会让探针只拿到 42501，N4 就从「守卫拒绝」漂移成「权限拒绝」。
@@ -380,6 +400,7 @@ async def main() -> int:
         meta=[
             f"目标：`{args.host}:{args.port}` 克隆库 `{args.lab}`（模板 `{args.template}`），用完即删",
             f"归属外键：{'已建（' + Path(args.fk_migration).name + '）' if args.fk_migration else '**未建**，N5 未执行'}",
+            f"批次二：{'已建（' + Path(args.batch2_migration).name + '）' if args.batch2_migration else '**未建**，三张派生表的 N5 为 N/A'}",
         ],
         footer=[
             "## 口径提醒",

@@ -4,15 +4,22 @@
 
 | 项 | 状态 |
 | --- | --- |
-| 迁移是否已上链 | **是**。五个迁移已提交到 `integration/phase1-identity-data-ownership`（`4278971` / `256ce6e` / `2c1037c`） |
-| 目标库是否已执行 | **是**。`localhost:15444/ai_film_industrial` 从 `c4e5f6a7b8d9` 升到 `e3f4a5b6c7d8` |
-| 14 表闭环 | **14/14 PASS**（`convalidated` 全 `t`，违规行数全 0） |
+| 迁移是否已上链 | **是**。六个迁移已提交到 `integration/phase1-identity-data-ownership`（`4278971` / `256ce6e` / `2c1037c` / `bcbf10e` / 批次二 `f8a9`） |
+| 目标库是否已执行 | **是**。`localhost:15444/ai_film_industrial` 从 `c4e5f6a7b8d9` 升到 `f8a9b0c1d2e3` |
+| 归属闭环 | **17/17 PASS**（`convalidated` 全 `t`，违规行数全 0） |
+| 逐表覆盖矩阵 | **70/70 PASS**，N/A 0，待裁决缺口 0 |
+| 受控例外验证 | **37/37 PASS** |
 | RLS 行为验收 | **10/10 PASS** |
 | 生产库 | **未触碰**（`15432` / `ai_film_verify` / 模板库均未操作） |
 | 阶段 3 | **仍不放行**——本轮是数据与约束落地，不是放行评审 |
 
 执行报告：`docs/audits/2026-11-20-quarantine-project-activation.md`
+批次二报告：`docs/audits/2026-11-20-ownership-fk-batch2.md`
 例外工单：`docs/audits/2026-11-20-workorder-WO-OWN-2026-1120-001.md`
+
+> 「17/17」不是把分母做大：原台账 14 行少了三张**真实存在**的表
+> （`qc_reports` 是漏列，`shot_specs` / `approval_steps` 曾被判为「刻意不建」）。
+> 这三张表的归属列可以指向不存在的项目且数据库不拦，由 `f8a9b0c1d2e3` 补齐。
 
 ### 为什么本目录仍然保留
 
@@ -48,9 +55,11 @@ main（`c1a2b3d4e5f6`）。一旦放进主工作区的 `versions/`：
 | `c1d2e3f4a5b7_quarantine_project_rls.py` | D-10.3 隔离项目：判定函数 + 终态 CHECK + 18 条 RESTRICTIVE 策略 + 审计角色 |
 | `d2e3f4a5b6c7_repair_role_grants.py` | 受控例外的运行前提：表权限 + RLS 行级可见性 + 两个判定函数的 EXECUTE |
 | `e3f4a5b6c7d8_repair_rls_bypass.py` | 19 条 scope 策略的 repair 旁路（**侵入既有 RLS**，须评审）+ 原表达式备份表 |
+| `f8a9b0c1d2e3_ownership_fk_batch2.py` | 批次二：`qc_reports` / `shot_specs` / `approval_steps` 三列归属外键（NOT VALID），撤销 `a9b8.DERIVED_NO_FK` 对后两张的处置 |
 | `verify_on_clone.py` | 在克隆库上跑 a9b8 的 upgrade / VALIDATE / 新写入语义 / downgrade，13 项断言 |
 | `docs/audits/mig-recon/verify_exception.py` | b0c9 的行为验证（结构 / 判定 / 端到端 / 降级 / 幂等），36 项 |
 | `docs/audits/mig-recon/verify_guard_coverage.py` | 13 张守卫表**逐表**矩阵，证明每张表都真的接通例外通道 |
+| `docs/audits/mig-recon/verify_batch2.py` | 批次二行为验证（缺口可复现 / 新写入被拦 / VALIDATE 非恒真 / 降级可逆），15 项 |
 | `docs/audits/mig-recon/seed_legacy_dirty.py` | 在外键建立**之前**造存量脏数据（4 类脏态 + 干净对照） |
 | `docs/audits/mig-recon/repair_ownership.py` | 逐行探测 → R1/R2/R3 判定 → 受控例外订正 → 断言 + 回读 |
 | `docs/audits/mig-recon/rls_acceptance.py` | D-10.3 要求 6 的 RLS 行为验收（10 用例） |

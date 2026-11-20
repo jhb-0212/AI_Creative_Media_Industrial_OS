@@ -158,7 +158,7 @@ async def main() -> int:
             rec(
                 "B-1",
                 "基线",
-                f"回退归属五层迁移至激活前基线（{len(order)} 层）",
+                f"回退归属栈至激活前基线（{len(order)} 层）",
                 ok,
                 f"{purge}; " + "; ".join(checks),
             )

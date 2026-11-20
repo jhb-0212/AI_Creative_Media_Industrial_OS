@@ -3,7 +3,7 @@
     "db": "ai_film_industrial",
     "host": "localhost",
     "port": 15444,
-    "ts": "2026-11-20 14:47:09",
+    "ts": "2026-11-20 15:17:33",
     "server": "16.15 (Debian 16.15-1.pgdg13+2)"
   },
   "rows": [
@@ -85,6 +85,17 @@
       "pass": true
     },
     {
+      "table": "shot_planning.shot_specs",
+      "kind": "A",
+      "constraint": "fk_shot_specs_project_tenant_org",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
       "table": "asset_service.delivery_manifests",
       "kind": "A",
       "constraint": "fk_delivery_manifests_project_tenant_org",
@@ -99,6 +110,17 @@
       "table": "asset_service.asset_versions",
       "kind": "A",
       "constraint": "fk_asset_versions_project_tenant_org",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
+      "table": "asset_service.qc_reports",
+      "kind": "A",
+      "constraint": "fk_qc_reports_project_tenant_org",
       "table_exists": true,
       "constraint_exists": true,
       "convalidated": true,
@@ -151,6 +173,17 @@
       "pass": true
     },
     {
+      "table": "workflow.approval_steps",
+      "kind": "A",
+      "constraint": "fk_approval_steps_project_tenant_org",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
       "table": "project_planning.projects",
       "kind": "ROOT",
       "constraint": "fk_projects_organization_tenant",
@@ -168,7 +201,7 @@
     "quarantine_projects": 1,
     "ratio": 0.333333
   },
-  "passed": 14,
-  "total": 14,
+  "passed": 17,
+  "total": 17,
   "closed": true
 }

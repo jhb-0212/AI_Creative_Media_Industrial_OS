@@ -133,6 +133,11 @@ OWNERSHIP_STACK: tuple[str, ...] = (
     "c1d2e3f4a5b7",
     "d2e3f4a5b6c7",
     "e3f4a5b6c7d8",
+    # 批次二：三张「有归属列却无归属外键」的表补三列外键。
+    # 它一旦应用，模板库就不再是「激活前基线」，回退必须一并撤掉；
+    # 漏掉这一层会让 assert_rewound 仍然全绿（它当时只数前两批），
+    # 于是基线静默偏离——这正是本函数存在的理由。
+    "f8a9b0c1d2e3",
 )
 
 
@@ -161,7 +166,7 @@ def _downgrade_sqls(mod: Any) -> list[str]:
 async def rewind_ownership_stack(
     conn: asyncpg.Connection, versions_dir: str | Path, stack: tuple[str, ...] = OWNERSHIP_STACK
 ) -> list[str]:
-    """按逆序回退归属五层迁移，使克隆库回到激活前基线。返回实际回退的 revision 顺序。"""
+    """按逆序回退归属栈（当前六层），使克隆库回到激活前基线。返回实际回退的 revision 顺序。"""
     vd = Path(versions_dir)
     applied: list[str] = []
     for rev in reversed(stack):
@@ -189,6 +194,12 @@ async def assert_rewound(conn: asyncpg.Connection) -> list[str]:
         "'project_planning.ownership_repair_allows(regclass,jsonb,jsonb,text)') IS NOT NULL)::int",
         "RLS 表达式备份表": "SELECT (to_regclass("
         "'project_planning.rls_policy_backup') IS NOT NULL)::int",
+        # 批次二的三条单独列一项：聚合数已经能兜住（少了就非 0），
+        # 但报告里明确出现「批次二=0」才能让人看出**这一层**也被撤了，
+        # 而不是只看到一个总和。这一轮新增的迁移最容易在回退清单里被漏掉。
+        "批次二归属外键": "SELECT count(*) FROM pg_constraint WHERE contype='f' "
+        "AND conname IN ('fk_qc_reports_project_tenant_org',"
+        "'fk_shot_specs_project_tenant_org','fk_approval_steps_project_tenant_org')",
     }
     out: list[str] = []
     for label, sql in checks.items():
@@ -226,7 +237,7 @@ async def purge_business_rows(conn: asyncpg.Connection) -> str:
 async def prepare_pre_activation_baseline(
     conn: asyncpg.Connection, versions_dir: str | Path, stack: tuple[str, ...] = OWNERSHIP_STACK
 ) -> tuple[str, list[str], list[str]]:
-    """清业务行 → 逆序回退五层 → 断言基线。返回 (清理说明, 回退顺序, 断言明细)。
+    """清业务行 → 逆序回退归属栈 → 断言基线。返回 (清理说明, 回退顺序, 断言明细)。
 
     三步必须绑在一起：只回退不清行会被外键拒绝；只清行不回退就还在激活后状态；
     回退不断言则「回退失败但没报错」会让后续用例跑在混合库上并照样「通过」。
