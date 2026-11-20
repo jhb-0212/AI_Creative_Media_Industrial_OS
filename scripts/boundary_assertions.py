@@ -2059,6 +2059,16 @@ class _SqlCollector:
     # 结构类 DDL 在本断言里不需要 SQL 文本：这里判定的是权限/安全语句，
     # 建表语句由另一条判据（schema 对齐）负责。显式实现而不是 __getattr__ 兜底，
     # 是为了让「迁移调用了没被支持的 op」仍然是一个错误，而不是静默跳过。
+    def f(self, name: str) -> str:
+        """alembic 的 ``op.f()``：标记「该名字已按约定定型，不再套用命名约定」。
+
+        回放时按原样返回——我们要的正是迁移真正传给数据库的那个名字。
+        缺这个方法时，任何正确使用了 ``op.f`` 的迁移都会让回放崩在 AttributeError，
+        而闸门把「崩了」报成「无法加载迁移」，指向错误的方向（查文件路径而不是查 API）。
+        Alembic 的 16 处 ``index=True`` 生成索引名都带 schema 前缀，``op.f`` 是标准写法。
+        """
+        return name
+
     def create_table(self, *args: object, **kwargs: object) -> None:
         return None
 

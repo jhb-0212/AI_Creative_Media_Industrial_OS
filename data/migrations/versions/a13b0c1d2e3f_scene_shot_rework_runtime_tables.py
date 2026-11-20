@@ -45,6 +45,14 @@ Shot 的 10 条边里 6 条带守卫，依赖 ``blocked_reason`` / ``rework_basi
 ``SELECT INSERT UPDATE``，**无 DELETE**（删除语义是 ARCHIVED / CANCELLED /
 SUPERSEDED）。
 
+索引命名必须走 ``op.f()``
+------------------------------------------------------------
+SQLAlchemy 的默认索引名含 schema 前缀（``ix_project_planning_scenes_project_id``），
+而本文件初版写成裸名 ``ix_scenes_project_id``。静态闸门全绿——因为
+``alembic check`` 需要真实库才能比对；CI 一跑就报「26 条新建索引操作」。
+所以本文件所有 ``index=True`` 对应的索引一律用 ``op.f("ix_project_planning_<table>_<col>")``，
+名字取自已映射元数据（不是手抄），与模型侧逐字一致。
+
 Revision ID: a13b0c1d2e3f
 Revises: c1a2b3d4e5f6
 Create Date: 2026-11-20
@@ -140,10 +148,10 @@ def upgrade() -> None:
         schema=_SCHEMA,
     )
     op.create_index(
-        "ix_rework_tasks_tenant_id", "rework_tasks", ["tenant_id"], schema=_SCHEMA
+        op.f("ix_project_planning_rework_tasks_tenant_id"), "rework_tasks", ["tenant_id"], schema=_SCHEMA
     )
     op.create_index(
-        "ix_rework_tasks_project_id", "rework_tasks", ["project_id"], schema=_SCHEMA
+        op.f("ix_project_planning_rework_tasks_project_id"), "rework_tasks", ["project_id"], schema=_SCHEMA
     )
 
     # --- scenes ---
@@ -172,9 +180,9 @@ def upgrade() -> None:
         status_check((s.value for s in SceneStatus), table="scenes"),
         schema=_SCHEMA,
     )
-    op.create_index("ix_scenes_tenant_id", "scenes", ["tenant_id"], schema=_SCHEMA)
-    op.create_index("ix_scenes_project_id", "scenes", ["project_id"], schema=_SCHEMA)
-    op.create_index("ix_scenes_episode_id", "scenes", ["episode_id"], schema=_SCHEMA)
+    op.create_index(op.f("ix_project_planning_scenes_tenant_id"), "scenes", ["tenant_id"], schema=_SCHEMA)
+    op.create_index(op.f("ix_project_planning_scenes_project_id"), "scenes", ["project_id"], schema=_SCHEMA)
+    op.create_index(op.f("ix_project_planning_scenes_episode_id"), "scenes", ["episode_id"], schema=_SCHEMA)
 
     # --- shots ---
     op.create_table(
@@ -217,9 +225,9 @@ def upgrade() -> None:
         status_check((s.value for s in ShotStatus), table="shots"),
         schema=_SCHEMA,
     )
-    op.create_index("ix_shots_tenant_id", "shots", ["tenant_id"], schema=_SCHEMA)
-    op.create_index("ix_shots_scene_id", "shots", ["scene_id"], schema=_SCHEMA)
-    op.create_index("ix_shots_project_id", "shots", ["project_id"], schema=_SCHEMA)
+    op.create_index(op.f("ix_project_planning_shots_tenant_id"), "shots", ["tenant_id"], schema=_SCHEMA)
+    op.create_index(op.f("ix_project_planning_shots_scene_id"), "shots", ["scene_id"], schema=_SCHEMA)
+    op.create_index(op.f("ix_project_planning_shots_project_id"), "shots", ["project_id"], schema=_SCHEMA)
 
     # --- shot_revisions ---
     op.create_table(
@@ -266,13 +274,13 @@ def upgrade() -> None:
         schema=_SCHEMA,
     )
     op.create_index(
-        "ix_shot_revisions_tenant_id", "shot_revisions", ["tenant_id"], schema=_SCHEMA
+        op.f("ix_project_planning_shot_revisions_tenant_id"), "shot_revisions", ["tenant_id"], schema=_SCHEMA
     )
     op.create_index(
-        "ix_shot_revisions_shot_id", "shot_revisions", ["shot_id"], schema=_SCHEMA
+        op.f("ix_project_planning_shot_revisions_shot_id"), "shot_revisions", ["shot_id"], schema=_SCHEMA
     )
     op.create_index(
-        "ix_shot_revisions_project_id",
+        op.f("ix_project_planning_shot_revisions_project_id"),
         "shot_revisions",
         ["project_id"],
         schema=_SCHEMA,
@@ -323,13 +331,13 @@ def upgrade() -> None:
         schema=_SCHEMA,
     )
     op.create_index(
-        "ix_shot_breakdown_drafts_tenant_id",
+        op.f("ix_project_planning_shot_breakdown_drafts_tenant_id"),
         "shot_breakdown_drafts",
         ["tenant_id"],
         schema=_SCHEMA,
     )
     op.create_index(
-        "ix_shot_breakdown_drafts_project_id",
+        op.f("ix_project_planning_shot_breakdown_drafts_project_id"),
         "shot_breakdown_drafts",
         ["project_id"],
         schema=_SCHEMA,
@@ -343,12 +351,12 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index(
-        "ix_shot_breakdown_drafts_project_id",
+        op.f("ix_project_planning_shot_breakdown_drafts_project_id"),
         table_name="shot_breakdown_drafts",
         schema=_SCHEMA,
     )
     op.drop_index(
-        "ix_shot_breakdown_drafts_tenant_id",
+        op.f("ix_project_planning_shot_breakdown_drafts_tenant_id"),
         table_name="shot_breakdown_drafts",
         schema=_SCHEMA,
     )
@@ -358,31 +366,31 @@ def downgrade() -> None:
         "ux_shot_active_revision", table_name="shot_revisions", schema=_SCHEMA
     )
     op.drop_index(
-        "ix_shot_revisions_project_id", table_name="shot_revisions", schema=_SCHEMA
+        op.f("ix_project_planning_shot_revisions_project_id"), table_name="shot_revisions", schema=_SCHEMA
     )
     op.drop_index(
-        "ix_shot_revisions_shot_id", table_name="shot_revisions", schema=_SCHEMA
+        op.f("ix_project_planning_shot_revisions_shot_id"), table_name="shot_revisions", schema=_SCHEMA
     )
     op.drop_index(
-        "ix_shot_revisions_tenant_id", table_name="shot_revisions", schema=_SCHEMA
+        op.f("ix_project_planning_shot_revisions_tenant_id"), table_name="shot_revisions", schema=_SCHEMA
     )
     op.drop_table("shot_revisions", schema=_SCHEMA)
 
-    op.drop_index("ix_shots_project_id", table_name="shots", schema=_SCHEMA)
-    op.drop_index("ix_shots_scene_id", table_name="shots", schema=_SCHEMA)
-    op.drop_index("ix_shots_tenant_id", table_name="shots", schema=_SCHEMA)
+    op.drop_index(op.f("ix_project_planning_shots_project_id"), table_name="shots", schema=_SCHEMA)
+    op.drop_index(op.f("ix_project_planning_shots_scene_id"), table_name="shots", schema=_SCHEMA)
+    op.drop_index(op.f("ix_project_planning_shots_tenant_id"), table_name="shots", schema=_SCHEMA)
     op.drop_table("shots", schema=_SCHEMA)
 
-    op.drop_index("ix_scenes_episode_id", table_name="scenes", schema=_SCHEMA)
-    op.drop_index("ix_scenes_project_id", table_name="scenes", schema=_SCHEMA)
-    op.drop_index("ix_scenes_tenant_id", table_name="scenes", schema=_SCHEMA)
+    op.drop_index(op.f("ix_project_planning_scenes_episode_id"), table_name="scenes", schema=_SCHEMA)
+    op.drop_index(op.f("ix_project_planning_scenes_project_id"), table_name="scenes", schema=_SCHEMA)
+    op.drop_index(op.f("ix_project_planning_scenes_tenant_id"), table_name="scenes", schema=_SCHEMA)
     op.drop_table("scenes", schema=_SCHEMA)
 
     op.drop_index(
-        "ix_rework_tasks_project_id", table_name="rework_tasks", schema=_SCHEMA
+        op.f("ix_project_planning_rework_tasks_project_id"), table_name="rework_tasks", schema=_SCHEMA
     )
     op.drop_index(
-        "ix_rework_tasks_tenant_id", table_name="rework_tasks", schema=_SCHEMA
+        op.f("ix_project_planning_rework_tasks_tenant_id"), table_name="rework_tasks", schema=_SCHEMA
     )
     op.drop_table("rework_tasks", schema=_SCHEMA)
 
