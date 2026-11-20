@@ -3,7 +3,7 @@
     "db": "ai_film_industrial",
     "host": "localhost",
     "port": 15444,
-    "ts": "2026-11-20 16:19:48",
+    "ts": "2026-11-20 17:13:43",
     "server": "16.15 (Debian 16.15-1.pgdg13+2)"
   },
   "rows": [
@@ -229,6 +229,32 @@
       "pass": true
     },
     {
+      "table": "project_planning.scenes",
+      "kind": "A",
+      "constraint": "fk_scenes_project_tenant_org",
+      "parent": null,
+      "note": "",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
+      "table": "shot_planning.shots",
+      "kind": "A",
+      "constraint": "fk_shots_project_tenant_org",
+      "parent": null,
+      "note": "",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
       "table": "project_planning.projects",
       "kind": "ROOT",
       "constraint": "fk_projects_organization_tenant",
@@ -320,6 +346,58 @@
       "pass": true
     },
     {
+      "table": "project_planning.scenes",
+      "kind": "A2",
+      "constraint": "fk_scenes_episode_project",
+      "parent": "project_planning.episodes",
+      "note": "场次唯一的上行归属锚点：集",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
+      "table": "shot_planning.shots",
+      "kind": "A2",
+      "constraint": "fk_shots_scene_project",
+      "parent": "project_planning.scenes",
+      "note": "镜头归属经场次收敛到集，不由自身推导",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
+      "table": "shot_planning.shot_revisions",
+      "kind": "A2",
+      "constraint": "fk_shot_revisions_scene_project",
+      "parent": "project_planning.scenes",
+      "note": "正式修订按身份归场次（旧 scene_ref 只是草案来源编码）",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
+      "table": "shot_planning.shot_revisions",
+      "kind": "A2",
+      "constraint": "fk_shot_revisions_episode_identity",
+      "parent": "project_planning.episodes",
+      "note": "正式修订按身份归集（契约 ShotRevision.episode_id 必填）",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
       "table": "workflow.approval_tickets",
       "kind": "A2",
       "constraint": "fk_approval_tickets_flow_project",
@@ -378,7 +456,7 @@
     "quarantine_projects": 1,
     "ratio": 0.333333
   },
-  "passed": 28,
-  "total": 28,
+  "passed": 34,
+  "total": 34,
   "closed": true
 }

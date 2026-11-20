@@ -1,6 +1,6 @@
 # 归属「一致」外键（h8c9d0e1f2a3）验证结果
 
-- 执行时间：2026-11-20T16:17:25+08:00
+- 执行时间：2026-11-20T17:16:38+08:00
 - 目标：`localhost:15444` 克隆库 `t3b4_lab`（模板 `ai_film_industrial`），用完即删
 - 基线：克隆后回退到 `g7b8c9d0e1f2` 已应用（撤掉批次四），P0 记录撤了哪几层
 - 对照：两个真实项目从库中现取且同租户同组织——**两者都真实**才是「一致」命题的前提
@@ -8,7 +8,7 @@
 
 | # | 阶段 | 用例 | 结果 | 说明 |
 | --- | --- | --- | --- | --- |
-| P0 | 基线 | 回退到 g7b8c9d0e1f2 已应用（撤掉 0 层） | PASS | 模板已在该状态 |
+| P0 | 基线 | 回退到 g7b8c9d0e1f2 已应用（撤掉 2 层） | PASS | i9d0e1f2a3b4/h8c9d0e1f2a3 |
 | P1 | 前提 | 基线里批次四的约束均不存在（否则测的不是本迁移） | PASS | 命中 0 个 |
 | P2 | 前提 | 取到同组织下两个真实项目 | PASS | A=proj-alpha B=proj-beta org=0011 |
 | P3 | 前提 | 插入一行属于 A 的资产版本 | PASS | INSERT 0 1 |
@@ -20,11 +20,11 @@
 | S3 | 结构 | 父表四列唯一键已建（复合外键的可引用目标） | PASS | count=1 |
 | N1 | 拦截 | 约束建立后：跨项目挂载一律 23503 | PASS | 23503: insert or update on table "qc_reports" violates foreign key constraint "fk_qc_reports_asset_version_project" |
 | N2 | 拦截 | 同一约束不误伤项目一致的写入（否则 N1 是别的原因） | PASS | INSERT 0 1 |
-| V0 | 验证 | 存量中存在「真实但不一致」的行（VALIDATE 的必然后果） | PASS | 违规行 2 条 |
+| V0 | 验证 | 存量中存在「真实但不一致」的行（VALIDATE 的必然后果） | PASS | 违规行 1 条 |
 | V1 | 验证 | 有「真实但不一致」存量行时 VALIDATE 必须 23503 | PASS | 23503: insert or update on table "qc_reports" violates foreign key constraint "fk_qc_reports_asset_version_project" |
 | V3 | 验证 | 清掉脏行后 VALIDATE 通过（成功路径可达） | PASS | VALIDATE OK |
 | I1 | 幂等 | 重复 ADD CONSTRAINT 必须失败（42P07/42710） | PASS | 42P07 |
-| Q1 | 闸门 | 升级后一致闸门无 NO_FK / FK_NOT_COMPOSITE（DANGLING 不计） | PASS | NO_FK=0 FK_NOT_COMPOSITE=0 PENDING=9 DANGLING=9 |
+| Q1 | 闸门 | 升级后一致闸门无 NO_FK / FK_NOT_COMPOSITE（DANGLING 不计） | PASS | NO_FK=0 FK_NOT_COMPOSITE=0 PENDING=9 DANGLING=6 |
 | D1 | 降级 | 执行 downgrade_steps()（20 步） | PASS | 无异常 |
 | D2 | 降级 | 批次四的复合外键与父表唯一键已删净 | PASS | 残留=0 |
 | D3 | 降级 | 被取代的单列外键已恢复（回退到 g7b8 时刻等价） | PASS | count=1 |

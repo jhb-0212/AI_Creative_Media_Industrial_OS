@@ -125,6 +125,7 @@ NonRefCategory = Literal[
     "own_business_key",   # 本表自己的业务键（如 episodes.episode_ref），不是引用
     "polymorphic",        # 多态引用：目标类型由另一列决定，无法用单条外键表达
     "subject_identity",   # 主体（人/服务）标识，跨身份证域，不是项目实体
+    "embedded_object",    # jsonb 内的对象引用（id + 版本），单列外键表达不了
 ]
 
 
@@ -210,6 +211,26 @@ CLASSIFICATION: dict[tuple[str, str], Edge | NonRef] = {
     ("asset_service.qc_reports", "deviation_intent_ref"): NonRef(
         "soft_pointer", "偏离意图引用，意图文档由创作域维护"
     ),
+    # ---- 批次五新建表的身份列与来源列 ----
+    # 身份列被派生 SQL 抓进来是**预期的**：它只看列名像 ID。
+    # 判为「本表业务键」而不是 Edge，依据是它与 `entity_id` 同值且由
+    # `ck_*_single_identity` 强制——两层标识如果是两个值，那就是两个身份。
+    ("project_planning.scenes", "scene_id"): NonRef(
+        "own_business_key", "本表身份键，与 entity_id 同值（ck_scenes_single_identity）"
+    ),
+    ("shot_planning.shots", "shot_id"): NonRef(
+        "own_business_key", "本表身份键，与 entity_id 同值（ck_shots_single_identity）"
+    ),
+    ("shot_planning.shots", "source_draft_ref"): NonRef(
+        "embedded_object",
+        "jsonb 内嵌 {draft_id, draft_version}；外键无法表达版本化内嵌引用，来源追溯由应用层校验"
+    ),
+    # 契约 ShotRevision 用 `scene_id` 作归属（本闸门就按它判）。`scene_ref` 是
+    # 草案期的场次业务编码，保留只为「这条修订从哪个草案版本来」的追溯；
+    # 归属已由 `scene_id` 承担，故它不是第二条归属边。
+    ("shot_planning.shot_revisions", "scene_ref"): NonRef(
+        "soft_pointer", "草案期场次业务编码，仅作来源追溯；归属由 scene_id 承担"
+    ),
     ("generation_execution.generation_tasks", "budget_reservation_ref"): NonRef(
         "reservation", "预算预留单号，由预算域生成"
     ),
@@ -247,17 +268,38 @@ CLASSIFICATION: dict[tuple[str, str], Edge | NonRef] = {
         "own_business_key", "本表自身的业务键（与 project_id 组成唯一键），不是对父行的引用"
     ),
 
+    # ---- 批次五新建的两张业务对象表 ----
+    # `scenes` / `shots` 自己也是归属表，它们的身份列与引名列必须同样被认领。
+    # 新建表第一次让这些边进入视野：以前表不存在，没有人问过它们指向谁。
+    ("project_planning.scenes", "episode_id"): Edge(
+        "project_planning.episodes", "场次唯一的上行归属锚点（scene_id → Scene → Episode）"
+    ),
+    ("shot_planning.shots", "scene_id"): Edge(
+        "project_planning.scenes", "镜头归属经场次收敛到集，不由自身推导"
+    ),
+    ("shot_planning.shots", "shot_revision_id"): Edge(
+        "shot_planning.shot_revisions", "当前正式版本指针（与首个修订同事务创建）"
+    ),
+    ("shot_planning.shot_revisions", "episode_id"): Edge(
+        "project_planning.episodes", "正式修订按身份归集（契约 ShotRevision.episode_id）"
+    ),
+    # 这两条指向尚未实施的对象。**不登记为 NonRef**：它们是真实的对象引用，
+    # 只是父表还没建。归入「不是边」会把「未实施」永久洗白——本项目反复踩的坑。
+    ("shot_planning.shots", "rework_basis_ref"): Edge(
+        "workflow.rework_tasks",
+        "返工依据引用（ReworkTask 授权记录）；回退到 IN_PRODUCTION 时必须能指回授权",
+    ),
+
     # ---- 父表在库中尚不存在：显式登记为悬空边，见 DANGLING 说明 ----
     # 这四类不写成 NonRef —— 它们是**真实设计的归属边**，只是目标表还没建。
     # 归类为「不是边」会把「未实施」永久洗白，那正是本项目反复踩的坑。
     ("shot_planning.constraint_packs", "scene_id"): Edge(
-        "shot_planning.scenes", "约束包作用于某个场次"
+        "project_planning.scenes", "约束包作用于某个场次"
     ),
-    ("shot_planning.shot_drafts", "scene_ref"): Edge(
-        "shot_planning.scenes", "分镜草案按场次组织"
-    ),
-    ("shot_planning.shot_revisions", "scene_ref"): Edge(
-        "shot_planning.scenes", "镜头修订按场次组织"
+    # 正式修订按**身份**归场次：契约 ShotRevision.scene_id 是身份键，
+    # 旧列 `scene_ref` 是草案期业务编码（见 EXEMPTIONS），不是归属事实。
+    ("shot_planning.shot_revisions", "scene_id"): Edge(
+        "project_planning.scenes", "镜头修订按场次组织"
     ),
     ("shot_planning.shot_revisions", "shot_id"): Edge(
         "shot_planning.shots", "修订属于某个镜头身份"
@@ -284,10 +326,98 @@ CLASSIFICATION: dict[tuple[str, str], Edge | NonRef] = {
     ("generation_execution.shot_route_selections", "route_id"): Edge(
         "generation_execution.production_routes", "路线选择指向某条生成路线"
     ),
-    ("qc_governance.gate_decisions", "gate_instance_id"): Edge(
-        "qc_governance.gate_instances", "裁决是对某个 Gate 实例作出的"
+}
+
+# ---------------------------------------------------------------------------
+# 带可机检前提的豁免
+# ---------------------------------------------------------------------------
+#: 「不建外键」有两种，必须分开：
+#:   * `NonRef`——它本来就不是对象引用（`audit_ref` 之类），永远不建；
+#:   * `Exempt`——看着像引用，但**当前**按契约不该建，且这个判断有可机检依据。
+#:
+#: 只写文字理由的豁免清单一定会退化成垃圾桶：三个月后没人知道那条理由还成不成立，
+#: 于是「暂时不建」永久留在里面。故每条豁免必须带一个能从契约文件/系统目录**求值**
+#: 的前提；前提一旦不成立，该列立即退回 `DANGLING`，不会因为曾经豁免过而继续豁免。
+SCHEMAS_JSON = (
+    Path(__file__).resolve().parents[3] / "contracts" / "schemas" / "object_schemas.schema.json"
+)
+
+
+@dataclass(frozen=True)
+class Exempt:
+    """一条豁免：一个可求值的码 + 给人看的理由。"""
+
+    code: str
+    note: str
+
+
+EXEMPTIONS: dict[tuple[str, str], Exempt] = {
+    (
+        "shot_planning.shot_drafts", "scene_ref"
+    ): Exempt(
+        "DRAFT_INTERNAL",
+        "`ShotBreakdownDraft` 契约把场次放在 `scene_breakdowns[]` 数组内，**没有**顶层场次"
+        "引用字段；本列是草案期内部标识，不是对象引用。若将来契约补了顶层 `scene_id`，"
+        "该豁免自动失效并要求建边。",
+    ),
+    (
+        "shot_planning.shots", "cancellation_ref"
+    ): Exempt(
+        "AUTH_RECORD_UNMODELED",
+        "取消授权所指向的「授权记录」对象**尚未建模**——`contract_amendments.yaml` 明载"
+        "「专用 Approval 对象仍未建模（见 ADR-R18）」。契约要求该列在 CANCELLED 时必填，"
+        "但没有任何对象可供外键指向。若将来建模为 Approval 或复用 GateDecision，此豁免自动失效。",
+    ),
+    (
+        "qc_governance.gate_decisions", "gate_instance_id"
+    ): Exempt(
+        "PARENT_NO_SCHEMA",
+        "`GateInstance` 无 schema——`contracts/phase0/contract_amendments.yaml`（V205-R14-A8 "
+        "residual_risks）已把它登记为「下一个同型缺口」。无契约的表不能凭空建，"
+        "否则造出来的是新的无约束事实源，比留一条已知缺口更坏。",
     ),
 }
+
+_defs_cache: dict | None = None
+
+
+def _contract_defs() -> dict:
+    global _defs_cache
+    if _defs_cache is None:
+        _defs_cache = json.loads(SCHEMAS_JSON.read_text(encoding="utf-8"))["definitions"]
+    return _defs_cache
+
+
+async def exemption_holds(conn: asyncpg.Connection, code: str) -> tuple[bool, str]:
+    """求豁免前提。返回 (是否仍成立, 依据)。
+
+    刻意**不**吞异常：契约文件缺失时这里应当炸掉，而不是静默判定「前提成立」。
+    """
+    defs = _contract_defs()
+    if code == "DRAFT_INTERNAL":
+        props = set((defs.get("ShotBreakdownDraft") or {}).get("properties") or {})
+        bad = props & {"scene_id", "scene_ref"}
+        if bad:
+            return False, f"契约已为 ShotBreakdownDraft 增加顶层场次字段 {sorted(bad)}"
+        return True, "契约确认该对象无顶层场次引用字段"
+    if code == "AUTH_RECORD_UNMODELED":
+        # 只认「契约里确实没有任何可承载授权的对象」。一旦出现 Approval
+        # （或显式把 GateDecision 指定为授权记录），必须回来建边。
+        candidates = [n for n in ("Approval", "AuthorizationRecord") if n in defs]
+        if candidates:
+            return False, f"契约已建模授权对象 {candidates}，须建外键"
+        return True, "契约无 AuthorizationRecord / Approval，无可指向的授权对象"
+    if code == "PARENT_NO_SCHEMA":
+        if "GateInstance" in defs:
+            return False, "契约已补 GateInstance schema，须建外键"
+        exists = await conn.fetchval(
+            "SELECT to_regclass('qc_governance.gate_instances') IS NOT NULL"
+        )
+        if exists:
+            return False, "库中已有 gate_instances，但契约仍无定义（无契约的事实源，须裁撤或补契约）"
+        return True, "契约无 GateInstance 且库中无该表"
+    raise ValueError(f"未知豁免码：{code}")
+
 
 #: 组织级边的判断不落常量：父表有无 `project_id` 由 `pg_attribute` 实读决定
 #: （见 `evaluate` 里的 `parent_has_project`）。若将来父表补了 `project_id`，
@@ -300,6 +430,10 @@ Status = Literal[
     "FK_NOT_COMPOSITE",
     "PENDING_VALIDATE",
     "DANGLING",
+    #: 带**可机检前提**的豁免：不是「暂时没做」，而是按契约它压根不是对象引用，
+    #: 或父对象尚无 schema（无契约的表不能凭空建）。前提一旦不成立即退回正常判定，
+    #: 故它不会因为「曾经豁免过」而永远豁免。
+    "EXEMPT",
     "UNCLASSIFIED",
 ]
 
@@ -323,7 +457,13 @@ class Report:
 
     @property
     def failed(self) -> list[Finding]:
-        return [f for f in self.findings if f.status != "PASS"]
+        # `EXEMPT` 不算失败，但**也绝不折算成 PASS**：它有自己的节、
+        # 自己的前提说明，混进 PASS 就等于把「按契约不建」说成「已保护」。
+        return [f for f in self.findings if f.status not in ("PASS", "EXEMPT")]
+
+    @property
+    def exempt(self) -> list[Finding]:
+        return [f for f in self.findings if f.status == "EXEMPT"]
 
     @property
     def ok(self) -> bool:
@@ -391,6 +531,22 @@ async def evaluate(
 
     for r in rows:
         tbl, col = r["tbl"], r["col"]
+
+        ex = EXEMPTIONS.get((tbl, col))
+        if ex is not None:
+            held, why = await exemption_holds(conn, ex.code)
+            if held:
+                report.findings.append(
+                    Finding(tbl, col, "-", "EXEMPT", f"{ex.code}｜{ex.note}（前提成立：{why}）")
+                )
+                continue
+            # 前提失效不再豁免。报 DANGLING 而不是 UNCLASSIFIED：前者说的是
+            # 「这条边该建但还没建」，后者说的是「没人认领它」——处置动作不同。
+            report.findings.append(
+                Finding(tbl, col, "-", "DANGLING", f"豁免前提已失效：{why}；须建外键")
+            )
+            continue
+
         spec = cls.get((tbl, col))
         if spec is None:
             # 派生出来却没人认领 —— 这一条正是「清单不会自己举手」的反面：
@@ -506,7 +662,8 @@ def render_md(report: Report, *, db: str, port: int, note: str) -> str:
         head += [f"> {note}", ""]
 
     order: list[Status] = [
-        "UNCLASSIFIED", "DANGLING", "NO_FK", "FK_NOT_COMPOSITE", "PENDING_VALIDATE", "PASS"
+        "UNCLASSIFIED", "DANGLING", "NO_FK", "FK_NOT_COMPOSITE", "PENDING_VALIDATE",
+        "EXEMPT", "PASS",
     ]
     rows = [f"| {s} | {report.count(s)} |" for s in order]
     head += ["| 状态 | 条数 |", "| --- | --- |", *rows, ""]
@@ -567,13 +724,14 @@ BASELINE_KEEP = "g7b8c9d0e1f2"  # 一致半边修复之前归属栈的 head
 
 
 async def selftest() -> int:
-    """四个场景，两侧各证伪一次。
+    """五个场景，两侧各证伪一次。
 
     * S0 —— 修复前的库必须红，且红的原因**精确**（指定列必须是 NO_FK / DANGLING）。
       没有这一条，「全绿」可能只是因为没有可比对的候选列。
     * S1 —— 挖掉一条分类，必须报 UNCLASSIFIED（证明分类不是摆设）。
     * S2 —— 把一条边的父表改成不存在的表，必须报 DANGLING（证明它真去查了目标）。
     * S3 —— 把一条边的父表改成组织级父表，必须走组织级判定而不是误报 PASS。
+    * S4 —— 豁免的前提一旦不成立，必须自动退回 DANGLING（证明豁免不是白名单）。
     """
     admin = await lab.admin_conn(lab.DEFAULT_HOST, lab.DEFAULT_PORT,
                                 lab.DEFAULT_USER, lab.DEFAULT_PASSWORD)
@@ -642,6 +800,28 @@ async def selftest() -> int:
                 bool(f3) and f3[0].status == "NO_FK",
                 f3[0].status if f3 else "缺失",
             ))
+
+            # ---- S4：豁免前提失效必须自动退回 ----
+            # 豁免的全部价值在「前提一不成立就自己失效」。只证明它此刻生效、
+            # 不证明它**会**失效，等于给了一个永久白名单——那正是要防的东西。
+            # 这里在克隆库里凭空建一张 `gate_instances`（无契约的表），
+            # 豁免的前提（契约无定义 ∧ 库中无表）立刻不成立，必须退回 DANGLING。
+            base = {(f.table, f.column): f.status for f in report.findings}.get(
+                ("qc_governance.gate_decisions", "gate_instance_id"))
+            await conn.execute(
+                "CREATE TABLE qc_governance.gate_instances (entity_id varchar PRIMARY KEY)"
+            )
+            try:
+                r4 = await evaluate(conn)
+            finally:
+                await conn.execute("DROP TABLE qc_governance.gate_instances")
+            f4 = {(f.table, f.column): f for f in r4.findings}.get(
+                ("qc_governance.gate_decisions", "gate_instance_id"))
+            results.append((
+                "S4 豁免前提失效必须退回 DANGLING",
+                base == "EXEMPT" and f4 is not None and f4.status == "DANGLING",
+                f"建表前={base} 建表后={f4.status if f4 else '缺失'}",
+            ))
         finally:
             await conn.close()
     finally:
@@ -671,7 +851,7 @@ async def main_async(args: argparse.Namespace) -> int:
 
     print(f"派生候选 {report.derived} 条；FAIL {len(report.failed)} 条")
     for s in ("UNCLASSIFIED", "DANGLING", "NO_FK", "FK_NOT_COMPOSITE",
-              "PENDING_VALIDATE", "PASS"):
+              "PENDING_VALIDATE", "EXEMPT", "PASS"):
         print(f"  {s:18s} {report.count(s)}")
     if report.failed:
         print("\n未通过的边：")

@@ -1,0 +1,191 @@
+{
+  "at": "2026-11-20T17:16:26+08:00",
+  "passed": 26,
+  "failed": 0,
+  "not_applicable": 0,
+  "open_findings": [],
+  "results": [
+    {
+      "id": "P0a",
+      "phase": "基线",
+      "desc": "清空业务行（避免上一轮遗留的正式修订挡住回退）",
+      "ok": true,
+      "detail": "projects 3→0，asset_versions 3→0"
+    },
+    {
+      "id": "P0",
+      "phase": "基线",
+      "desc": "回退到 h8c9d0e1f2a3 已应用（撤掉 1 层）",
+      "ok": true,
+      "detail": "i9d0e1f2a3b4"
+    },
+    {
+      "id": "P1",
+      "phase": "前提",
+      "desc": "基线里 shots / scenes 均不存在（否则测的不是本迁移）",
+      "ok": true,
+      "detail": "命中 0 张"
+    },
+    {
+      "id": "P2",
+      "phase": "前提",
+      "desc": "两个同组织项目 + 各自一集",
+      "ok": true,
+      "detail": "b5-pa / b5-pb"
+    },
+    {
+      "id": "G1",
+      "phase": "缺口",
+      "desc": "建表前：shot_id 写一个不存在的镜头，插入成功（裸 varchar 无人管）",
+      "ok": true,
+      "detail": "INSERT 0 1"
+    },
+    {
+      "id": "U1",
+      "phase": "升级",
+      "desc": "执行 upgrade_steps()（35 步）",
+      "ok": true,
+      "detail": "无异常"
+    },
+    {
+      "id": "S1",
+      "phase": "结构",
+      "desc": "9 条收敛边全部建立（缺一条即建了表白建）",
+      "ok": true,
+      "detail": "缺失=无"
+    },
+    {
+      "id": "S2",
+      "phase": "结构",
+      "desc": "接边的外键为 NOT VALID（存量未扫，新写入即生效）",
+      "ok": true,
+      "detail": "NOT VALID=6 条（新表自建的三条天然 valid）"
+    },
+    {
+      "id": "S3",
+      "phase": "结构",
+      "desc": "shots 备 (project_id, shot_id) 唯一键（复合边的目标键）",
+      "ok": true,
+      "detail": "count=1"
+    },
+    {
+      "id": "N1",
+      "phase": "拦截",
+      "desc": "接边后：指向不存在的镜头一律 23503",
+      "ok": true,
+      "detail": "23503: insert or update on table \"shot_visual_plans\" violates foreign key constraint \"fk_shot_visual_plans_shot_proje"
+    },
+    {
+      "id": "V1",
+      "phase": "验证",
+      "desc": "存量 ghost 行让 VALIDATE 必须 23503（不是走过场）",
+      "ok": true,
+      "detail": "23503: insert or update on table \"shot_visual_plans\" violates foreign key constraint \"fk_shot_visual_plans_shot_proje"
+    },
+    {
+      "id": "V2a",
+      "phase": "验证",
+      "desc": "清掉本批夹具与任何模板遗留合成行，清完无残留",
+      "ok": true,
+      "detail": "退场 gt-mismatch 0 行，残留夹具 0 行"
+    },
+    {
+      "id": "V2",
+      "phase": "验证",
+      "desc": "清掉 ghost 行后全部 VALIDATE 通过（成功路径可达）",
+      "ok": true,
+      "detail": "失败=无"
+    },
+    {
+      "id": "C0",
+      "phase": "约束",
+      "desc": "同事务创建 Shot 与其首个 ShotRevision（互指，靠 DEFERRABLE）",
+      "ok": true,
+      "detail": "COMMIT 成功"
+    },
+    {
+      "id": "C1",
+      "phase": "约束",
+      "desc": "强制立即检查时，指向缺失修订的 Shot 必须 23503（证明约束真在）",
+      "ok": true,
+      "detail": "23503"
+    },
+    {
+      "id": "C2",
+      "phase": "约束",
+      "desc": "镜头挂到**另一个真实项目**的场次：23503（一致性，不是存在性）",
+      "ok": true,
+      "detail": "23503: insert or update on table \"shots\" violates foreign key constraint \"fk_shots_scene_project\""
+    },
+    {
+      "id": "C3",
+      "phase": "约束",
+      "desc": "未知 status（IN_REVIEW 刻意不在五态内）必须 23514",
+      "ok": true,
+      "detail": "23514: new row for relation \"shots\" violates check constraint \"ck_shots_status\""
+    },
+    {
+      "id": "C4",
+      "phase": "约束",
+      "desc": "BLOCKED 无 blocked_reason 必须 23514",
+      "ok": true,
+      "detail": "23514: new row for relation \"shots\" violates check constraint \"ck_shots_blocked_reason\""
+    },
+    {
+      "id": "C5",
+      "phase": "约束",
+      "desc": "非 BLOCKED 携带 blocked_reason **也**必须 23514（双向，不是单向）",
+      "ok": true,
+      "detail": "23514: new row for relation \"shots\" violates check constraint \"ck_shots_blocked_reason\""
+    },
+    {
+      "id": "C6",
+      "phase": "约束",
+      "desc": "同项目重复 shot_code 必须 23505（ADR-R19 的纸面约束落地）",
+      "ok": true,
+      "detail": "23505: duplicate key value violates unique constraint \"uq_shots_project_code\""
+    },
+    {
+      "id": "C7",
+      "phase": "约束",
+      "desc": "entity_id ≠ shot_id 必须 23514（信封主键与业务身份合一）",
+      "ok": true,
+      "detail": "23514: new row for relation \"shots\" violates check constraint \"ck_shots_single_identity\""
+    },
+    {
+      "id": "R1",
+      "phase": "RLS",
+      "desc": "隔离项目的镜头对业务角色不可见（与既有归属表同形）",
+      "ok": true,
+      "detail": "业务可见 1 / 总行 2（应少 1）"
+    },
+    {
+      "id": "Q1",
+      "phase": "闸门",
+      "desc": "一致闸门里 shots / scenes 相关边不再报 DANGLING",
+      "ok": true,
+      "detail": "PASS=20 NO_FK=0 FK_NOT_COMPOSITE=0 PENDING=2 DANGLING=1（DANGLING 应只剩 gate_instances 相关）"
+    },
+    {
+      "id": "D1",
+      "phase": "降级",
+      "desc": "执行 downgrade_steps()（19 步）",
+      "ok": true,
+      "detail": "无异常"
+    },
+    {
+      "id": "D2",
+      "phase": "降级",
+      "desc": "新表、新列、新边全部消失（对称，不留悬空引用）",
+      "ok": true,
+      "detail": "表=0 列=0 边=0"
+    },
+    {
+      "id": "D3",
+      "phase": "降级",
+      "desc": "降级后同一跨项目/幽灵写入恢复成功（约束确实已撤）",
+      "ok": true,
+      "detail": "INSERT 0 1"
+    }
+  ]
+}

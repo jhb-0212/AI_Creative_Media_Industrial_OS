@@ -121,6 +121,13 @@ def ledger_rows() -> list[Row]:
         Row("workflow.approval_flows", "A", "fk_approval_flows_project_tenant_org"),
         Row("workflow.approval_tickets", "A", "fk_approval_tickets_project_tenant_org"),
         Row("workflow.approval_steps", "A", "fk_approval_steps_project_tenant_org"),
+        # ---- 批次五新建的两张归属表 ----
+        # 它们不是「补一张旧表」，而是**第一次出现**：在此之前 `shots` / `scenes`
+        # 连行都不存在，归属无从谈起。建表后立刻进台账，是为了让「新表是否闭环」
+        # 从第一天起就由同一台机器判定，而不是等下次有人想起来补。
+        Row("project_planning.scenes", "A", "fk_scenes_project_tenant_org"),
+        Row("shot_planning.shots", "A", "fk_shots_project_tenant_org"),
+
         Row(PROJECTS, "ROOT", "fk_projects_organization_tenant"),
 
         # ---- 一致半边（A2）：本行 project 必须等于父行 project ----
@@ -156,6 +163,29 @@ def ledger_rows() -> list[Row]:
             parent_cols=(("project_id", "project_id"), ("episode_ref", "episode_ref")),
             parent_pk="entity_id",
             note="修订按集组织（业务键已含 project，一致由结构保证）"),
+        # 批次五的「一致」半边。父列都在 `parent_cols` 里显式写出：
+        # `scenes` 的被引用键是 `scene_id`（不是 `entity_id`），`episodes` 的是 `entity_id`，
+        # 按命名推导必错，而「JOIN 上了但比错列」比不检查更糟。
+        Row("project_planning.scenes", "A2", "fk_scenes_episode_project",
+            parent="project_planning.episodes",
+            parent_cols=(("entity_id", "episode_id"), ("project_id", "project_id")),
+            parent_pk="entity_id",
+            note="场次唯一的上行归属锚点：集"),
+        Row("shot_planning.shots", "A2", "fk_shots_scene_project",
+            parent="project_planning.scenes",
+            parent_cols=(("scene_id", "scene_id"), ("project_id", "project_id")),
+            parent_pk="scene_id",
+            note="镜头归属经场次收敛到集，不由自身推导"),
+        Row("shot_planning.shot_revisions", "A2", "fk_shot_revisions_scene_project",
+            parent="project_planning.scenes",
+            parent_cols=(("scene_id", "scene_id"), ("project_id", "project_id")),
+            parent_pk="scene_id",
+            note="正式修订按身份归场次（旧 scene_ref 只是草案来源编码）"),
+        Row("shot_planning.shot_revisions", "A2", "fk_shot_revisions_episode_identity",
+            parent="project_planning.episodes",
+            parent_cols=(("entity_id", "episode_id"), ("project_id", "project_id")),
+            parent_pk="entity_id",
+            note="正式修订按身份归集（契约 ShotRevision.episode_id 必填）"),
         Row("workflow.approval_tickets", "A2", "fk_approval_tickets_flow_project",
             parent="workflow.approval_flows",
             parent_cols=(("entity_id", "flow_id"),),
@@ -260,11 +290,21 @@ async def collect(conn: asyncpg.Connection) -> list[dict[str, object]]:
             )
 
         violations: int | None = None
+        col_missing: str | None = None
         if exists and target_exists:
-            violations = int(await conn.fetchval(violation_sql(row)))
+            try:
+                violations = int(await conn.fetchval(violation_sql(row)))
+            except asyncpg.UndefinedColumnError as exc:
+                # 表在、但行所依赖的列还没建（批次五给 `shot_revisions` 加
+                # `episode_id` / `scene_id` 之前就是这一态）。这不是「0 条违规」，
+                # 是「无法计算」——报 0 会让台账在列都不存在的库上看起来干净。
+                col_missing = str(exc).splitlines()[0][:120]
+                violations = None
 
         if not exists:
             verdict = "未建立（表不存在）"
+        elif col_missing is not None:
+            verdict = f"未建立（列尚未增加，违规行数不可计算）：{col_missing}"
         elif not target_exists:
             verdict = f"未建立（引用目标 {target} 不存在，违规行数不可计算）"
         elif con is None:
@@ -428,11 +468,23 @@ PENDING = REPO / "data/migrations/pending/feat-ownership"
 #: 参与自检的迁移，按**应用顺序**排列：(文件名 glob, 模块名)。
 #: 台账从 14 行涨到 18 行是因为 `batch2` 补了三张表、`batch3` 补了 `episodes` 的归属外键，
 #: 所以自检必须同时应用两批，否则 pending 场景只会有 14 条待验证。
+#: 归属栈的**全部**层，顺序与 `lab.OWNERSHIP_STACK` 一致。
+#:
+#: 这份清单曾经只有 5 条（跳过 b0c9 / c1d2 / d2e3 / e3f4），当时看不出问题——
+#: 台账的判定 SQL 一条也不依赖那几层的产物。批次五的 RLS 策略调用
+#: `project_planning.repair_row_allowed` 之后立刻炸出来了：自检把库退到基线再
+#: **只重放 5 层**，函数就不在了。根因是「清单只列了当前用得上的那些」，
+#: 而「用得上」会随下一批改变——清单要么是全集，要么迟早错。
 SELFTEST_MIGRATIONS: tuple[tuple[str, str], ...] = (
     ("*_ownership_fk_backfill.py", "ownership_fk_a9b8"),
+    ("*_ownership_repair_exception.py", "ownership_repair_exception"),
+    ("*_quarantine_project_rls.py", "ownership_quarantine_rls"),
+    ("*_repair_role_grants.py", "ownership_role_grants"),
+    ("*_repair_rls_bypass.py", "ownership_rls_bypass"),
     ("*_ownership_fk_batch2.py", "ownership_fk_batch2"),
     ("*_ownership_fk_episodes.py", "ownership_fk_batch3"),
     ("*_ownership_consistency_fk.py", "ownership_fk_batch4"),
+    ("*_scene_shot_tables.py", "ownership_batch5"),
 )
 
 
@@ -462,7 +514,9 @@ def ownership_fks(mods) -> list[tuple[str, str]]:
     刻意**不写条数**：条数随批次增长，写进注释就会在下一批变成假陈述
     （本轮已从 18 涨到 28）。要条数就 `len(ownership_fks(mods))`。
     """
-    return [fk for m in mods for fk in m.OWNERSHIP_FKS]
+    # `getattr` 而不是 `m.OWNERSHIP_FKS`：栈里多数层不建归属外键（例外、RLS、
+    # 授权），没有这个属性是正常的。用直接访问会让「清单补全」这件事本身报错。
+    return [fk for m in mods for fk in getattr(m, "OWNERSHIP_FKS", ())]
 
 
 async def _recreate(db: str, template: str, port: int) -> str:
@@ -514,14 +568,31 @@ async def _drop(db: str, port: int) -> None:
 # 旧版只有三种状态（未迁移 / 全验证 / 一张脏），缺「约束全建但一个都没 VALIDATE」——
 # 而这恰恰是迁移刚激活后的真实形态，也是「约束存在 ≠ 不变量成立」最容易被误读的形态：
 # 18 条约束都在、`NOT VALID` 也在，若台账把「存在」当「闭环」，这一态会被判 18/18。
+#: 批次五新建的两张表。它们的约束写在 CREATE TABLE 里，因此不存在
+#: 「已建待验证」这一态——这是 DDL 的事实，不是验收的宽松。
+STRUCTURAL_TABLES = ("project_planning.scenes", "shot_planning.shots")
+
+
+def _structural_pass(rows: list[dict[str, object]]) -> int:
+    """数出「约束随建表一起生效」的行：新建表上的归属边与一致边。
+
+    `shot_revisions` 的新列外键不在此列——它走的是 `ALTER TABLE ADD ... NOT VALID`，
+    可以（也应该）先待验证再 VALIDATE。两者的差别正是本条存在的原因。
+    """
+    return sum(1 for r in rows if str(r["table"]) in STRUCTURAL_TABLES)
+
+
 SELFTEST_SCENARIOS = (
     # db              migrate  validate          dirty           passed pending  fail_rows
     dict(db="ledger_nomig", migrate=False, validate="none", dirty_mode="none",
          passed=0, pending=0, fail_rows=None),
     # pending：约束全建、一条都没 VALIDATE。所有行（含「一致」半边）都必须
     # 落在「待验证」而不是 PASS——这是「存在 ≠ 闭环」最容易翻车的那一态。
+    # pending 态：约束全建、一条都没 VALIDATE。但**新建表**的归属外键写在
+    # `CREATE TABLE` 里，DDL 不允许建表时声明 NOT VALID（没有历史行可豁免），
+    # 故它们必然已是 valid。把它们算成「待验证」是伪造状态，故如实计为结构通过。
     dict(db="ledger_pending", migrate=True, validate="none", dirty_mode="none",
-         passed=0, pending="all", fail_rows=None),
+         passed="structural", pending="all_minus_structural", fail_rows=None),
     dict(db="ledger_clean", migrate=True, validate="all", dirty_mode="none",
          passed="all", pending=0, fail_rows=None),
     # 只让 asset_versions 一张脏：验证台账能精确到「这一张」，而不是红灯一片。
@@ -574,9 +645,12 @@ async def selftest(port: int, template: str) -> int:
                         await seed_dirty_pre_fk(conn)
                     elif mode == "inconsistent":
                         await seed_inconsistent_pre_fk(conn)
+                    # 统一走 `lab.upgrade_sqls`：栈里各批次的接口并不一致
+                    # （有的 `upgrade_steps()` 返回 Step、有的 `upgrade_sqls()` 返回 str），
+                    # 直接调模块方法会让「清单补全」立刻撞 AttributeError。
                     for m in mods:
-                        for step in m.upgrade_steps():
-                            await conn.execute(step.sql)
+                        for sql in lab.upgrade_sqls(m):
+                            await conn.execute(sql)
                     if mode == "av":
                         await seed_dirty_post_fk(conn)
                     elif mode == "inconsistent":
@@ -589,12 +663,18 @@ async def selftest(port: int, template: str) -> int:
             pending = sum(1 for row in r["rows"] if str(row["verdict"]).startswith("待验证"))
             # 期望值允许用「相对量」表达（all / all_minus_1）：台账行数会随批次增长，
             # 把 18、28 写死在断言里，下一批就得改测试——那是让测试迁就实现。
+            structural = _structural_pass(r["rows"])
             want_passed = (
                 total if sc["passed"] == "all"
                 else total - 1 if sc["passed"] == "all_minus_1"
+                else structural if sc["passed"] == "structural"
                 else sc["passed"]
             )
-            want_pending = total if sc["pending"] == "all" else sc["pending"]
+            want_pending = (
+                total if sc["pending"] == "all"
+                else total - structural if sc["pending"] == "all_minus_structural"
+                else sc["pending"]
+            )
             got_fail = tuple(
                 (str(row["table"]), str(row["constraint"]))
                 for row in r["rows"] if not row["pass"]

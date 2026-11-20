@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-20T16:17:25+08:00",
+  "at": "2026-11-20T17:16:38+08:00",
   "passed": 21,
   "failed": 0,
   "not_applicable": 0,
@@ -8,9 +8,9 @@
     {
       "id": "P0",
       "phase": "基线",
-      "desc": "回退到 g7b8c9d0e1f2 已应用（撤掉 0 层）",
+      "desc": "回退到 g7b8c9d0e1f2 已应用（撤掉 2 层）",
       "ok": true,
-      "detail": "模板已在该状态"
+      "detail": "i9d0e1f2a3b4/h8c9d0e1f2a3"
     },
     {
       "id": "P1",
@@ -94,7 +94,7 @@
       "phase": "验证",
       "desc": "存量中存在「真实但不一致」的行（VALIDATE 的必然后果）",
       "ok": true,
-      "detail": "违规行 2 条"
+      "detail": "违规行 1 条"
     },
     {
       "id": "V1",
@@ -122,7 +122,7 @@
       "phase": "闸门",
       "desc": "升级后一致闸门无 NO_FK / FK_NOT_COMPOSITE（DANGLING 不计）",
       "ok": true,
-      "detail": "NO_FK=0 FK_NOT_COMPOSITE=0 PENDING=9 DANGLING=9"
+      "detail": "NO_FK=0 FK_NOT_COMPOSITE=0 PENDING=9 DANGLING=6"
     },
     {
       "id": "D1",

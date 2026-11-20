@@ -7,16 +7,16 @@
     {
       "id": "C1",
       "phase": "覆盖",
-      "desc": "含 project_id 的表全部被纳入（17 张）",
+      "desc": "含 project_id 的表全部被纳入（19 张）",
       "ok": true,
-      "detail": "台账 A 16 + 豁免"
+      "detail": "台账 A 18 + 豁免"
     },
     {
       "id": "C2",
       "phase": "覆盖",
       "desc": "台账 A 类行都对应真实存在且带 project_id 的表（防虚报）",
       "ok": true,
-      "detail": "A 类 16 行均落地"
+      "detail": "A 类 18 行均落地"
     },
     {
       "id": "C3",
@@ -49,7 +49,7 @@
     {
       "id": "C7",
       "phase": "台账",
-      "desc": "台账 28 行的约束全部存在",
+      "desc": "台账 34 行的约束全部存在",
       "ok": true,
       "detail": "全部命中 pg_constraint"
     },

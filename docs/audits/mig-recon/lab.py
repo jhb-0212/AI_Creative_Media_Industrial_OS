@@ -145,6 +145,12 @@ OWNERSHIP_STACK: tuple[str, ...] = (
     # 拦不住「本行 project 与父行不同」——`qc_reports` 唯一一行即实测反例。
     # 本层加父表四列唯一键 + 复合外键，使「跨项目串归属」写不进去。
     "h8c9d0e1f2a3",
+    # 批次五：把 `shots` / `scenes` 建起来，并把各域的 `shot_id` / `scene_id`
+    # 接上去。**这一层有反向依赖**：`shots.fk_shots_current_revision` 引用批次四
+    # 建的 `uq_shot_revisions_entity_project_tenant_org`，故回退必须先撤本层、
+    # 再撤批次四——漏掉本层时 `rewind_to` 会直接撞 `DependentObjectsStillExist`
+    # （对方报的是「批次四撤不动」，根因却是「批次五没进栈」）。
+    "i9d0e1f2a3b4",
 )
 
 
@@ -290,6 +296,12 @@ async def assert_rewound(conn: asyncpg.Connection) -> list[str]:
         # 差点让「回退清单漏一层」变成静默通过——每一层都要在报告里自己出现一次。
         "批次三归属外键": "SELECT count(*) FROM pg_constraint WHERE contype='f' "
         "AND conname = 'fk_episodes_project_tenant_org'",
+        "批次五新表": "SELECT (to_regclass('project_planning.scenes') IS NOT NULL)::int"
+        " + (to_regclass('shot_planning.shots') IS NOT NULL)::int",
+        "批次五收敛边": "SELECT count(*) FROM pg_constraint WHERE contype='f' "
+        "AND conname IN ('fk_shot_specs_shot_project','fk_shot_visual_plans_shot_project',"
+        "'fk_generation_tasks_shot_project','fk_shot_route_selections_shot_project',"
+        "'fk_constraint_packs_scene_project','fk_shot_revisions_shot_project')",
         # 批次四单列两项：一批里有**两类**对象（父表唯一键、子表复合外键），
         # 它们的回退方向相反且互不牵连。只记一个聚合数时，「唯一键撤了但外键没撤」
         # 这种半回退会算出一个非零的、看起来正常的总数。

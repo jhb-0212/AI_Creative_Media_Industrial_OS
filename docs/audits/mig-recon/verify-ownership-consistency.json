@@ -1,12 +1,12 @@
 {
-  "derived": 40,
+  "derived": 50,
   "ok": false,
   "counts": {
-    "PASS": 11,
+    "PASS": 22,
     "NO_FK": 0,
     "FK_NOT_COMPOSITE": 0,
     "PENDING_VALIDATE": 0,
-    "DANGLING": 9,
+    "DANGLING": 1,
     "UNCLASSIFIED": 0
   },
   "findings": [
@@ -28,8 +28,8 @@
       "table": "generation_execution.generation_tasks",
       "column": "shot_id",
       "parent": "shot_planning.shots",
-      "status": "DANGLING",
-      "detail": "生成任务服务于某个镜头；目标表在库中不存在"
+      "status": "PASS",
+      "detail": "fk_generation_tasks_shot_project"
     },
     {
       "table": "generation_execution.shot_route_selections",
@@ -42,8 +42,15 @@
       "table": "generation_execution.shot_route_selections",
       "column": "shot_id",
       "parent": "shot_planning.shots",
-      "status": "DANGLING",
-      "detail": "路线选择是针对某个镜头做的；目标表在库中不存在"
+      "status": "PASS",
+      "detail": "fk_shot_route_selections_shot_project"
+    },
+    {
+      "table": "project_planning.scenes",
+      "column": "episode_id",
+      "parent": "project_planning.episodes",
+      "status": "PASS",
+      "detail": "fk_scenes_episode_project"
     },
     {
       "table": "project_planning.script_revisions",
@@ -55,9 +62,9 @@
     {
       "table": "qc_governance.gate_decisions",
       "column": "gate_instance_id",
-      "parent": "qc_governance.gate_instances",
-      "status": "DANGLING",
-      "detail": "裁决是对某个 Gate 实例作出的；目标表在库中不存在"
+      "parent": "-",
+      "status": "EXEMPT",
+      "detail": "PARENT_NO_SCHEMA｜`GateInstance` 无 schema——`contracts/phase0/contract_amendments.yaml`（V205-R14-A8 residual_risks）已把它登记为「下一个同型缺口」。无契约的表不能凭空建，否则造出来的是新的无约束事实源，比留一条已知缺口更坏。（前提成立：契约无 GateInstance 且库中无该表）"
     },
     {
       "table": "qc_governance.qc_review_sessions",
@@ -76,9 +83,9 @@
     {
       "table": "shot_planning.constraint_packs",
       "column": "scene_id",
-      "parent": "shot_planning.scenes",
-      "status": "DANGLING",
-      "detail": "约束包作用于某个场次；目标表在库中不存在"
+      "parent": "project_planning.scenes",
+      "status": "PASS",
+      "detail": "fk_constraint_packs_scene_project"
     },
     {
       "table": "shot_planning.shot_drafts",
@@ -90,9 +97,16 @@
     {
       "table": "shot_planning.shot_drafts",
       "column": "scene_ref",
-      "parent": "shot_planning.scenes",
-      "status": "DANGLING",
-      "detail": "分镜草案按场次组织；目标表在库中不存在"
+      "parent": "-",
+      "status": "EXEMPT",
+      "detail": "DRAFT_INTERNAL｜`ShotBreakdownDraft` 契约把场次放在 `scene_breakdowns[]` 数组内，**没有**顶层场次引用字段；本列是草案期内部标识，不是对象引用。若将来契约补了顶层 `scene_id`，该豁免自动失效并要求建边。（前提成立：契约确认该对象无顶层场次引用字段）"
+    },
+    {
+      "table": "shot_planning.shot_revisions",
+      "column": "episode_id",
+      "parent": "project_planning.episodes",
+      "status": "PASS",
+      "detail": "fk_shot_revisions_episode_identity"
     },
     {
       "table": "shot_planning.shot_revisions",
@@ -103,24 +117,24 @@
     },
     {
       "table": "shot_planning.shot_revisions",
-      "column": "scene_ref",
-      "parent": "shot_planning.scenes",
-      "status": "DANGLING",
-      "detail": "镜头修订按场次组织；目标表在库中不存在"
+      "column": "scene_id",
+      "parent": "project_planning.scenes",
+      "status": "PASS",
+      "detail": "fk_shot_revisions_scene_project"
     },
     {
       "table": "shot_planning.shot_revisions",
       "column": "shot_id",
       "parent": "shot_planning.shots",
-      "status": "DANGLING",
-      "detail": "修订属于某个镜头身份；目标表在库中不存在"
+      "status": "PASS",
+      "detail": "fk_shot_revisions_shot_project"
     },
     {
       "table": "shot_planning.shot_specs",
       "column": "shot_id",
       "parent": "shot_planning.shots",
-      "status": "DANGLING",
-      "detail": "规格属于某个镜头身份；目标表在库中不存在"
+      "status": "PASS",
+      "detail": "fk_shot_specs_shot_project"
     },
     {
       "table": "shot_planning.shot_specs",
@@ -133,8 +147,36 @@
       "table": "shot_planning.shot_visual_plans",
       "column": "shot_id",
       "parent": "shot_planning.shots",
+      "status": "PASS",
+      "detail": "fk_shot_visual_plans_shot_project"
+    },
+    {
+      "table": "shot_planning.shots",
+      "column": "cancellation_ref",
+      "parent": "-",
+      "status": "EXEMPT",
+      "detail": "AUTH_RECORD_UNMODELED｜取消授权所指向的「授权记录」对象**尚未建模**——`contract_amendments.yaml` 明载「专用 Approval 对象仍未建模（见 ADR-R18）」。契约要求该列在 CANCELLED 时必填，但没有任何对象可供外键指向。若将来建模为 Approval 或复用 GateDecision，此豁免自动失效。（前提成立：契约无 AuthorizationRecord / Approval，无可指向的授权对象）"
+    },
+    {
+      "table": "shot_planning.shots",
+      "column": "rework_basis_ref",
+      "parent": "workflow.rework_tasks",
       "status": "DANGLING",
-      "detail": "视觉方案属于某个镜头身份；目标表在库中不存在"
+      "detail": "返工依据引用（ReworkTask 授权记录）；回退到 IN_PRODUCTION 时必须能指回授权；目标表在库中不存在"
+    },
+    {
+      "table": "shot_planning.shots",
+      "column": "scene_id",
+      "parent": "project_planning.scenes",
+      "status": "PASS",
+      "detail": "fk_shots_scene_project"
+    },
+    {
+      "table": "shot_planning.shots",
+      "column": "shot_revision_id",
+      "parent": "shot_planning.shot_revisions",
+      "status": "PASS",
+      "detail": "fk_shots_current_revision"
     },
     {
       "table": "workflow.approval_steps",
