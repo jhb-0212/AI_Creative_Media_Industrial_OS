@@ -1,0 +1,154 @@
+{
+  "derived": 40,
+  "ok": false,
+  "counts": {
+    "PASS": 11,
+    "NO_FK": 0,
+    "FK_NOT_COMPOSITE": 0,
+    "PENDING_VALIDATE": 0,
+    "DANGLING": 9,
+    "UNCLASSIFIED": 0
+  },
+  "findings": [
+    {
+      "table": "asset_service.qc_reports",
+      "column": "asset_version_id",
+      "parent": "asset_service.asset_versions",
+      "status": "PASS",
+      "detail": "fk_qc_reports_asset_version_project"
+    },
+    {
+      "table": "generation_execution.generation_tasks",
+      "column": "route_id",
+      "parent": "generation_execution.production_routes",
+      "status": "PASS",
+      "detail": "组织级边：fk_generation_tasks_route_org"
+    },
+    {
+      "table": "generation_execution.generation_tasks",
+      "column": "shot_id",
+      "parent": "shot_planning.shots",
+      "status": "DANGLING",
+      "detail": "生成任务服务于某个镜头；目标表在库中不存在"
+    },
+    {
+      "table": "generation_execution.shot_route_selections",
+      "column": "route_id",
+      "parent": "generation_execution.production_routes",
+      "status": "PASS",
+      "detail": "组织级边：fk_shot_route_selections_route_org"
+    },
+    {
+      "table": "generation_execution.shot_route_selections",
+      "column": "shot_id",
+      "parent": "shot_planning.shots",
+      "status": "DANGLING",
+      "detail": "路线选择是针对某个镜头做的；目标表在库中不存在"
+    },
+    {
+      "table": "project_planning.script_revisions",
+      "column": "episode_ref",
+      "parent": "project_planning.episodes",
+      "status": "PASS",
+      "detail": "fk_script_revisions_episode"
+    },
+    {
+      "table": "qc_governance.gate_decisions",
+      "column": "gate_instance_id",
+      "parent": "qc_governance.gate_instances",
+      "status": "DANGLING",
+      "detail": "裁决是对某个 Gate 实例作出的；目标表在库中不存在"
+    },
+    {
+      "table": "qc_governance.qc_review_sessions",
+      "column": "asset_version_id",
+      "parent": "asset_service.asset_versions",
+      "status": "PASS",
+      "detail": "fk_qc_review_sessions_asset_version_project"
+    },
+    {
+      "table": "qc_governance.qc_review_sessions",
+      "column": "qc_report_ref",
+      "parent": "asset_service.qc_reports",
+      "status": "PASS",
+      "detail": "fk_qc_review_sessions_qc_report_project"
+    },
+    {
+      "table": "shot_planning.constraint_packs",
+      "column": "scene_id",
+      "parent": "shot_planning.scenes",
+      "status": "DANGLING",
+      "detail": "约束包作用于某个场次；目标表在库中不存在"
+    },
+    {
+      "table": "shot_planning.shot_drafts",
+      "column": "episode_ref",
+      "parent": "project_planning.episodes",
+      "status": "PASS",
+      "detail": "fk_shot_drafts_episode_project"
+    },
+    {
+      "table": "shot_planning.shot_drafts",
+      "column": "scene_ref",
+      "parent": "shot_planning.scenes",
+      "status": "DANGLING",
+      "detail": "分镜草案按场次组织；目标表在库中不存在"
+    },
+    {
+      "table": "shot_planning.shot_revisions",
+      "column": "episode_ref",
+      "parent": "project_planning.episodes",
+      "status": "PASS",
+      "detail": "fk_shot_revisions_episode_project"
+    },
+    {
+      "table": "shot_planning.shot_revisions",
+      "column": "scene_ref",
+      "parent": "shot_planning.scenes",
+      "status": "DANGLING",
+      "detail": "镜头修订按场次组织；目标表在库中不存在"
+    },
+    {
+      "table": "shot_planning.shot_revisions",
+      "column": "shot_id",
+      "parent": "shot_planning.shots",
+      "status": "DANGLING",
+      "detail": "修订属于某个镜头身份；目标表在库中不存在"
+    },
+    {
+      "table": "shot_planning.shot_specs",
+      "column": "shot_id",
+      "parent": "shot_planning.shots",
+      "status": "DANGLING",
+      "detail": "规格属于某个镜头身份；目标表在库中不存在"
+    },
+    {
+      "table": "shot_planning.shot_specs",
+      "column": "shot_revision_id",
+      "parent": "shot_planning.shot_revisions",
+      "status": "PASS",
+      "detail": "fk_shot_specs_shot_revision_project"
+    },
+    {
+      "table": "shot_planning.shot_visual_plans",
+      "column": "shot_id",
+      "parent": "shot_planning.shots",
+      "status": "DANGLING",
+      "detail": "视觉方案属于某个镜头身份；目标表在库中不存在"
+    },
+    {
+      "table": "workflow.approval_steps",
+      "column": "ticket_id",
+      "parent": "workflow.approval_tickets",
+      "status": "PASS",
+      "detail": "fk_approval_steps_ticket_project"
+    },
+    {
+      "table": "workflow.approval_tickets",
+      "column": "flow_id",
+      "parent": "workflow.approval_flows",
+      "status": "PASS",
+      "detail": "fk_approval_tickets_flow_project"
+    }
+  ]
+}

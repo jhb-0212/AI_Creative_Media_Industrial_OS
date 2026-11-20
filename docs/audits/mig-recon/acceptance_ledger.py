@@ -39,11 +39,33 @@ ORGS = "project_planning.organizations"
 
 @dataclass(frozen=True)
 class Row:
-    """台账一行：一张表 + 它的目标约束 + 归属类型。"""
+    """台账一行：一张表 + 它的目标约束 + 归属类型。
+
+    `kind` 的三档对应两类不变量（D-10.2）：
+
+    * ``A``  —— 项目级「真实」：`(project_id, tenant_id, organization_id) → projects`
+    * ``B``  —— 组织级「真实」：`(organization_id, tenant_id) → organizations`
+    * ``ROOT`` —— `projects` 自身挂到 `organizations`（链终点）
+    * ``A2`` —— 项目级「一致」：本行 `project_id` 必须等于**父行**的 `project_id`
+
+    A2 是本轮新增的一档。之前台账只有前三档，于是「约束全 PASS」可以被读成
+    「保护完备」——而 I-1 的「一致」半边根本没被任何一行覆盖。这与 `qc_reports`
+    落在闭环外是同一类错误：**没被列入的判断等于不存在**。
+
+    `A2` 的父子关系用 ``parent_cols`` 显式写出（父列, 子列），不按命名推导：
+    父键有时是身份列（`asset_versions.entity_id`）、有时是业务键
+    （`episodes.(project_id, episode_ref)`），推导会猜错，而猜错的后果是
+    「JOIN 上了但比错了列」，比不检查更糟。
+    """
 
     table: str
-    kind: str  # "A" 项目级 / "B" 组织级 / "ROOT" 归属根
+    kind: str  # "A" 项目级 / "B" 组织级 / "ROOT" 归属根 / "A2" 一致半边
     constraint: str
+    parent: str | None = None
+    parent_cols: tuple[tuple[str, str], ...] = ()  # (父列, 子列)
+    parent_pk: str | None = None  # 判「父行是否存在」用的父表主键列
+    org_level: bool = False  # 父表无 project_id（组织级父行）
+    note: str = ""
 
 
 def ledger_rows() -> list[Row]:
@@ -69,6 +91,12 @@ def ledger_rows() -> list[Row]:
 
     仍然**不含**的是：任何没有 `project_id`/`organization_id` 事实列的表。
     台账的行集必须能逐行对应一条真实约束，凑数没有意义。
+
+    **为什么再加 10 行 A2**：前 18 行全部是「真实」半边。它全绿时，
+    `qc_reports` 唯一一行仍然可以「挂在 proj-alpha 的资产上、自己写 proj-beta」——
+    两个项目都真实，三列外键一路放行。这不是理论缺口，本库实测就是这样。
+    所以台账再加一节，逐条覆盖「本行 project 必须等于父行 project」。
+    本节由 `verify_ownership_consistency.py` 的边分类派生校验，两处不可分叉。
     """
     return [
         Row("project_planning.episodes", "A", "fk_episodes_project_tenant_org"),
@@ -94,15 +122,92 @@ def ledger_rows() -> list[Row]:
         Row("workflow.approval_tickets", "A", "fk_approval_tickets_project_tenant_org"),
         Row("workflow.approval_steps", "A", "fk_approval_steps_project_tenant_org"),
         Row(PROJECTS, "ROOT", "fk_projects_organization_tenant"),
+
+        # ---- 一致半边（A2）：本行 project 必须等于父行 project ----
+        Row("asset_service.qc_reports", "A2", "fk_qc_reports_asset_version_project",
+            parent="asset_service.asset_versions",
+            parent_cols=(("entity_id", "asset_version_id"),),
+            parent_pk="entity_id",
+            note="QC 报告随被检资产版本"),
+        Row("qc_governance.qc_review_sessions", "A2",
+            "fk_qc_review_sessions_asset_version_project",
+            parent="asset_service.asset_versions",
+            parent_cols=(("entity_id", "asset_version_id"),),
+            parent_pk="entity_id",
+            note="QC 会话随被检资产版本"),
+        Row("qc_governance.qc_review_sessions", "A2",
+            "fk_qc_review_sessions_qc_report_project",
+            parent="asset_service.qc_reports",
+            parent_cols=(("qc_report_id", "qc_report_ref"),),
+            parent_pk="qc_report_id",
+            note="QC 会话随其引用的报告"),
+        Row("shot_planning.shot_specs", "A2", "fk_shot_specs_shot_revision_project",
+            parent="shot_planning.shot_revisions",
+            parent_cols=(("entity_id", "shot_revision_id"),),
+            parent_pk="entity_id",
+            note="规格随镜头修订"),
+        Row("shot_planning.shot_drafts", "A2", "fk_shot_drafts_episode_project",
+            parent="project_planning.episodes",
+            parent_cols=(("project_id", "project_id"), ("episode_ref", "episode_ref")),
+            parent_pk="entity_id",
+            note="草案按集组织（业务键已含 project，一致由结构保证）"),
+        Row("shot_planning.shot_revisions", "A2", "fk_shot_revisions_episode_project",
+            parent="project_planning.episodes",
+            parent_cols=(("project_id", "project_id"), ("episode_ref", "episode_ref")),
+            parent_pk="entity_id",
+            note="修订按集组织（业务键已含 project，一致由结构保证）"),
+        Row("workflow.approval_tickets", "A2", "fk_approval_tickets_flow_project",
+            parent="workflow.approval_flows",
+            parent_cols=(("entity_id", "flow_id"),),
+            parent_pk="entity_id",
+            note="票据随流程"),
+        Row("workflow.approval_steps", "A2", "fk_approval_steps_ticket_project",
+            parent="workflow.approval_tickets",
+            parent_cols=(("entity_id", "ticket_id"),),
+            parent_pk="entity_id",
+            note="步骤随票据"),
+        Row("generation_execution.generation_tasks", "A2", "fk_generation_tasks_route_org",
+            parent="generation_execution.production_routes",
+            parent_cols=(("entity_id", "route_id"),),
+            parent_pk="entity_id",
+            org_level=True,
+            note="路线库跨项目复用，父行只到组织层"),
+        Row("generation_execution.shot_route_selections", "A2",
+            "fk_shot_route_selections_route_org",
+            parent="generation_execution.production_routes",
+            parent_cols=(("entity_id", "route_id"),),
+            parent_pk="entity_id",
+            org_level=True,
+            note="路线库跨项目复用，父行只到组织层"),
     ]
 
 
 def violation_sql(row: Row) -> str:
-    """按归属类型选比对对象：A 对 projects，B/ROOT 对 organizations。
+    """按归属类型选比对对象：A 对 projects，B/ROOT 对 organizations，A2 对父行。
 
     用 LEFT JOIN + IS NULL 而不是 `NOT EXISTS`，是为了让查询计划与「索引存在与否」
     无关地给出确定结果；也便于把该 SQL 直接贴进工单作为复核依据。
+
+    A2 的 SQL 同时判两件事：**父行存在** ∧ **归属与父行相同**。只判后者会让
+    「父行被删了」的子行算作合规（JOIN 不上就没有可比的父值），而那只保住了
+    一半——前缀 `p.<pk> IS NULL` 就是为堵这个洞。
     """
+    if row.kind == "A2":
+        if not row.parent or not row.parent_cols or not row.parent_pk:
+            raise ValueError(f"{row.table}/{row.constraint}：A2 行必须声明父子键")
+        join = " AND ".join(f"p.{pk} = t.{ck}" for pk, ck in row.parent_cols)
+        if row.org_level:
+            cmp_cols = ("organization_id", "tenant_id")
+        else:
+            cmp_cols = ("project_id", "organization_id", "tenant_id")
+        left = ", ".join(f"t.{c}" for c in cmp_cols)
+        right = ", ".join(f"p.{c}" for c in cmp_cols)
+        return f"""
+            SELECT count(*) FROM {row.table} t
+            LEFT JOIN {row.parent} p ON {join}
+            WHERE p.{row.parent_pk} IS NULL
+               OR ({left}) IS DISTINCT FROM ({right})
+        """
     if row.kind == "A":
         return f"""
             SELECT count(*) FROM {row.table} t
@@ -134,9 +239,15 @@ async def collect(conn: asyncpg.Connection) -> list[dict[str, object]]:
     for row in ledger_rows():
         # 表可能整张不存在（未跑迁移的库、或该谱系没这张表）
         exists = bool(await conn.fetchval("SELECT to_regclass($1) IS NOT NULL", row.table))
-        # 引用目标也可能不存在（分支谱系缺 organizations）——此时违规行数无法计算，
-        # 必须显式报「不可计算」而不是报 0：报 0 会让台账在缺目标键的库上看起来干净。
-        target = PROJECTS if row.kind == "A" else ORGS
+        # 引用目标也可能不存在（分支谱系缺 organizations / 缺父表）——此时违规行数
+        # 无法计算，必须显式报「不可计算」而不是报 0：报 0 会让台账在缺目标键的库上
+        # 看起来干净。A2 行的「目标」是父表，同样要单独判存在性。
+        if row.kind == "A":
+            target = PROJECTS
+        elif row.kind == "A2":
+            target = row.parent
+        else:
+            target = ORGS
         target_exists = bool(await conn.fetchval("SELECT to_regclass($1) IS NOT NULL", target))
 
         con = None
@@ -173,6 +284,8 @@ async def collect(conn: asyncpg.Connection) -> list[dict[str, object]]:
                 "table": row.table,
                 "kind": row.kind,
                 "constraint": row.constraint,
+                "parent": row.parent,
+                "note": row.note,
                 "table_exists": exists,
                 "constraint_exists": con is not None,
                 "convalidated": None if con is None else bool(con["convalidated"]),
@@ -205,24 +318,64 @@ async def quarantine_stats(conn: asyncpg.Connection) -> dict[str, object]:
 def render_md(rows: list[dict[str, object]], q: dict[str, object], meta: dict[str, object]) -> str:
     passed = sum(1 for r in rows if r["pass"])
     overall = f"PASS（{len(rows)}/{len(rows)} 闭环）" if passed == len(rows) else f"未通过（{passed}/{len(rows)}）"
+
+    # 分两节渲染：两类不变量混在一张表里时，读者会自然地把「真实 18 行全绿」
+    # 读成「保护完备」，而 I-1 的一致半边就在旁边空着。分开列并把小计写出来，
+    # 让人一眼看到「这一节存在且是什么状态」，而不是只看到一个总数。
+    real = [r for r in rows if r["kind"] != "A2"]
+    consist = [r for r in rows if r["kind"] == "A2"]
+    real_pass = sum(1 for r in real if r["pass"])
+    consist_pass = sum(1 for r in consist if r["pass"])
+
     lines = [
         "# 归属闭环验收台账（机器生成，勿手改）",
         "",
         f"- 目标库：`{meta['db']}` @ `{meta['host']}:{meta['port']}`",
         f"- 采集时间：{meta['ts']}",
-        f"- 判据：`PASS ⇔ 约束存在 ∧ convalidated ∧ 违规行数 = 0`（ADR-R40 §13 D-10.1 / 附录 J.2）",
+        "- 判据：`PASS ⇔ 约束存在 ∧ convalidated ∧ 违规行数 = 0`（ADR-R40 §13 D-10.1 / 附录 J.2）",
         f"- **整体判定：{overall}**",
+        f"  - 「真实」半边（A/B/ROOT）：{real_pass}/{len(real)}",
+        f"  - 「一致」半边（A2）：{consist_pass}/{len(consist)}",
+        "",
+        "## 一、「真实」半边：归属指向的实体真实存在且组织一致",
         "",
         "| # | 表 | 类型 | 目标约束 | 约束存在 | convalidated | 违规行数 | 判定 |",
         "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
-    for i, r in enumerate(rows, 1):
+    for i, r in enumerate(real, 1):
         cv = "—" if r["convalidated"] is None else ("true" if r["convalidated"] else "false")
         vio = "—" if r["violations"] is None else str(r["violations"])
         lines.append(
             f"| {i} | `{r['table']}` | {r['kind']} | `{r['constraint']}` | "
             f"{'是' if r['constraint_exists'] else '否'} | {cv} | {vio} | {r['verdict']} |"
         )
+
+    lines += [
+        "",
+        "## 二、「一致」半边：本行 `project_id` 必须等于父行的 `project_id`",
+        "",
+        "「真实」全绿不等于保护完备：本行写 `proj-beta`、父行在 `proj-alpha`，两个项目",
+        "都真实、组织也一致，三列外键会一路放行。这 10 行就是堵这个洞的。",
+        "",
+        "| # | 表 | 父表 | 目标约束 | convalidated | 违规行数（父行缺失 ∨ 归属不同） | 判定 |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for i, r in enumerate(consist, 1):
+        cv = "—" if r["convalidated"] is None else ("true" if r["convalidated"] else "false")
+        vio = "—" if r["violations"] is None else str(r["violations"])
+        lines.append(
+            f"| {i} | `{r['table']}` | `{r['parent']}` | `{r['constraint']}` | "
+            f"{cv} | {vio} | {r['verdict']} |"
+        )
+
+    lines.append("")
+    missing = [r for r in consist if not r["pass"]]
+    if missing:
+        lines += [
+            f"> 「一致」半边有 **{len(missing)}** 行未闭环。这一节不允许被上面的总数掩盖：",
+            "> 「真实」18/18 只说明目标项目存在，不说明父子归属相同。",
+            "",
+        ]
     lines.append("")
     if q.get("available"):
         lines += [
@@ -279,6 +432,7 @@ SELFTEST_MIGRATIONS: tuple[tuple[str, str], ...] = (
     ("*_ownership_fk_backfill.py", "ownership_fk_a9b8"),
     ("*_ownership_fk_batch2.py", "ownership_fk_batch2"),
     ("*_ownership_fk_episodes.py", "ownership_fk_batch3"),
+    ("*_ownership_consistency_fk.py", "ownership_fk_batch4"),
 )
 
 
@@ -303,7 +457,11 @@ def load_migrations() -> list:
 
 
 def ownership_fks(mods) -> list[tuple[str, str]]:
-    """把三批迁移的外键拼成一份全量清单（18 条）。"""
+    """把各批迁移的外键拼成一份全量清单。
+
+    刻意**不写条数**：条数随批次增长，写进注释就会在下一批变成假陈述
+    （本轮已从 18 涨到 28）。要条数就 `len(ownership_fks(mods))`。
+    """
     return [fk for m in mods for fk in m.OWNERSHIP_FKS]
 
 
@@ -357,11 +515,27 @@ async def _drop(db: str, port: int) -> None:
 # 而这恰恰是迁移刚激活后的真实形态，也是「约束存在 ≠ 不变量成立」最容易被误读的形态：
 # 18 条约束都在、`NOT VALID` 也在，若台账把「存在」当「闭环」，这一态会被判 18/18。
 SELFTEST_SCENARIOS = (
-    # db              migrate  validate       dirty  passed pending
-    dict(db="ledger_nomig",   migrate=False, validate="none",       dirty=False, passed=0,  pending=0),
-    dict(db="ledger_pending", migrate=True,  validate="none",       dirty=False, passed=0,  pending=18),
-    dict(db="ledger_clean",   migrate=True,  validate="all",        dirty=False, passed=18, pending=0),
-    dict(db="ledger_dirty",   migrate=True,  validate="all_but_av", dirty=True,  passed=17, pending=0),
+    # db              migrate  validate          dirty           passed pending  fail_rows
+    dict(db="ledger_nomig", migrate=False, validate="none", dirty_mode="none",
+         passed=0, pending=0, fail_rows=None),
+    # pending：约束全建、一条都没 VALIDATE。所有行（含「一致」半边）都必须
+    # 落在「待验证」而不是 PASS——这是「存在 ≠ 闭环」最容易翻车的那一态。
+    dict(db="ledger_pending", migrate=True, validate="none", dirty_mode="none",
+         passed=0, pending="all", fail_rows=None),
+    dict(db="ledger_clean", migrate=True, validate="all", dirty_mode="none",
+         passed="all", pending=0, fail_rows=None),
+    # 只让 asset_versions 一张脏：验证台账能精确到「这一张」，而不是红灯一片。
+    dict(db="ledger_dirty", migrate=True, validate="all_but_av", dirty_mode="av",
+         passed="all_minus_1", pending=0,
+         fail_rows=(("asset_service.asset_versions",
+                     "fk_asset_versions_project_tenant_org"),)),
+    # 「真实」半边完全成立、只有「一致」半边被破坏。这一态是旧版自检完全没有的：
+    # 没有它，「一致 10 行」既没有被证明能通过，也没有被证明能失败——
+    # 而一个永远不 FAIL 的检查等于不存在。
+    dict(db="ledger_inconsistent", migrate=True, validate="all_tolerant",
+         dirty_mode="inconsistent", passed="all_minus_1", pending=0,
+         fail_rows=(("asset_service.qc_reports",
+                     "fk_qc_reports_asset_version_project"),)),
 )
 
 
@@ -372,7 +546,13 @@ async def _apply_validation(conn: asyncpg.Connection, fks, mode: str) -> None:
     for table, name in fks:
         if mode == "all_but_av" and name == "fk_asset_versions_project_tenant_org":
             continue  # 留一张不订正：验证台账能否精确定位到这一张
-        await conn.execute(f"ALTER TABLE {table} VALIDATE CONSTRAINT {name}")
+        try:
+            await conn.execute(f"ALTER TABLE {table} VALIDATE CONSTRAINT {name}")
+        except asyncpg.PostgresError:
+            # `all_tolerant`：存量存在违规时 VALIDATE 必然失败，这不是场景搭建失误，
+            # 而是该场景要的形态（「约束已建但验证不过」）。其它模式仍必须抛。
+            if mode != "all_tolerant":
+                raise
 
 
 async def selftest(port: int, template: str) -> int:
@@ -388,44 +568,79 @@ async def selftest(port: int, template: str) -> int:
                 password="replay_super_pw", database=db,
             )
             try:
+                mode = sc["dirty_mode"]
                 if sc["migrate"]:
-                    if sc["dirty"]:
+                    if mode == "av":
                         await seed_dirty_pre_fk(conn)
+                    elif mode == "inconsistent":
+                        await seed_inconsistent_pre_fk(conn)
                     for m in mods:
                         for step in m.upgrade_steps():
                             await conn.execute(step.sql)
-                    if sc["dirty"]:
+                    if mode == "av":
                         await seed_dirty_post_fk(conn)
+                    elif mode == "inconsistent":
+                        await seed_inconsistent_post_fk(conn)
                     await _apply_validation(conn, fks, sc["validate"])
             finally:
                 await conn.close()
             r = await run(db, port, write=False)
+            total = r["total"]
             pending = sum(1 for row in r["rows"] if str(row["verdict"]).startswith("待验证"))
-            results.append((db, r["passed"], r["total"], r["closed"], pending))
+            # 期望值允许用「相对量」表达（all / all_minus_1）：台账行数会随批次增长，
+            # 把 18、28 写死在断言里，下一批就得改测试——那是让测试迁就实现。
+            want_passed = (
+                total if sc["passed"] == "all"
+                else total - 1 if sc["passed"] == "all_minus_1"
+                else sc["passed"]
+            )
+            want_pending = total if sc["pending"] == "all" else sc["pending"]
+            got_fail = tuple(
+                (str(row["table"]), str(row["constraint"]))
+                for row in r["rows"] if not row["pass"]
+            )
+            results.append(
+                (db, r["passed"], total, r["closed"], pending,
+                 got_fail, want_passed, want_pending, sc["fail_rows"])
+            )
     finally:
         for sc in SELFTEST_SCENARIOS:
             await _drop(sc["db"], port)
 
-    print("\n台账自检（同一脚本、四种库状态，判定必须不同）")
-    print("-" * 80)
-    by_db = {sc["db"]: sc for sc in SELFTEST_SCENARIOS}
+    print("\n台账自检（同一脚本、多种库状态，判定必须不同）")
+    print("-" * 92)
     ok = True
-    for db, passed, total, closed, pending in results:
-        sc = by_db[db]
-        want_closed = sc["passed"] == total
-        good = passed == sc["passed"] and pending == sc["pending"] and closed == want_closed
-        ok = ok and good
-        print(
-            f"[{'OK  ' if good else 'BAD '}] {db:<14} 闭环={closed!s:<5} "
-            f"PASS {passed}/{total}（期望 {sc['passed']}）  待验证 {pending}（期望 {sc['pending']}）"
+    for (db, passed, total, closed, pending, got_fail,
+         want_passed, want_pending, want_fail) in results:
+        good = (
+            passed == want_passed
+            and pending == want_pending
+            and closed == (want_passed == total)
         )
-    print("-" * 80)
+        if want_fail is not None:
+            # 只比数量是不够的：27/28 也可能是别的行在红。必须比**是哪一行**，
+            # 否则「台账能精确定位」这句话没有被验证过。
+            good = good and got_fail == want_fail
+        ok = ok and good
+        detail = "" if want_fail is None else f"  失败行={got_fail or '无'}"
+        print(
+            f"[{'OK  ' if good else 'BAD '}] {db:<18} 闭环={closed!s:<5} "
+            f"PASS {passed}/{total}（期望 {want_passed}）  "
+            f"待验证 {pending}（期望 {want_pending}）{detail}"
+        )
+    print("-" * 92)
     print(
-        "预期：nomig 全未建立 → 0；pending 约束全建但未 VALIDATE → 0 PASS 且 18 行待验证；\n"
-        "      clean 全部 VALIDATE → 18/18；dirty 仅 asset_versions 存量违规 → 17/18（精确定位）。"
+        "预期：\n"
+        "  nomig         全未建立 → 0 PASS\n"
+        "  pending       约束全建、一条都没 VALIDATE → 0 PASS 且**全部**行待验证\n"
+        "  clean         全部 VALIDATE → 全绿\n"
+        "  dirty         仅 asset_versions 存量违规（指向不存在的项目）→ 全绿减 1，且**恰好**那一行\n"
+        "  inconsistent  仅 qc_reports 父子归属不同（两个项目都真实）→ 全绿减 1，且**恰好**那一行"
     )
-    print("结论：" + ("台账可区分「未建立 / 待验证 / 存量违规 / 闭环」四种状态，不是恒真。"
-                    if ok else "自检失败——台账判定不可信，禁止用于验收。"))
+    print("结论：" + (
+        "台账可区分「未建立 / 待验证 / 存量违规（真实半边）/ 归属不一致（一致半边）/ 闭环」，"
+        "且失败行可精确定位——不是恒真。"
+        if ok else "自检失败——台账判定不可信，禁止用于验收。"))
     return 0 if ok else 1
 
 
@@ -479,6 +694,66 @@ async def seed_dirty_post_fk(conn: asyncpg.Connection) -> None:
                 now(), 'ledger', now(), 'proj-1', 'B', '{DIRTY_TENANT}', '{DIRTY_ORG}')
         """
     )
+
+
+async def seed_inconsistent_pre_fk(conn: asyncpg.Connection) -> None:
+    """造「**真实但不一致**」的行：父行在 proj-1，子行 project 写 proj-2。
+
+    与 `seed_dirty_pre_fk` 的区别是**它证明的是另一个命题**：
+    后者造的行 `project_id` 指向不存在的项目（「真实」半边失效）；
+    这里两行都指向真实且同组织的项目（「真实」半边完全成立），
+    唯一不成立的是「子行 project == 父行 project」。
+
+    必须在约束建立之前插：`NOT VALID` 只豁免历史行扫描，新写入照样受检。
+    也只造**一行**：脏要脏得单一，才能验证台账是**精确定位**而不是红灯一片。
+    """
+    await conn.execute(
+        f"""
+        INSERT INTO asset_service.asset_versions
+            (entity_id, entity_type, schema_version, entity_version, status, owner_module,
+             tenant_id, organization_id, project_id, created_at, created_by, updated_at,
+             asset_type, sha256, storage_ref, source_asset_version_ids)
+        VALUES ('av-consist', 'AssetVersion', 2, 1, 'GENERATED', 'asset_service',
+                '{DIRTY_TENANT}', '{DIRTY_ORG}', 'proj-1', now(), 'ledger', now(),
+                'VIDEO', repeat('b', 64),
+                '{{"bucket":"b","key":"av-consist"}}'::jsonb, '[]'::jsonb)
+        """
+    )
+    await conn.execute(
+        f"""
+        INSERT INTO asset_service.qc_reports
+            (qc_report_id, asset_version_id, tenant_id, organization_id, project_id,
+             quality_profile_version, detector_versions, findings, created_by,
+             created_at, updated_at)
+        VALUES ('qc-cross', 'av-consist', '{DIRTY_TENANT}', '{DIRTY_ORG}', 'proj-2',
+                'qp-1', '[]'::jsonb, '[]'::jsonb, 'ledger', now(), now())
+        """
+    )
+
+
+async def seed_inconsistent_post_fk(conn: asyncpg.Connection) -> None:
+    """造组织与**两个**真实项目。必须在 `a9b8` 之后。
+
+    两个项目缺一不可：只造一个时，「子行 project 与父行不同」根本写不出来，
+    用例会退化成 `seed_dirty_pre_fk` 的同义重复。
+    """
+    await conn.execute(
+        f"""
+        INSERT INTO {ORGS} (organization_id, tenant_id, name, created_at, created_by, updated_at)
+        VALUES ('{DIRTY_ORG}', '{DIRTY_TENANT}', 'ledger-consist-org', now(), 'ledger', now())
+        """
+    )
+    for pid in ("proj-1", "proj-2"):
+        await conn.execute(
+            f"""
+            INSERT INTO {PROJECTS}
+                (entity_id, entity_type, schema_version, entity_version, status, owner_module,
+                 created_at, created_by, updated_at, project_name, project_tier,
+                 tenant_id, organization_id)
+            VALUES ('{pid}', 'Project', 2, 1, 'ACTIVE', 'project_planning',
+                    now(), 'ledger', now(), '{pid}', 'B', '{DIRTY_TENANT}', '{DIRTY_ORG}')
+            """
+        )
 
 
 async def apply_validate(db: str, port: int, host: str) -> list[tuple[str, str, str]]:

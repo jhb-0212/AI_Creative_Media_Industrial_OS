@@ -3,17 +3,19 @@
 对应 `docs/audits/2026-11-20-branch-migration-reconciliation.md` 的全部数据。
 **所有 SQL 均为只读 SELECT**，不含凭据、不含写操作。
 
-## 归属栈验收清单（任何改动后七项全绿才算完成）
+## 归属栈验收清单（任何改动后**全项**绿才算完成）
 
 | 项 | 脚本 | 证明什么 |
 | --- | --- | --- |
 | 工程规约 | `scripts/contract_check.py` | 契约一致 + **代码不得写死角色名**（CRED-3） |
 | **覆盖完整性** | `verify_ownership_closure.py --db …` + `--selftest` | **台账之外没有别的归属表**（集合相等，豁免带可机检前提） |
+| **归属一致性** | `verify_ownership_consistency.py --db …` + `--selftest` | **I-1「一致」半边**：本行 `project_id` 与父行相同（复合外键 ⊇ {父引用列, project_id}）；派生候选列必须全部被分类 |
 | 例外行为 | `verify_exception.py --migration <b0c9> --versions-dir <dir>` | 从激活前基线出发，13 张守卫接通道且可安全降级 |
-| 逐表覆盖 | `verify_guard_coverage.py --guard/--fk/--batch2` | 每张表都真的接通例外、且仍受外键约束 |
-| 授权完整性 | `verify_grants.py --versions-dir <versions>` | 不变量：**有表写权限 ⇒ 有函数 EXECUTE**（防保护语义漂移） |
-| 闭环台账 | `acceptance_ledger.py --db … --validate` + `--selftest` | 归属外键全部 `VALIDATE` 且台账能判 FAIL |
+| 逐表覆盖 | `verify_guard_coverage.py --guard <b0c9> --fk <a9b8> --batch2 <f8a9>` | 每张表都真的接通例外、且仍受外键约束 |
+| 授权完整性 | `verify_grants.py --versions-dir <dir>` | 不变量：**有表写权限 ⇒ 有函数 EXECUTE**（防保护语义漂移） |
+| 闭环台账 | `acceptance_ledger.py --db …` + `--selftest` | 「真实」+「一致」两节逐行 `VALIDATE`，且台账能在四种坏状态下判 FAIL |
 | RLS 行为 | `rls_acceptance.py` | 隔离项目对业务不可见/不可写、对审计可见/可写 |
+| 批次行为 | `verify_batch2/3/4.py --migration <对应迁移>` | 每批：缺口可复现 / 不误伤 / `VALIDATE` 非恒真 / 降级对称 |
 
 > **前两项**曾经不在清单里，代价是 `b0c9` 的 `CRED-3` 违规与 `d2e3` 的审计角色过度授权
 > 一起漏检了一整轮——四套装置都在验「迁移行为」，没有一套验「工程规约」。
@@ -25,9 +27,17 @@
 > 判断。清单完整性不能靠人复查，必须由脚本从 `pg_attribute` 实读后与台账求差。
 > 根因与修复见 `docs/audits/2026-11-20-ownership-closure-episodes.md`。
 >
-> **装置不写死「归属栈几层」**：层数每批都在涨（本轮从五层到七层两次）。回退用
+> **「归属一致性」为什么必须与「覆盖完整性」并列而不是合并**：后者问「这张表有没有被
+> 纳入」，前者问「纳入的那条约束强不强」。合并成一个闸门时，前者永远被后者掩盖——
+> 28 行台账全 PASS 也可以同时意味着「每张表都被一条**只保目标存在**的外键接住」。
+> 本库实测过这种状态：`qc_reports` 一行挂在 `proj-alpha` 的资产上、自己写隔离项目，
+> 三列外键一路放行。根因与修复见 `docs/audits/2026-11-20-ownership-consistency.md`。
+>
+> **装置不写死「归属栈几层」**：层数每批都在涨。回退用
 > `lab.rewind_to(keep)` 显式声明「本迁移的增量前提是哪一层」，脚本表达被测命题的前提，
-> 而不是模板此刻的偶然位置——后者的代价是上一轮 `23503` 事故与 `verify_batch2` 的 P1 断言失效。
+> 而不是模板此刻的偶然位置——后者的代价是 `23503` 事故与 `verify_batch2` 的 P1 断言失效。
+> 已应用性由各迁移自己声明的 `applied_probe_sql()` 判定：**未应用的层跳过而不是被
+> 「反向应用」**（否则其 downgrade 里的 `ADD CONSTRAINT` 会重建一条早已存在的约束）。
 >
 > 报告产物一律写在**本目录**，不写进 `data/migrations/versions/`：那个目录的职责只有迁移脚本，
 > 混入证据会让 Alembic 目录变成事实源。

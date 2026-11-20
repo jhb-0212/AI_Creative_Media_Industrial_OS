@@ -141,6 +141,10 @@ OWNERSHIP_STACK: tuple[str, ...] = (
     # 批次三：`episodes` 的三列外键。由覆盖闸门抓出来的一张表——它有
     # `project_scope_episodes`、有修数权限、有 RLS 旁路，唯独没有归属外键。
     "g7b8c9d0e1f2",
+    # 批次四：I-1「一致」半边。前三批只保证「本行 project 指向真实项目」，
+    # 拦不住「本行 project 与父行不同」——`qc_reports` 唯一一行即实测反例。
+    # 本层加父表四列唯一键 + 复合外键，使「跨项目串归属」写不进去。
+    "h8c9d0e1f2a3",
 )
 
 
@@ -200,6 +204,25 @@ async def rewind_ownership_stack(
     return applied
 
 
+def applied_probe(mod: Any) -> str | None:
+    """取迁移自己声明的「本层是否已应用」探针 SQL（返回 bool 或计数）。
+
+    为什么探针必须由迁移层声明，而不是由本模块猜
+    --------------------------------------------
+    `rewind_to` 的语义是「把栈退到 keep 之后各层都未应用」。若某层**本来就没应用**，
+    执行它的 downgrade 不是「回退」而是「反向应用」——本轮真实撞上了：模板库停在
+    `g7b8`、批次四尚未应用，回退批次四的 downgrade 会去**重建**一条早已存在的
+    单列外键，报 `DuplicateObject`。
+
+    猜也不行：多数层的 downgrade 全是 `DROP ... IF EXISTS`，误执行看不出差别，
+    于是这个错误会潜伏到某一层恰含 `ADD CONSTRAINT` 时才炸。判据必须由**层自己**
+    给出——它知道自己的主对象是什么。没有声明的层按「已应用」处理，保持旧层语义
+    不变，不让本改动悄悄改变既有脚本的行为。
+    """
+    fn = getattr(mod, "applied_probe_sql", None)
+    return fn() if callable(fn) else None
+
+
 async def rewind_to(
     conn: asyncpg.Connection,
     versions_dir: str | Path,
@@ -218,6 +241,10 @@ async def rewind_to(
 
     正解是让每个脚本显式声明「我的前提是 keep 那一层」，由本函数负责把其后的
     层全部撤掉。这样脚本表达的是**被测命题的前提**，而不是**环境的偶然状态**。
+
+    已应用性由各层自己声明的 `applied_probe_sql()` 决定：探针为假 ⇒ 跳过，
+    不计入返回值。返回值里的层数是「**真的**被撤掉的层数」，不是「本应撤掉的」——
+    两者混同会让「模板恰好已在该状态」看起来像「回退失败」。
     """
     vd = Path(versions_dir)
     if keep not in stack:
@@ -225,6 +252,11 @@ async def rewind_to(
     applied: list[str] = []
     for rev in reversed(stack[stack.index(keep) + 1:]):
         mod = load_migration(_resolve_revision(vd, rev), f"mig_rewind_{rev}")
+        probe = applied_probe(mod)
+        if probe is not None and not await conn.fetchval(probe):
+            # 该层从未应用：跳过，而不是「反向应用」它的 downgrade。
+            print(f"  · 回退跳过 {rev}（探针为假：本层未应用）")
+            continue
         for sql in _downgrade_sqls(mod):
             await conn.execute(sql)
         applied.append(rev)
@@ -258,6 +290,27 @@ async def assert_rewound(conn: asyncpg.Connection) -> list[str]:
         # 差点让「回退清单漏一层」变成静默通过——每一层都要在报告里自己出现一次。
         "批次三归属外键": "SELECT count(*) FROM pg_constraint WHERE contype='f' "
         "AND conname = 'fk_episodes_project_tenant_org'",
+        # 批次四单列两项：一批里有**两类**对象（父表唯一键、子表复合外键），
+        # 它们的回退方向相反且互不牵连。只记一个聚合数时，「唯一键撤了但外键没撤」
+        # 这种半回退会算出一个非零的、看起来正常的总数。
+        "批次四父表唯一键": "SELECT count(*) FROM pg_constraint WHERE contype='u' "
+        "AND conname IN ('uq_asset_versions_entity_project_tenant_org',"
+        "'uq_shot_revisions_entity_project_tenant_org',"
+        "'uq_qc_reports_id_project_tenant_org',"
+        "'uq_approval_flows_entity_project_tenant_org',"
+        "'uq_approval_tickets_entity_project_tenant_org',"
+        "'uq_production_routes_entity_org')",
+        "批次四复合外键": "SELECT count(*) FROM pg_constraint WHERE contype='f' "
+        "AND conname IN ('fk_qc_reports_asset_version_project',"
+        "'fk_qc_review_sessions_asset_version_project',"
+        "'fk_qc_review_sessions_qc_report_project',"
+        "'fk_shot_specs_shot_revision_project',"
+        "'fk_shot_drafts_episode_project',"
+        "'fk_shot_revisions_episode_project',"
+        "'fk_approval_tickets_flow_project',"
+        "'fk_approval_steps_ticket_project',"
+        "'fk_generation_tasks_route_org',"
+        "'fk_shot_route_selections_route_org')",
     }
     out: list[str] = []
     for label, sql in checks.items():

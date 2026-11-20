@@ -49,7 +49,7 @@
     {
       "id": "C7",
       "phase": "台账",
-      "desc": "台账 18 行的约束全部存在",
+      "desc": "台账 28 行的约束全部存在",
       "ok": true,
       "detail": "全部命中 pg_constraint"
     },
