@@ -88,6 +88,26 @@ AUDIT_TARGETS: tuple[tuple[str, str], ...] = (
     ("workflow", "approval_steps"),
 )
 
+#: 审计主体**可写**的表——即 D-10.3 要求 4/6 的唯一落点。
+#:
+#: 为什么必须单独列出而不是「AUDIT_TARGETS 全授 UPDATE」
+#: --------------------------------------------------
+#: 要求 4 的 `WITH CHECK` 是「隔离项目不得开放给业务写入，**仅审计主体可写**」，
+#: 要求 6 的「审计主体可见/**可写**」说的是同一件事，而隔离项目是
+#: `project_planning.projects` 里的一行。所以「可写」的范围是**这一张表**，
+#: 不是「审计能看见的每一张表」。
+#:
+#: 旧版把 UPDATE 一并授到 AUDIT_TARGETS 全部 18 张，是需求扩散，代价有三层：
+#:   1. 安全：审计身份获得改动 17 张业务表的能力，与「审计只读」语义冲突；
+#:   2. 功能：其中 12 张是受守卫表，而它们的函数 EXECUTE 由 b0c9 的 E6 授予，
+#:      本步骤晚于 E6 执行 → 这 12 张表的 UPDATE 在守卫处必然 42501，
+#:      即「权限在，功能不可用」的假可用；
+#:   3. 可观测：扩散本身没有任何验收用例覆盖，靠 `verify_grants.py` 的
+#:      「有表写权限 ⇒ 有函数 EXECUTE」不变量才暴露出来。
+AUDIT_WRITABLE: tuple[tuple[str, str], ...] = (
+    ("project_planning", "projects"),
+)
+
 
 class Step(NamedTuple):
     code: str
@@ -186,13 +206,24 @@ def upgrade_steps() -> list[Step]:
 
     for schema, table in AUDIT_TARGETS:
         qualified = f"{schema}.{table}"
+        writable = (schema, table) in AUDIT_WRITABLE
+        privs = "SELECT, UPDATE" if writable else "SELECT"
+        note = (
+            "D-10.3 要求 4 的 WITH CHECK 是「仅审计主体可写隔离项目」，要求 6 的"
+            "「审计主体可见/可写」指同一件事，落点是**隔离项目所在的那一行**。"
+            if writable
+            else "审计身份的语义是「能看见」，不是「能改」。"
+            "旧版把 UPDATE 一并授到全部 18 张表，是需求扩散：那 17 张表的写权限"
+            "既无任何验收用例使用，又让审计身份获得改动业务数据的能力，"
+            "其中 12 张受守卫表还因为 E6 早于本步骤执行而过期漏授判定函数——"
+            "有表写权限却无函数 EXECUTE，真去写必然 42501，是「有钥匙没门」的假可用。"
+        )
         steps.append(
             Step(
                 "R3",
-                f"{qualified}：审计角色 SELECT + UPDATE",
-                f"GRANT SELECT, UPDATE ON TABLE {qualified} TO {AUDIT_ROLE}",
-                "D-10.3 要求 6 的验收需要「审计主体可见/可写」这一侧；"
-                "只授 SELECT 无法构造「可写」用例",
+                f"{qualified}：审计角色 {privs}",
+                f"GRANT {privs} ON TABLE {qualified} TO {AUDIT_ROLE}",
+                note,
             )
         )
 
@@ -320,7 +351,10 @@ def downgrade_steps() -> list[Step]:
     for schema, table in AUDIT_TARGETS:
         steps.append(
             Step("D", f"撤销 {schema}.{table} 的审计表权限",
-                 f"REVOKE SELECT, UPDATE ON TABLE {schema}.{table} FROM {AUDIT_ROLE}")
+                 f"REVOKE SELECT, UPDATE ON TABLE {schema}.{table} FROM {AUDIT_ROLE}",
+                 "刻意比升级多撤一个 UPDATE（升级只对 AUDIT_WRITABLE 授它）："
+                 "REVOKE 未授予的权限是幂等 no-op，而多撤这一下能把手工补授的残留一并清掉。"
+                 "降级的目标是「回到干净基线」，不是「逐字回放升级的相反数」。")
         )
     steps.append(
         Step("D", "撤销映射表 SELECT",

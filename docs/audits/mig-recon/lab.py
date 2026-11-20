@@ -163,6 +163,22 @@ def _downgrade_sqls(mod: Any) -> list[str]:
     return [s.sql if hasattr(s, "sql") else str(s) for s in raw]
 
 
+def upgrade_sqls(mod: Any) -> list[str]:
+    """取迁移的升级语句序列（与 ``_downgrade_sqls`` 对称）。
+
+    归属栈里两种写法是**既成事实**：a9b8/f8a9 用 ``NamedTuple`` 的 steps，
+    b0c9/c1d2/d2e3/e3f4 用纯 SQL 字符串列表。调用方不该各写一遍 ``hasattr`` 分支——
+    那会把同一个适配器复制成 N 份，改动时漏改一处就静默半失败。
+    """
+    if hasattr(mod, "upgrade_sqls"):
+        raw = mod.upgrade_sqls()
+    elif hasattr(mod, "upgrade_steps"):
+        raw = mod.upgrade_steps()
+    else:  # pragma: no cover
+        raise RuntimeError(f"{mod.__name__} 没有 upgrade_sqls()/upgrade_steps()")
+    return [s.sql if hasattr(s, "sql") else str(s) for s in raw]
+
+
 async def rewind_ownership_stack(
     conn: asyncpg.Connection, versions_dir: str | Path, stack: tuple[str, ...] = OWNERSHIP_STACK
 ) -> list[str]:

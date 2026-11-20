@@ -3,6 +3,24 @@
 对应 `docs/audits/2026-11-20-branch-migration-reconciliation.md` 的全部数据。
 **所有 SQL 均为只读 SELECT**，不含凭据、不含写操作。
 
+## 归属栈验收清单（任何改动后六项全绿才算完成）
+
+| 项 | 脚本 | 证明什么 |
+| --- | --- | --- |
+| 工程规约 | `scripts/contract_check.py` | 契约一致 + **代码不得写死角色名**（CRED-3） |
+| 例外行为 | `verify_exception.py --migration <b0c9>` | 从激活前基线出发，13 张守卫接通道且可安全降级 |
+| 逐表覆盖 | `verify_guard_coverage.py --guard/--fk/--batch2` | 每张表都真的接通例外、且仍受外键约束 |
+| 授权完整性 | `verify_grants.py --versions-dir <versions>` | 不变量：**有表写权限 ⇒ 有函数 EXECUTE**（防保护语义漂移） |
+| 闭环台账 | `acceptance_ledger.py --db … --validate` + `--selftest` | 归属外键全部 `VALIDATE` 且台账能判 FAIL |
+| RLS 行为 | `rls_acceptance.py` | 隔离项目对业务不可见/不可写、对审计可见/可写 |
+
+> 前两项曾经不在清单里，代价是 `b0c9` 的 `CRED-3` 违规与 `d2e3` 的审计角色过度授权
+> 一起漏检了一整轮——四套装置都在验「迁移行为」，没有一套验「工程规约」。
+> 根因与修复见 `docs/audits/2026-11-20-audit-role-overgrant-fix.md`。
+>
+> 报告产物一律写在**本目录**，不写进 `data/migrations/versions/`：那个目录的职责只有迁移脚本，
+> 混入证据会让 Alembic 目录变成事实源。
+
 ## 文件
 
 | 文件 | 作用 | 说明 |

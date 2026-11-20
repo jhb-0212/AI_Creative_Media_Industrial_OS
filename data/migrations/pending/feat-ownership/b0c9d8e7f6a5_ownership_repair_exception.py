@@ -1335,11 +1335,10 @@ def upgrade_sqls() -> list[str]:
     for fqn in GUARD_ORDER:
         sqls.append(GUARD_PATCHED[fqn])
 
-    # E5 权限：函数体为 SECURITY DEFINER，但**不**给 PUBLIC EXECUTE
-    #   （ADR 附录 E #15：函数默认 PUBLIC EXECUTE 是残余风险）。
-    #   守卫对一切写者生效，故须显式授予所有可能写入这些表的主体。
-    #   未列出的角色写入时会得到 42501 而非 P0001 —— 这是**有意的**：
-    #   它暴露「该角色未被授权走例外」，比静默降级为普通拒绝更可诊断。
+    # E5 撤 PUBLIC：两个函数是 SECURITY DEFINER，PG 又默认给 PUBLIC EXECUTE
+    #   （ADR 附录 E #15 把「函数默认 PUBLIC EXECUTE」列为残余风险）。
+    #   它们能读映射表并据此放行归属改写，暴露给 PUBLIC 等于把例外交给任何能
+    #   执行 SQL 的主体，所以先撤掉，再由「真实表权限」决定授予谁（见下）。
     sqls.append(
         "REVOKE ALL ON FUNCTION "
         "project_planning.ownership_repair_allows(regclass,jsonb,jsonb,text) FROM PUBLIC"
@@ -1348,16 +1347,21 @@ def upgrade_sqls() -> list[str]:
         "REVOKE ALL ON FUNCTION "
         "project_planning.ownership_repair_map_match(text,text,text) FROM PUBLIC"
     )
-    for role in ("app_role", "afs_data_repair"):
-        sqls.append(
-            "DO $do$ BEGIN "
-            f"IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}') THEN "
-            "EXECUTE 'GRANT USAGE ON SCHEMA project_planning TO " + role + "'; "
-            "EXECUTE 'GRANT EXECUTE ON FUNCTION "
-            "project_planning.ownership_repair_allows(regclass,jsonb,jsonb,text) "
-            f"TO {role}'; "
-            "END IF; END $do$"
-        )
+    # E5 之后**刻意不再按角色名单补授**（旧版在此硬编码 ("app_role", "afs_data_repair")）。
+    # 名单式授权有三个修不掉的问题，本文件因此放弃它：
+    #   ① 把部署配置（POSTGRES_APP_USER 等）写死进迁移，改名后建出无人使用的角色、
+    #      或 GRANT 目标不存在导致升级直接失败（CRED-3 / tests/unit/test_db_role_names.py 判定此形态）；
+    #   ② 名单无法穷举，漏掉的主体升级后从 P0001 漂移成 42501 —— 同一个非法操作换了
+    #      错误码，按 P0001 写的既有处理逻辑静默失效（保护语义漂移）；
+    #   ③ 「此刻还没有表权限的角色」被 IF EXISTS 静默跳过，且只授了 allows 没授 map_match。
+    #      afs_data_repair 正是这样丢的：它在 d2e3 才获得表权限，于是本步跳过它，
+    #      于是 allows 有 EXECUTE 而它内部调用的 map_match 没有 → 守卫一走到就 42501。
+    # 授权因此收敛为两条**由事实驱动**的路径，两者的判据都是「它真的能写这些表」：
+    #   - E6：任何对受守卫表持 UPDATE/INSERT/DELETE 的主体，在升级时即刻获得（穷举的替代）；
+    #   - d2e3：afs_data_repair 在**获得表权限之后**显式补授，时序上名实相符。
+    # 已知边界（不假装解决）：E6 只在升级时跑一次；此后新出现的写角色需重跑同一条
+    # 收敛语句才能获得 EXECUTE，否则对该表写入会得到 42501。这一点登记在迁移 README，
+    # 是「授权随权限变化」的固有代价，不是名单式授权能消除的。
 
     # E6 按实际表授权收敛，消除「保护语义漂移」：
     #   守卫对**一切写者**生效。若某角色有表 UPDATE 权限却没有本函数 EXECUTE 权限，

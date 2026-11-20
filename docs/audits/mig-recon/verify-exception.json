@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-20T15:18:22+08:00",
+  "at": "2026-11-20T15:42:50+08:00",
   "passed": 37,
   "total": 37,
   "results": [
@@ -27,7 +27,7 @@
     {
       "id": "U1",
       "phase": "升级",
-      "desc": "执行 upgrade_sqls()（25 条）",
+      "desc": "执行 upgrade_sqls()（23 条）",
       "ok": true,
       "detail": "无异常"
     },

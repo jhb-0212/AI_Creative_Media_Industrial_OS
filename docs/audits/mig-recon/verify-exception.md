@@ -1,6 +1,6 @@
 # 受控例外迁移验证结果（b0c9d8e7f6a5）
 
-- 执行时间：2026-11-20T15:18:22+08:00
+- 执行时间：2026-11-20T15:42:50+08:00
 - 目标：`localhost:15444` 克隆库 `t3x_lab`（模板 `ai_film_industrial`），用完即删
 - 结果：**37/37**
 
@@ -9,7 +9,7 @@
 | B-1 | 基线 | 回退归属栈至激活前基线（6 层） | PASS | projects 3→0，asset_versions 3→0; 归属三列外键=0; 两列组织外键=0; 例外映射表=0; 例外判定函数=0; RLS 表达式备份表=0; 批次二归属外键=0 |
 | B0 | 基线 | 记录 13 个守卫函数定义哈希 | PASS | 13 个 |
 | B1 | 基线 | 升级前：改归属列一律被拒 | PASS | AV=P0001; GD=P0001; QR=P0001; AVC=P0001 |
-| U1 | 升级 | 执行 upgrade_sqls()（25 条） | PASS | 无异常 |
+| U1 | 升级 | 执行 upgrade_sqls()（23 条） | PASS | 无异常 |
 | S1 | 结构 | 13 个守卫均已注入接入点 | PASS | 13/13 |
 | S2 | 结构 | 判定函数为 INVOKER、读映射表函数为 DEFINER 且固定 search_path | PASS | allows.secdef=False match.secdef=True match.cfg=search_path=pg_catalog, project_planning |
 | S3 | 结构 | 映射表唯一键与 reason 非空校验存在 | PASS | ['ck_ownership_repair_map_reason_len', 'uq_ownership_repair_map'] |

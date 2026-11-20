@@ -1,6 +1,6 @@
 # 逐表覆盖矩阵（受控例外，13 张守卫表）
 
-- 执行时间：2026-11-20T15:18:24+08:00
+- 执行时间：2026-11-20T15:42:56+08:00
 - 目标：`localhost:15444` 克隆库 `t3cov_lab`（模板 `ai_film_industrial`），用完即删
 - 归属外键：已建（a9b8c7d6e5f4_ownership_fk_backfill.py）
 - 批次二：已建（f8a9b0c1d2e3_ownership_fk_batch2.py）
@@ -12,7 +12,7 @@
 | U0 | 前置 | 执行归属外键迁移（21 步） | PASS | projects 已 seed，O0 通过 |
 | U0b | 前置 | 归属外键已建（NOT VALID 亦对新写入生效） | PASS | 三列外键=12 |
 | U0c | 前置 | 批次二三条归属外键已建（7 步） | PASS | 命中=3/3 |
-| U1 | 前置 | 执行受控例外迁移（25 条） | PASS | 无异常 |
+| U1 | 前置 | 执行受控例外迁移（23 条） | PASS | 无异常 |
 | asset_versions.N1 | 无令牌 | 改归属列 → P0001（守卫仍在） | PASS | P0001: asset_versions.project_id 为不可变内容列，禁止改写（ADR-R11） |
 | asset_versions.N2 | 例外放行 | 四条件齐备 → UPDATE 1 且 project_id 回读为新值 | PASS | UPDATE 1 now=proj-2 |
 | asset_versions.N3 | 内容列 | 有令牌但改内容列 schema_version → P0001 | PASS | P0001: asset_versions.schema_version 为不可变内容列，禁止改写（ADR-R11） |
