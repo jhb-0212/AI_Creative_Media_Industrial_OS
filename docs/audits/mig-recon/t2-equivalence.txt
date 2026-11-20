@@ -1,0 +1,34 @@
+9e3b4c5d6e7f: 归一化后残差 20 行（相似度 0.885，main 93 行 / feat 81 行）
+    - 迁移经裸 ``get_settings()`` 读配置、不声明进程身份，进程层的生产
+    - 校验不会触发——必须在此显式拒绝开发默认口令（与 relay/域角色迁移
+    - 同一守卫，见 ``reject_development_default_password``）。
+    - from packages.shared.config import (
+    - get_settings,
+    - reject_development_default_password,
+    + from packages.shared.config import get_settings
+    + password = get_settings().postgres_app_password.get_secret_value()
+a1b2c3d4e5f6: 归一化后逐行一致（111 行）→ 仅差角色名来源
+b3c4d5e6f7a8: 归一化后残差 292 行（相似度 0.076，main 113 行 / feat 203 行）
+    - """资产归属项目：asset_versions.project_id + 跨 schema 复合外键（SCOPE-3）
+    - 根因（第二轮重新审查 P1-04）
+    - ------------------------------------------------------------
+    + """资产状态转移纳入数据库约束：status 只能沿已登记边推进（ADR-R20）
+    - Revises: d2e3f4a5b6c7
+    - Create Date: 2026-11-18
+    + Revises: e7f8a9b0c1d2
+    + Create Date: 2026-11-17
+    + 背景（审查第三轮第 13 条）：
+b5c6d7e8f9a0: 归一化后逐行一致（30 行）→ 仅差角色名来源
+b7c8d9e0f1a2: 归一化后残差 7 行（相似度 0.968，main 107 行 / feat 110 行）
+    + ROLE_NAME,
+    + #    角色显式传 (ROLE_NAME,)：本迁移的历史语义就是"回收当时唯一的应用角色"，
+    + #    后续角色拆分由更新的迁移负责，不在此处推测未来的角色集合。
+    - for statement in protect_partition_statements(partition):
+    + for statement in protect_partition_statements(partition, roles=(ROLE_NAME,)):
+    - for statement in unprotect_partition_statements(partition):
+    + for statement in unprotect_partition_statements(partition, roles=(ROLE_NAME,)):
+c1d2e3f4a5b6: 归一化后逐行一致（134 行）→ 仅差角色名来源
+c6d7e8f9a0b1: 归一化后逐行一致（51 行）→ 仅差角色名来源
+d4e5f6a7b8c9: 归一化后逐行一致（36 行）→ 仅差角色名来源
+e5f6a7b8c9d0: 归一化后逐行一致（58 行）→ 仅差角色名来源
+f6a7b8c9d1e2: 归一化后逐行一致（167 行）→ 仅差角色名来源

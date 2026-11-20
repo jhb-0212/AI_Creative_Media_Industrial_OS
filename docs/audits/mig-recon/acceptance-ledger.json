@@ -1,0 +1,174 @@
+{
+  "meta": {
+    "db": "ai_film_industrial",
+    "host": "localhost",
+    "port": 15444,
+    "ts": "2026-11-20 14:47:09",
+    "server": "16.15 (Debian 16.15-1.pgdg13+2)"
+  },
+  "rows": [
+    {
+      "table": "generation_execution.production_routes",
+      "kind": "B",
+      "constraint": "fk_production_routes_organization_tenant",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
+      "table": "generation_execution.generation_tasks",
+      "kind": "A",
+      "constraint": "fk_generation_tasks_project_tenant_org",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
+      "table": "generation_execution.shot_route_selections",
+      "kind": "A",
+      "constraint": "fk_shot_route_selections_project_tenant_org",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
+      "table": "shot_planning.shot_drafts",
+      "kind": "A",
+      "constraint": "fk_shot_drafts_project_tenant_org",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
+      "table": "shot_planning.shot_revisions",
+      "kind": "A",
+      "constraint": "fk_shot_revisions_project_tenant_org",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
+      "table": "shot_planning.shot_visual_plans",
+      "kind": "A",
+      "constraint": "fk_shot_visual_plans_project_tenant_org",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
+      "table": "shot_planning.constraint_packs",
+      "kind": "A",
+      "constraint": "fk_constraint_packs_project_tenant_org",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
+      "table": "asset_service.delivery_manifests",
+      "kind": "A",
+      "constraint": "fk_delivery_manifests_project_tenant_org",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
+      "table": "asset_service.asset_versions",
+      "kind": "A",
+      "constraint": "fk_asset_versions_project_tenant_org",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
+      "table": "qc_governance.gate_decisions",
+      "kind": "A",
+      "constraint": "fk_gate_decisions_project_tenant_org",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
+      "table": "qc_governance.qc_review_sessions",
+      "kind": "A",
+      "constraint": "fk_qc_review_sessions_project_tenant_org",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
+      "table": "workflow.approval_flows",
+      "kind": "A",
+      "constraint": "fk_approval_flows_project_tenant_org",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
+      "table": "workflow.approval_tickets",
+      "kind": "A",
+      "constraint": "fk_approval_tickets_project_tenant_org",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
+    {
+      "table": "project_planning.projects",
+      "kind": "ROOT",
+      "constraint": "fk_projects_organization_tenant",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    }
+  ],
+  "quarantine": {
+    "available": true,
+    "project_total": 3,
+    "quarantine_projects": 1,
+    "ratio": 0.333333
+  },
+  "passed": 14,
+  "total": 14,
+  "closed": true
+}

@@ -1,0 +1,67 @@
+{
+  "schemas": [
+    "asset_service",
+    "outbox",
+    "project_planning",
+    "public"
+  ],
+  "table_count": 11,
+  "tables": {
+    "asset_service.asset_versions": 20,
+    "asset_service.qc_reports": 13,
+    "outbox.maintenance_runs": 9,
+    "outbox.outbox_events": 8,
+    "outbox.outbox_events_default": 8,
+    "outbox.outbox_events_y202611": 8,
+    "outbox.outbox_events_y202612": 8,
+    "project_planning.episodes": 14,
+    "project_planning.projects": 13,
+    "project_planning.script_revisions": 15,
+    "public.alembic_version": 1
+  },
+  "constraints": [
+    "asset_service.asset_versions.asset_versions_pkey",
+    "asset_service.qc_reports.qc_reports_asset_version_id_fkey",
+    "asset_service.qc_reports.qc_reports_pkey",
+    "outbox.maintenance_runs.maintenance_runs_pkey",
+    "outbox.outbox_events.outbox_events_pkey",
+    "outbox.outbox_events_default.outbox_events_default_pkey",
+    "outbox.outbox_events_y202611.outbox_events_y202611_pkey",
+    "outbox.outbox_events_y202612.outbox_events_y202612_pkey",
+    "project_planning.episodes.episodes_pkey",
+    "project_planning.episodes.ux_episode_ref_per_project",
+    "project_planning.projects.projects_pkey",
+    "project_planning.script_revisions.fk_script_revisions_episode",
+    "project_planning.script_revisions.script_revisions_pkey",
+    "public.alembic_version.alembic_version_pkc"
+  ],
+  "roles": {
+    "app_role": {
+      "login": "t",
+      "super": "f",
+      "bypassrls": "f",
+      "createdb": "f",
+      "createrole": "f"
+    },
+    "postgres": {
+      "login": "t",
+      "super": "t",
+      "bypassrls": "t",
+      "createdb": "t",
+      "createrole": "t"
+    }
+  },
+  "grants": {
+    "app_role": {
+      "objs": 37,
+      "privs": "DELETE+INSERT+SELECT+UPDATE+USAGE"
+    }
+  },
+  "memberships": [
+    "pg_read_all_settings->pg_monitor",
+    "pg_read_all_stats->pg_monitor",
+    "pg_stat_scan_tables->pg_monitor"
+  ],
+  "_revision": "c1d2e3f4a5b6",
+  "_step": 14
+}

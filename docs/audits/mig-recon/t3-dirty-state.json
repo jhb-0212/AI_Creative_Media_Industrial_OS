@@ -1,0 +1,1150 @@
+{
+  "lab": "t3_lab",
+  "template": "ai_film_industrial",
+  "port": 15444,
+  "passed": 49,
+  "total": 49,
+  "steps": [
+    {
+      "phase": "A0",
+      "label": "分支底座直接建两列外键",
+      "sql": "ALTER TABLE asset_service.asset_versions ADD CONSTRAINT fk_asset_versions_project_tenant FOREIGN KEY (project_id, tenant_id) REFERENCES project_planning.projects(entity_id, tenant_id)",
+      "expect": "42830",
+      "actual": "42830",
+      "detail": "there is no unique constraint matching given keys for referenced table \"projects\"",
+      "rows_before": 0,
+      "rows_after": 0,
+      "hash_before": "-",
+      "hash_after": "-",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "被引用侧无 (entity_id, tenant_id) 唯一约束 → 约束物理不可建；是目标键缺失，不是数据脏",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "A1",
+      "label": "补 organizations 表（镜像 main 的 DDL）",
+      "sql": "CREATE TABLE project_planning.organizations (organization_id uuid PRIMARY KEY, tenant_id uuid NOT NULL, name varchar NOT NULL, created_at timestamptz NOT NULL, created_by varchar NOT NULL, updated_at timestamptz NOT NULL, CONSTRAINT uq_organizations_owner_tenant UNIQUE (organization_id, tenant_id))",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 0,
+      "rows_after": 0,
+      "hash_before": "-",
+      "hash_after": "-",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "分支链整张表不存在（阻塞 B1 与 L2→L1 外键）",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "A2",
+      "label": "写入两个组织（T1/O1、T2/O2）",
+      "sql": "INSERT INTO project_planning.organizations (organization_id, tenant_id, name, created_at, created_by, updated_at) VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111', 'Org One', now(), 't3', now()), ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '22222222-2222-2222-2222-222222222222', 'Org Two', now(), 't3', now())",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 0,
+      "rows_after": 0,
+      "hash_before": "-",
+      "hash_after": "-",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "A3",
+      "label": "projects 补 (entity_id, tenant_id) 唯一键",
+      "sql": "ALTER TABLE project_planning.projects ADD CONSTRAINT uq_projects_entity_tenant UNIQUE (entity_id, tenant_id)",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 0,
+      "rows_after": 0,
+      "hash_before": "-",
+      "hash_after": "-",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "阻塞 A8；主支已有同名约束",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "A4",
+      "label": "projects 补三列唯一键",
+      "sql": "ALTER TABLE project_planning.projects ADD CONSTRAINT uq_projects_entity_tenant_org UNIQUE (entity_id, tenant_id, organization_id)",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 0,
+      "rows_after": 0,
+      "hash_before": "-",
+      "hash_after": "-",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "三列外键的被引用目标；分支 projects.organization_id 为 NOT NULL",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "A5",
+      "label": "projects → organizations 复合外键",
+      "sql": "ALTER TABLE project_planning.projects ADD CONSTRAINT fk_projects_organization_tenant FOREIGN KEY (organization_id, tenant_id) REFERENCES project_planning.organizations(organization_id, tenant_id)",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 0,
+      "rows_after": 0,
+      "hash_before": "-",
+      "hash_after": "-",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "打通 L2→L1；分支侧两列均 NOT NULL，故 MATCH SIMPLE 无放行口",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "A6",
+      "label": "写入项目 P1（属 T1/O1）",
+      "sql": "INSERT INTO project_planning.projects (entity_id, entity_type, schema_version, entity_version, status, owner_module, created_at, created_by, updated_at, project_name, project_tier, tenant_id, organization_id) VALUES ('proj-1', 'Project', 2, 1, 'ACTIVE', 'project_planning', now(), 't3', now(), 'Project One', 'STANDARD', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 0,
+      "rows_after": 0,
+      "hash_before": "-",
+      "hash_after": "-",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "B1",
+      "label": "插入项目/租户/组织完全匹配的资产",
+      "sql": "INSERT INTO asset_service.asset_versions (entity_id, entity_type, schema_version, entity_version, status, owner_module, tenant_id, organization_id, project_id, created_at, created_by, updated_at, asset_type, sha256, storage_ref, source_asset_version_ids) VALUES ('asset-ok', 'AssetVersion', 2, 1, 'GENERATED', 'asset_service', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaa",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 0,
+      "rows_after": 1,
+      "hash_before": "-",
+      "hash_after": "44d9ac49",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "场景 1 正向",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "B2",
+      "label": "干净数据下建两列外键",
+      "sql": "ALTER TABLE asset_service.asset_versions ADD CONSTRAINT fk_asset_versions_project_tenant FOREIGN KEY (project_id, tenant_id) REFERENCES project_planning.projects(entity_id, tenant_id)",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 1,
+      "rows_after": 1,
+      "hash_before": "44d9ac49",
+      "hash_after": "44d9ac49",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=t fk3=- assert=O guard=O",
+      "note": "补齐前置后可建 → 反证 A0 的 42830 是目标键缺失，不是数据脏",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "C1",
+      "label": "撤约束以注入脏数据",
+      "sql": "ALTER TABLE asset_service.asset_versions DROP CONSTRAINT IF EXISTS fk_asset_versions_project_tenant, DROP CONSTRAINT IF EXISTS fk_asset_versions_project_tenant_org",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 1,
+      "rows_after": 1,
+      "hash_before": "44d9ac49",
+      "hash_after": "44d9ac49",
+      "constraints_before": "fk2=t fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "历史库通常无约束，脏数据正由此产生",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "C2",
+      "label": "注入孤儿资产（project 不存在）",
+      "sql": "INSERT INTO asset_service.asset_versions (entity_id, entity_type, schema_version, entity_version, status, owner_module, tenant_id, organization_id, project_id, created_at, created_by, updated_at, asset_type, sha256, storage_ref, source_asset_version_ids) VALUES ('asset-orphan', 'AssetVersion', 2, 1, 'GENERATED', 'asset_service', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaa",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 1,
+      "rows_after": 2,
+      "hash_before": "44d9ac49",
+      "hash_after": "a6088a0e",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "场景 2：无约束时孤儿写入成功——归属事实链断裂的实证",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "C3",
+      "label": "含孤儿时直接建两列外键",
+      "sql": "ALTER TABLE asset_service.asset_versions ADD CONSTRAINT fk_asset_versions_project_tenant FOREIGN KEY (project_id, tenant_id) REFERENCES project_planning.projects(entity_id, tenant_id)",
+      "expect": "23503",
+      "actual": "23503",
+      "detail": "insert or update on table \"asset_versions\" violates foreign key constraint \"fk_asset_versions_project_tenant\"",
+      "rows_before": 2,
+      "rows_after": 2,
+      "hash_before": "a6088a0e",
+      "hash_after": "a6088a0e",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "外键预检识别孤儿并拒绝，且不静默删数据（行数不变）",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "C4",
+      "label": "改用 NOT VALID 分阶段添加",
+      "sql": "ALTER TABLE asset_service.asset_versions ADD CONSTRAINT fk_asset_versions_project_tenant FOREIGN KEY (project_id, tenant_id) REFERENCES project_planning.projects(entity_id, tenant_id) NOT VALID",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 2,
+      "rows_after": 2,
+      "hash_before": "a6088a0e",
+      "hash_after": "a6088a0e",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=f fk3=- assert=O guard=O",
+      "note": "场景 7：NOT VALID 跳过历史扫描，新写入仍受约束",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "C5",
+      "label": "NOT VALID 下再写孤儿",
+      "sql": "INSERT INTO asset_service.asset_versions (entity_id, entity_type, schema_version, entity_version, status, owner_module, tenant_id, organization_id, project_id, created_at, created_by, updated_at, asset_type, sha256, storage_ref, source_asset_version_ids) VALUES ('asset-orphan-2', 'AssetVersion', 2, 1, 'GENERATED', 'asset_service', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aa",
+      "expect": "23503",
+      "actual": "23503",
+      "detail": "insert or update on table \"asset_versions\" violates foreign key constraint \"fk_asset_versions_project_tenant\"",
+      "rows_before": 2,
+      "rows_after": 2,
+      "hash_before": "a6088a0e",
+      "hash_after": "a6088a0e",
+      "constraints_before": "fk2=f fk3=- assert=O guard=O",
+      "constraints_after": "fk2=f fk3=- assert=O guard=O",
+      "note": "场景 7 关键：历史脏数据未清时，新写入同样被拦",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "C6",
+      "label": "NOT VALID 下写合规资产",
+      "sql": "INSERT INTO asset_service.asset_versions (entity_id, entity_type, schema_version, entity_version, status, owner_module, tenant_id, organization_id, project_id, created_at, created_by, updated_at, asset_type, sha256, storage_ref, source_asset_version_ids) VALUES ('asset-ok-2', 'AssetVersion', 2, 1, 'GENERATED', 'asset_service', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaa",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 2,
+      "rows_after": 3,
+      "hash_before": "a6088a0e",
+      "hash_after": "25a9dba8",
+      "constraints_before": "fk2=f fk3=- assert=O guard=O",
+      "constraints_after": "fk2=f fk3=- assert=O guard=O",
+      "note": "合规写入不被误伤",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "C7",
+      "label": "脏数据未修就 VALIDATE",
+      "sql": "ALTER TABLE asset_service.asset_versions VALIDATE CONSTRAINT fk_asset_versions_project_tenant",
+      "expect": "23503",
+      "actual": "23503",
+      "detail": "insert or update on table \"asset_versions\" violates foreign key constraint \"fk_asset_versions_project_tenant\"",
+      "rows_before": 3,
+      "rows_after": 3,
+      "hash_before": "25a9dba8",
+      "hash_after": "25a9dba8",
+      "constraints_before": "fk2=f fk3=- assert=O guard=O",
+      "constraints_after": "fk2=f fk3=- assert=O guard=O",
+      "note": "NOT VALID 不是长期豁免；失败后约束保持 convalidated=f",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "C8",
+      "label": "就地修复：孤儿映射到真实项目",
+      "sql": "UPDATE asset_service.asset_versions SET project_id = 'proj-1' WHERE entity_id = 'asset-orphan'",
+      "expect": "P0001",
+      "actual": "P0001",
+      "detail": "asset_versions.project_id 为不可变内容列，禁止改写（ADR-R11）",
+      "rows_before": 3,
+      "rows_after": 3,
+      "hash_before": "25a9dba8",
+      "hash_after": "25a9dba8",
+      "constraints_before": "fk2=f fk3=- assert=O guard=O",
+      "constraints_after": "fk2=f fk3=- assert=O guard=O",
+      "note": "**分支结构事实**：project_id 属不可变内容列，就地 UPDATE 被守卫拒绝（ADR-R11）",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "C9",
+      "label": "维护窗口：临时关闭内容守卫",
+      "sql": "ALTER TABLE asset_service.asset_versions DISABLE TRIGGER trg_asset_versions_guard",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 3,
+      "rows_after": 3,
+      "hash_before": "25a9dba8",
+      "hash_after": "25a9dba8",
+      "constraints_before": "fk2=f fk3=- assert=O guard=O",
+      "constraints_after": "fk2=f fk3=- assert=O guard=D",
+      "note": "单语句：即使后续失败也不会把守卫留在关闭态（下一阶段重置会重建）",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "C10",
+      "label": "守卫关闭期间执行同一修复",
+      "sql": "UPDATE asset_service.asset_versions SET project_id = 'proj-1' WHERE entity_id = 'asset-orphan'",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 3,
+      "rows_after": 3,
+      "hash_before": "25a9dba8",
+      "hash_after": "7d0c022d",
+      "constraints_before": "fk2=f fk3=- assert=O guard=D",
+      "constraints_after": "fk2=f fk3=- assert=O guard=D",
+      "note": "同一语句、同一数据，仅守卫状态不同 → 证明 C8 的 P0001 唯一来源是守卫",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "C11",
+      "label": "重新启用内容守卫",
+      "sql": "ALTER TABLE asset_service.asset_versions ENABLE TRIGGER trg_asset_versions_guard",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 3,
+      "rows_after": 3,
+      "hash_before": "7d0c022d",
+      "hash_after": "7d0c022d",
+      "constraints_before": "fk2=f fk3=- assert=O guard=D",
+      "constraints_after": "fk2=f fk3=- assert=O guard=O",
+      "note": "",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "C12",
+      "label": "修复后 VALIDATE",
+      "sql": "ALTER TABLE asset_service.asset_versions VALIDATE CONSTRAINT fk_asset_versions_project_tenant",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 3,
+      "rows_after": 3,
+      "hash_before": "7d0c022d",
+      "hash_after": "7d0c022d",
+      "constraints_before": "fk2=f fk3=- assert=O guard=O",
+      "constraints_after": "fk2=t fk3=- assert=O guard=O",
+      "note": "约束转为已验证（fk2=t）",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "D0",
+      "label": "撤约束",
+      "sql": "ALTER TABLE asset_service.asset_versions DROP CONSTRAINT IF EXISTS fk_asset_versions_project_tenant, DROP CONSTRAINT IF EXISTS fk_asset_versions_project_tenant_org",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 3,
+      "rows_after": 3,
+      "hash_before": "7d0c022d",
+      "hash_after": "7d0c022d",
+      "constraints_before": "fk2=t fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "TRUNCATE 不触发行级触发器，故可作为阶段重置；守卫拦不住 TRUNCATE，属运维权限面的边界",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "D1",
+      "label": "清空资产表",
+      "sql": "TRUNCATE asset_service.asset_versions CASCADE",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 3,
+      "rows_after": 0,
+      "hash_before": "7d0c022d",
+      "hash_after": "-",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "D2",
+      "label": "注入租户错配行",
+      "sql": "INSERT INTO asset_service.asset_versions (entity_id, entity_type, schema_version, entity_version, status, owner_module, tenant_id, organization_id, project_id, created_at, created_by, updated_at, asset_type, sha256, storage_ref, source_asset_version_ids) VALUES ('asset-tenant-bad', 'AssetVersion', 2, 1, 'GENERATED', 'asset_service', '22222222-2222-2222-2222-222222222222', 'bbbbbbbb-bbbb-bbbb-bbbb-",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 0,
+      "rows_after": 1,
+      "hash_before": "-",
+      "hash_after": "970521dd",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "项目 P1 属 T1，资产写 T2；组织 O2 属 T2，故唯一违规点是 project+tenant 组合",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "D3",
+      "label": "含租户错配时建两列外键",
+      "sql": "ALTER TABLE asset_service.asset_versions ADD CONSTRAINT fk_asset_versions_project_tenant FOREIGN KEY (project_id, tenant_id) REFERENCES project_planning.projects(entity_id, tenant_id)",
+      "expect": "23503",
+      "actual": "23503",
+      "detail": "insert or update on table \"asset_versions\" violates foreign key constraint \"fk_asset_versions_project_tenant\"",
+      "rows_before": 1,
+      "rows_after": 1,
+      "hash_before": "970521dd",
+      "hash_after": "970521dd",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "场景 3：租户错配被拒",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "D4",
+      "label": "就地改租户以图绕过",
+      "sql": "UPDATE asset_service.asset_versions SET tenant_id = '11111111-1111-1111-1111-111111111111' WHERE entity_id = 'asset-tenant-bad'",
+      "expect": "P0001",
+      "actual": "P0001",
+      "detail": "asset_versions.tenant_id 为不可变内容列，禁止改写（ADR-R11）",
+      "rows_before": 1,
+      "rows_after": 1,
+      "hash_before": "970521dd",
+      "hash_after": "970521dd",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "复证：归属列全部不可就地改写，脏数据只能前向新建版本或走维护窗口",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "E0",
+      "label": "清空资产表",
+      "sql": "TRUNCATE asset_service.asset_versions CASCADE",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 1,
+      "rows_after": 0,
+      "hash_before": "970521dd",
+      "hash_after": "-",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "上一阶段未留约束",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "E1",
+      "label": "注入组织错配行",
+      "sql": "INSERT INTO asset_service.asset_versions (entity_id, entity_type, schema_version, entity_version, status, owner_module, tenant_id, organization_id, project_id, created_at, created_by, updated_at, asset_type, sha256, storage_ref, source_asset_version_ids) VALUES ('asset-org-bad', 'AssetVersion', 2, 1, 'GENERATED', 'asset_service', '11111111-1111-1111-1111-111111111111', 'bbbbbbbb-bbbb-bbbb-bbbb-bbb",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 0,
+      "rows_after": 1,
+      "hash_before": "-",
+      "hash_after": "8f970667",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "项目 P1 属 O1，资产写 O2；租户同为 T1",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "E2",
+      "label": "两列外键能否发现组织错配",
+      "sql": "ALTER TABLE asset_service.asset_versions ADD CONSTRAINT fk_asset_versions_project_tenant FOREIGN KEY (project_id, tenant_id) REFERENCES project_planning.projects(entity_id, tenant_id)",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 1,
+      "rows_after": 1,
+      "hash_before": "8f970667",
+      "hash_after": "8f970667",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=t fk3=- assert=O guard=O",
+      "note": "**预期成功**：两列只比 project+tenant → 组织错配被放行，这是两列方案的盲区",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "E3",
+      "label": "撤两列约束",
+      "sql": "ALTER TABLE asset_service.asset_versions DROP CONSTRAINT fk_asset_versions_project_tenant",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 1,
+      "rows_after": 1,
+      "hash_before": "8f970667",
+      "hash_after": "8f970667",
+      "constraints_before": "fk2=t fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "准备三列方案",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "E4",
+      "label": "改用三列外键",
+      "sql": "ALTER TABLE asset_service.asset_versions ADD CONSTRAINT fk_asset_versions_project_tenant_org FOREIGN KEY (project_id, tenant_id, organization_id) REFERENCES project_planning.projects(entity_id, tenant_id, organization_id)",
+      "expect": "23503",
+      "actual": "23503",
+      "detail": "insert or update on table \"asset_versions\" violates foreign key constraint \"fk_asset_versions_project_tenant_org\"",
+      "rows_before": 1,
+      "rows_after": 1,
+      "hash_before": "8f970667",
+      "hash_after": "8f970667",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "三列把 organization_id 纳入比较 → 组织错配被拒",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "E5",
+      "label": "就地修复组织归属",
+      "sql": "UPDATE asset_service.asset_versions SET organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' WHERE entity_id = 'asset-org-bad'",
+      "expect": "P0001",
+      "actual": "P0001",
+      "detail": "asset_versions.organization_id 为不可变内容列，禁止改写（ADR-R11）",
+      "rows_before": 1,
+      "rows_after": 1,
+      "hash_before": "8f970667",
+      "hash_after": "8f970667",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "organization_id 同样是不可变内容列",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "E6",
+      "label": "维护窗口：关闭内容守卫",
+      "sql": "ALTER TABLE asset_service.asset_versions DISABLE TRIGGER trg_asset_versions_guard",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 1,
+      "rows_after": 1,
+      "hash_before": "8f970667",
+      "hash_after": "8f970667",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=D",
+      "note": "",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "E7",
+      "label": "守卫关闭期间修复组织归属",
+      "sql": "UPDATE asset_service.asset_versions SET organization_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' WHERE entity_id = 'asset-org-bad'",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 1,
+      "rows_after": 1,
+      "hash_before": "8f970667",
+      "hash_after": "05b9b8e2",
+      "constraints_before": "fk2=- fk3=- assert=O guard=D",
+      "constraints_after": "fk2=- fk3=- assert=O guard=D",
+      "note": "只改这一行，影响行数 1→1、哈希变化可见",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "E8",
+      "label": "重新启用内容守卫",
+      "sql": "ALTER TABLE asset_service.asset_versions ENABLE TRIGGER trg_asset_versions_guard",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 1,
+      "rows_after": 1,
+      "hash_before": "05b9b8e2",
+      "hash_after": "05b9b8e2",
+      "constraints_before": "fk2=- fk3=- assert=O guard=D",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "E9",
+      "label": "修复后建三列外键",
+      "sql": "ALTER TABLE asset_service.asset_versions ADD CONSTRAINT fk_asset_versions_project_tenant_org FOREIGN KEY (project_id, tenant_id, organization_id) REFERENCES project_planning.projects(entity_id, tenant_id, organization_id)",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 1,
+      "rows_after": 1,
+      "hash_before": "05b9b8e2",
+      "hash_after": "05b9b8e2",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=t assert=O guard=O",
+      "note": "合法数据上无副作用",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "F0",
+      "label": "清空资产表",
+      "sql": "TRUNCATE asset_service.asset_versions CASCADE",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 1,
+      "rows_after": 0,
+      "hash_before": "05b9b8e2",
+      "hash_after": "-",
+      "constraints_before": "fk2=- fk3=t assert=O guard=O",
+      "constraints_after": "fk2=- fk3=t assert=O guard=O",
+      "note": "E9 残留的 fk3 不拦 TRUNCATE",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "F0b",
+      "label": "撤掉 E9 残留约束",
+      "sql": "ALTER TABLE asset_service.asset_versions DROP CONSTRAINT IF EXISTS fk_asset_versions_project_tenant, DROP CONSTRAINT IF EXISTS fk_asset_versions_project_tenant_org",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 0,
+      "rows_after": 0,
+      "hash_before": "-",
+      "hash_after": "-",
+      "constraints_before": "fk2=- fk3=t assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "隔离变量：本阶段只让触发器起作用，不让外键抢答",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "F1",
+      "label": "触发器是否拦哨兵值的新写入",
+      "sql": "INSERT INTO asset_service.asset_versions (entity_id, entity_type, schema_version, entity_version, status, owner_module, tenant_id, organization_id, project_id, created_at, created_by, updated_at, asset_type, sha256, storage_ref, source_asset_version_ids) VALUES ('asset-sentinel-try', 'AssetVersion', 2, 1, 'GENERATED', 'asset_service', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaa",
+      "expect": "P0001",
+      "actual": "P0001",
+      "detail": "新写入必须带真实 project_id（legacy-unassigned 仅用于迁移前的历史数据）",
+      "rows_before": 0,
+      "rows_after": 0,
+      "hash_before": "-",
+      "hash_after": "-",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "场景 5：project_id 取哨兵值 'legacy-unassigned'，分支的 assert_asset_versions_project_assigned 触发器应拒",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "F2",
+      "label": "触发器是否校验项目真实存在",
+      "sql": "INSERT INTO asset_service.asset_versions (entity_id, entity_type, schema_version, entity_version, status, owner_module, tenant_id, organization_id, project_id, created_at, created_by, updated_at, asset_type, sha256, storage_ref, source_asset_version_ids) VALUES ('asset-ghost', 'AssetVersion', 2, 1, 'GENERATED', 'asset_service', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaa",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 0,
+      "rows_after": 1,
+      "hash_before": "-",
+      "hash_after": "f2ce0c5e",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "**预期成功**：只认哨兵字符串，不查存在性 → 触发器不是归属约束，只挡一个魔法值",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "F3",
+      "label": "临时关闭哨兵触发器（仅这一个）",
+      "sql": "ALTER TABLE asset_service.asset_versions DISABLE TRIGGER asset_versions_project_assigned",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 1,
+      "rows_after": 1,
+      "hash_before": "f2ce0c5e",
+      "hash_after": "f2ce0c5e",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=D guard=O",
+      "note": "单语句：即使后续插入失败，也不会把触发器留在关闭态",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "F4",
+      "label": "还原历史哨兵行",
+      "sql": "INSERT INTO asset_service.asset_versions (entity_id, entity_type, schema_version, entity_version, status, owner_module, tenant_id, organization_id, project_id, created_at, created_by, updated_at, asset_type, sha256, storage_ref, source_asset_version_ids) VALUES ('asset-sentinel-hist', 'AssetVersion', 2, 1, 'GENERATED', 'asset_service', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aa",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 1,
+      "rows_after": 2,
+      "hash_before": "f2ce0c5e",
+      "hash_after": "0250ec7d",
+      "constraints_before": "fk2=- fk3=- assert=D guard=O",
+      "constraints_after": "fk2=- fk3=- assert=D guard=O",
+      "note": "真实历史行由触发器上线前写入，此处等价复现",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "F5",
+      "label": "维护窗口：关闭内容守卫",
+      "sql": "ALTER TABLE asset_service.asset_versions DISABLE TRIGGER trg_asset_versions_guard",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 2,
+      "rows_after": 2,
+      "hash_before": "0250ec7d",
+      "hash_after": "0250ec7d",
+      "constraints_before": "fk2=- fk3=- assert=D guard=O",
+      "constraints_after": "fk2=- fk3=- assert=D guard=D",
+      "note": "",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "F6",
+      "label": "把幽灵项目行映射到真实项目",
+      "sql": "UPDATE asset_service.asset_versions SET project_id = 'proj-1' WHERE entity_id = 'asset-ghost'",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 2,
+      "rows_after": 2,
+      "hash_before": "0250ec7d",
+      "hash_after": "47e3094d",
+      "constraints_before": "fk2=- fk3=- assert=D guard=D",
+      "constraints_after": "fk2=- fk3=- assert=D guard=D",
+      "note": "幽灵行可修；哨兵行不在本步修复，留给 F9 证明必须人工决策",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "F7",
+      "label": "重新启用内容守卫",
+      "sql": "ALTER TABLE asset_service.asset_versions ENABLE TRIGGER trg_asset_versions_guard",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 2,
+      "rows_after": 2,
+      "hash_before": "47e3094d",
+      "hash_after": "47e3094d",
+      "constraints_before": "fk2=- fk3=- assert=D guard=D",
+      "constraints_after": "fk2=- fk3=- assert=D guard=O",
+      "note": "",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "F8",
+      "label": "重新启用哨兵触发器",
+      "sql": "ALTER TABLE asset_service.asset_versions ENABLE TRIGGER asset_versions_project_assigned",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 2,
+      "rows_after": 2,
+      "hash_before": "47e3094d",
+      "hash_after": "47e3094d",
+      "constraints_before": "fk2=- fk3=- assert=D guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "F9",
+      "label": "含历史哨兵行时建两列外键",
+      "sql": "ALTER TABLE asset_service.asset_versions ADD CONSTRAINT fk_asset_versions_project_tenant FOREIGN KEY (project_id, tenant_id) REFERENCES project_planning.projects(entity_id, tenant_id)",
+      "expect": "23503",
+      "actual": "23503",
+      "detail": "insert or update on table \"asset_versions\" violates foreign key constraint \"fk_asset_versions_project_tenant\"",
+      "rows_before": 2,
+      "rows_after": 2,
+      "hash_before": "47e3094d",
+      "hash_after": "47e3094d",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "哨兵值必须人工映射为真实项目，禁止自动当真实项目",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "G0",
+      "label": "清空资产表",
+      "sql": "TRUNCATE asset_service.asset_versions CASCADE",
+      "expect": "成功",
+      "actual": "OK",
+      "detail": "",
+      "rows_before": 2,
+      "rows_after": 0,
+      "hash_before": "47e3094d",
+      "hash_after": "-",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "",
+      "verdict": "PASS"
+    },
+    {
+      "phase": "G1",
+      "label": "project_id 置 NULL 是否可写入",
+      "sql": "INSERT INTO asset_service.asset_versions (entity_id, entity_type, schema_version, entity_version, status, owner_module, tenant_id, organization_id, project_id, created_at, created_by, updated_at, asset_type, sha256, storage_ref, source_asset_version_ids) VALUES ('asset-null-proj', 'AssetVersion', 2, 1, 'GENERATED', 'asset_service', '11111111-1111-1111-1111-111111111111', 'aaaaaaaa-aaaa-aaaa-aaaa-a",
+      "expect": "23502",
+      "actual": "23502",
+      "detail": "null value in column \"project_id\" of relation \"asset_versions\" violates not-null constraint",
+      "rows_before": 0,
+      "rows_after": 0,
+      "hash_before": "-",
+      "hash_after": "-",
+      "constraints_before": "fk2=- fk3=- assert=O guard=O",
+      "constraints_after": "fk2=- fk3=- assert=O guard=O",
+      "note": "场景 6：该列 NOT NULL → 分支侧 MATCH SIMPLE 放行路径在列级即不可达",
+      "verdict": "PASS"
+    }
+  ],
+  "scenarios": [
+    {
+      "scenario": "1 正常归属",
+      "steps": "B1 → B2",
+      "fact": "完全匹配的资产可写入，且干净数据上外键可建"
+    },
+    {
+      "scenario": "2 孤儿项目",
+      "steps": "C2 → C3 → C10 → C12",
+      "fact": "无约束时孤儿可写入；建约束时被拒而非静默删；修复后方可 VALIDATE"
+    },
+    {
+      "scenario": "3 租户错配",
+      "steps": "D2 → D3",
+      "fact": "两列外键即可拦截 project+tenant 不一致"
+    },
+    {
+      "scenario": "4 组织错配",
+      "steps": "E1 → E2 → E4",
+      "fact": "两列外键放行、三列外键拦截 —— 两列方案的结构性盲区"
+    },
+    {
+      "scenario": "5 legacy-unassigned 哨兵",
+      "steps": "F1 → F2 → F9",
+      "fact": "触发器只挡魔法值、不查存在性；历史哨兵行阻塞外键，必须人工映射"
+    },
+    {
+      "scenario": "6 NULL / MATCH SIMPLE",
+      "steps": "G1 + 可空性审计",
+      "fact": "分支侧归属列全 NOT NULL，放行路径列级不可达；主支 organization_id 可空则可绕过"
+    },
+    {
+      "scenario": "7 NOT VALID 分阶段",
+      "steps": "C4 → C5 → C7 → C12",
+      "fact": "跳过历史扫描但新写入仍受约束；未清脏即 VALIDATE 会失败且状态保持 f"
+    }
+  ],
+  "ownership_nullability": [
+    {
+      "tbl": "asset_service.asset_versions",
+      "column_name": "organization_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "asset_service.asset_versions",
+      "column_name": "project_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "asset_service.asset_versions",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "asset_service.delivery_manifests",
+      "column_name": "organization_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "asset_service.delivery_manifests",
+      "column_name": "project_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "asset_service.delivery_manifests",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "asset_service.qc_reports",
+      "column_name": "organization_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "asset_service.qc_reports",
+      "column_name": "project_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "asset_service.qc_reports",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "auth.revoked_tokens",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "generation_execution.generation_tasks",
+      "column_name": "organization_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "generation_execution.generation_tasks",
+      "column_name": "project_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "generation_execution.generation_tasks",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "generation_execution.production_routes",
+      "column_name": "organization_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "generation_execution.production_routes",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "generation_execution.shot_route_selections",
+      "column_name": "organization_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "generation_execution.shot_route_selections",
+      "column_name": "project_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "generation_execution.shot_route_selections",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "outbox.outbox_events",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "outbox.outbox_events_default",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "outbox.outbox_events_y202611",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "outbox.outbox_events_y202612",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "project_planning.episodes",
+      "column_name": "organization_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "project_planning.episodes",
+      "column_name": "project_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "project_planning.episodes",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "project_planning.organizations",
+      "column_name": "organization_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "project_planning.organizations",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "project_planning.projects",
+      "column_name": "organization_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "project_planning.projects",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "project_planning.script_revisions",
+      "column_name": "organization_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "project_planning.script_revisions",
+      "column_name": "project_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "project_planning.script_revisions",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "qc_governance.gate_decisions",
+      "column_name": "organization_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "qc_governance.gate_decisions",
+      "column_name": "project_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "qc_governance.gate_decisions",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "qc_governance.qc_review_sessions",
+      "column_name": "organization_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "qc_governance.qc_review_sessions",
+      "column_name": "project_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "qc_governance.qc_review_sessions",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "shot_planning.constraint_packs",
+      "column_name": "organization_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "shot_planning.constraint_packs",
+      "column_name": "project_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "shot_planning.constraint_packs",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "shot_planning.shot_drafts",
+      "column_name": "organization_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "shot_planning.shot_drafts",
+      "column_name": "project_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "shot_planning.shot_drafts",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "shot_planning.shot_revisions",
+      "column_name": "organization_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "shot_planning.shot_revisions",
+      "column_name": "project_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "shot_planning.shot_revisions",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "shot_planning.shot_specs",
+      "column_name": "organization_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "shot_planning.shot_specs",
+      "column_name": "project_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "shot_planning.shot_specs",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "shot_planning.shot_visual_plans",
+      "column_name": "organization_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "shot_planning.shot_visual_plans",
+      "column_name": "project_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "shot_planning.shot_visual_plans",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "workflow.approval_flows",
+      "column_name": "organization_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "workflow.approval_flows",
+      "column_name": "project_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "workflow.approval_flows",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "workflow.approval_steps",
+      "column_name": "organization_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "workflow.approval_steps",
+      "column_name": "project_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "workflow.approval_steps",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "workflow.approval_tickets",
+      "column_name": "organization_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "workflow.approval_tickets",
+      "column_name": "project_id",
+      "is_nullable": "NO"
+    },
+    {
+      "tbl": "workflow.approval_tickets",
+      "column_name": "tenant_id",
+      "is_nullable": "NO"
+    }
+  ],
+  "main_side_contrast": {
+    "projects.organization_id is_nullable": "YES",
+    "organizations 表行数": "0",
+    "反证：organization_id 非空且不存在": "23503（insert or update on table \"projects\" violates foreign key constraint \"fk_projects_organization_tenan）",
+    "正证：organization_id 置 NULL": "成功（MATCH SIMPLE 跳过校验：组织表 0 行仍写入成功）"
+  },
+  "final_constraints": "fk2=- fk3=- assert=O guard=O",
+  "final_rows": 0
+}
