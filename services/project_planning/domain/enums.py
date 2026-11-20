@@ -64,3 +64,77 @@ class EpisodeStatus(str, Enum):
     DRAFT = "DRAFT"            # 草稿：集数已登记，未进入正式生产
     ACTIVE = "ACTIVE"          # 进行中：集数进入生产流程
     ARCHIVED = "ARCHIVED"      # 归档（终态，不可原地复活）
+
+
+class SceneStatus(str, Enum):
+    """场次状态（ADR-R19 / A13）。
+
+    对齐 contracts/state_machines/state_machines.yaml → objects → Scene。
+    刻意与 Episode 同形：同一层级的聚合各造一套状态，等于要求实现方
+    为每一层单独学习，且跨层校验无法复用同一套判定。
+    不设 IN_REVIEW（审核结论归 GateInstance）、不设 LOCKED（场次无锁定对象）、
+    不设生产进度态（那是 Shot 的职责）。
+    """
+
+    DRAFT = "DRAFT"            # 草稿：场次已登记，未进入正式生产
+    ACTIVE = "ACTIVE"          # 进行中
+    ARCHIVED = "ARCHIVED"      # 归档（终态，不可原地复活）
+
+
+class ShotStatus(str, Enum):
+    """镜头状态（ADR-R18 / A13）。
+
+    对齐 contracts/state_machines/state_machines.yaml → objects → Shot。
+    不设 IN_REVIEW（审核结论归 GateInstance，写进 Shot 就是第二份审核事实）；
+    不设 REWORK（返工归 ReworkTask，获准返工后 Shot 回到 IN_PRODUCTION 并保留
+    rework_basis_ref）；不设 DELIVERED（交付结论归 Gate 与 DeliveryPackage）。
+    CANCELLED 为终态，恢复必须新建 Shot 并重新授权。
+    """
+
+    NOT_STARTED = "NOT_STARTED"                    # 未开始
+    IN_PRODUCTION = "IN_PRODUCTION"                # 生产中
+    BLOCKED = "BLOCKED"                            # 阻塞（必须有 blocked_reason）
+    PRODUCTION_COMPLETE = "PRODUCTION_COMPLETE"    # 生产产物已完成
+    CANCELLED = "CANCELLED"                        # 取消（终态，必须有授权记录）
+
+
+class ShotRevisionStatus(str, Enum):
+    """镜头修订状态（ADR-R17）。
+
+    ACTIVE → SUPERSEDED：版本不可原地覆盖，新修订使旧修订成为 SUPERSEDED。
+    """
+
+    ACTIVE = "ACTIVE"
+    SUPERSEDED = "SUPERSEDED"
+
+
+class ShotDraftStatus(str, Enum):
+    """拆镜草案状态（ADR-R16）。
+
+    PENDING_CONFIRM → IN_REVIEW → CONFIRMED；IN_REVIEW → RETURNED；
+    PENDING_CONFIRM / IN_REVIEW → DISCARDED。
+    CONFIRMED / RETURNED / DISCARDED 均为**版本终态**：修改走新 draft_version。
+    """
+
+    PENDING_CONFIRM = "PENDING_CONFIRM"
+    IN_REVIEW = "IN_REVIEW"
+    CONFIRMED = "CONFIRMED"
+    RETURNED = "RETURNED"
+    DISCARDED = "DISCARDED"
+
+
+class ReworkTaskStatus(str, Enum):
+    """返工任务状态（7.6 精准返工 / A13）。
+
+    OPEN → IN_PROGRESS → DONE → VERIFYING → CLOSED；CLOSED 为终态。
+    REJECTED 在枚举里合法，但当前**没有任何授权入边**（契约已登记），
+    按 31.5「未登记转移一律拒绝」处理——指向它的请求必须被拒绝，
+    而不是被当作「还没实现」放行。
+    """
+
+    OPEN = "OPEN"
+    IN_PROGRESS = "IN_PROGRESS"
+    DONE = "DONE"
+    VERIFYING = "VERIFYING"
+    CLOSED = "CLOSED"
+    REJECTED = "REJECTED"

@@ -43,10 +43,25 @@ def _business() -> dict[str, frozenset[tuple[str, str]]]:
 
 
 def _orm() -> dict[str, frozenset[str]]:
-    return {
-        _PROJECT: frozenset({"projects", "episodes", "script_revisions", "organizations"}),
-        _ASSET: frozenset({"asset_versions", "qc_reports"}),
-    }
+    """从真实 ORM 元数据派生「各域有哪些业务表」。
+
+    为什么不再手写表名：手写快照是第二事实源，必然与真实 ORM 漂移。A13 新增
+    5 张 Scene/Shot 表后，这份快照立刻陈旧，本文件的「合规样本」随即报红——
+    但报红的语义是「判据坏了」，实际是「样本落后了」，下一个人会去改判据而
+    不是改样本。改为派生后，样本与生产断言 ``data.role_grants_least_privilege``
+    同源，新增表自动跟上。
+
+    两个域模块都要导入：它们共用同一个 Base，只导入一个就只注册一个 schema。
+    """
+    from packages.shared.db_grants import DOMAINS
+    from services.asset_service.repository import orm as asset_orm
+    from services.project_planning.repository import orm as planning_orm
+
+    by_schema: dict[str, set[str]] = {}
+    for module in (planning_orm, asset_orm):
+        for table in module.Base.metadata.tables.values():
+            by_schema.setdefault(table.schema or "", set()).add(table.name)
+    return {domain: frozenset(by_schema.get(domain, set())) for domain in DOMAINS}
 
 
 def _evaluate(**overrides: object) -> list[str]:

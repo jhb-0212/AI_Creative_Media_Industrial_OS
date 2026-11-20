@@ -544,6 +544,47 @@ _LIFECYCLE_SOURCES: tuple[tuple[str, str, str, str, str, str], ...] = (
         "services/asset_service/domain/asset_version.py",
         "AssetVersion",
     ),
+    # A13（ADR-R40）：同一条事务链上的五个对象，所有权判定逐个执行。
+    (
+        "Scene",
+        "services.project_planning.domain.state_machine",
+        "SCENE_LIFECYCLE",
+        "SCENE_ALLOWED_TRANSITIONS",
+        "services/project_planning/domain/scene.py",
+        "Scene",
+    ),
+    (
+        "Shot",
+        "services.project_planning.domain.state_machine",
+        "SHOT_LIFECYCLE",
+        "SHOT_ALLOWED_TRANSITIONS",
+        "services/project_planning/domain/shot.py",
+        "Shot",
+    ),
+    (
+        "ShotRevision",
+        "services.project_planning.domain.state_machine",
+        "SHOT_REVISION_LIFECYCLE",
+        "SHOT_REVISION_ALLOWED_TRANSITIONS",
+        "services/project_planning/domain/shot_revision.py",
+        "ShotRevision",
+    ),
+    (
+        "ShotBreakdownDraft",
+        "services.project_planning.domain.state_machine",
+        "SHOT_DRAFT_LIFECYCLE",
+        "SHOT_DRAFT_ALLOWED_TRANSITIONS",
+        "services/project_planning/domain/shot_draft.py",
+        "ShotBreakdownDraft",
+    ),
+    (
+        "ReworkTask",
+        "services.project_planning.domain.state_machine",
+        "REWORK_TASK_LIFECYCLE",
+        "REWORK_TASK_ALLOWED_TRANSITIONS",
+        "services/project_planning/domain/rework_task.py",
+        "ReworkTask",
+    ),
 )
 
 
@@ -1332,10 +1373,19 @@ def evaluate_least_privilege(
             )
 
     # 2. 迁移语句 == 矩阵生成。
+    #
+    # 比较的是**语句集合**，不是列表：授权收敛天然可重入（REVOKE ALL 后 GRANT，
+    # 重复执行结果相同），且迁移是时间胶囊——每张新表由它自己的迁移收敛一次，
+    # 同一域的 ``ALTER DEFAULT PRIVILEGES ... REVOKE`` 会在多条迁移里各出现一次。
+    # 按列表比较会把「幂等语句出现了两次」误判成「迁移多执行了语句」，
+    # 而真正的失效模式（少一条 GRANT、多一条矩阵没声明的 GRANT）在集合语义下
+    # 一个都不会漏。
+    rendered_set = set(rendered)
     expected = [statement for domain in sorted(converge) for statement in converge[domain]]
-    if sorted(rendered) != sorted(expected):
-        missing = [s for s in expected if s not in rendered]
-        unexpected = [s for s in rendered if s not in expected]
+    expected_set = set(expected)
+    if rendered_set != expected_set:
+        missing = sorted(expected_set - rendered_set)
+        unexpected = sorted(rendered_set - expected_set)
         detail: list[str] = []
         if missing:
             detail.append(f"迁移少执行 {len(missing)} 条（首条：{missing[0]}）")
@@ -2005,6 +2055,27 @@ class _SqlCollector:
 
     def get_bind(self) -> _EmptyBind:
         return _EmptyBind()
+
+    # 结构类 DDL 在本断言里不需要 SQL 文本：这里判定的是权限/安全语句，
+    # 建表语句由另一条判据（schema 对齐）负责。显式实现而不是 __getattr__ 兜底，
+    # 是为了让「迁移调用了没被支持的 op」仍然是一个错误，而不是静默跳过。
+    def create_table(self, *args: object, **kwargs: object) -> None:
+        return None
+
+    def create_index(self, *args: object, **kwargs: object) -> None:
+        return None
+
+    def create_unique_constraint(self, *args: object, **kwargs: object) -> None:
+        return None
+
+    def drop_table(self, *args: object, **kwargs: object) -> None:
+        return None
+
+    def drop_index(self, *args: object, **kwargs: object) -> None:
+        return None
+
+    def drop_constraint(self, *args: object, **kwargs: object) -> None:
+        return None
 
 
 def _rendered_migration_statements(

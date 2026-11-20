@@ -37,7 +37,12 @@ from packages.shared.lifecycle import Lifecycle, Transition
 from services.project_planning.domain.enums import (
     EpisodeStatus,
     ProjectStatus,
+    ReworkTaskStatus,
+    SceneStatus,
     ScriptStatus,
+    ShotDraftStatus,
+    ShotRevisionStatus,
+    ShotStatus,
 )
 
 # --------------------------------------------------------------------------- #
@@ -127,6 +132,137 @@ EPISODE_ALLOWED_TRANSITIONS: dict[EpisodeStatus, frozenset[EpisodeStatus]] = (
 )
 
 # --------------------------------------------------------------------------- #
+# A13（ADR-R40）：Scene / Shot / ShotRevision / ShotBreakdownDraft / ReworkTask
+#
+# 五个对象一次性接通，因为它们是同一条事务链：
+#   Shot.required 含 shot_revision_id → 需要 ShotRevision
+#   → 唯一入口 SHOT.REVISION.CONFIRM → 输入是 ShotBreakdownDraft
+#   → 唯一入口 SHOT.DRAFT.CREATE
+# 单独实现任何一环，都会立刻撞上下一环（详见 ADR-R40 §1）。
+# --------------------------------------------------------------------------- #
+SCENE_STATUS_CHANGE_ACTION = "SCENE.STATUS.CHANGE"
+SHOT_STATUS_CHANGE_ACTION = "SHOT.STATUS.CHANGE"
+SHOT_REVISION_CONFIRM_ACTION = "SHOT.REVISION.CONFIRM"
+SHOT_DRAFT_CONFIRM_ACTION = "SHOT.DRAFT.CONFIRM"
+SHOT_DRAFT_RETURN_ACTION = "SHOT.DRAFT.RETURN"
+SHOT_DRAFT_DISCARD_ACTION = "SHOT.DRAFT.DISCARD"
+REWORK_TASK_STATUS_CHANGE_ACTION = "REWORK.TASK.STATUS.CHANGE"
+
+# Scene：3 条边，全部归 SCENE.STATUS.CHANGE（与 Episode 同构）。
+SCENE_TRANSITIONS: tuple[Transition[SceneStatus], ...] = (
+    Transition(SceneStatus.DRAFT, SceneStatus.ACTIVE, SCENE_STATUS_CHANGE_ACTION),
+    Transition(SceneStatus.DRAFT, SceneStatus.ARCHIVED, SCENE_STATUS_CHANGE_ACTION),
+    Transition(SceneStatus.ACTIVE, SceneStatus.ARCHIVED, SCENE_STATUS_CHANGE_ACTION),
+)
+
+SCENE_LIFECYCLE = Lifecycle(
+    object_name="Scene",
+    states=tuple(SceneStatus),
+    edges=SCENE_TRANSITIONS,
+)
+
+# Shot：10 条边，全部归 SHOT.STATUS.CHANGE。
+# 这里只有一个动作，但所有权判定照常执行——它的价值在「未来新增专属动作
+# （如 SHOT.CANCEL）时必须显式改边表」，而不是让新动作悄悄共享入口。
+# BLOCKED→NOT_STARTED 是合法回退：阻塞解除后可能整体重排而未启动。
+SHOT_TRANSITIONS: tuple[Transition[ShotStatus], ...] = (
+    Transition(ShotStatus.NOT_STARTED, ShotStatus.IN_PRODUCTION, SHOT_STATUS_CHANGE_ACTION),
+    Transition(ShotStatus.NOT_STARTED, ShotStatus.BLOCKED, SHOT_STATUS_CHANGE_ACTION),
+    Transition(ShotStatus.NOT_STARTED, ShotStatus.CANCELLED, SHOT_STATUS_CHANGE_ACTION),
+    Transition(ShotStatus.IN_PRODUCTION, ShotStatus.PRODUCTION_COMPLETE, SHOT_STATUS_CHANGE_ACTION),
+    Transition(ShotStatus.IN_PRODUCTION, ShotStatus.BLOCKED, SHOT_STATUS_CHANGE_ACTION),
+    Transition(ShotStatus.IN_PRODUCTION, ShotStatus.CANCELLED, SHOT_STATUS_CHANGE_ACTION),
+    Transition(ShotStatus.BLOCKED, ShotStatus.NOT_STARTED, SHOT_STATUS_CHANGE_ACTION),
+    Transition(ShotStatus.BLOCKED, ShotStatus.IN_PRODUCTION, SHOT_STATUS_CHANGE_ACTION),
+    Transition(ShotStatus.BLOCKED, ShotStatus.CANCELLED, SHOT_STATUS_CHANGE_ACTION),
+    Transition(
+        ShotStatus.PRODUCTION_COMPLETE, ShotStatus.IN_PRODUCTION, SHOT_STATUS_CHANGE_ACTION
+    ),
+)
+
+SHOT_LIFECYCLE = Lifecycle(
+    object_name="Shot",
+    states=tuple(ShotStatus),
+    edges=SHOT_TRANSITIONS,
+)
+
+# ShotRevision：1 条边。新修订使旧修订 SUPERSEDED，旧版本不可原地覆盖。
+SHOT_REVISION_TRANSITIONS: tuple[Transition[ShotRevisionStatus], ...] = (
+    Transition(
+        ShotRevisionStatus.ACTIVE,
+        ShotRevisionStatus.SUPERSEDED,
+        SHOT_REVISION_CONFIRM_ACTION,
+    ),
+)
+
+SHOT_REVISION_LIFECYCLE = Lifecycle(
+    object_name="ShotRevision",
+    states=tuple(ShotRevisionStatus),
+    edges=SHOT_REVISION_TRANSITIONS,
+)
+
+# ShotBreakdownDraft：5 条边，三个动作分领。
+# CONFIRM 拥有两条边（认领导致 IN_REVIEW，再确认到 CONFIRMED）：认领与确认是
+# 同一用例的两阶段，一次调用在同一事务内连走两跳，两条事实共用同一个
+# owner_action。「认领」单独占一个动作位没有业务语义，它只是并发锁。
+SHOT_DRAFT_TRANSITIONS: tuple[Transition[ShotDraftStatus], ...] = (
+    Transition(
+        ShotDraftStatus.PENDING_CONFIRM, ShotDraftStatus.IN_REVIEW, SHOT_DRAFT_CONFIRM_ACTION
+    ),
+    Transition(
+        ShotDraftStatus.IN_REVIEW, ShotDraftStatus.CONFIRMED, SHOT_DRAFT_CONFIRM_ACTION
+    ),
+    Transition(
+        ShotDraftStatus.IN_REVIEW, ShotDraftStatus.RETURNED, SHOT_DRAFT_RETURN_ACTION
+    ),
+    Transition(
+        ShotDraftStatus.PENDING_CONFIRM, ShotDraftStatus.DISCARDED, SHOT_DRAFT_DISCARD_ACTION
+    ),
+    Transition(
+        ShotDraftStatus.IN_REVIEW, ShotDraftStatus.DISCARDED, SHOT_DRAFT_DISCARD_ACTION
+    ),
+)
+
+SHOT_DRAFT_LIFECYCLE = Lifecycle(
+    object_name="ShotBreakdownDraft",
+    states=tuple(ShotDraftStatus),
+    edges=SHOT_DRAFT_TRANSITIONS,
+)
+
+# ReworkTask：4 条边。REJECTED 无入边——它是合法状态值，但当前没有任何
+# 授权转移，按 31.5 未登记转移一律拒绝（不是「未实现所以放行」）。
+REWORK_TASK_TRANSITIONS: tuple[Transition[ReworkTaskStatus], ...] = (
+    Transition(ReworkTaskStatus.OPEN, ReworkTaskStatus.IN_PROGRESS, REWORK_TASK_STATUS_CHANGE_ACTION),
+    Transition(ReworkTaskStatus.IN_PROGRESS, ReworkTaskStatus.DONE, REWORK_TASK_STATUS_CHANGE_ACTION),
+    Transition(ReworkTaskStatus.DONE, ReworkTaskStatus.VERIFYING, REWORK_TASK_STATUS_CHANGE_ACTION),
+    Transition(ReworkTaskStatus.VERIFYING, ReworkTaskStatus.CLOSED, REWORK_TASK_STATUS_CHANGE_ACTION),
+)
+
+REWORK_TASK_LIFECYCLE = Lifecycle(
+    object_name="ReworkTask",
+    states=tuple(ReworkTaskStatus),
+    edges=REWORK_TASK_TRANSITIONS,
+)
+
+# 结构投影（契约闸门按邻接集比对 YAML），派生自边表，方向唯一。
+SCENE_ALLOWED_TRANSITIONS: dict[SceneStatus, frozenset[SceneStatus]] = (
+    SCENE_LIFECYCLE.allowed_transitions()
+)
+SHOT_ALLOWED_TRANSITIONS: dict[ShotStatus, frozenset[ShotStatus]] = (
+    SHOT_LIFECYCLE.allowed_transitions()
+)
+SHOT_REVISION_ALLOWED_TRANSITIONS: dict[ShotRevisionStatus, frozenset[ShotRevisionStatus]] = (
+    SHOT_REVISION_LIFECYCLE.allowed_transitions()
+)
+SHOT_DRAFT_ALLOWED_TRANSITIONS: dict[ShotDraftStatus, frozenset[ShotDraftStatus]] = (
+    SHOT_DRAFT_LIFECYCLE.allowed_transitions()
+)
+REWORK_TASK_ALLOWED_TRANSITIONS: dict[ReworkTaskStatus, frozenset[ReworkTaskStatus]] = (
+    REWORK_TASK_LIFECYCLE.allowed_transitions()
+)
+
+
+# --------------------------------------------------------------------------- #
 # 兼容入口：既有调用方与测试使用「按对象命名」的函数。
 # 语义统一为「只判结构，不含所有权」——所有权校验在 edge_owned_by 与聚合根的
 # transition_to 上，任何真正的推进都必须经过后者。
@@ -181,12 +317,34 @@ __all__ = [
     "PROJECT_LIFECYCLE",
     "PROJECT_STATUS_CHANGE_ACTION",
     "PROJECT_TRANSITIONS",
+    "REWORK_TASK_ALLOWED_TRANSITIONS",
+    "REWORK_TASK_LIFECYCLE",
+    "REWORK_TASK_STATUS_CHANGE_ACTION",
+    "REWORK_TASK_TRANSITIONS",
+    "SCENE_ALLOWED_TRANSITIONS",
+    "SCENE_LIFECYCLE",
+    "SCENE_STATUS_CHANGE_ACTION",
+    "SCENE_TRANSITIONS",
     "SCRIPT_ALLOWED_TRANSITIONS",
     "SCRIPT_IMPORT_ACTION",
     "SCRIPT_LIFECYCLE",
     "SCRIPT_LOCK_APPROVE_ACTION",
     "SCRIPT_LOCK_REQUEST_ACTION",
     "SCRIPT_TRANSITIONS",
+    "SHOT_ALLOWED_TRANSITIONS",
+    "SHOT_DRAFT_ALLOWED_TRANSITIONS",
+    "SHOT_DRAFT_CONFIRM_ACTION",
+    "SHOT_DRAFT_DISCARD_ACTION",
+    "SHOT_DRAFT_LIFECYCLE",
+    "SHOT_DRAFT_RETURN_ACTION",
+    "SHOT_DRAFT_TRANSITIONS",
+    "SHOT_LIFECYCLE",
+    "SHOT_REVISION_ALLOWED_TRANSITIONS",
+    "SHOT_REVISION_CONFIRM_ACTION",
+    "SHOT_REVISION_LIFECYCLE",
+    "SHOT_REVISION_TRANSITIONS",
+    "SHOT_STATUS_CHANGE_ACTION",
+    "SHOT_TRANSITIONS",
     "assert_transition",
     "assert_transition_episode",
     "assert_transition_script",

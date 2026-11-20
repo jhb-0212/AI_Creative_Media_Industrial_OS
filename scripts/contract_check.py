@@ -105,6 +105,17 @@ def load_yaml_mapping(path: Path) -> dict[str, Any]:
 # 契约对象名 -> 领域转移表来源（模块路径, 变量名）
 # 所有对象的状态机统一集中在 domain/state_machine.py（单一事实源），
 # 避免各聚合根内嵌转移表导致落点不一致。
+# 不变量定级的词汇表（**唯一权威定义**）。
+#   SCHEMA           —— 由 object_schemas 契约本身拒绝（字段集闭合、枚举范围）；
+#   RUNTIME_ENFORCED —— 由运行时拒绝（领域守卫 / 库层约束 / 服务前置条件）；
+#   RUNTIME_PENDING  —— 尚未落地，必须留在不变量里当债务。
+# 为什么集中在这里而不是各测试各写一份：此前 5 个契约测试各自硬编码
+# {SCHEMA, RUNTIME_PENDING}。A13 交付需要第三档时，五处会同时变红，而"修法"
+# 是各改一遍——一份事实五个副本，下一次必然分叉，且分叉后没有任何闸门发现。
+INVARIANT_LEVELS: frozenset[str] = frozenset(
+    {"SCHEMA", "RUNTIME_ENFORCED", "RUNTIME_PENDING"}
+)
+
 _STATE_MACHINE_SOURCES: dict[str, tuple[str, str]] = {
     "Project": ("services.project_planning.domain.state_machine", "ALLOWED_TRANSITIONS"),
     "ScriptRevision": (
@@ -118,6 +129,27 @@ _STATE_MACHINE_SOURCES: dict[str, tuple[str, str]] = {
     "AssetVersion": (
         "services.asset_service.domain.state_machine",
         "ASSET_ALLOWED_TRANSITIONS",
+    ),
+    # A13（ADR-R40）
+    "Scene": (
+        "services.project_planning.domain.state_machine",
+        "SCENE_ALLOWED_TRANSITIONS",
+    ),
+    "Shot": (
+        "services.project_planning.domain.state_machine",
+        "SHOT_ALLOWED_TRANSITIONS",
+    ),
+    "ShotRevision": (
+        "services.project_planning.domain.state_machine",
+        "SHOT_REVISION_ALLOWED_TRANSITIONS",
+    ),
+    "ShotBreakdownDraft": (
+        "services.project_planning.domain.state_machine",
+        "SHOT_DRAFT_ALLOWED_TRANSITIONS",
+    ),
+    "ReworkTask": (
+        "services.project_planning.domain.state_machine",
+        "REWORK_TASK_ALLOWED_TRANSITIONS",
     ),
 }
 
@@ -1155,10 +1187,21 @@ def _declared_state_gaps() -> dict[str, dict[str, dict[str, object]]]:
 _STATE_TOKEN_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,}$")
 
 
-def _reachable_states(edges: set[tuple[str, str]]) -> set[str]:
-    """从「无入边的实现状态」出发，沿实现转移边求可达闭包。"""
-    targets = {tgt for _, tgt in edges}
-    initials = {src for src, _ in edges} - targets
+def _reachable_states(
+    edges: set[tuple[str, str]], initial: str | None = None
+) -> set[str]:
+    """从初始状态出发，沿实现转移边求可达闭包。
+
+    ``initial`` 来自契约的 ``initial_state``。为什么必须支持它：Shot 的
+    BLOCKED→NOT_STARTED 是合法回退边，于是**每个状态都有入边**，
+    「无入边即初始」的旧启发式会得到空集，把整个对象误判成全状态不可达。
+    契约显式声明初始态后，根由契约给，不由图论猜。
+    """
+    if initial:
+        initials = {initial}
+    else:
+        targets = {tgt for _, tgt in edges}
+        initials = {src for src, _ in edges} - targets
     reachable = set(initials)
     frontier = list(initials)
     while frontier:
@@ -1197,7 +1240,10 @@ def check_state_reachability() -> bool:
             continue
         states = {str(s) for s in entry.get("allowed_states") or []}
         edges = _load_impl_transitions(module_path, var_name)
-        reachable = _reachable_states(edges)
+        initial = entry.get("initial_state")
+        reachable = _reachable_states(
+            edges, str(initial) if initial is not None else None
+        )
         obj_gaps = declared.get(obj_name) or {}
         checked += 1
 
@@ -1283,9 +1329,15 @@ def _status_change_action_keys(resource_type: str) -> set[str]:
     for action in registry.get("actions", []):
         if not isinstance(action, dict):
             continue
-        rtype = str(action.get("resource_type", "")).split("/")[0]
+        # resource_type 可能是组合（"Shot/ShotRevision"）。此前只取第一段，
+        # 导致组合里的第二个对象永远拿不到状态变更动作，被误判成「无入口」。
+        rtypes = {
+            item.strip()
+            for item in str(action.get("resource_type", "")).split("/")
+            if item.strip()
+        }
         key = str(action.get("action_key", ""))
-        if rtype == resource_type and not key.endswith((".CREATE", ".READ")):
+        if resource_type in rtypes and not key.endswith((".CREATE", ".READ")):
             result.add(key)
     return result
 

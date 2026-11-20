@@ -16,9 +16,11 @@
 4. **闸门真的会拦**：`reference_target_problems()` / `enum_registry_coverage_problems()`
    是纯函数，本文件直接注入悬空引用与缺失对象，验证它们返回问题而不是静默通过。
 
-**诚实说明**：本文件不测试运行时。Scene 目前没有 ORM、没有迁移、没有 service、
-没有 action，八条不变量里只有两条能由 schema 表达，其余全是 `RUNTIME_PENDING`。
-断言「运行时尚未实现」是刻意的——它保证这条缺口不会被一句「契约已完成」悄悄抹掉。
+**诚实说明（2026-11-20 更新）**：A13 / ADR-R40 已把 Scene 的运行时补齐——ORM、
+迁移、service、action 与状态机全部就位，SC-1 / SC-2 / SC-3 / SC-5 由
+`RUNTIME_PENDING` 改判为 `RUNTIME_ENFORCED`。因此本节从「断言还没做」翻转为
+「断言已做且定级没有虚高」：反向的谎（实现了但定级不更新）与正向的谎
+（定级说强制但运行时没有）都要能被拦住。
 """
 
 from __future__ import annotations
@@ -186,10 +188,16 @@ def test_mirrors_episode_lifecycle() -> None:
 
 
 def test_invariants_are_registered_and_partitioned() -> None:
+    """不变量必须齐备，且定级取自三分词汇表。
+
+    词汇表在 A13 增加 `RUNTIME_ENFORCED`：此前只有「schema 能表达」与「运行时
+    还没做」两档，把「已经在运行时强制」挤进了 PENDING，等于交付完成后定级必须
+    说谎。三档分别对应：契约层拒绝、运行时拒绝、尚未落地。
+    """
     invariants = DEF["x-afs-invariants"]
     assert [item["id"] for item in invariants] == [f"SC-{i}" for i in range(1, 7)]
     for item in invariants:
-        assert item["enforced_by"] in {"SCHEMA", "RUNTIME_PENDING"}
+        assert item["enforced_by"] in cc.INVARIANT_LEVELS
     schema_enforced = {item["id"] for item in invariants if item["enforced_by"] == "SCHEMA"}
     assert schema_enforced == {"SC-4", "SC-6"}, (
         "能由 schema 表达的只有「状态范围」与「字段集合闭合」；"
@@ -285,26 +293,69 @@ def test_registry_counts_match_their_lists() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 5. 运行时缺口：断言「还没做」，防止被一句「契约完成」抹掉
+# 5. 运行时落地：断言「已落地」，并拦住虚高的定级
 # --------------------------------------------------------------------------- #
-def test_scene_has_no_runtime_state_machine_yet() -> None:
-    """Scene 尚未进入 _STATE_MACHINE_SOURCES（无领域实现）。
+# A13 交付时逐条核过的定级账：每条都必须来自「运行时真的会拒绝」，而不是
+# 「代码里有相关字段」。这张表的作用是防止实现回退后定级仍留在 ENFORCED。
+_ENFORCED_AFTER_A13 = {
+    "SC-1": "领域层构造校验 + ck_scenes_identity_single",
+    "SC-2": "复合外键 fk_scenes_episode（(project, episode) → episodes）",
+    "SC-3": "uq_scene_code_per_project（项目内唯一）+ 服务层冲突解释",
+    "SC-5": "ARCHIVED 无出边 + SceneService 归档前置条件（无 IN_PRODUCTION 镜头）",
+}
 
-    这条一旦失败，说明运行时正在落地：那时必须同步补 PostgreSQL 集成测试
-    （复合外键、唯一索引、终态不可复活），并把 SC-1/SC-2/SC-3/SC-5 从
-    RUNTIME_PENDING 改判为 SCHEMA 或 RUNTIME_ENFORCED。
+
+def test_scene_has_runtime_state_machine() -> None:
+    """Scene 已进入 `_STATE_MACHINE_SOURCES`：运行时转移表与契约逐边相等。
+
+    刻意复用闸门自己的 ``_load_impl_transitions`` / ``contract_edges``，而不是在
+    测试里再写一遍反射逻辑——否则「闸门认为一致」与「测试认为一致」会变成两个
+    判据，而它们迟早会给出不同答案。
     """
-    assert OBJECT not in cc._STATE_MACHINE_SOURCES
+    assert OBJECT in cc._STATE_MACHINE_SOURCES
+    module_path, var_name = cc._STATE_MACHINE_SOURCES[OBJECT]
+    entry = next(o for o in STATE_MACHINES["objects"] if o.get("object") == OBJECT)
+    assert cc._load_impl_transitions(module_path, var_name) == cc.contract_edges(entry)
 
 
-def test_all_runtime_gaps_are_declared_as_invariants() -> None:
-    """没有运行时的规则必须至少留在不变量里，不能只存在于某个人的记忆里。"""
-    runtime_pending = {
-        item["statement"]
+def test_scene_invariants_are_no_longer_runtime_pending() -> None:
+    """A13 交付的 4 条不变量必须已改判，且 Scene 不再有任何 PENDING 遗留。
+
+    为什么先钉死具体条目再断言整体为空：只断言「空集」可以被「整体删掉不变量」
+    满足，先确认这 4 条仍在且已定级，才排除「删掉即通过」这条捷径。
+    """
+    by_id = {item["id"]: item for item in DEF["x-afs-invariants"]}
+    for invariant_id in _ENFORCED_AFTER_A13:
+        assert invariant_id in by_id, f"不变量 {invariant_id} 被删除了"
+        assert by_id[invariant_id]["enforced_by"] == "RUNTIME_ENFORCED", (
+            f"{invariant_id} 应已由运行时不变量强制"
+        )
+
+    pending = [
+        item["id"]
         for item in DEF["x-afs-invariants"]
         if item["enforced_by"] == "RUNTIME_PENDING"
-    }
-    assert len(runtime_pending) == 4
-    joined = " ".join(runtime_pending)
-    for token in ("复合外键", "scene_code", "ARCHIVED"):
-        assert token in joined, f"运行时缺口没提到 {token}"
+    ]
+    assert pending == [], f"Scene 仍有未落地的不变量：{pending}"
+
+
+def test_runtime_enforced_claim_requires_runtime() -> None:
+    """定级不得虚高：声称 `RUNTIME_ENFORCED` 的对象必须已有运行时状态机。
+
+    这是原 `len(runtime_pending) == 4` 的替代。那种写法把「数量」当判据，一旦
+    某个对象落地，修法就变成去改数字——判据沦为易被篡改的常数，而且改数字的人
+    不需要理解任何一条不变量。换成「定级与运行时是否存在」的结构性约束后，
+    判据不会随交付进度失效，也不会奖励「把断言改宽」。
+    """
+    allowed = cc.INVARIANT_LEVELS
+    for obj_name, spec in DEFS.items():
+        for item in spec.get("x-afs-invariants", []):
+            assert item["enforced_by"] in allowed, (
+                f"{obj_name}.{item['id']} 的 enforced_by 取值非法：{item['enforced_by']}"
+            )
+            assert item["statement"].strip(), f"{obj_name}.{item['id']} 没有 statement"
+            if item["enforced_by"] == "RUNTIME_ENFORCED":
+                assert obj_name in cc._STATE_MACHINE_SOURCES, (
+                    f"{obj_name}.{item['id']} 声称由运行时强制，"
+                    f"但 {obj_name} 没有运行时状态机——定级虚高"
+                )

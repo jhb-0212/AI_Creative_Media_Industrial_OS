@@ -58,10 +58,20 @@ from services.asset_service.api.asset_routes import router as asset_router  # no
 from services.project_planning.api.episode_routes import router as episode_router  # noqa: E402
 from services.project_planning.api.project_routes import router as project_router  # noqa: E402
 from services.project_planning.api.script_routes import router as script_router  # noqa: E402
+from services.project_planning.api.shot_planning_routes import (  # noqa: E402
+    draft_router,
+    rework_router,
+    scene_router,
+    shot_router,
+)
 
 app.include_router(project_router)
 app.include_router(script_router)
 app.include_router(episode_router)
+app.include_router(scene_router)
+app.include_router(shot_router)
+app.include_router(draft_router)
+app.include_router(rework_router)
 app.include_router(asset_router)
 
 

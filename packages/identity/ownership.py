@@ -142,6 +142,35 @@ _RESOLVE_SQL: dict[str, str] = {
           ON p.entity_id = a.project_id AND p.tenant_id = a.tenant_id
         WHERE q.qc_report_id = :rid
     """,
+    # A13（ADR-R40）：四个新资源都直接持有 project_id，归属链一跳到底。
+    "Scene": """
+        SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
+        FROM project_planning.scenes AS s
+        JOIN project_planning.projects AS p
+          ON p.entity_id = s.project_id AND p.tenant_id = s.tenant_id
+        WHERE s.entity_id = :rid
+    """,
+    "Shot": """
+        SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
+        FROM project_planning.shots AS s
+        JOIN project_planning.projects AS p
+          ON p.entity_id = s.project_id AND p.tenant_id = s.tenant_id
+        WHERE s.entity_id = :rid
+    """,
+    "ShotBreakdownDraft": """
+        SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
+        FROM project_planning.shot_breakdown_drafts AS d
+        JOIN project_planning.projects AS p
+          ON p.entity_id = d.project_id AND p.tenant_id = d.tenant_id
+        WHERE d.entity_id = :rid
+    """,
+    "ReworkTask": """
+        SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
+        FROM project_planning.rework_tasks AS t
+        JOIN project_planning.projects AS p
+          ON p.entity_id = t.project_id AND p.tenant_id = t.tenant_id
+        WHERE t.entity_id = :rid
+    """,
 }
 
 
