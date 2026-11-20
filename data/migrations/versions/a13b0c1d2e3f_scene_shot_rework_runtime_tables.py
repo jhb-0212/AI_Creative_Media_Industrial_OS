@@ -68,6 +68,7 @@ from sqlalchemy.dialects import postgresql
 
 from packages.shared.db_grants import PROJECT_PLANNING, converge_statements
 from packages.shared.db_roles import domain_role
+from packages.shared.rls import tenant_scope_predicate
 from packages.shared.status_constraint import status_check
 from services.project_planning.domain.enums import (
     ReworkTaskStatus,
@@ -98,6 +99,27 @@ _NEW_TABLES: frozenset[str] = frozenset(
 # C.3.1 信封列（与 packages/shared/orm.py::EntityMixin 逐列一致）。
 # 不抽公共函数到迁移之外：迁移是时间胶囊，必须能在未来代码演进而它不变的情况下
 # 仍然准确描述「这一刻的表长什么样」。
+def _row_visibility(table: str) -> str:
+    """双维度可见性谓词（租户 + 组织），由单一事实源生成而非手抄。
+
+    组织维度不冗余存 ``organization_id``（归属经 project 派生，冗余列会在项目
+    换组织时成为第二事实源），改用父项目存在性表达：子查询里 ``projects`` 自己的
+    策略会生效，组织规则只写一次、经父表传递给子表。
+
+    ``p.tenant_id = <本表>.tenant_id`` 这条相关条件不能省。丢了它，谓词就退化成
+    「当前租户里存在任意一个可见项目」即真——他组织的子行会整片放行，而只查
+    ``EXISTS`` 子串的判据照样报 PASS。
+    """
+    return (
+        "USING ("
+        f"{tenant_scope_predicate()} AND "
+        "EXISTS (SELECT 1 FROM project_planning.projects p "
+        f"WHERE p.entity_id = {_SCHEMA}.{table}.project_id "
+        f"AND p.tenant_id = {_SCHEMA}.{table}.tenant_id)"
+        ")"
+    )
+
+
 def _envelope_columns() -> list[sa.schema.Column]:
     return [
         sa.Column("entity_id", sa.String(64), primary_key=True),
@@ -343,6 +365,25 @@ def upgrade() -> None:
         schema=_SCHEMA,
     )
 
+    # 行级安全：表一诞生就必须带着策略，而不是「以后补」。
+    #
+    # 为什么这不是可选项：本迁移之前，6 张业务表的策略已由 e9f0a1b2c3d4 统一升级为
+    # 「租户 + 组织」。新增的 5 张表若只建表不加策略，它们在库层是**完全敞开**的——
+    # project_planning_role 能读所有租户、所有组织的场次/镜头/返工任务，组织边界
+    # 退回「只能靠应用层 authorize 判定」。e9f0 的迁移说明记录过同一个后果：一旦某条
+    # 访问路径绕过 authorize（新端点漏挂依赖、Worker 直查、脚本直连），数据库不会拒绝，
+    # 也没有任何告警。策略缺一个维度，写十条也只覆盖一个维度。
+    for _table in sorted(_NEW_TABLES):
+        op.execute(f"ALTER TABLE {_SCHEMA}.{_table} ENABLE ROW LEVEL SECURITY")
+        op.execute(
+            f"CREATE POLICY tenant_isolation_{_table} "
+            f"ON {_SCHEMA}.{_table} " + _row_visibility(_table)
+        )
+        # FORCE：策略对表所有者同样生效。当前所有者是超级用户（FORCE 对超级用户
+        # 与 BYPASSRLS 无效，这是 PG 语义），它的价值在「将来所有权转给非 BYPASSRLS
+        # 角色后策略不会静默失效」；真正的运行时防线是启动期的 verify_rls_enforcement。
+        op.execute(f"ALTER TABLE {_SCHEMA}.{_table} FORCE ROW LEVEL SECURITY")
+
     # 授权：建表之后按矩阵收敛（不手写 GRANT）。
     role = domain_role(_SCHEMA)
     for statement in converge_statements(role, _SCHEMA, tables=_NEW_TABLES):
@@ -350,6 +391,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # 先撤策略再删表：删表会连带删掉策略，但显式撤销让回滚文本自己说清
+    # 「这张表曾经带过什么安全属性」，而不是依赖 DDL 的副作用。
+    for _table in sorted(_NEW_TABLES, reverse=True):
+        op.execute(
+            f"DROP POLICY IF EXISTS tenant_isolation_{_table} ON {_SCHEMA}.{_table}"
+        )
+        op.execute(f"ALTER TABLE {_SCHEMA}.{_table} DISABLE ROW LEVEL SECURITY")
+
     op.drop_index(
         op.f("ix_project_planning_shot_breakdown_drafts_project_id"),
         table_name="shot_breakdown_drafts",

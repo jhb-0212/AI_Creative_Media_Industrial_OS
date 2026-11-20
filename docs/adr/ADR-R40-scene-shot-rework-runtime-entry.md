@@ -156,6 +156,26 @@ ReworkTask 有三个候选落点：project_planning、asset_service、新域。
 > **身份单一下沉**：SC-1 / SH-1 / SR-1 原先只有领域层校验，现补三条 CHECK，使
 > 「绕过 Service 直连 DB」的写入也失败。
 
+### 6.0 行级安全（初版遗漏，已补）
+
+初版迁移只建表、配授权、下沉约束，**没有给五张表加任何 RLS 策略**。后果不是
+「少一层防御」，而是这五张表在库层完全敞开：`project_planning_role` 在任意上下文里
+都能读出全部租户、全部组织的场次与镜头，组织边界退回「只能靠应用层 `authorize`
+判定」——正是 `e9f0a1b2c3d4` 迁移说明里记录过的那个失效模式。
+
+漏检的原因在判据而不在代码：组织边界断言 `scope.org_rls_enforced` 当时只对一份
+**手写表清单**求值，新表不在清单里就根本不参与判定；取数点也只回放**一个**固定的
+迁移文件。两处写死让「加表」等于「漏检」。已同时修掉：
+
+| 侧 | 改动 |
+|---|---|
+| 实现 | 迁移 `a13b0c1d2e3f` 为五张表 `ENABLE` + `CREATE POLICY` + `FORCE ROW LEVEL SECURITY`；谓词由 `tenant_scope_predicate()` 与父项目存在性生成，不手抄 SQL |
+| 判据 | 应检集合改为从真实授权矩阵派生（`_tenant_scoped_business_tables()`），未登记的业务表直接报红；语句来源改为按版本链回放**全部**迁移 |
+| 证据 | `tests/integration/test_scene_rls_isolation.py`：catalogs 上 `relrowsecurity`/`relforcerowsecurity`、跨租户读 0 本租户读 1、跨组织读 0、跨租户写被拒（42501） |
+
+子表不存 `organization_id`：组织规则由 `projects` 自己的策略在 `EXISTS` 子查询内
+执行，与 `episodes` / `script_revisions` 同一形态。
+
 ### 6.1 守卫字段落列
 
 `shots` 表必须有四列，否则 6 条守卫边没有承载：
@@ -213,7 +233,10 @@ CHECK (
    例如可延迟约束或先落 Shot 的 DRAFT 占位——两者都要改写入协议，不在本批。
 7. **`ShotRevision` 的部分唯一索引（每 Shot 一个 ACTIVE）在并发确认下依赖唯一约束**：
    若两个确认请求同时通过版本校验，第二个会撞唯一索引并抛 409——这是正确行为，
-   但需要真实 PG 负测证明它确实拦住了。
+   且已由 `tests/integration/test_shot_revision_concurrency.py` 显式构造该时序
+   （A 未提交插入 → B 阻塞 → A 提交 → B 得 23505）证明它确实拦住了。
+   仍属债务的部分：应用层不会把 23505 翻译成统一的 409 错误码，需要确认路径的
+   异常映射覆盖该分支。
 
 ## 8. 被拒绝的替代方案
 
@@ -228,6 +251,8 @@ CHECK (
 ## 9. 验收判据
 
 1. 五张表的迁移在真实 PostgreSQL 上可 upgrade / downgrade 往返，`alembic check` 无差异。
+   CI 已覆盖：`alembic upgrade head` → `alembic check` → `alembic downgrade -1`
+   → `alembic upgrade head`（`Migration downgrade roundtrip` 步骤）。
 2. `lifecycle.edge_ownership` 覆盖 5 个对象（Scene 3 边、Shot 10 边、ShotDraft 5 边、
    ShotRevision 1 边、ReworkTask 4 边），无「无主边」。
 3. 6 条 Shot 守卫各有负向用例：缺字段 → 拒绝，且拒绝发生在**领域层**而非库层（库层

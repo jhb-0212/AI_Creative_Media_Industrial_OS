@@ -109,6 +109,20 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: ai_film_industrial
 
+      - name: Migration downgrade roundtrip
+        # 只做 upgrade head 时，downgrade 的正确性没有任何运行时证据：删索引、删表、
+        # 删约束的顺序错了，只有真库回滚才会报错（clean install 永远走 upgrade）。
+        # 回滚再升级还顺带证明「rollback 之后这张库还能重新建成 head 形态」。
+        run: |
+          uv run alembic downgrade -1
+          uv run alembic upgrade head
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ai_film_industrial
+
   contract-check:
     runs-on: ubuntu-24.04
     steps:

@@ -59,7 +59,7 @@ def _clause_for(schema: str, table: str, form: str) -> str:
 
 
 def _good_statements() -> list[str]:
-    """一份合规的迁移语句集合（六张表 + FORCE）。"""
+    """一份合规的迁移语句集合（全部受控表的策略 + FORCE）。"""
     statements = [
         f"CREATE POLICY tenant_isolation_{table} ON {schema}.{table} "
         f"USING (({tenant_scope_predicate()}) AND "
@@ -73,18 +73,30 @@ def _good_statements() -> list[str]:
     return statements
 
 
+def _declared() -> frozenset[tuple[str, str]]:
+    """应检的业务表集合（与断言登记的规则形态一致，构成「无问题」的前提）。"""
+    return frozenset((schema, table) for schema, table, _, _ in _TABLES)
+
+
 def _evaluate(
     statements: list[str] | None = None,
     *,
     database_text: str = "verify_rls_enforcement(project)\nverify_rls_enforcement(asset)\n",
     injects_organization: bool = True,
     self_injected_paths: list[str] | None = None,
+    tenant_tables: frozenset[tuple[str, str]] | None = None,
 ) -> list[str]:
+    """按真实口径求值：应检集合默认就是登记的全部业务表。
+
+    传 ``tenant_tables`` 而不是留空，是为了让「合规样本必须零问题」也覆盖完备性
+    判据——否则完备性只在真实仓库里跑，负向用例证明不了它会报红。
+    """
     return ba.evaluate_org_rls(
         _good_statements() if statements is None else statements,
         database_text=database_text,
         injects_organization=injects_organization,
         self_injected_paths=[] if self_injected_paths is None else self_injected_paths,
+        tenant_tables=_declared() if tenant_tables is None else tenant_tables,
     )
 
 
@@ -109,10 +121,80 @@ def test_good_statements_are_clean() -> None:
 
 
 def test_real_migration_is_clean() -> None:
-    """真实迁移回放后无问题项——断言不是靠构造样本才成立的。"""
-    statements = ba._rendered_migration_statements(ba._ORG_RLS_MIGRATION)
+    """真实迁移链回放后无问题项——断言不是靠构造样本才成立的。"""
+    statements = ba._policy_statements()
     assert statements, "迁移回放没有产出语句：断言会退化成「空集合必过」"
     assert _evaluate(statements) == []
+
+
+# --------------------------------------------------------------------------- #
+# 完备性：应检集合本身必须是派生的，不能是手写清单
+# --------------------------------------------------------------------------- #
+def test_unregistered_business_table_is_reported() -> None:
+    """业务表没登记规则形态 → 判据对它是零求值，必须报红。
+
+    这正是 A13 的失效形态：五张新表建了、矩阵声明了、授权也配了，唯独没人把它们
+    加进这份登记。判据于是对它们不闻不问，五张表在库层零策略却报 PASS。
+    """
+    problems = _evaluate(
+        tenant_tables=_declared() | {("project_planning", "storyboards")}
+    )
+    assert any(
+        "project_planning.storyboards 是业务表但未登记" in p for p in problems
+    ), problems
+
+
+def test_stale_registration_is_reported() -> None:
+    """登记了但矩阵里没有这张表 → 判据在验一个不存在的东西。"""
+    problems = _evaluate(
+        tenant_tables=_declared() - {("project_planning", "scenes")}
+    )
+    assert any("project_planning.scenes 登记了" in p for p in problems), problems
+
+
+# --------------------------------------------------------------------------- #
+# 终态语义：判据问的是「数据库最后是什么样」
+# --------------------------------------------------------------------------- #
+def test_later_policy_upgrade_replaces_earlier_one() -> None:
+    """先建单维策略、后升级为双维 → 不得因为「第一条缺组织谓词」报红。
+
+    真实链就是这样：``8f2a1b3c4d5e`` 建租户单维策略，``e9f0a1b2c3d4`` 升级为
+    「租户 + 组织」。若判据取第一条匹配，每次策略修订都要回来改判据——而改判据
+    的人下一步就会把「缺组织谓词」这条检查删掉。
+    """
+    first = (
+        f"CREATE POLICY tenant_isolation_episodes ON project_planning.episodes "
+        f"USING ({tenant_scope_predicate()})"
+    )
+    statements = [first, *_good_statements()]
+    assert _evaluate(statements) == []
+
+
+def test_dropped_policy_is_treated_as_missing() -> None:
+    """先建后删 → 终态没有策略，必须报红（后写覆盖先写，两个方向都要成立）。"""
+    statements = [
+        *_good_statements(),
+        "DROP POLICY IF EXISTS tenant_isolation_episodes ON project_planning.episodes",
+    ]
+    assert any("episodes 缺少策略" in p for p in _evaluate(statements))
+
+
+def test_prefix_table_name_does_not_satisfy_lookup() -> None:
+    """``scenes_archive`` 的策略不得被当成 ``scenes`` 的。
+
+    定位点按 ``ON <schema>.<table>`` 匹配时必须看边界：只做子串匹配，表名互为
+    前缀的两张表会互相顶替，一个「有策略」的假象就足以让判据沉默。
+    """
+    statements = [
+        statement
+        for statement in _good_statements()
+        if " ON project_planning.scenes " not in statement
+    ] + [
+        f"CREATE POLICY tenant_isolation_scenes ON project_planning.scenes_archive "
+        f"USING (({tenant_scope_predicate()}) AND "
+        f"({_parent_clause('project_planning', 'scenes_archive')}))"
+    ]
+    assert any("project_planning.scenes 缺少策略" in p for p in _evaluate(statements))
 
 
 def test_policy_lookup_is_not_confused_by_parent_reference() -> None:
@@ -234,25 +316,30 @@ def test_two_hop_chain_missing_link_is_reported() -> None:
 def test_downgrade_does_not_weaken_upstream_forceless_audit_table() -> None:
     """回滚不得摘掉上游迁移建立的 FORCE（评审 F1）。
 
-    ``audit.status_transitions`` 的 FORCE 由 d8e9f0a1b2c3 建立。若 D3 的回滚对它
-    ``NO FORCE``，回滚后的审计表比回滚前更弱——而正向断言只读 upgrade 的回放文本，
-    看不到这个退化。因此这里回放 **downgrade()**，断言它只撤销自己动过的表。
+    ``audit.status_transitions`` 的 FORCE 由 d8e9f0a1b2c3 建立。若某个后续迁移的
+    回滚对它 ``NO FORCE``，回滚后的审计表比回滚前更弱——而正向断言只读 upgrade
+    的回放文本，看不到这个退化。
+
+    这里对**整条链**求值而不是盯住某一份迁移：写死路径时，新迁移里同样的回滚退化
+    不会被检查（本文件此前正是盯住单份迁移）。同时保留反向控制位：确实存在撤销
+    自己 FORCE 的回滚，否则「没有任何 NO FORCE」也可能只是回放没产出语句。
     """
-    statements = ba._rendered_migration_statements(
-        ba._ORG_RLS_MIGRATION, direction="downgrade"
-    )
-    unforced = {
-        statement.removeprefix("ALTER TABLE ")
-        .removesuffix(" NO FORCE ROW LEVEL SECURITY")
-        .strip()
-        for statement in statements
-        if statement.startswith("ALTER TABLE ") and "NO FORCE" in statement
-    }
+    unforced: set[str] = set()
+    for _, rel in ba._ordered_migrations():
+        text = (ba.ROOT / rel).read_text(encoding="utf-8")
+        if "NO FORCE ROW LEVEL SECURITY" not in text:
+            continue
+        for statement in ba._rendered_migration_statements(rel, direction="downgrade"):
+            if statement.startswith("ALTER TABLE ") and "NO FORCE" in statement:
+                unforced.add(
+                    statement.removeprefix("ALTER TABLE ")
+                    .removesuffix(" NO FORCE ROW LEVEL SECURITY")
+                    .strip()
+                )
     assert "audit.status_transitions" not in unforced, (
-        "回滚把审计表的 FORCE 摘掉了：force 来自上游迁移，D3 无权撤销"
+        "回滚把审计表的 FORCE 摘掉了：force 来自上游迁移，后续迁移无权撤销"
     )
-    # 同时确认回滚仍然撤销了自己启用的那些（否则「什么都不做」也能过这条断言）
-    assert "project_planning.projects" in unforced
+    assert unforced, "没有任何回滚撤销 FORCE：这条判据退化成空检查"
 
 
 def test_policy_without_tenant_predicate_is_reported() -> None:
@@ -324,4 +411,4 @@ def test_clean_service_file_is_not_flagged(tmp_path) -> None:
 
 def test_empty_tree_is_reported_by_assertion_scan() -> None:
     """空仓库目录扫描结果为空——正因如此，真实断言依赖「迁移回放有语句」自证非空。"""
-    assert ba._rendered_migration_statements(ba._ORG_RLS_MIGRATION)
+    assert ba._policy_statements()
