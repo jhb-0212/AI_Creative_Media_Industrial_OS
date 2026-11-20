@@ -1,0 +1,114 @@
+{
+  "at": "2026-11-20T16:03:23+08:00",
+  "passed": 15,
+  "failed": 0,
+  "not_applicable": 0,
+  "open_findings": [],
+  "results": [
+    {
+      "id": "P0",
+      "phase": "基线",
+      "desc": "回退到 f8a9b0c1d2e3 已应用的状态（撤掉 1 层）",
+      "ok": true,
+      "detail": "g7b8c9d0e1f2"
+    },
+    {
+      "id": "P1",
+      "phase": "前提",
+      "desc": "基线里 episodes 归属外键尚不存在（否则测的不是本迁移）",
+      "ok": true,
+      "detail": "exists=False"
+    },
+    {
+      "id": "P2",
+      "phase": "前提",
+      "desc": "库里取到一行 ACTIVE 项目作为对照",
+      "ok": true,
+      "detail": "proj-alpha / 0001 / 0011"
+    },
+    {
+      "id": "G1",
+      "phase": "对照",
+      "desc": "真实项目 + 同租户组织可正常插入（约束未建立前）",
+      "ok": true,
+      "detail": "INSERT 0 1"
+    },
+    {
+      "id": "C1",
+      "phase": "缺口",
+      "desc": "建约束前：episodes 可指向不存在的项目",
+      "ok": true,
+      "detail": "INSERT 0 1"
+    },
+    {
+      "id": "U1",
+      "phase": "升级",
+      "desc": "执行 upgrade_steps()（3 步）",
+      "ok": true,
+      "detail": "无异常"
+    },
+    {
+      "id": "S1",
+      "phase": "结构",
+      "desc": "三列外键已建且为 NOT VALID（存量未扫）",
+      "ok": true,
+      "detail": "exists=True convalidated=False"
+    },
+    {
+      "id": "N1",
+      "phase": "拦截",
+      "desc": "约束建立后：指向不存在的项目一律 23503",
+      "ok": true,
+      "detail": "23503: insert or update on table \"episodes\" violates foreign key constraint \"fk_episodes_project_tenant_org\""
+    },
+    {
+      "id": "N2",
+      "phase": "拦截",
+      "desc": "同一约束不误伤真实项目（否则 N1 的 23503 是别的原因）",
+      "ok": true,
+      "detail": "INSERT 0 1"
+    },
+    {
+      "id": "V1",
+      "phase": "验证",
+      "desc": "有存量脏行时 VALIDATE 必须 23503（证明它会真扫数据）",
+      "ok": true,
+      "detail": "23503: insert or update on table \"episodes\" violates foreign key constraint \"fk_episodes_project_tenant_org\""
+    },
+    {
+      "id": "V3",
+      "phase": "验证",
+      "desc": "清掉脏行后 VALIDATE 通过（成功路径可达）",
+      "ok": true,
+      "detail": "VALIDATE OK"
+    },
+    {
+      "id": "I1",
+      "phase": "幂等",
+      "desc": "重复 upgrade 不重复建约束",
+      "ok": true,
+      "detail": "count=1"
+    },
+    {
+      "id": "D1",
+      "phase": "降级",
+      "desc": "执行 downgrade_steps()（1 步）",
+      "ok": true,
+      "detail": "无异常"
+    },
+    {
+      "id": "D2",
+      "phase": "降级",
+      "desc": "外键已删净",
+      "ok": true,
+      "detail": "exists=False"
+    },
+    {
+      "id": "D3",
+      "phase": "降级",
+      "desc": "降级后同一脏写入恢复为可成功（语义可逆）",
+      "ok": true,
+      "detail": "INSERT 0 1"
+    }
+  ]
+}

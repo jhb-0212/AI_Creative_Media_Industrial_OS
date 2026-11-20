@@ -138,6 +138,9 @@ OWNERSHIP_STACK: tuple[str, ...] = (
     # 漏掉这一层会让 assert_rewound 仍然全绿（它当时只数前两批），
     # 于是基线静默偏离——这正是本函数存在的理由。
     "f8a9b0c1d2e3",
+    # 批次三：`episodes` 的三列外键。由覆盖闸门抓出来的一张表——它有
+    # `project_scope_episodes`、有修数权限、有 RLS 旁路，唯独没有归属外键。
+    "g7b8c9d0e1f2",
 )
 
 
@@ -182,10 +185,45 @@ def upgrade_sqls(mod: Any) -> list[str]:
 async def rewind_ownership_stack(
     conn: asyncpg.Connection, versions_dir: str | Path, stack: tuple[str, ...] = OWNERSHIP_STACK
 ) -> list[str]:
-    """按逆序回退归属栈（当前六层），使克隆库回到激活前基线。返回实际回退的 revision 顺序。"""
+    """按逆序回退整个归属栈，使克隆库回到激活前基线。返回实际回退的 revision 顺序。
+
+    刻意不写「当前几层」：层数会随每一批增长，写死在 docstring 里就会在下一批
+    变成假陈述（本轮已经从五层涨到七层两次）。层数以 `OWNERSHIP_STACK` 为准。
+    """
     vd = Path(versions_dir)
     applied: list[str] = []
     for rev in reversed(stack):
+        mod = load_migration(_resolve_revision(vd, rev), f"mig_rewind_{rev}")
+        for sql in _downgrade_sqls(mod):
+            await conn.execute(sql)
+        applied.append(rev)
+    return applied
+
+
+async def rewind_to(
+    conn: asyncpg.Connection,
+    versions_dir: str | Path,
+    keep: str,
+    stack: tuple[str, ...] = OWNERSHIP_STACK,
+) -> list[str]:
+    """把归属栈回退到「`keep` 已应用、其后各层未应用」的状态。返回被撤掉的 revision。
+
+    为什么需要「回退到某一层」而不是只有「回退到基线」
+    --------------------------------------------------
+    每一批迁移的**增量前提**不同：批次二的前提是 `e3f4` 已应用，批次三的前提是
+    `f8a9` 已应用。而模板库只可能停在**一个**状态（当前是最新 head）。于是
+    「直接克隆模板 + 断言约束不存在」这种写法必然在下一批应用后失效——它把
+    「模板此刻恰好在哪」当成了前提。本轮就真实撞上了：`verify_batch2` 的 P1
+    在新模板上一定失败。
+
+    正解是让每个脚本显式声明「我的前提是 keep 那一层」，由本函数负责把其后的
+    层全部撤掉。这样脚本表达的是**被测命题的前提**，而不是**环境的偶然状态**。
+    """
+    vd = Path(versions_dir)
+    if keep not in stack:
+        raise ValueError(f"{keep} 不在归属栈中：{stack}")
+    applied: list[str] = []
+    for rev in reversed(stack[stack.index(keep) + 1:]):
         mod = load_migration(_resolve_revision(vd, rev), f"mig_rewind_{rev}")
         for sql in _downgrade_sqls(mod):
             await conn.execute(sql)
@@ -216,6 +254,10 @@ async def assert_rewound(conn: asyncpg.Connection) -> list[str]:
         "批次二归属外键": "SELECT count(*) FROM pg_constraint WHERE contype='f' "
         "AND conname IN ('fk_qc_reports_project_tenant_org',"
         "'fk_shot_specs_project_tenant_org','fk_approval_steps_project_tenant_org')",
+        # 批次三同理单列。加这一项的直接理由：上一轮加批次二时只改了聚合口径，
+        # 差点让「回退清单漏一层」变成静默通过——每一层都要在报告里自己出现一次。
+        "批次三归属外键": "SELECT count(*) FROM pg_constraint WHERE contype='f' "
+        "AND conname = 'fk_episodes_project_tenant_org'",
     }
     out: list[str] = []
     for label, sql in checks.items():

@@ -4,9 +4,10 @@
 
 | 项 | 状态 |
 | --- | --- |
-| 迁移是否已上链 | **是**。六个迁移已提交到 `integration/phase1-identity-data-ownership`（`4278971` / `256ce6e` / `2c1037c` / `bcbf10e` / 批次二 `f8a9` / 授权修复 `71bad21`） |
-| 目标库是否已执行 | **是**。`localhost:15444/ai_film_industrial` 从 `c4e5f6a7b8d9` 升到 `f8a9b0c1d2e3` |
-| 归属闭环 | **17/17 PASS**（`convalidated` 全 `t`，违规行数全 0） |
+| 迁移是否已上链 | **是**。七个迁移已提交到 `integration/phase1-identity-data-ownership`（`4278971` / `256ce6e` / `2c1037c` / `bcbf10e` / 批次二 `f8a9` / 授权修复 `71bad21` / 批次三 `g7b8`） |
+| 目标库是否已执行 | **是**。`localhost:15444/ai_film_industrial` 从 `c4e5f6a7b8d9` 升到 `g7b8c9d0e1f2` |
+| 归属闭环 | **18/18 PASS**（`convalidated` 全 `t`，违规行数全 0） |
+| **覆盖完整性** | **8/8 PASS**——台账之外无归属表；豁免 2 条且前提逐条实检 |
 | 逐表覆盖矩阵 | **70/70 PASS**，N/A 0，待裁决缺口 0 |
 | 受控例外验证 | **37/37 PASS** |
 | 授权完整性 | **11/11 PASS**，不变量「有表写权限 ⇒ 有函数 EXECUTE」零漂移 |
@@ -16,14 +17,20 @@
 
 执行报告：`docs/audits/2026-11-20-quarantine-project-activation.md`
 批次二报告：`docs/audits/2026-11-20-ownership-fk-batch2.md`
+批次三 + 覆盖闸门报告：`docs/audits/2026-11-20-ownership-closure-episodes.md`
 授权修复报告：`docs/audits/2026-11-20-audit-role-overgrant-fix.md`
 例外工单：`docs/audits/2026-11-20-workorder-WO-OWN-2026-1120-001.md`
 
 > **本目录源码在激活后经过一次修正**（`71bad21`）：删掉 `b0c9` 的角色名单、把 `d2e3` 的审计可写范围从 18 张表收窄到 `projects`。两条都是根因修复不是补丁，详见授权修复报告。目标库 15444 已按等价 `REVOKE` 对齐——新建库跑迁移直接得到正确状态，已建的库需执行报告 §五 的那段 SQL。这是当前唯一「源码与库」的差异点。
 
-> 「17/17」不是把分母做大：原台账 14 行少了三张**真实存在**的表
-> （`qc_reports` 是漏列，`shot_specs` / `approval_steps` 曾被判为「刻意不建」）。
-> 这三张表的归属列可以指向不存在的项目且数据库不拦，由 `f8a9b0c1d2e3` 补齐。
+> 「18/18」不是把分母做大：原台账 14 行少了四张**真实存在**的表。
+> `qc_reports` / `episodes` 是漏列（既不在「做了」也不在「不做，理由如下」清单里），
+> `shot_specs` / `approval_steps` 曾被判为「刻意不建」。四张表的归属列都能指向
+> 不存在的项目且数据库不拦，分别由 `f8a9b0c1d2e3` 与 `g7b8c9d0e1f2` 补齐。
+>
+> `episodes` 这一张尤其值得记：它的**例外通道全部建好了**（`project_scope_episodes`、
+> `afs_data_repair` 的修数权限、`e3f4` 的 RLS 旁路），唯独归属外键没建——
+> 「指错需要订正」的前提被完整实现，「什么算指错」却从未被定义。
 
 ### 为什么本目录仍然保留
 
@@ -60,11 +67,14 @@ main（`c1a2b3d4e5f6`）。一旦放进主工作区的 `versions/`：
 | `d2e3f4a5b6c7_repair_role_grants.py` | 受控例外的运行前提：表权限 + RLS 行级可见性 + 两个判定函数的 EXECUTE |
 | `e3f4a5b6c7d8_repair_rls_bypass.py` | 19 条 scope 策略的 repair 旁路（**侵入既有 RLS**，须评审）+ 原表达式备份表 |
 | `f8a9b0c1d2e3_ownership_fk_batch2.py` | 批次二：`qc_reports` / `shot_specs` / `approval_steps` 三列归属外键（NOT VALID），撤销 `a9b8.DERIVED_NO_FK` 对后两张的处置 |
+| `g7b8c9d0e1f2_ownership_fk_episodes.py` | 批次三：`episodes` 三列归属外键（NOT VALID）。由覆盖闸门抓出，非人工复查 |
 | `verify_on_clone.py` | 在克隆库上跑 a9b8 的 upgrade / VALIDATE / 新写入语义 / downgrade，13 项断言 |
 | `docs/audits/mig-recon/verify_exception.py` | b0c9 的行为验证（基线 / 结构 / 判定 / 端到端 / 降级 / 幂等），37 项 |
 | `docs/audits/mig-recon/verify_guard_coverage.py` | 13 张守卫表**逐表**矩阵，证明每张表都真的接通例外通道 |
 | `docs/audits/mig-recon/verify_batch2.py` | 批次二行为验证（缺口可复现 / 新写入被拦 / VALIDATE 非恒真 / 降级可逆），15 项 |
 | `docs/audits/mig-recon/verify_grants.py` | 授权完整性：不变量「有表写权限 ⇒ 有函数 EXECUTE」，11 项 |
+| `docs/audits/mig-recon/verify_ownership_closure.py` | **覆盖完整性闸门**：台账集合 vs `pg_attribute` 实读，差集非空即 FAIL；8 项 + 双向自检 |
+| `docs/audits/mig-recon/verify_batch3.py` | 批次三行为验证（缺口可复现 / 不误伤 / VALIDATE 非恒真 / 降级可逆），15 项 |
 | `docs/audits/mig-recon/seed_legacy_dirty.py` | 在外键建立**之前**造存量脏数据（4 类脏态 + 干净对照） |
 | `docs/audits/mig-recon/repair_ownership.py` | 逐行探测 → R1/R2/R3 判定 → 受控例外订正 → 断言 + 回读 |
 | `docs/audits/mig-recon/rls_acceptance.py` | D-10.3 要求 6 的 RLS 行为验收（10 用例） |

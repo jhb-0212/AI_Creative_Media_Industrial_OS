@@ -27,7 +27,7 @@
 但「删掉之后授权还在不在」不能靠读代码回答：E6 的收敛条件取决于**执行到那一步时**
 谁已经有表权限，这是运行时事实，只能从库里实读。
 
-所以本脚本把归属栈六层在克隆库里完整重放一遍，再用 `has_function_privilege`
+所以本脚本把归属栈在克隆库里完整重放一遍，再用 `has_function_privilege`
 把结论变成断言。主断言（G3）是一条**不变量**而不是某几个角色的清单：
 
     对任一受守卫表持有 UPDATE/INSERT/DELETE 的主体，
@@ -197,10 +197,11 @@ async def run(args: argparse.Namespace) -> int:
             drift = drift_of(matrix)
             rec("G2", "中间态", "此刻的写者均已持有函数 EXECUTE", not drift, "; ".join(drift) or "无漂移")
 
-        # ---------- G3 终态：六层全上 ----------
+        # ---------- G3 终态：归属栈全上 ----------
         for _rev, mod in stack_mods[2:]:
             await lab.apply_steps(conn, lab.upgrade_sqls(mod))
-        rec("G3", "终态", f"归属栈六层全部应用（末层 {stack_mods[-1][0]}）", True, f"{len(stack_mods)} 层")
+        rec("G3", "终态", f"归属栈全部应用（{len(stack_mods)} 层，末层 {stack_mods[-1][0]}）", True,
+            f"{len(stack_mods)} 层")
 
         allows_oid = await fn_oid(conn, ALLOWS)
         map_oid = await fn_oid(conn, MAP_MATCH)
@@ -316,7 +317,7 @@ async def run(args: argparse.Namespace) -> int:
             for sql in lab._downgrade_sqls(mod):
                 await conn.execute(sql)
         left = await fn_oid(conn, ALLOWS)
-        rec("G10", "降级", "六层逆序降级后判定函数已移除（无悬空 ACL）", left is None,
+        rec("G10", "降级", "归属栈逆序降级后判定函数已移除（无悬空 ACL）", left is None,
             f"allows_oid={left}")
 
     finally:
@@ -341,7 +342,7 @@ async def run(args: argparse.Namespace) -> int:
     footer = [
         "## 口径提醒",
         "",
-        "- 本报告证明的命题是「**归属栈六层重放后，授权完整且无漂移**」，"
+        "- 本报告证明的命题是「**归属栈重放后，授权完整且无漂移**」，"
         "不是「目标库当前的 ACL 也验过了」；后者应以目标库实查为准。",
         "- G4 的主断言是不变量而非清单：**有表写权限 ⇒ 有函数 EXECUTE**。"
         "违反它的后果是保护语义漂移（`P0001` 变 `42501`），不是少一个 GRANT。",
@@ -370,7 +371,7 @@ def main() -> int:
     ap.add_argument("--password", default="replay_super_pw")
     ap.add_argument("--template", default="ai_film_industrial")
     ap.add_argument("--lab", default="gx_lab")
-    ap.add_argument("--versions-dir", required=True, help="含归属栈六层迁移的 versions 目录")
+    ap.add_argument("--versions-dir", required=True, help="含归属栈全部迁移的 versions 目录")
     ap.add_argument("--out-dir", default=None)
     args = ap.parse_args()
     return asyncio.run(run(args))

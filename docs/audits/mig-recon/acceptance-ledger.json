@@ -3,10 +3,21 @@
     "db": "ai_film_industrial",
     "host": "localhost",
     "port": 15444,
-    "ts": "2026-11-20 15:43:01",
+    "ts": "2026-11-20 16:04:00",
     "server": "16.15 (Debian 16.15-1.pgdg13+2)"
   },
   "rows": [
+    {
+      "table": "project_planning.episodes",
+      "kind": "A",
+      "constraint": "fk_episodes_project_tenant_org",
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
+    },
     {
       "table": "generation_execution.production_routes",
       "kind": "B",
@@ -201,7 +212,7 @@
     "quarantine_projects": 1,
     "ratio": 0.333333
   },
-  "passed": 17,
-  "total": 17,
+  "passed": 18,
+  "total": 18,
   "closed": true
 }

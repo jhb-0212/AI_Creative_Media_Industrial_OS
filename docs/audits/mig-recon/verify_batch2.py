@@ -11,13 +11,18 @@
    所以"台账 PASS"确实扫过数据，而不是只看了约束是否存在；
 4. **降级回到原状**：删约束后同样的脏写入又能成功——语义可逆，不是单向门。
 
-为什么不做基线回退
-------------------
-本迁移的前提是 `a9b8` 已应用（目标唯一键 `uq_projects_entity_tenant_org` 由它创建），
-而模板库恰好就停在这个状态之后、且批次二尚未建。所以这里**直接克隆模板、不回退**：
-回退会把 `projects` 与前两批约束一起拆掉，反而测不到本迁移的增量。
-「不回退」在这里是正确的前提，不是又一次假设模板干净——本脚本会断言模板上
-批次二的三条约束**不存在**，存在即说明前提变了，立即中止。
+为什么不做「回退到激活前基线」
+------------------------------
+本迁移的**增量前提**是 `a9b8` 与 `e3f4` 已应用（目标唯一键、既有外键、RLS 旁路都在），
+而批次三尚未建。所以基线是「`e3f4a5b6c7d8` 已应用、其后各层未应用」，不是激活前基线。
+
+这一段原本写的是「直接克隆模板、不回退，因为模板恰好停在这个状态」。**这句话
+在批次三应用后就错了**——模板只可能停在一个状态，把它当时的偶然位置当成前提，
+下一批一上就会失效。实测就是如此：本轮 `g7b8c9d0e1f2` 应用后，本脚本的 P1
+（「模板上批次二三外键尚不存在」）必然失败。
+
+现在改为显式 `lab.rewind_to(e3f4a5b6c7d8)`：由脚本声明前提，由 `lab` 负责把前提之后
+各层撤掉。这样它表达的是**被测命题**的前提，而不是**环境的偶然状态**。
 """
 
 from __future__ import annotations
@@ -36,6 +41,9 @@ TABLE_QC = "asset_service.qc_reports"
 TABLE_SS = "shot_planning.shot_specs"
 TABLE_AS = "workflow.approval_steps"
 TICKET = "WO-BATCH2"
+
+#: 本迁移的增量前提：这一层已应用，其后各层要先撤掉再测。
+KEEP_AFTER = "e3f4a5b6c7d8"
 
 REC = lab.Recorder()
 rec = REC.rec
@@ -68,8 +76,15 @@ async def main() -> int:
     ap.add_argument("--password", default=lab.DEFAULT_PASSWORD)
     ap.add_argument("--template", default=lab.DEFAULT_TEMPLATE)
     ap.add_argument("--migration", required=True)
+    ap.add_argument(
+        "--versions-dir",
+        default=None,
+        help="含归属栈全部迁移的目录（回退前提用）；缺省取被测迁移所在目录",
+    )
     ap.add_argument("--out-dir", default=None)
     args = ap.parse_args()
+    if not args.versions_dir:
+        args.versions_dir = str(Path(args.migration).parent)
 
     mig = lab.load_migration(args.migration, "mig_batch2")
     fks = dict(mig.OWNERSHIP_FKS)  # table -> constraint name
@@ -82,18 +97,28 @@ async def main() -> int:
 
     conn = await lab.lab_conn(args.host, args.port, args.user, args.password, PROBE_DB)
     try:
-        # ---------- 前提 ----------
+        # ---------- 基线：回退到本迁移的增量前提 ----------
+        # 不做这一步，测到的就是「模板此刻恰好是什么」，而不是「本迁移带来了什么」。
+        removed = await lab.rewind_to(conn, args.versions_dir, KEEP_AFTER)
+        rec(
+            "P0",
+            "基线",
+            f"回退到 {KEEP_AFTER} 已应用的状态（撤掉 {len(removed)} 层）",
+            True,
+            "/".join(removed) if removed else "模板已在该状态，无需回退",
+        )
+
         pre = {t: await conn.fetchval(fk_exists_sql(t, n)) for t, n in fks.items()}
         ok = not any(pre.values())
         rec(
             "P1",
             "前提",
-            "模板上批次二的三条外键尚不存在（否则测的不是本迁移）",
+            "基线里批次二的三条外键尚不存在（否则测的不是本迁移）",
             ok,
             "; ".join(f"{t}={v}" for t, v in pre.items()),
         )
         if not ok:
-            raise RuntimeError(f"前提不成立，模板已含批次二约束：{pre}")
+            raise RuntimeError(f"前提不成立，基线仍含批次二约束：{pre}")
 
         q = await conn.fetchval(
             "SELECT count(*) FROM project_planning.organizations WHERE organization_id = $1::uuid",
@@ -257,8 +282,8 @@ async def main() -> int:
         title="归属外键第二批（f8a9b0c1d2e3）验证结果",
         meta=[
             f"目标：`{args.host}:{args.port}` 克隆库 `{PROBE_DB}`（模板 `{args.template}`），用完即删",
-            "基线：**直接克隆模板、不回退**——本迁移的增量前提是 a9b8 已应用；"
-            "P1 断言模板上批次二约束不存在，前提变了立即中止",
+            "基线：克隆模板后**回退到 `e3f4a5b6c7d8` 已应用**（撤掉批次三），"
+            "P0 记录撤了哪几层，P1 断言批次二约束确实不在——前提由脚本声明，不靠模板偶然状态",
         ],
         footer=[
             "## 口径提醒",

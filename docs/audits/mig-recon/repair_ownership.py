@@ -32,6 +32,8 @@ from dataclasses import dataclass, field
 
 import asyncpg
 
+import acceptance_ledger as ledger
+
 TICKET = "WO-OWN-2026-1120-001"
 REPAIR_ROLE = "afs_data_repair"
 GUC = "app.ownership_repair_ticket"
@@ -41,27 +43,55 @@ ORGS = "project_planning.organizations"
 MAP = "project_planning.ownership_repair_map"
 IS_Q = "project_planning.is_quarantine_project"
 
-#: (schema.table, 主键列, 是否有 project_id)
-#: 覆盖范围**大于** 14 条外键：``qc_reports`` 在这里但仍无归属外键，
-#: 所以它会被订正却不会出现在台账里（见工单「与台账的关系」）。
-SCOPE: tuple[tuple[str, str, bool], ...] = (
-    ("asset_service.asset_versions", "entity_id", True),
-    ("asset_service.delivery_manifests", "entity_id", True),
-    ("asset_service.qc_reports", "qc_report_id", True),
-    ("generation_execution.generation_tasks", "entity_id", True),
-    ("generation_execution.shot_route_selections", "entity_id", True),
-    ("generation_execution.production_routes", "entity_id", False),
-    ("qc_governance.gate_decisions", "entity_id", True),
-    ("qc_governance.qc_review_sessions", "entity_id", True),
-    ("shot_planning.shot_drafts", "entity_id", True),
-    ("shot_planning.shot_revisions", "entity_id", True),
-    ("shot_planning.shot_specs", "entity_id", True),
-    ("shot_planning.shot_visual_plans", "entity_id", True),
-    ("shot_planning.constraint_packs", "entity_id", True),
-    ("workflow.approval_flows", "entity_id", True),
-    ("workflow.approval_steps", "entity_id", True),
-    ("workflow.approval_tickets", "entity_id", True),
-)
+#: 刻意**不**纳入自动订正的表，及理由。留成常量是为了让「没订正」可见，
+#: 而不是像从前那样消失在清单缺口里。
+SCOPE_EXCLUDED: dict[str, str] = {
+    "project_planning.projects": (
+        "归属根。改一个项目的 organization_id 等于把它的全部资产搬家，"
+        "属于业务决策而不是数据修复，必须人工走工单，不能由脚本按规则推导。"
+    ),
+}
+
+
+async def discover_scope(conn: asyncpg.Connection) -> list[tuple[str, str, bool]]:
+    """订正范围 = 台账行集，行键从**主键**实读。
+
+    为什么不再硬编码
+    ----------------
+    旧版是一张写死的 16 行清单，注释还写着「覆盖范围大于台账」——但实际是
+    **小于**：`episodes` 有 `project_id` 却不在清单里。于是它一旦有脏行，
+    台账会红（VALIDATE 失败），而本脚本的 `--plan` 会报「没有可订正的行」，
+    两个装置对同一事实给出相反结论。这与 `qc_reports`、`episodes` 落在闭环外
+    是同一根因：**清单不会自己举手**。
+
+    现在范围从 `acceptance_ledger.ledger_rows()` 取——台账是闭环的唯一判据，
+    订正脚本的范围跟着它走，两者不可能再分叉。行键从 `pg_index` 的主键实读，
+    顺手消掉了「12 张用 entity_id、qc_reports 用 qc_report_id」这类手工差异。
+
+    复合主键不支持：那意味着「一行归属」没有单一标识，R2/R3 的规则推导会失去
+    依据。此时**显式报错**，不猜一个列名了事。
+    """
+    rows = ledger.ledger_rows()
+    out: list[tuple[str, str, bool]] = []
+    for row in rows:
+        if row.table in SCOPE_EXCLUDED:
+            continue
+        pk = await conn.fetch(
+            """
+            SELECT a.attname
+              FROM pg_index i
+              JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+             WHERE i.indrelid = to_regclass($1) AND i.indisprimary
+            """,
+            row.table,
+        )
+        if len(pk) != 1:
+            raise RuntimeError(
+                f"{row.table} 的主键列数为 {len(pk)}，本脚本只支持单列主键；"
+                "请显式指定行键，而不是让脚本猜"
+            )
+        out.append((row.table, pk[0]["attname"], row.kind == "A"))
+    return out
 
 
 @dataclass
@@ -97,7 +127,7 @@ async def discover(conn: asyncpg.Connection) -> list[Finding]:
     """找出所有归属不成立的行。探测用超级用户会话，故不受 RLS 影响。"""
     findings: list[Finding] = []
 
-    for table, key_col, has_project in SCOPE:
+    for table, key_col, has_project in await discover_scope(conn):
         if has_project:
             rows = await conn.fetch(
                 f"""

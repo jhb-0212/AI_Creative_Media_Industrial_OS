@@ -3,20 +3,31 @@
 对应 `docs/audits/2026-11-20-branch-migration-reconciliation.md` 的全部数据。
 **所有 SQL 均为只读 SELECT**，不含凭据、不含写操作。
 
-## 归属栈验收清单（任何改动后六项全绿才算完成）
+## 归属栈验收清单（任何改动后七项全绿才算完成）
 
 | 项 | 脚本 | 证明什么 |
 | --- | --- | --- |
 | 工程规约 | `scripts/contract_check.py` | 契约一致 + **代码不得写死角色名**（CRED-3） |
-| 例外行为 | `verify_exception.py --migration <b0c9>` | 从激活前基线出发，13 张守卫接通道且可安全降级 |
+| **覆盖完整性** | `verify_ownership_closure.py --db …` + `--selftest` | **台账之外没有别的归属表**（集合相等，豁免带可机检前提） |
+| 例外行为 | `verify_exception.py --migration <b0c9> --versions-dir <dir>` | 从激活前基线出发，13 张守卫接通道且可安全降级 |
 | 逐表覆盖 | `verify_guard_coverage.py --guard/--fk/--batch2` | 每张表都真的接通例外、且仍受外键约束 |
 | 授权完整性 | `verify_grants.py --versions-dir <versions>` | 不变量：**有表写权限 ⇒ 有函数 EXECUTE**（防保护语义漂移） |
 | 闭环台账 | `acceptance_ledger.py --db … --validate` + `--selftest` | 归属外键全部 `VALIDATE` 且台账能判 FAIL |
 | RLS 行为 | `rls_acceptance.py` | 隔离项目对业务不可见/不可写、对审计可见/可写 |
 
-> 前两项曾经不在清单里，代价是 `b0c9` 的 `CRED-3` 违规与 `d2e3` 的审计角色过度授权
+> **前两项**曾经不在清单里，代价是 `b0c9` 的 `CRED-3` 违规与 `d2e3` 的审计角色过度授权
 > 一起漏检了一整轮——四套装置都在验「迁移行为」，没有一套验「工程规约」。
 > 根因与修复见 `docs/audits/2026-11-20-audit-role-overgrant-fix.md`。
+>
+> **「覆盖完整性」为什么必须单列**：台账能判「这一行闭环了吗」，判不了「这张清单全不全」。
+> 后者漏过两次——`qc_reports` 漏列、`episodes` 从未进入判断（`episodes` 的例外通道、
+> 修数权限、RLS 旁路全都建好了，唯独归属外键没建）。两次都不是判断错误，而是压根没被
+> 判断。清单完整性不能靠人复查，必须由脚本从 `pg_attribute` 实读后与台账求差。
+> 根因与修复见 `docs/audits/2026-11-20-ownership-closure-episodes.md`。
+>
+> **装置不写死「归属栈几层」**：层数每批都在涨（本轮从五层到七层两次）。回退用
+> `lab.rewind_to(keep)` 显式声明「本迁移的增量前提是哪一层」，脚本表达被测命题的前提，
+> 而不是模板此刻的偶然位置——后者的代价是上一轮 `23503` 事故与 `verify_batch2` 的 P1 断言失效。
 >
 > 报告产物一律写在**本目录**，不写进 `data/migrations/versions/`：那个目录的职责只有迁移脚本，
 > 混入证据会让 Alembic 目录变成事实源。
@@ -36,6 +47,8 @@
 | `snapshots/*.sql` | 三份 `pg_dump --schema-only` | `industrial` / `replay-main` / `replay-feat` |
 | `steps/{main,feat}/*.json` | 步进快照原始数据 | schema/表/约束/角色/授权/成员边 |
 | `diverged.json` | 10 个分叉的路径与双侧哈希 | 冻结清单的机器可读副本 |
+| `verify_ownership_closure.py` | 归属闭环**覆盖完整性**闸门 | 集合相等 + 豁免可机检；`--selftest` 两侧各证伪一次 |
+| `verify_batch3.py` | 批次三（`episodes`）行为验证 | 缺口可复现 / 不误伤 / VALIDATE 非恒真 / 降级可逆，15 项 |
 
 上述后四项对应 `docs/audits/2026-11-20-fork-inventory-frozen.md`（清单）与
 `docs/audits/2026-11-20-dual-path-replay-experiment.md`（实验结论）。

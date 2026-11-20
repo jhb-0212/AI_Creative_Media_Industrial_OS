@@ -1,14 +1,21 @@
 {
-  "at": "2026-11-20T15:16:32+08:00",
-  "passed": 15,
+  "at": "2026-11-20T16:04:16+08:00",
+  "passed": 16,
   "failed": 0,
   "not_applicable": 0,
   "open_findings": [],
   "results": [
     {
+      "id": "P0",
+      "phase": "基线",
+      "desc": "回退到 e3f4a5b6c7d8 已应用的状态（撤掉 2 层）",
+      "ok": true,
+      "detail": "g7b8c9d0e1f2/f8a9b0c1d2e3"
+    },
+    {
       "id": "P1",
       "phase": "前提",
-      "desc": "模板上批次二的三条外键尚不存在（否则测的不是本迁移）",
+      "desc": "基线里批次二的三条外键尚不存在（否则测的不是本迁移）",
       "ok": true,
       "detail": "asset_service.qc_reports=False; shot_planning.shot_specs=False; workflow.approval_steps=False"
     },

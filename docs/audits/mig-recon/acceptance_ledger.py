@@ -1,4 +1,4 @@
-"""17 行归属闭环验收台账（ADR-R40 §13 D-10.1 / 附录 J.2 的唯一验收判据）。
+"""18 行归属闭环验收台账（ADR-R40 §13 D-10.1 / 附录 J.2 的唯一验收判据）。
 
 判据（三条件合取，缺一即不通过）::
 
@@ -47,7 +47,17 @@ class Row:
 
 
 def ledger_rows() -> list[Row]:
-    """17 行。前 16 行是域表（含 1 张组织级），第 17 行是归属根 projects。
+    """18 行。前 17 行是域表（含 1 张组织级），第 18 行是归属根 projects。
+
+    **为什么从 17 涨到 18**：`episodes` 是第三张「落在闭环之外」的表，而且比前两张更
+    值得记一笔——它**的例外通道早就完整建好了**：`c1d2` 给了 `project_scope_episodes`，
+    `d2e3` 给了修数权限，`e3f4` 给了 RLS 旁路。整套修数机制是照着「它的 project_id
+    可能会指错、需要订正」这个前提搭的，唯独「指错」本身没有任何约束去定义。
+    它不是被判断错，而是从未进入判断（既不在 `PROJECT_LEVEL`，也不在 `DERIVED_NO_FK`）。
+
+    这张表由**覆盖闸门**抓出来，不是靠人复查：
+    `verify_ownership_closure.py` 从 `pg_attribute` 实读带归属列的表，与台账集合求差，
+    差集非空即 FAIL。闸门先行、本行后补——顺序不能反，反过来闸门就成了给现状背书。
 
     **为什么从 14 涨到 17**：09 版把 `qc_reports` / `shot_specs` / `approval_steps`
     排除在外——`qc_reports` 是漏了（既不在 PROJECT_LEVEL 也不在 DERIVED_NO_FK），
@@ -61,6 +71,7 @@ def ledger_rows() -> list[Row]:
     台账的行集必须能逐行对应一条真实约束，凑数没有意义。
     """
     return [
+        Row("project_planning.episodes", "A", "fk_episodes_project_tenant_org"),
         Row("generation_execution.production_routes", "B",
             "fk_production_routes_organization_tenant"),
         Row("generation_execution.generation_tasks", "A",
@@ -262,11 +273,12 @@ async def run(db: str, port: int, host: str = "localhost", write: bool = True) -
 PENDING = REPO / "data/migrations/pending/feat-ownership"
 
 #: 参与自检的迁移，按**应用顺序**排列：(文件名 glob, 模块名)。
-#: 台账从 14 行涨到 17 行是因为 `batch2` 补了三张表的归属外键，
+#: 台账从 14 行涨到 18 行是因为 `batch2` 补了三张表、`batch3` 补了 `episodes` 的归属外键，
 #: 所以自检必须同时应用两批，否则 pending 场景只会有 14 条待验证。
 SELFTEST_MIGRATIONS: tuple[tuple[str, str], ...] = (
     ("*_ownership_fk_backfill.py", "ownership_fk_a9b8"),
     ("*_ownership_fk_batch2.py", "ownership_fk_batch2"),
+    ("*_ownership_fk_episodes.py", "ownership_fk_batch3"),
 )
 
 
@@ -291,7 +303,7 @@ def load_migrations() -> list:
 
 
 def ownership_fks(mods) -> list[tuple[str, str]]:
-    """把两批迁移的外键拼成一份全量清单（17 条）。"""
+    """把三批迁移的外键拼成一份全量清单（18 条）。"""
     return [fk for m in mods for fk in m.OWNERSHIP_FKS]
 
 
@@ -300,7 +312,7 @@ async def _recreate(db: str, template: str, port: int) -> str:
 
     为什么不能直接用模板库当「未迁移」场景
     --------------------------------------
-    自检的 `ledger_nomig` 场景要求「14/17 条约束一条都不存在」。但模板库
+    自检的 `ledger_nomig` 场景要求「18 条约束一条都不存在」。但模板库
     `ai_film_industrial` 已经升到 `e3f4a5b6c7d8`，归属约束全都在，且含指向隔离项目的
     行。直接克隆会让 nomig 场景实测 14 条约束 → 判定 14/14，与「未迁移」完全相反；
     更隐蔽的是 `pending` 场景（约束在、未 VALIDATE）会与 `clean` 场景难以区分。
@@ -343,13 +355,13 @@ async def _drop(db: str, port: int) -> None:
 # 自检场景：同一脚本、不同库状态，判定必须不同。
 # 旧版只有三种状态（未迁移 / 全验证 / 一张脏），缺「约束全建但一个都没 VALIDATE」——
 # 而这恰恰是迁移刚激活后的真实形态，也是「约束存在 ≠ 不变量成立」最容易被误读的形态：
-# 17 条约束都在、`NOT VALID` 也在，若台账把「存在」当「闭环」，这一态会被判 17/17。
+# 18 条约束都在、`NOT VALID` 也在，若台账把「存在」当「闭环」，这一态会被判 18/18。
 SELFTEST_SCENARIOS = (
     # db              migrate  validate       dirty  passed pending
     dict(db="ledger_nomig",   migrate=False, validate="none",       dirty=False, passed=0,  pending=0),
-    dict(db="ledger_pending", migrate=True,  validate="none",       dirty=False, passed=0,  pending=17),
-    dict(db="ledger_clean",   migrate=True,  validate="all",        dirty=False, passed=17, pending=0),
-    dict(db="ledger_dirty",   migrate=True,  validate="all_but_av", dirty=True,  passed=16, pending=0),
+    dict(db="ledger_pending", migrate=True,  validate="none",       dirty=False, passed=0,  pending=18),
+    dict(db="ledger_clean",   migrate=True,  validate="all",        dirty=False, passed=18, pending=0),
+    dict(db="ledger_dirty",   migrate=True,  validate="all_but_av", dirty=True,  passed=17, pending=0),
 )
 
 
@@ -409,8 +421,8 @@ async def selftest(port: int, template: str) -> int:
         )
     print("-" * 80)
     print(
-        "预期：nomig 全未建立 → 0；pending 约束全建但未 VALIDATE → 0 PASS 且 17 行待验证；\n"
-        "      clean 全部 VALIDATE → 17/17；dirty 仅 asset_versions 存量违规 → 16/17（精确定位）。"
+        "预期：nomig 全未建立 → 0；pending 约束全建但未 VALIDATE → 0 PASS 且 18 行待验证；\n"
+        "      clean 全部 VALIDATE → 18/18；dirty 仅 asset_versions 存量违规 → 17/18（精确定位）。"
     )
     print("结论：" + ("台账可区分「未建立 / 待验证 / 存量违规 / 闭环」四种状态，不是恒真。"
                     if ok else "自检失败——台账判定不可信，禁止用于验收。"))
@@ -448,7 +460,7 @@ async def seed_dirty_post_fk(conn: asyncpg.Connection) -> None:
     """造**合规**的组织与项目行。必须在 `a9b8` 之后——`organizations` 表由它创建。
 
     组织行不可省：`projects` 挂着 `fk_projects_organization_tenant`，缺组织行会让
-    `projects` 自己也违规 → 台账判 15/17，而用例要证明的是「**只**精确定位到
+    `projects` 自己也违规 → 台账判 16/18，而用例要证明的是「**只**精确定位到
     asset_versions 这一张」。脏要脏得单一，否则「能否精确定位」无从判断。
     """
     await conn.execute(
@@ -539,7 +551,7 @@ async def main_async(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="17 行归属闭环验收台账")
+    ap = argparse.ArgumentParser(description="18 行归属闭环验收台账")
     ap.add_argument("--db", default="ai_film_industrial")
     ap.add_argument("--port", type=int, default=15444)
     ap.add_argument("--host", default="localhost")

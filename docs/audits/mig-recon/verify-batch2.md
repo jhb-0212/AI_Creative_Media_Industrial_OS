@@ -1,13 +1,14 @@
 # 归属外键第二批（f8a9b0c1d2e3）验证结果
 
-- 执行时间：2026-11-20T15:16:32+08:00
+- 执行时间：2026-11-20T16:04:16+08:00
 - 目标：`localhost:15444` 克隆库 `t3b2_lab`（模板 `ai_film_industrial`），用完即删
-- 基线：**直接克隆模板、不回退**——本迁移的增量前提是 a9b8 已应用；P1 断言模板上批次二约束不存在，前提变了立即中止
-- 结果：**15/15**
+- 基线：克隆模板后**回退到 `e3f4a5b6c7d8` 已应用**（撤掉批次三），P0 记录撤了哪几层，P1 断言批次二约束确实不在——前提由脚本声明，不靠模板偶然状态
+- 结果：**16/16**
 
 | # | 阶段 | 用例 | 结果 | 说明 |
 | --- | --- | --- | --- | --- |
-| P1 | 前提 | 模板上批次二的三条外键尚不存在（否则测的不是本迁移） | PASS | asset_service.qc_reports=False; shot_planning.shot_specs=False; workflow.approval_steps=False |
+| P0 | 基线 | 回退到 e3f4a5b6c7d8 已应用的状态（撤掉 2 层） | PASS | g7b8c9d0e1f2/f8a9b0c1d2e3 |
+| P1 | 前提 | 基线里批次二的三条外键尚不存在（否则测的不是本迁移） | PASS | asset_service.qc_reports=False; shot_planning.shot_specs=False; workflow.approval_steps=False |
 | P2 | 前提 | 夹具组织存在（外键目标真实，否则 23503 会被误读为拦截） | PASS | organizations=1 |
 | C1 | 缺口 | 建约束前：qc_reports 可指向不存在的项目 | PASS | INSERT 0 1 |
 | C1ss | 缺口 | 建约束前：shot_planning.shot_specs 可指向不存在的项目 | PASS | INSERT 0 1 |

@@ -1,0 +1,68 @@
+{
+  "db": "ai_film_industrial",
+  "passed": 8,
+  "failed": 0,
+  "total": 8,
+  "rows": [
+    {
+      "id": "C1",
+      "phase": "覆盖",
+      "desc": "含 project_id 的表全部被纳入（17 张）",
+      "ok": true,
+      "detail": "台账 A 16 + 豁免"
+    },
+    {
+      "id": "C2",
+      "phase": "覆盖",
+      "desc": "台账 A 类行都对应真实存在且带 project_id 的表（防虚报）",
+      "ok": true,
+      "detail": "A 类 16 行均落地"
+    },
+    {
+      "id": "C3",
+      "phase": "覆盖",
+      "desc": "组织级表全部被纳入（3 张）",
+      "ok": true,
+      "detail": "台账 B/ROOT 2 + 豁免"
+    },
+    {
+      "id": "C4",
+      "phase": "覆盖",
+      "desc": "台账 B/ROOT 类行都对应真实存在的表",
+      "ok": true,
+      "detail": "均落地"
+    },
+    {
+      "id": "C5",
+      "phase": "豁免",
+      "desc": "2 条豁免的机检前提全部成立",
+      "ok": true,
+      "detail": "derived/root 前提逐条实检通过"
+    },
+    {
+      "id": "C6",
+      "phase": "豁免",
+      "desc": "豁免集合与台账集合不相交",
+      "ok": true,
+      "detail": "每张表只有一个口径"
+    },
+    {
+      "id": "C7",
+      "phase": "台账",
+      "desc": "台账 18 行的约束全部存在",
+      "ok": true,
+      "detail": "全部命中 pg_constraint"
+    },
+    {
+      "id": "C8",
+      "phase": "台账",
+      "desc": "台账每一行的约束均已 VALIDATE（存在 ≠ 闭环）",
+      "ok": true,
+      "detail": "convalidated 全为 true"
+    }
+  ],
+  "exemptions": [
+    "project_planning.script_revisions",
+    "project_planning.organizations"
+  ]
+}
