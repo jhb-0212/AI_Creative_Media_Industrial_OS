@@ -16,7 +16,7 @@
 
 generated_by: scripts/gen_status_contracts.py
 source: contracts/state_machines/state_machines.yaml
-object_count: 43
+object_count: 44
 objects:
 - object: Appeal
   states: [CLOSED, DECISION_OVERTURNED, DECISION_UPHELD, IN_REVIEW, SUBMITTED]
@@ -92,6 +92,8 @@ objects:
   states: [CONFIRMED, DISCARDED, IN_REVIEW, PENDING_CONFIRM, RETURNED]
 - object: ShotRevision
   states: [ACTIVE, SUPERSEDED]
+- object: ShotSpec
+  states: [DRAFT, LOCKED]
 - object: ShotVisualPlan
   states: [APPROVED, DRAFT, LOCKED, PARTIALLY_LOCKED, REJECTED, REVIEW]
 - object: ShowcaseSnapshot

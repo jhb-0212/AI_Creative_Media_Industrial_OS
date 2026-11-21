@@ -3396,7 +3396,11 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "DRAFT",
+            "LOCKED"
+          ]
         },
         "owner_module": {
           "type": "string"
