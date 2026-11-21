@@ -957,7 +957,31 @@ def scope_child_resource_fk() -> AssertionResult:
         for name in ("fk_episodes_project", "fk_script_revisions_episode")
         if name not in orm and name not in _all_migrations_text()
     ]
-    return _require(not missing, f"子资源外键缺失: {missing}")
+    if missing:
+        return (False, f"子资源外键缺失: {missing}")
+
+    # P1-03：Shot 的返工依据必须复合外键 (project_id, rework_basis_ref) →
+    # rework_tasks(project_id, entity_id)。单列外键会放行「A 项目借用 B 项目的
+    # 返工授权」。ORM 与正式迁移两条路径都查：只查一处，另一处可悄悄退回单列。
+    fk_needle = '"project_id", "rework_basis_ref"'
+    if fk_needle not in orm:
+        return (
+            False,
+            "Shot.rework_basis_ref 的外键未声明 project_id 复合列——"
+            "单列外键放行跨项目借用返工授权（P1-03）",
+        )
+    a13 = _read("data/migrations/versions/a13b0c1d2e3f_scene_shot_rework_runtime_tables.py")
+    upgrade_mig = _read(
+        "data/migrations/versions/b1c2d3e4f5a6_shot_rework_basis_composite_fk.py"
+    )
+    if "FOREIGN KEY (project_id, rework_basis_ref)" not in upgrade_mig:
+        return (False, "存量升级迁移未把 fk_shots_rework_basis 改为复合外键（P1-03）")
+    if (
+        "uq_rework_tasks_entity_project" not in a13
+        or "uq_rework_tasks_entity_project" not in upgrade_mig
+    ):
+        return (False, "复合外键的引用目标唯一键 uq_rework_tasks_entity_project 缺失")
+    return (True, "")
 
 
 @assertion("scope.asset_ownership_chain")
@@ -2227,6 +2251,10 @@ class _EmptyResult:
         return []
 
     def one(self) -> None:
+        return None
+
+    def first(self) -> None:
+        """空结果的首行为 None——迁移里的 `if row is None` 判据据此走「不存在」分支。"""
         return None
 
 

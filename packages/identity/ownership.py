@@ -142,7 +142,7 @@ _RESOLVE_SQL: dict[str, str] = {
           ON p.entity_id = a.project_id AND p.tenant_id = a.tenant_id
         WHERE q.qc_report_id = :rid
     """,
-    # A13（ADR-R40）：四个新资源都直接持有 project_id，归属链一跳到底。
+    # A13（ADR-R28）：四个新资源都直接持有 project_id，归属链一跳到底。
     # Scene 经自带的 project_id 收敛，不经 episode 两跳：三列外键
     # fk_scenes_episode_project 保证它与集同项目，归属不被改写（I-2）由守卫保证。
     "Scene": """

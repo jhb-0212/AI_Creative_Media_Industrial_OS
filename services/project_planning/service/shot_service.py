@@ -71,6 +71,21 @@ class ShotService:
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR, detail="changed_by 不能为空"
             )
+
+        # fail-closed（contract_amendments.yaml V205-R14-A14 残留风险）：CANCELLED 的
+        # 可解析授权记录对象仍未建模，cancellation_ref 只是调用方自报的字符串——
+        # 领域守卫与库层 CHECK 都只能判「非空」，无法证明它对应一次真实生效的授权。
+        # 按已登记裁定「运行时显式拒绝带 cancellation_ref 的推进」，在赋值前拒绝：
+        # 既不把不可解析引用写进正式对象，也不让它经 authority_ref 进入审计事实。
+        if cancellation_ref is not None:
+            raise DomainError(
+                ErrorRegistry.STATE_TRANSITION_DENIED,
+                detail=(
+                    "取消授权记录无法解析：CANCELLED 的可信授权对象尚未建模，"
+                    "拒绝任何带 cancellation_ref 的推进"
+                ),
+            )
+
         shot = await self._repository.get_by_id(entity_id)
         if shot is None:
             raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"镜头不存在: {entity_id}")
@@ -89,6 +104,17 @@ class ShotService:
                     ErrorRegistry.STATE_TRANSITION_DENIED,
                     detail="已关闭的返工任务不能作为新的返工依据",
                 )
+            # 同项目归属：库层复合外键 (project_id, rework_basis_ref) 是最后防线，
+            # 这里提前比对给出可读错误，避免让调用方收到裸的 23503。两层判据
+            # 同一不变量（同项目），不是两套口径。
+            if task.project_id != shot.project_id:
+                raise DomainError(
+                    ErrorRegistry.STATE_TRANSITION_DENIED,
+                    detail=(
+                        f"返工依据 {rework_basis_ref} 属于项目 {task.project_id}，"
+                        f"与镜头所属项目 {shot.project_id} 不一致"
+                    ),
+                )
 
         # SC-5 的并发侧：进入在产前必须先与父场次的归档侧串行化。
         # 触发条件同样由边表派生（三条进入 IN_PRODUCTION 的边都声明了它），
@@ -104,9 +130,9 @@ class ShotService:
         shot.cancellation_ref = cancellation_ref
         shot.cancelled_at = cancelled_at
 
-        # 取消与返工回退的授权依据写进迁移事实（D2：authority_ref 承载，
-        # 不新建 ApprovalRecord 对象）。
-        authority_ref = cancellation_ref or rework_basis_ref
+        # 授权依据写进迁移事实（D2：authority_ref 承载，不新建 ApprovalRecord 对象）。
+        # cancellation_ref 已在入口 fail-closed 拒绝，此处只可能是 rework_basis_ref。
+        authority_ref = rework_basis_ref
 
         await advance_status(
             shot,

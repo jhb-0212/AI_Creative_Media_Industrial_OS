@@ -251,9 +251,15 @@ class ShotModel(EntityMixin, Base):
             [f"{SCHEMA_NAME}.scenes.project_id", f"{SCHEMA_NAME}.scenes.entity_id"],
             name="fk_shots_scene",
         ),
+        # 复合外键：跨项目借用别人的返工授权必须被数据库拒绝，不能靠 Service
+        # 记得比 project_id。目标键 uq_rework_tasks_entity_project 由同文件
+        # ReworkTaskModel 声明；存量库的升级走 b1c2d3e4f5a6 迁移。
         ForeignKeyConstraint(
-            ["rework_basis_ref"],
-            [f"{SCHEMA_NAME}.rework_tasks.entity_id"],
+            ["project_id", "rework_basis_ref"],
+            [
+                f"{SCHEMA_NAME}.rework_tasks.project_id",
+                f"{SCHEMA_NAME}.rework_tasks.entity_id",
+            ],
             name="fk_shots_rework_basis",
         ),
         CheckConstraint("shot_id = entity_id", name="ck_shots_identity_single"),
@@ -418,6 +424,14 @@ class ReworkTaskModel(EntityMixin, Base):
 
     __tablename__ = "rework_tasks"
     __table_args__ = (
+        # 复合外键的引用目标：shots(project_id, rework_basis_ref) 指向它，锁死
+        # 「镜头与其返工授权必须同项目」（P1-03）。entity_id 是 envelope 主键，
+        # 与 project_id 组合唯一恒成立，但 PG 要求显式唯一键才能被外键引用。
+        UniqueConstraint(
+            "project_id",
+            "entity_id",
+            name="uq_rework_tasks_entity_project",
+        ),
         ForeignKeyConstraint(
             ["project_id"],
             [f"{SCHEMA_NAME}.projects.entity_id"],

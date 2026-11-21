@@ -1,4 +1,4 @@
-"""Scene / Shot / ShotRevision / ShotBreakdownDraft / ReworkTask 建表（A13 / ADR-R40）
+"""Scene / Shot / ShotRevision / ShotBreakdownDraft / ReworkTask 建表（A13 / ADR-R28）
 
 为什么一次建五张表
 ------------------------------------------------------------
@@ -15,8 +15,9 @@
   episodes 补 ``uq_episodes_entity_project`` 作为复合外键的引用目标。
 - ``(project_id, scene_id) → scenes(project_id, entity_id)``：同理锁死 Shot 与 Scene。
 - ``(project_id, shot_id) → shots(project_id, entity_id)``：锁死修订与 Shot。
-- ``rework_basis_ref → rework_tasks(entity_id)``：让 Shot 的返工守卫在库层可验证，
-  而不是只校验字符串非空（ADR-R40 §3.3）。
+- ``(project_id, rework_basis_ref) → rework_tasks(project_id, entity_id)``：复合外键，
+  既让返工守卫在库层可验证（ADR-R28 §3.3），又禁止跨项目借用授权（P1-03）；
+  目标唯一键 ``uq_rework_tasks_entity_project`` 在同表声明。
 
 守卫字段（四个列不是可选项）
 ------------------------------------------------------------
@@ -202,6 +203,11 @@ def upgrade() -> None:
         sa.Column("affected_asset_version_ids", postgresql.JSONB(), nullable=False),
         sa.Column("downstream_task_ids", postgresql.JSONB(), nullable=False),
         sa.Column("constraint_pack_ref", sa.String(64), nullable=True),
+        # 复合外键引用目标：shots(project_id, rework_basis_ref) → 本表
+        # (project_id, entity_id)，跨项目借用返工授权在库层即被拒（P1-03）。
+        sa.UniqueConstraint(
+            "project_id", "entity_id", name="uq_rework_tasks_entity_project"
+        ),
         sa.ForeignKeyConstraint(
             ["project_id"],
             [f"{_SCHEMA}.projects.entity_id"],
@@ -270,9 +276,13 @@ def upgrade() -> None:
             [f"{_SCHEMA}.scenes.project_id", f"{_SCHEMA}.scenes.entity_id"],
             name="fk_shots_scene",
         ),
+        # 复合而非单列：跨项目借用别人的返工授权必须被数据库拒绝（P1-03）。
         sa.ForeignKeyConstraint(
-            ["rework_basis_ref"],
-            [f"{_SCHEMA}.rework_tasks.entity_id"],
+            ["project_id", "rework_basis_ref"],
+            [
+                f"{_SCHEMA}.rework_tasks.project_id",
+                f"{_SCHEMA}.rework_tasks.entity_id",
+            ],
             name="fk_shots_rework_basis",
         ),
         sa.CheckConstraint("shot_id = entity_id", name="ck_shots_identity_single"),

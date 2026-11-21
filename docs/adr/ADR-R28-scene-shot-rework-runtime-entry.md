@@ -1,4 +1,4 @@
-# ADR-R40：Scene / Shot / ShotRevision / ShotBreakdownDraft / ReworkTask 运行时入口
+# ADR-R28：Scene / Shot / ShotRevision / ShotBreakdownDraft / ReworkTask 运行时入口
 
 - 状态：PROPOSED → 待 Phase 1 复核固化
 - 日期：2026-11-20

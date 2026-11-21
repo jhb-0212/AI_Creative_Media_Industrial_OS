@@ -1,10 +1,13 @@
 """ReworkTask 应用服务（返工任务登记与状态推进）。
 
-职责分离在领域层（``ReworkTask.assert_reviewer_not_owner``），本层只负责把
-可信主体传进去。为什么不在领域 ``transition_to`` 里做：它需要「当前操作者」，
-而唯一推进入口 ``advance_status`` 的契约只传 (target, audit_ref, action)。
-把 actor 塞进 transition_to 会让那个参数变成「有时是准入凭据、有时是审批人」
-的双重语义——审计表里最不该有的就是含糊。
+执行人 owner 取可信 Principal：created_by 由路由从 JWT 注入，本服务用它派生
+owner，绝不接请求体自报值——否则复核时的「复核人 ≠ 执行人」就是可信主体与
+自报字符串的比较，职责分离可被任意填 owner 绕过（认领制：谁建谁执行）。
+
+职责分离判定委托 identity 的单一权威 ``require_different_subject``（脚本/资产
+同款），不在本层重写字符串比较。为什么不塞进领域 ``transition_to``：它需要
+「当前操作者」，而唯一推进入口 ``advance_status`` 的契约只传 (target, audit_ref,
+action)；把 actor 塞进去会让该参数兼具「准入凭据」与「审批人」双重语义。
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ import uuid
 from uuid import UUID
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.identity.separation import require_different_subject
 from packages.shared.outbox_writer import OutboxWriter
 from packages.shared.port_errors import DuplicateEntityError, ReferentialIntegrityError
 from services.project_planning.domain.enums import ReworkTaskStatus
@@ -47,7 +51,6 @@ class ReworkTaskService:
         defect_category: str,
         severity: str,
         root_cause: str,
-        owner: str,
         return_node: str,
         affected_asset_version_ids: list[str],
         downstream_task_ids: list[str],
@@ -56,6 +59,15 @@ class ReworkTaskService:
         constraint_pack_ref: str | None = None,
         entity_id: str | None = None,
     ) -> ReworkTask:
+        # owner（返工执行人）不来自请求体：created_by 由路由从可信 Principal
+        # 注入，是本服务唯一可信的主体来源。若接受调用方自报 owner，复核时的
+        # `reviewer == owner` 就是「可信主体 vs 自报字符串」的比较，职责分离可
+        # 被任意填写 owner 绕过。认领制：谁创建谁执行，复核必须由另一主体完成。
+        created_by = created_by.strip()
+        if not created_by:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR, detail="created_by 不能为空"
+            )
         stripped = {
             "project_id": project_id.strip(),
             "issue_id": issue_id.strip(),
@@ -63,9 +75,8 @@ class ReworkTaskService:
             "defect_category": defect_category.strip(),
             "severity": severity.strip(),
             "root_cause": root_cause.strip(),
-            "owner": owner.strip(),
             "return_node": return_node.strip(),
-            "created_by": created_by.strip(),
+            "created_by": created_by,
         }
         for name, value in stripped.items():
             if not value:
@@ -94,7 +105,7 @@ class ReworkTaskService:
             defect_category=stripped["defect_category"],
             severity=stripped["severity"],
             root_cause=stripped["root_cause"],
-            owner=stripped["owner"],
+            owner=created_by,
             return_node=stripped["return_node"],
             affected_asset_version_ids=list(affected_asset_version_ids),
             downstream_task_ids=list(downstream_task_ids),
@@ -171,7 +182,15 @@ class ReworkTaskService:
         # 职责分离只在关闭这一步要求：VERIFYING→CLOSED 必须有复核人，
         # 且复核人不得是返工执行人本人（7.6）。其它转移由动作权限约束。
         if target_status is ReworkTaskStatus.CLOSED:
-            task.assert_reviewer_not_owner(changed_by)
+            # 职责分离走单一权威判定（与 script/asset 同一函数），不在此重写
+            # 字符串比较——两个主体必须是不同可信 Principal，缺失或相同都拒绝。
+            require_different_subject(
+                actor=changed_by,
+                counterpart=task.owner,
+                action_label="REWORK.TASK.STATUS.CHANGE→CLOSED",
+                actor_label="复核人",
+                counterpart_label="返工执行人",
+            )
 
         await advance_status(
             task,
@@ -200,7 +219,7 @@ def _assert_same_request(existing: ReworkTask, values: dict[str, str]) -> None:
         existing.project_id != values["project_id"]
         or existing.issue_id != values["issue_id"]
         or existing.target_ref != values["target_ref"]
-        or existing.owner != values["owner"]
+        or existing.owner != values["created_by"]  # owner 由可信 created_by 派生
     ):
         raise DomainError(
             ErrorRegistry.IDEMPOTENCY_CONFLICT,

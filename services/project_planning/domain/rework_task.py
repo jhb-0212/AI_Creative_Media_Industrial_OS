@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.identity.separation import require_different_subject
 from services.project_planning.domain.entity import OWNER_MODULE, Entity
 from services.project_planning.domain.enums import ReworkTaskStatus
 from services.project_planning.domain.state_machine import REWORK_TASK_LIFECYCLE
@@ -85,20 +86,19 @@ class ReworkTask(Entity):
         return self
 
     def assert_reviewer_not_owner(self, reviewer: str) -> None:
-        """职责分离：复核人不得是返工执行人本人。
+        """职责分离：复核人不得是返工执行人本人（7.6 对象自身不变量）。
 
-        放在领域层而不是服务层，是因为这是**对象自身的不变量**（7.6 明文），
-        不是某个用例的策略。服务层只负责把「当前主体」传进来。
+        判定委托给 identity 的单一权威 ``require_different_subject``——与脚本、
+        资产域同一口径，避免每处各写一次字符串比较而语义漂移。owner 由可信
+        Principal 派生（服务层创建时认领），因此这里的两个主体都是可信值。
         """
-        if not reviewer or not reviewer.strip():
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="复核人不能为空"
-            )
-        if reviewer.strip() == self.owner.strip():
-            raise DomainError(
-                ErrorRegistry.STATE_TRANSITION_DENIED,
-                detail="复核人不得为返工执行人本人（7.6 职责分离）",
-            )
+        require_different_subject(
+            actor=reviewer,
+            counterpart=self.owner,
+            action_label="REWORK.TASK 复核",
+            actor_label="复核人",
+            counterpart_label="返工执行人",
+        )
 
     def to_dict(self) -> dict[str, Any]:
         data = self._envelope_dict()
