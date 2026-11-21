@@ -1,5 +1,10 @@
 # 父冻结落地 + 归档不变量（批次六）
 
+> **后续状态（2026-11-21，同日收口）**：本报告中的「BLOCKED 归所有者裁定」已裁定为
+> **不阻断归档**，并由批次七 `k1f2a3b4c5d6` 把阻断集合收敛为单源函数；
+> `Project.COMPLETED` 已纳入冻结态；父链冻结已扩展到 SCRIPT.IMPORT 与 Scene。
+> 正文保留原样。详见 `docs/audits/2026-11-21-scene-runtime-and-grants.md`。
+
 > 日期：2026-11-21　目标库：`ai_film_industrial` @ 15444　head：`j0e1f2a3b4c5`
 > 证据：`docs/audits/mig-recon/verify_parent_freeze_lock.json`（9/9）、
 > `verify_parent_freeze_e2e.json`（3/3）、`verify-batch6.json`（13/13）、

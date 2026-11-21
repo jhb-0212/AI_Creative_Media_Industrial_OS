@@ -3,7 +3,7 @@
 # 校验口径：action_key 全局唯一、命名规范、audit_event 与 negative_test_id 一一对应
 registry_source: 'AFS-ARCH-MASTER-V2.0.5 / 31.6 Action Registry'
 registry_version: 'V2.0.5'
-total_actions: 84
+total_actions: 87
 actions:
   - action_key: 'PROJECT.CREATE'
     resource_type: 'Project'
@@ -928,4 +928,37 @@ actions:
     audit_event: 'EPISODE_STATUS_CHANGED'
     negative_test_id: 'ACT-EPISODE-NEG-003'
     negative_test_desc: '非法/越权状态转移拒绝'
+    status: 'ACTIVE'
+  - action_key: 'SCENE.CREATE'
+    resource_type: 'Scene'
+    scope: 'project/episode'
+    risk_level: 'MEDIUM'
+    token_required: true
+    allowed_principals: '导演/编剧/制片'
+    approval_requirement: '场次必须归属已存在 Episode，且该集的 Project 与 Episode 均未冻结（归档/完成）；入口形状对齐 EPISODE.CREATE，复用同一套父生命周期判定。'
+    audit_event: 'SCENE_CREATED'
+    negative_test_id: 'ACT-SCENE-NEG-001'
+    negative_test_desc: '跨集建场次拒绝'
+    status: 'ACTIVE'
+  - action_key: 'SCENE.READ'
+    resource_type: 'Scene'
+    scope: 'project/episode'
+    risk_level: 'LOW'
+    token_required: true
+    allowed_principals: '导演/编剧/制片/QC 审核人'
+    approval_requirement: '只读；租户边界由 RLS 保证，组织与项目边界由统一授权入口判定。'
+    audit_event: 'SCENE_READ'
+    negative_test_id: 'ACT-SCENE-NEG-004'
+    negative_test_desc: '跨组织读场次拒绝'
+    status: 'ACTIVE'
+  - action_key: 'SCENE.STATUS.CHANGE'
+    resource_type: 'Scene'
+    scope: 'project/episode'
+    risk_level: 'MEDIUM'
+    token_required: true
+    allowed_principals: '导演/制片'
+    approval_requirement: '目标状态作参数，运行时按 Scene 转移表校验；终态 ARCHIVED 不可原地复活。归档前由数据库守卫检查是否存在在制镜头（ADR-R27/Q3）。'
+    audit_event: 'SCENE_STATUS_CHANGED'
+    negative_test_id: 'ACT-SCENE-NEG-002'
+    negative_test_desc: 'Agent 归档仍有在制镜头的场次拒绝'
     status: 'ACTIVE'

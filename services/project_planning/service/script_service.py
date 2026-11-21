@@ -33,6 +33,7 @@ from services.project_planning.domain.episode import Episode
 from services.project_planning.domain.script import ScriptRevision
 from services.project_planning.domain.state_machine import (
     EPISODE_LIFECYCLE,
+    PROJECT_LIFECYCLE,
     SCRIPT_IMPORT_ACTION,
     SCRIPT_LOCK_APPROVE_ACTION,
     SCRIPT_LOCK_REQUEST_ACTION,
@@ -327,30 +328,46 @@ class ScriptService:
     async def _assert_episode_open_for_child_write(
         self, project_id: str, episode_ref: str
     ) -> Episode:
-        """创建剧本版本前的父集数校验：归属 + 行锁 + 冻结判定。
+        """创建剧本版本前的父链校验：归属 + 行锁 + **整条父链**的冻结判定。
 
-        与 ``_assert_episode_ownership`` 的三点差别，每一点都有原因：
+        与 ``_assert_episode_ownership`` 的差别，每一点都有原因：
 
         1. 用**带锁**读（``FOR SHARE``）：否则「读到父状态 → 判定冻结 → 插入
            子行」之间父行可被并发归档，检查在写入瞬间已不成立。实测见
            ``docs/audits/mig-recon/verify_parent_freeze_lock.py``（H2/H4）与
            ``verify_parent_freeze_e2e.py``（R1~R3，走真实 SQLAlchemy 事务）。
-        2. 判冻结：``EPISODE_LIFECYCLE.assert_child_creation_allowed``。冻结态
-           记在状态上而不是动作上，新增创建路径自动继承，漏写不会静默放行。
+        2. 判冻结：``*_LIFECYCLE.assert_child_creation_allowed``。冻结态记在状态上
+           而不是动作上，新增创建路径自动继承，漏写不会静默放行。
         3. **不塞进** ``_assert_episode_ownership``：后者还被 ``LOCK.REQUEST`` /
            ``LOCK.APPROVE`` 两处审批推进复用，在那里加冻结会把「已归档集数下
            完成既有审批」误拒——那是对既有事实的补记，不是新建内容。
 
+        **为什么必须一路查到 Project（2026-11-21 修正）**：原先只判直接父
+        （Episode），于是在「Project 已归档、其下 Episode 仍为 ACTIVE」时导入
+        照样成功——冻结只拦一层，上一层就被对称路径绕过（与只拦归档侧、
+        不拦推进侧是同一形态的缺口）。父链只有三级且固定，逐级显式锁、显式判，
+        比造一个「祖先遍历器」更容易看懂，也不会在链条变化时静默少查一层。
+
+        **加锁顺序固定为自顶向下 Project → Episode → Scene**：所有创建路径都按
+        这个次序取锁，因此并发创建之间不会形成环。反向取锁（先 Episode 后
+        Project）与 ``EPISODE.CREATE``（只锁 Project）相遇即可能死锁。
+
         「父行查不到」必须拒绝，不能跳过判定：RLS 在租户上下文不符时会**静默
         返回 0 行而不报错**（同装置的 H9），此时若写成
-        ``if episode is not None: 检查冻结``，锁与检查会一起消失。
+        ``if parent is not None: 检查冻结``，锁与检查会一起消失。
         """
-        project = await self._project_repository.get_by_id(project_id)
+        # 第一级：Project（祖父）。行锁 + 冻结判定。
+        project = await self._project_repository.get_by_id_for_child_write(project_id)
         if project is None:
             raise DomainError(
                 ErrorRegistry.NOT_FOUND,
                 detail=f"项目不存在: {project_id}",
             )
+        PROJECT_LIFECYCLE.assert_child_creation_allowed(
+            project.status, child_object="ScriptRevision"
+        )
+
+        # 第二级：Episode（直接父）。行锁 + 归属 + 冻结判定。
         episode = await self._episode_repository.get_by_project_ref_for_child_write(
             project_id, episode_ref
         )

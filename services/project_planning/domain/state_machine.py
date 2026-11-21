@@ -37,6 +37,7 @@ from packages.shared.lifecycle import Lifecycle, Transition
 from services.project_planning.domain.enums import (
     EpisodeStatus,
     ProjectStatus,
+    SceneStatus,
     ScriptStatus,
 )
 
@@ -47,6 +48,7 @@ from services.project_planning.domain.enums import (
 # --------------------------------------------------------------------------- #
 PROJECT_STATUS_CHANGE_ACTION = "PROJECT.STATUS.CHANGE"
 EPISODE_STATUS_CHANGE_ACTION = "EPISODE.STATUS.CHANGE"
+SCENE_STATUS_CHANGE_ACTION = "SCENE.STATUS.CHANGE"
 SCRIPT_IMPORT_ACTION = "SCRIPT.IMPORT"
 SCRIPT_LOCK_REQUEST_ACTION = "SCRIPT.LOCK.REQUEST"
 SCRIPT_LOCK_APPROVE_ACTION = "SCRIPT.LOCK.APPROVE"
@@ -71,15 +73,19 @@ PROJECT_LIFECYCLE = Lifecycle(
     object_name="Project",
     states=tuple(ProjectStatus),
     edges=PROJECT_TRANSITIONS,
-    # 冻结子集合（Project 的子对象是 Episode）：归档后不得再登记集数。
+    # 冻结子集合（Project 的子对象是 Episode）：项目一旦「内容定稿」，不得再登记集数。
     #
-    # 待裁定：COMPLETED 是否也应冻结。当前**不**冻结，但这大概率是错的——
-    # 契约里 COMPLETED 只有 COMPLETED->ARCHIVED 一条出边，没有回到 ACTIVE 的路，
-    # 也就是说「项目已完成」在状态图上就意味着内容定稿。那么「已完成的项目被追加
-    # 一集」在业务上不成立，可在数据上却是合法的。
-    # 未一并冻结的原因：这是所有者保留的裁定点，本批次按「只冻结 ARCHIVED」落地；
-    # 改为冻结只需往下面的元组里加一个枚举值，其余代码不动。
-    frozen_states=(ProjectStatus.ARCHIVED,),
+    # **两态都冻结，理由不是「终态自然该冻结」，而是状态图本身给不出回路**：
+    # ``COMPLETED`` 只有 ``COMPLETED -> ARCHIVED`` 一条出边，没有回到 ``ACTIVE``
+    # 的路。也就是说「项目已完成」在状态图上等价于「内容定稿」，此后任何新增
+    # 内容都不可能再被推进——它会合法地落在库里，然后永久停在 ``DRAFT``。
+    # 这类「能写进去、永远推不动」的孤儿数据，正是「只拦一半」的典型产物：
+    # 归档侧拦住了，完成侧放行，调用方拿到的是一次 201 和一份死数据。
+    #
+    # 为什么不写成 ``terminal_states()``：见 ``packages/shared/lifecycle.py`` 的
+    # 说明——终态与冻结态是交叉关系（``COMPLETED`` 有出边却不是终态），互相推导
+    # 会让新增状态静默继承一个没人讨论过的语义。这里逐条显式声明。
+    frozen_states=(ProjectStatus.COMPLETED, ProjectStatus.ARCHIVED),
 )
 
 # --------------------------------------------------------------------------- #
@@ -99,6 +105,29 @@ EPISODE_LIFECYCLE = Lifecycle(
     # 冻结子集合（Episode 的子对象是 Scene 与 ScriptRevision）：归档后不得再登记
     # 场次，也不得再导入剧本版本。两条路径从同一处派生，不各写一个 if。
     frozen_states=(EpisodeStatus.ARCHIVED,),
+)
+
+# --------------------------------------------------------------------------- #
+# Scene：3 条边，全部归 SCENE.STATUS.CHANGE。
+# 形状与 Episode 完全一致（契约 `source_kind: derived_from_parent_lifecycle`）：
+# 同层级聚合若各有一套命名不同的状态，跨层校验就无法复用同一套判定。
+# ARCHIVED 为终态；归档另有数据库守卫检查「其下不得有在制镜头」（ADR-R27/Q3），
+# 那条是跨表存在性不变量，状态机表达不了，故不在这里重复。
+# --------------------------------------------------------------------------- #
+SCENE_TRANSITIONS: tuple[Transition[SceneStatus], ...] = (
+    Transition(SceneStatus.DRAFT, SceneStatus.ACTIVE, SCENE_STATUS_CHANGE_ACTION),
+    Transition(SceneStatus.DRAFT, SceneStatus.ARCHIVED, SCENE_STATUS_CHANGE_ACTION),
+    Transition(SceneStatus.ACTIVE, SceneStatus.ARCHIVED, SCENE_STATUS_CHANGE_ACTION),
+)
+
+SCENE_LIFECYCLE = Lifecycle(
+    object_name="Scene",
+    states=tuple(SceneStatus),
+    edges=SCENE_TRANSITIONS,
+    # 冻结子集合（Scene 的子对象是 Shot）：归档后不得再挂新镜头。
+    # 这条与数据库侧的 A 侧守卫（归档时不得有在制镜头）方向相反、互不替代：
+    # 前者拦「以后还能不能长」，后者拦「现在还有没有在制」。
+    frozen_states=(SceneStatus.ARCHIVED,),
 )
 
 # --------------------------------------------------------------------------- #
@@ -136,6 +165,9 @@ SCRIPT_ALLOWED_TRANSITIONS: dict[ScriptStatus, frozenset[ScriptStatus]] = (
 )
 EPISODE_ALLOWED_TRANSITIONS: dict[EpisodeStatus, frozenset[EpisodeStatus]] = (
     EPISODE_LIFECYCLE.allowed_transitions()
+)
+SCENE_ALLOWED_TRANSITIONS: dict[SceneStatus, frozenset[SceneStatus]] = (
+    SCENE_LIFECYCLE.allowed_transitions()
 )
 
 # --------------------------------------------------------------------------- #
@@ -184,6 +216,18 @@ def assert_transition_episode(
     return EPISODE_LIFECYCLE.assert_registered(source, target)
 
 
+def can_transition_scene(source: SceneStatus, target: SceneStatus) -> bool:
+    """判断 Scene 的 source -> target 是否为已登记转移。"""
+    return SCENE_LIFECYCLE.edge_for(source, target) is not None
+
+
+def assert_transition_scene(
+    source: SceneStatus, target: SceneStatus
+) -> Transition[SceneStatus]:
+    """校验 Scene 转移结构，未登记则抛 DomainError。"""
+    return SCENE_LIFECYCLE.assert_registered(source, target)
+
+
 __all__ = [
     "ALLOWED_TRANSITIONS",
     "EPISODE_ALLOWED_TRANSITIONS",
@@ -193,6 +237,10 @@ __all__ = [
     "PROJECT_LIFECYCLE",
     "PROJECT_STATUS_CHANGE_ACTION",
     "PROJECT_TRANSITIONS",
+    "SCENE_ALLOWED_TRANSITIONS",
+    "SCENE_LIFECYCLE",
+    "SCENE_STATUS_CHANGE_ACTION",
+    "SCENE_TRANSITIONS",
     "SCRIPT_ALLOWED_TRANSITIONS",
     "SCRIPT_IMPORT_ACTION",
     "SCRIPT_LIFECYCLE",
@@ -201,8 +249,10 @@ __all__ = [
     "SCRIPT_TRANSITIONS",
     "assert_transition",
     "assert_transition_episode",
+    "assert_transition_scene",
     "assert_transition_script",
     "can_transition",
     "can_transition_episode",
+    "can_transition_scene",
     "can_transition_script",
 ]

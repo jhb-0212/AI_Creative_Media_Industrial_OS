@@ -596,6 +596,11 @@ SELFTEST_MIGRATIONS: tuple[tuple[str, str], ...] = (
     # 「有外键要验」，而是自检本身要跑通：`repair_row_allowed` 等基线对象
     # 来自批次一/二，漏一层会让自检在错误的前提上求值。
     ("*_scene_archive_invariant.py", "ownership_batch6"),
+    # 批次七不建表、不加列、不建外键，只改写两个守卫函数并新增一个查询函数。
+    # 进这份清单的理由同批次六：自检要在正确的前提上求值，且
+    # `verify_batch7` 需要从模块里读 `BLOCKING_STATES` / `NON_BLOCKING_STATES`
+    # 与契约做划分完备性比对——那两个常量就是本批次的被测命题。
+    ("*_shot_archive_blocking_states.py", "ownership_batch7"),
 )
 
 

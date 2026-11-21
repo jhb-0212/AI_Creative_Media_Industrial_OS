@@ -7471,17 +7471,17 @@
         {
           "id": "SC-1",
           "statement": "身份单一：entity_id 必须等于 scene_id，不得各自生成两套标识。",
-          "enforced_by": "RUNTIME_PENDING"
+          "enforced_by": "RUNTIME_ENFORCED"
         },
         {
           "id": "SC-2",
           "statement": "归属不漂移：episode_id 必须属于同一 project_id，由复合外键 (project_id, episode_id) → episodes(project_id, entity_id) 保证；scene_id 全局唯一不复用；任何镜头不得跨场次改挂（复合外键 (project_id, scene_id) 是唯一裁决点）。",
-          "enforced_by": "RUNTIME_PENDING"
+          "enforced_by": "RUNTIME_ENFORCED"
         },
         {
           "id": "SC-3",
           "statement": "业务编号唯一：scene_code 在项目内唯一且非空，不得作为关联主键；改编号属展示层变更，不产生新对象、不重建其下镜头。",
-          "enforced_by": "RUNTIME_PENDING"
+          "enforced_by": "RUNTIME_ENFORCED"
         },
         {
           "id": "SC-4",
@@ -7491,7 +7491,7 @@
         {
           "id": "SC-5",
           "statement": "终态不复活：ARCHIVED 无出边，恢复场次必须新建对象并重新授权；归档前必须确认其下不存在 IN_PRODUCTION 的 Shot。",
-          "enforced_by": "RUNTIME_PENDING"
+          "enforced_by": "RUNTIME_ENFORCED"
         },
         {
           "id": "SC-6",

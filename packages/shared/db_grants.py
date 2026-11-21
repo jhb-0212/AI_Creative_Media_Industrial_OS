@@ -139,6 +139,14 @@ DOMAIN_GRANTS: dict[str, tuple[TableGrant, ...]] = {
         ),
         _grant(
             PROJECT_PLANNING,
+            "scenes",
+            "SELECT INSERT UPDATE",
+            "SELECT：读取场次 + 归属解析 _RESOLVE_SQL['Scene']；INSERT：SCENE.CREATE；"
+            "UPDATE：SCENE.STATUS.CHANGE 的乐观锁条件更新。无 DELETE：场次的终结语义是 "
+            "ARCHIVED，契约里没有 SCENE.DELETE；物理删除会打断 shots 的归属链。",
+        ),
+        _grant(
+            PROJECT_PLANNING,
             "script_revisions",
             "SELECT INSERT UPDATE",
             "SELECT：读取剧本版本；INSERT：提交新修订；UPDATE：锁定审批（request_lock/approve_lock）"

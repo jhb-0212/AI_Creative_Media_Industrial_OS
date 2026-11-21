@@ -10,6 +10,10 @@
    这条是防「修一处、误伤另一处」：冻结检查若塞进共用的
    ``_assert_episode_ownership``，会把「已归档集数下完成既有审批」一起拒掉。
    审批是对既有事实的补记，不是新建内容，两者语义不同。
+
+4. 父链传递：Project 冻结时，即便 Episode 仍 ACTIVE，导入也必须被拒
+   （2026-11-21 补齐；此前只判直接父，属「只拦一半」缺口）。
+   同时验证 COMPLETED 与 ARCHIVED 同等对待——只写死 ARCHIVED 的实现会漏。
 """
 
 from __future__ import annotations
@@ -70,6 +74,7 @@ class _ScriptRepo(ScriptRepository):
 class _ProjectRepo(ProjectRepository):
     def __init__(self, status: ProjectStatus = ProjectStatus.ACTIVE) -> None:
         self._status = status
+        self.locked_reads = 0
 
     async def add(self, project) -> None:  # type: ignore[override]
         pass
@@ -88,6 +93,8 @@ class _ProjectRepo(ProjectRepository):
         )
 
     async def get_by_id_for_child_write(self, entity_id: str):  # type: ignore[override]
+        # 与 _EpisodeRepo 同口径：记一次带锁读，供断言「父链每一级都取到了锁」。
+        self.locked_reads += 1
         return await self.get_by_id(entity_id)
 
 
@@ -148,13 +155,14 @@ def _service(
 ):
     repo = _ScriptRepo(script)
     episodes = _EpisodeRepo(status)
-    service = ScriptService(repo, _ProjectRepo(project_status), episodes, _Outbox())
-    return service, episodes
+    projects = _ProjectRepo(project_status)
+    service = ScriptService(repo, projects, episodes, _Outbox())
+    return service, episodes, projects
 
 
 async def test_import_rejected_when_episode_archived() -> None:
     """已归档集数下不得再导入剧本版本。"""
-    service, episodes = _service(EpisodeStatus.ARCHIVED)
+    service, episodes, projects = _service(EpisodeStatus.ARCHIVED)
 
     with pytest.raises(DomainError) as exc:
         await service.import_script(
@@ -165,13 +173,16 @@ async def test_import_rejected_when_episode_archived() -> None:
         )
 
     assert exc.value.error_code.code == ErrorRegistry.PARENT_LIFECYCLE_FROZEN.code
+    assert "Episode" in (exc.value.detail or ""), exc.value.detail
     assert "ARCHIVED" in (exc.value.detail or ""), exc.value.detail
     assert episodes.locked_reads == 1, "创建路径没有走带锁读，并发下检查会穿透"
+    # 父链自顶向下：Project 也在取锁之列（否则「Project 归档」这一层拦不住）。
+    assert projects.locked_reads == 1
 
 
 async def test_import_allowed_when_episode_active() -> None:
     """对照组：ACTIVE 集数下导入必须成功——否则上面的拒绝对任何实现都成立。"""
-    service, episodes = _service(EpisodeStatus.ACTIVE)
+    service, episodes, projects = _service(EpisodeStatus.ACTIVE)
 
     script = await service.import_script(
         project_id="proj1",
@@ -182,6 +193,7 @@ async def test_import_allowed_when_episode_active() -> None:
 
     assert script.status.value == "DRAFT"
     assert episodes.locked_reads == 1
+    assert projects.locked_reads == 1
 
 
 async def test_lock_request_still_allowed_when_episode_archived() -> None:
@@ -198,35 +210,66 @@ async def test_lock_request_still_allowed_when_episode_archived() -> None:
         created_by="u",
         tenant_id=_TENANT,
     )
-    service, episodes = _service(EpisodeStatus.ARCHIVED, script=draft)
+    service, episodes, projects = _service(EpisodeStatus.ARCHIVED, script=draft)
 
     updated = await service.request_lock(entity_id="scr1", principal=_principal())
 
     assert updated.status.value == "LOCK_PENDING"
     assert episodes.locked_reads == 0, "审批路径不应走带锁读（它不需要与归档相遇）"
+    assert projects.locked_reads == 0
 
 
-async def test_project_archived_does_not_block_import_known_gap() -> None:
-    """**已知缺口**：父链冻结未传递——Project 已归档，其下 Episode 仍可导入剧本。
+async def test_project_archived_blocks_import_even_when_episode_active() -> None:
+    """父链冻结传递：Project 归档 ⇒ 其下导入剧本被拒（即使 Episode 仍 ACTIVE）。
 
-    这不是「设计如此」，是尚未实现的传递性：`import_script` 只看直接父
-    （Episode），不检查祖父（Project）。当前 Project 归档后，只要其下 Episode
-    还是 ACTIVE，导入照样成功。
+    这条替换了此前钉住缺口的 ``..._known_gap`` 用例。缺口的存在形态很具体：
+    冻结只判直接父，于是「上层已封存、下层还开着」时写入照样成功——与「只拦
+    归档侧、不拦推进侧」同型，都是**只拦一半**。修法不是加一个特例，而是让
+    创建路径沿父链逐级判定。
 
-    钉住它的理由与 ``test_project_completed_currently_not_frozen`` 相同：
-    缺口一旦被修，这条测试必须同步改，而不是让「修好了」与「一直是这样」
-    在代码里分不清。同时防止它被误当成预期行为写进别处的假设。
+    必须区分错误来源：这里拒的理由是 **Project** 冻结，不是 Episode 冻结
+    （Episode 在本用例里就是 ACTIVE）。只断言「抛了 PARENT_LIFECYCLE_FROZEN」
+    不够——那样把 Episode 设成 ARCHIVED 的实现同样能过，而它并没有修父链。
     """
-    service, _ = _service(
+    service, episodes, projects = _service(
         EpisodeStatus.ACTIVE, project_status=ProjectStatus.ARCHIVED
     )
 
-    script = await service.import_script(
-        project_id="proj1",
-        episode_ref="EP001",
-        title="第一稿",
-        principal=_principal(),
+    with pytest.raises(DomainError) as exc:
+        await service.import_script(
+            project_id="proj1",
+            episode_ref="EP001",
+            title="第一稿",
+            principal=_principal(),
+        )
+
+    assert exc.value.error_code.code == ErrorRegistry.PARENT_LIFECYCLE_FROZEN.code
+    assert "Project" in (exc.value.detail or ""), exc.value.detail
+    assert "ARCHIVED" in (exc.value.detail or ""), exc.value.detail
+    # 父级判定在建子行之前短路，故 Episode 这一级不该被读：先锁 Project 是刻意的
+    # 顺序（自顶向下），也让最常见的拒绝在最小代价处发生。
+    assert projects.locked_reads == 1
+    assert episodes.locked_reads == 0
+
+
+async def test_project_completed_blocks_import_even_when_episode_active() -> None:
+    """`COMPLETED` 与 `ARCHIVED` 同为冻结态，父链判定不区分二者。
+
+    这条防的是「只在 ARCHIVED 上写死」的实现：COMPLETED 有出边（→ARCHIVED），
+    很容易被当成「还活着」而漏掉，但状态图没有回到 ACTIVE 的路，内容已定稿。
+    """
+    service, _, projects = _service(
+        EpisodeStatus.ACTIVE, project_status=ProjectStatus.COMPLETED
     )
 
-    assert script.status.value == "DRAFT"
-    assert script.entity_id, "导入确实成功了——这正是缺口"
+    with pytest.raises(DomainError) as exc:
+        await service.import_script(
+            project_id="proj1",
+            episode_ref="EP001",
+            title="第一稿",
+            principal=_principal(),
+        )
+
+    assert exc.value.error_code.code == ErrorRegistry.PARENT_LIFECYCLE_FROZEN.code
+    assert "COMPLETED" in (exc.value.detail or ""), exc.value.detail
+    assert projects.locked_reads == 1

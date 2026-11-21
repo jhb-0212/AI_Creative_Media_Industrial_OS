@@ -16,9 +16,10 @@
 4. **闸门真的会拦**：`reference_target_problems()` / `enum_registry_coverage_problems()`
    是纯函数，本文件直接注入悬空引用与缺失对象，验证它们返回问题而不是静默通过。
 
-**诚实说明**：本文件不测试运行时。Scene 目前没有 ORM、没有迁移、没有 service、
-没有 action，八条不变量里只有两条能由 schema 表达，其余全是 `RUNTIME_PENDING`。
-断言「运行时尚未实现」是刻意的——它保证这条缺口不会被一句「契约已完成」悄悄抹掉。
+**运行时闭环**：A13 已把 Scene 的创建/读取/状态推进动作与领域状态机落地，
+本节改为断言「运行时已进入状态机闸门、DB 侧不变量不再伪称待实现」。
+契约文件若把已落地的不变量退回 `RUNTIME_PENDING`，这里会报红——它保证
+「实现已完成」和「契约声明未完成」两种叙述不能长期并存。
 """
 
 from __future__ import annotations
@@ -189,12 +190,16 @@ def test_invariants_are_registered_and_partitioned() -> None:
     invariants = DEF["x-afs-invariants"]
     assert [item["id"] for item in invariants] == [f"SC-{i}" for i in range(1, 7)]
     for item in invariants:
-        assert item["enforced_by"] in {"SCHEMA", "RUNTIME_PENDING"}
+        assert item["enforced_by"] in {"SCHEMA", "RUNTIME_ENFORCED"}
     schema_enforced = {item["id"] for item in invariants if item["enforced_by"] == "SCHEMA"}
+    runtime_enforced = {
+        item["id"] for item in invariants if item["enforced_by"] == "RUNTIME_ENFORCED"
+    }
     assert schema_enforced == {"SC-4", "SC-6"}, (
         "能由 schema 表达的只有「状态范围」与「字段集合闭合」；"
         f"实际标注: {sorted(schema_enforced)}"
     )
+    assert runtime_enforced == {"SC-1", "SC-2", "SC-3", "SC-5"}
 
 
 def test_scene_is_not_in_the_gap_ledger() -> None:
@@ -285,26 +290,26 @@ def test_registry_counts_match_their_lists() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 5. 运行时缺口：断言「还没做」，防止被一句「契约完成」抹掉
+# 5. 运行时闭环：防「已实现」与「契约声明未实现」长期并存
 # --------------------------------------------------------------------------- #
-def test_scene_has_no_runtime_state_machine_yet() -> None:
-    """Scene 尚未进入 _STATE_MACHINE_SOURCES（无领域实现）。
+def test_scene_runtime_state_machine_is_registered() -> None:
+    """领域转移表必须进入一致性闸门，否则「有动作可触发」无法被证明。
 
-    这条一旦失败，说明运行时正在落地：那时必须同步补 PostgreSQL 集成测试
-    （复合外键、唯一索引、终态不可复活），并把 SC-1/SC-2/SC-3/SC-5 从
-    RUNTIME_PENDING 改判为 SCHEMA 或 RUNTIME_ENFORCED。
+    只断言名字存在不够：这里同时比对转移边集合。若有人复制一张错表骗过登记，
+    契约边与实现边不一致会立即报红。
     """
-    assert OBJECT not in cc._STATE_MACHINE_SOURCES
+    module_path, var_name = cc._STATE_MACHINE_SOURCES[OBJECT]
+    assert var_name == "SCENE_ALLOWED_TRANSITIONS"
+    assert cc._load_impl_transitions(module_path, var_name) == _edges(OBJECT)
 
 
-def test_all_runtime_gaps_are_declared_as_invariants() -> None:
-    """没有运行时的规则必须至少留在不变量里，不能只存在于某个人的记忆里。"""
-    runtime_pending = {
-        item["statement"]
-        for item in DEF["x-afs-invariants"]
-        if item["enforced_by"] == "RUNTIME_PENDING"
-    }
-    assert len(runtime_pending) == 4
-    joined = " ".join(runtime_pending)
+def test_runtime_invariants_are_no_longer_declared_as_pending() -> None:
+    """已由领域层/数据库执行的不变量不得继续伪称 RUNTIME_PENDING。"""
+    items = [item for item in DEF["x-afs-invariants"] if item["id"] in {
+        "SC-1", "SC-2", "SC-3", "SC-5"
+    }]
+    assert len(items) == 4
+    assert all(item["enforced_by"] == "RUNTIME_ENFORCED" for item in items), items
+    joined = " ".join(item["statement"] for item in items)
     for token in ("复合外键", "scene_code", "ARCHIVED"):
-        assert token in joined, f"运行时缺口没提到 {token}"
+        assert token in joined, f"运行时不变量没提到 {token}"

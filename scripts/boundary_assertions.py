@@ -1261,6 +1261,28 @@ def _unfrozen_converge_calls(rel_paths: list[str]) -> list[str]:
     return found
 
 
+def _calls_converge_statements(rel_path: str) -> bool:
+    """该迁移是否经 ``converge_statements`` 授权（== 矩阵的执行器）。
+
+    「授权迁移」的定义是**语义**的，不是位置的：一个迁移只要调用生成器，它就是在
+    执行矩阵；不调用生成器却改了权限，就是在绕过矩阵。判据 3 用它把
+    「新写的授权迁移不得夹带手写 GRANT」限定在真正执行矩阵的那批文件上，而不是
+    按 directory 划界——后者会让「把迁移换个目录」变成绕过闸门的手法。
+    """
+    path = ROOT / rel_path
+    if not path.exists():
+        return False
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+        if name == "converge_statements":
+            return True
+    return False
+
+
 def _migration_chain(revision: str) -> tuple[str, list[str]]:
     """按 alembic 版本链返回 ``(该迁移的相对路径, 它之后的迁移相对路径列表)``。
 
@@ -1284,27 +1306,366 @@ def _migration_chain(revision: str) -> tuple[str, list[str]]:
     return _relative(revision), [_relative(rev) for rev in ordered[index + 1 :]]
 
 
+_REVISION_RE = re.compile(r"^revision\s*(?::[^=]+)?=\s*[\"']([^\"']+)[\"']", re.MULTILINE)
+_DOWN_REVISION_RE = re.compile(r"^down_revision\s*(?::[^=]+)?=\s*(.+)$", re.MULTILINE)
+
+
+def _parse_down_revision(text: str) -> tuple[str, ...]:
+    """从迁移源码取父版本（``None`` / 单个 / 元组三种形态）。"""
+    match = _DOWN_REVISION_RE.search(text)
+    if match is None:
+        raise AssertionError("缺少 down_revision（无法确定执行顺序，折叠不能靠猜）")
+    value = match.group(1).strip()
+    if value.startswith("None"):
+        return ()
+    return tuple(re.findall(r"[\"']([^\"']+)[\"']", value))
+
+
+def _pending_migration_chains() -> dict[str, list[str]]:
+    """``data/migrations/pending/<feature>/`` 下每条链的**执行顺序**（相对路径）。
+
+    为什么不能用 alembic 的 ``ScriptDirectory``：那些迁移的 ``down_revision`` 指向
+    另一条链的 head，放进 ``versions/`` 会造成双 head 二义性，所以它们只能待在
+    ``pending/``（见该目录 README）。而 `alembic.ini` 只发现 ``versions/``，于是
+    「按版本链派生扫描集合」对它们**完全失明**——DATA-6 曾因此把「分支链新建表的
+    授权」报成「主链迁移少执行了 3 条」，把范围缺陷伪装成内容缺陷。
+
+    所以这里按目录自己内部的 ``down_revision`` 做拓扑排序：起点（父不在本目录）
+    必须**恰好一个**，多于一个就报错——分叉时「谁先执行」不能猜，猜错会让折叠
+    得到一个数据库永远不会出现的终态。
+    """
+    root = ROOT / "data" / "migrations" / "pending"
+    chains: dict[str, list[str]] = {}
+    if not root.is_dir():
+        return chains
+
+    for directory in sorted(path for path in root.iterdir() if path.is_dir()):
+        revisions: dict[str, Path] = {}
+        parents: dict[str, tuple[str, ...]] = {}
+        for path in sorted(directory.glob("*.py")):
+            text = path.read_text(encoding="utf-8")
+            head = _REVISION_RE.search(text)
+            if head is None:
+                # 目录里同时放着验证脚本（无 revision），它们不是迁移。
+                continue
+            revisions[head.group(1)] = path
+            parents[head.group(1)] = _parse_down_revision(text)
+        if not revisions:
+            continue
+
+        ordered: list[str] = []
+        emitted: set[str] = set()
+        remaining = set(revisions)
+        while remaining:
+            ready = sorted(
+                revision
+                for revision in remaining
+                if all(
+                    parent in emitted or parent not in revisions
+                    for parent in parents[revision]
+                )
+            )
+            if len(ready) != 1:
+                raise AssertionError(
+                    f"pending/{directory.name}: 出现 {len(ready)} 个可同时执行的起点 "
+                    f"{ready}（分叉必须显式合并，折叠顺序不能靠猜）"
+                )
+            chosen = ready[0]
+            ordered.append(revisions[chosen].relative_to(ROOT).as_posix())
+            emitted.add(chosen)
+            remaining.discard(chosen)
+        chains[directory.name] = ordered
+    return chains
+
+
+# --------------------------------------------------------------------------- #
+# 授权语句折叠：把「迁移会执行什么」折算成「数据库最终是什么」
+# --------------------------------------------------------------------------- #
+# 为什么不再是「语句逐条相等」
+# ---------------------------
+# 旧判据把「迁移回放出的语句」与「矩阵生成的语句」按**多重集**逐条比对。它只在
+# 「一条迁移链、一张表只由一个迁移授权」时有效，失效方式极其安静：
+#
+# * 同一条 ``ALTER DEFAULT PRIVILEGES`` 会被两个域的收敛各发一次，于是「语句数
+#   相等」取决于发了几次，而不是权限面是什么；
+# * 一旦有表从**另一条链**进来（``scenes`` 由分支链建表、由分支链授权），扫描集合
+#   （按主链位置派生）根本看不见它，比对结论变成「迁移少执行 3 条」——判据报的是
+#   「我的扫描范围不够」，而不是「授权面错了」；
+# * 「先超额授权、再由后续迁移收敛」这种真实修复形态会被判成「多执行 1 条」。实测
+#   两次：``i9d0``（批次五手写 GRANT，带 DELETE）与 ``l2a3``（批次八按矩阵收敛）在
+#   同一张表上先后执行，后者是前者的根因修复，旧判据却把后者报成违规。
+#
+# 真正要守的事实是**终态**：「所有链按顺序跑完之后，域角色的授权面 == 矩阵声明」。
+# 所以这里做一次折叠（fold）：按执行顺序把 GRANT / REVOKE 折算成「每张表、每个
+# 角色、整表与列级」的权限集合，再与矩阵比对。这不是放松判据，而是把它从「语句
+# 文本」改成「语义」——折算出的终态比逐字比对更严：``GRANT SELECT, INSERT, UPDATE``
+# 与三条分开的 ``GRANT`` 会被正确合并（它们确实是同一个终态），而
+# ``GRANT … ON ALL TABLES`` 这种「权限面由表清单决定」的语句折不出来，**直接判
+# FAIL**（不忽略、不猜）。
+_TABLE_AUTH_RE = re.compile(
+    r"^\s*(?P<verb>GRANT|REVOKE)\s+(?P<privs>.+?)\s+ON\s+(?:TABLE\s+)?"
+    r"(?P<table>[A-Za-z_][\w$]*\.[A-Za-z_][\w$]*)\s+(?P<prep>TO|FROM)\s+"
+    r"(?P<role>[A-Za-z_][\w$]*)\s*$",
+    re.IGNORECASE | re.DOTALL,
+)
+# 列级授权：``GRANT SELECT (a, b) ON t TO r`` —— 列清单跟在**权限**后面（PG 语法）。
+_COLUMN_PRIVS_RE = re.compile(
+    r"^(?P<privs>[A-Za-z][A-Za-z, ]*?)\s*\((?P<columns>[^()]*)\)\s*$"
+)
+_DEFAULT_AUTH_RE = re.compile(
+    r"^\s*ALTER\s+DEFAULT\s+PRIVILEGES\s+IN\s+SCHEMA\s+(?P<schema>[A-Za-z_][\w$]*)\s+"
+    r"(?P<verb>GRANT|REVOKE)\s+(?P<privs>.+?)\s+ON\s+(?P<kind>TABLES|SEQUENCES)\s+"
+    r"(?P<prep>TO|FROM)\s+(?P<role>[A-Za-z_][\w$]*)\s*$",
+    re.IGNORECASE | re.DOTALL,
+)
+# 「一条语句决定整 schema 权限面」的形态。它折不出来，也不该被静默跳过：这正是
+# N-06 的原始形状（``8f3b2c1d4e5a`` 的 ``GRANT … ON ALL TABLES``）。
+_MASS_GRANT_RE = re.compile(r"\bON\s+ALL\s+TABLES\b", re.IGNORECASE)
+
+
+def _privileges_of(text: str) -> frozenset[str]:
+    """把 SQL 里的权限串折成集合（``ALL`` 展开成全集，供调用方判定「清空」）。"""
+    from packages.shared.db_grants import ALL_TABLE_PRIVILEGES
+
+    cleaned = re.sub(r"\s+", " ", text.strip()).upper()
+    if cleaned in {"ALL", "ALL PRIVILEGES"}:
+        return ALL_TABLE_PRIVILEGES
+    return frozenset(part.strip() for part in cleaned.split(",") if part.strip())
+
+
+def _normalize_statement(statement: str) -> str:
+    """去掉首尾空白与结尾分号，并把连续空白压成一个空格（仅用于文本比对）。"""
+    return re.sub(r"\s+", " ", statement.strip().rstrip(";")).strip()
+
+
+@dataclass
+class _FoldedGrants:
+    """折叠结果：三张表就是「数据库最终是什么」的全部投影。"""
+
+    #: ``(schema.table, 角色) -> 整表权限集``（缺键 == 没有任何整表权限）
+    whole: dict[tuple[str, str], frozenset[str]]
+    #: ``(schema.table, 角色) -> {列集合: 权限集}``（列级授权，目前只有跨域只读）
+    columns: dict[tuple[str, str], dict[tuple[str, ...], frozenset[str]]]
+    #: ``(schema, TABLES|SEQUENCES, 角色) -> 默认权限集``
+    defaults: dict[tuple[str, str, str], frozenset[str]]
+    #: 折不出来、因此必须报红的语句
+    problems: list[str]
+
+
+def _fold_authorization_statements(
+    chains: dict[str, list[str]], *, roles: frozenset[str]
+) -> _FoldedGrants:
+    """按执行顺序折叠全部链上的授权语句（链内有序，链间按 ``chains`` 的插入序）。
+
+    只跟踪**矩阵管辖的对象**：域角色与 ``PUBLIC``。给 ``afs_audit`` /
+    ``afs_data_repair`` 之类的授权不在此处判定——它们不属于矩阵，由
+    ``verify_grants.py`` 的「有表写权限 ⇒ 有函数 EXECUTE」那条不变量管。
+    """
+    whole: dict[tuple[str, str], frozenset[str]] = {}
+    columns: dict[tuple[str, str], dict[tuple[str, ...], frozenset[str]]] = {}
+    defaults: dict[tuple[str, str, str], frozenset[str]] = {}
+    problems: list[str] = []
+    tracked = roles | {"PUBLIC"}
+
+    for chain_name, statements in chains.items():
+        for statement in statements:
+            text = _normalize_statement(str(statement))
+
+            default_match = _DEFAULT_AUTH_RE.match(text)
+            if default_match:
+                role = default_match.group("role")
+                if role not in tracked:
+                    continue
+                key = (
+                    default_match.group("schema").lower(),
+                    default_match.group("kind").upper(),
+                    role,
+                )
+                privs = _privileges_of(default_match.group("privs"))
+                if default_match.group("verb").upper() == "REVOKE":
+                    defaults[key] = (
+                        frozenset()
+                        if privs == _privileges_of("ALL")
+                        else defaults.get(key, frozenset()) - privs
+                    )
+                else:
+                    defaults[key] = defaults.get(key, frozenset()) | privs
+                continue
+
+            table_match = _TABLE_AUTH_RE.match(text)
+            if table_match:
+                role = table_match.group("role")
+                if role not in tracked:
+                    continue
+                key = (table_match.group("table").lower(), role)
+                verb = table_match.group("verb").upper()
+                column_match = _COLUMN_PRIVS_RE.match(table_match.group("privs"))
+                if column_match:
+                    column_key: tuple[str, ...] | None = tuple(
+                        column.strip().lower()
+                        for column in column_match.group("columns").split(",")
+                        if column.strip()
+                    )
+                    privs = _privileges_of(column_match.group("privs"))
+                else:
+                    column_key = None
+                    privs = _privileges_of(table_match.group("privs"))
+                if verb == "REVOKE":
+                    if privs == _privileges_of("ALL"):
+                        whole[key] = frozenset()
+                        columns.pop(key, None)
+                    else:
+                        whole[key] = whole.get(key, frozenset()) - privs
+                        if key in columns:
+                            columns[key] = {
+                                cols: remaining - privs
+                                for cols, remaining in columns[key].items()
+                            }
+                elif column_key is None:
+                    whole[key] = whole.get(key, frozenset()) | privs
+                else:
+                    bucket = columns.setdefault(key, {})
+                    bucket[column_key] = bucket.get(column_key, frozenset()) | privs
+                continue
+
+            if _MASS_GRANT_RE.search(text) and any(role in text for role in tracked):
+                problems.append(
+                    f"{chain_name}: 整 schema 授权无法折算：{text[:70]}…"
+                    "（``ON ALL TABLES`` 的权限面由表清单决定，矩阵无法约束，"
+                    "请改成在 db_grants.py 声明 + converge_statements 执行）"
+                )
+
+    return _FoldedGrants(whole=whole, columns=columns, defaults=defaults, problems=problems)
+
+
+def _compare_folded_to_matrix(
+    folded: _FoldedGrants,
+    *,
+    declared: dict[str, dict[tuple[str, str], frozenset[str]]],
+    declared_columns: dict[str, dict[tuple[str, str], tuple[frozenset[str], frozenset[str]]]],
+    roles: dict[str, str],
+) -> list[str]:
+    """终态 vs 矩阵声明，逐域、逐表、逐角色比对（整表与列级分开，两份 ACL）。"""
+    problems: list[str] = []
+    for domain, role in sorted(roles.items()):
+        whole_declared = declared[domain]
+        column_declared = declared_columns[domain]
+        tables = sorted(set(whole_declared) | set(column_declared))
+        qualified_set = {f"{schema}.{table}" for schema, table in tables}
+
+        for key in tables:
+            schema, table = key
+            qualified = f"{schema}.{table}"
+            expected_whole = whole_declared.get(key, frozenset())
+            expected_columns: dict[tuple[str, ...], frozenset[str]] = {}
+            if key in column_declared:
+                column_names, column_privs = column_declared[key]
+                # 列名集合在派生视图里是 frozenset（顺序丢失），比对前统一按字典序
+                # 归一：PG 的 ACL 是「列集合」而不是「列序列」，顺序不承载语义。
+                expected_columns = {
+                    tuple(sorted(name.lower() for name in column_names)): column_privs
+                }
+
+            actual_whole = folded.whole.get((qualified, role), frozenset())
+            if actual_whole != expected_whole:
+                problems.append(
+                    f"{domain}/{qualified}: 迁移执行后 {role} 的整表权限 "
+                    f"{sorted(actual_whole) or '无'} ≠ 矩阵声明 {sorted(expected_whole) or '无'}"
+                    "（多出来的是超额授权，少了的是运行期 42501）"
+                )
+            actual_columns = {
+                tuple(sorted(cols)): privs
+                for cols, privs in folded.columns.get((qualified, role), {}).items()
+                if privs
+            }
+            if actual_columns != expected_columns:
+                problems.append(
+                    f"{domain}/{qualified}: 迁移执行后 {role} 的列级授权 "
+                    f"{ {cols: sorted(privs) for cols, privs in actual_columns.items()} } "
+                    f"≠ 矩阵声明 { {cols: sorted(privs) for cols, privs in expected_columns.items()} }"
+                )
+            public_privs = folded.whole.get((qualified, "PUBLIC"), frozenset())
+            if public_privs:
+                problems.append(
+                    f"{qualified}: 迁移执行后 PUBLIC 仍持有 {sorted(public_privs)}"
+                    "（PUBLIC 的授权对**所有**角色生效，按角色过滤的比对看不见它）"
+                )
+
+        for (qualified, granted_role), privs in sorted(folded.whole.items()):
+            if granted_role != role or not privs or qualified in qualified_set:
+                continue
+            problems.append(
+                f"{domain}/{qualified}: 迁移给 {role} 授了矩阵未声明的表权限 {sorted(privs)}"
+                "（授权面必须由矩阵决定，不能由「谁顺手建了表」决定）"
+            )
+
+        for schema in sorted(roles):
+            for kind in ("TABLES", "SEQUENCES"):
+                for subject in (role, "PUBLIC"):
+                    remaining = folded.defaults.get((schema, kind, subject), frozenset())
+                    if remaining:
+                        problems.append(
+                            f"域角色 {subject} 在 schema {schema} 上仍有默认 {kind} 权限 "
+                            f"{sorted(remaining)}（未来新建的表天生带权限，正是 N-06 的入口）"
+                        )
+    return problems
+
+
+def _missing_default_revoke_statements(
+    chains: dict[str, list[str]], *, roles: dict[str, str]
+) -> list[str]:
+    """默认权限的撤销语句必须**在场**（终态为空还不够）。
+
+    为什么终态判据不够：``ALTER DEFAULT PRIVILEGES`` 撤销的是「未来的表」，它
+    不改变任何现存对象的 ACL，所以「折出来的终态」在「从未授过默认权限」与
+    「授过、后来又撤了」两种情形下完全一样。而历史事实是 ``8f3b2c1d4e5a`` 给
+    域角色授过 ``SELECT, INSERT, UPDATE, DELETE`` 的默认权限——不撤就等于把
+    「下一次建表自动带 DELETE」留着。这条只看语句是否被执行过，不看终态。
+    """
+    executed = {
+        _normalize_statement(statement)
+        for statements in chains.values()
+        for statement in statements
+    }
+    problems: list[str] = []
+    for role in sorted(set(roles.values())):
+        for schema in sorted(roles):
+            for kind in ("TABLES", "SEQUENCES"):
+                needle = f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} REVOKE ALL ON {kind} FROM {role}"
+                if needle not in executed:
+                    problems.append(
+                        f"缺少默认权限撤销：{needle}"
+                        "（不撤销 = 未来新建的表天生带权限，且「验证现有表」永远看不见）"
+                    )
+    return problems
+
+
 def evaluate_least_privilege(
     *,
     matrix_problems: list[str],
     business: dict[str, frozenset[tuple[str, str]]],
     orm_tables: dict[str, frozenset[str]],
-    converge: dict[str, list[str]],
-    rendered: list[str],
+    declared: dict[str, dict[tuple[str, str], frozenset[str]]],
+    declared_columns: dict[
+        str, dict[tuple[str, str], tuple[frozenset[str], frozenset[str]]]
+    ],
+    roles: dict[str, str],
+    chains: dict[str, list[str]],
     grant_forbidden_literals: dict[str, list[str]],
     unfrozen_converge_calls: list[str],
 ) -> list[str]:
     """判定「域角色的授权面 == 矩阵声明」（纯函数，供负向用例喂构造数据）。
 
-    五类判据，各自封一个失效模式：
+    判据五类，各自封一个失效模式：
 
     1. **矩阵覆盖**：本域 schema 的每张 ORM 表都必须在矩阵里；矩阵里声明的表
        也必须真实存在。前者防「新增表静默无权限」，后者防「表已删、矩阵还留着」
        （收敛迁移会直接失败，但那是在部署时才发现）。
-    2. **迁移 == 矩阵**：回放**全部授权迁移**得到的语句，必须与矩阵生成的语句
-       逐条相等。防「矩阵改了、迁移没跟上」以及「迁移里手写了一份看似相同的 DDL」。
-       为什么是「全部迁移」而不只是收敛那次：迁移是时间胶囊，新表由新迁移授权，
-       并集才等于矩阵（评审 F1）。
+    2. **终态 == 矩阵**：把**全部授权迁移**的语句按执行顺序折叠到终态，逐表逐
+       角色比对整表与列级权限。防「矩阵改了、迁移没跟上」「迁移里多授了一项权限」
+       「迁移授了矩阵没声明的表」「PUBLIC 上留了授权」。为什么是**全部**迁移而不
+       只是收敛那次：迁移是时间胶囊，新表由新迁移授权（评审 F1）。为什么是折叠
+       而不是逐条：见 ``_fold_authorization_statements`` 的说明。
     3. **此后的迁移不得手写 GRANT**：授权只能经矩阵收敛。这条把「下一次有人
        用 ``GRANT … ON ALL TABLES`` 图省事」挡在 CI，而不是等运行库审计发现。
        大小写不敏感——SQL 关键字不分大小写，``grant`` 与 ``GRANT`` 同权（评审 F2）。
@@ -1312,40 +1673,45 @@ def evaluate_least_privilege(
        传 ``tables=``。不传就是读活矩阵，历史迁移会在未来新表的建表迁移之前
        对它 ``REVOKE ALL``，clean install 直接失败（评审 F1 的复发防线）。
     5. 矩阵自身的问题（``validate_matrix``）原样上报。
+
+    判据 2 的扫描集合是**派生的**，不是名单：主链取「收敛迁移及其后」，另加
+    ``data/migrations/pending/<feature>/`` 下每个目录（按各目录自己的
+    ``down_revision`` 拓扑排序，分叉即报错）。这是「一域一链」假设失效后的必要
+    修正——``scenes`` 由分支链建表并授权，按主链位置派生的扫描集合看不见它，
+    而那正是 DATA-6 要守的表。
     """
     problems: list[str] = list(matrix_problems)
 
     # 1. 覆盖（双向）。
     for domain, tables in orm_tables.items():
-        declared = {table for schema, table in business.get(domain, frozenset()) if schema == domain}
-        missing = sorted(tables - declared)
+        own_tables = {
+            table for schema, table in business.get(domain, frozenset()) if schema == domain
+        }
+        missing = sorted(tables - own_tables)
         if missing:
             problems.append(
                 f"{domain}: ORM 表 {missing} 未在授权矩阵声明"
                 "（新表要么声明最小权限，要么它根本没有写入路径）"
             )
-        stale = sorted(declared - tables)
+        stale = sorted(own_tables - tables)
         if stale:
             problems.append(
                 f"{domain}: 授权矩阵声明了不存在的表 {stale}"
                 "（收敛迁移会 GRANT 失败，陈旧声明必须先删除）"
             )
 
-    # 2. 迁移语句 == 矩阵生成。
-    expected = [statement for domain in sorted(converge) for statement in converge[domain]]
-    if sorted(rendered) != sorted(expected):
-        missing = [s for s in expected if s not in rendered]
-        unexpected = [s for s in rendered if s not in expected]
-        detail: list[str] = []
-        if missing:
-            detail.append(f"迁移少执行 {len(missing)} 条（首条：{missing[0]}）")
-        if unexpected:
-            detail.append(f"迁移多执行 {len(unexpected)} 条（首条：{unexpected[0]}）")
-        problems.append(
-            "收敛迁移的语句与授权矩阵不一致："
-            + "；".join(detail)
-            + "（迁移必须是矩阵的执行器，不得手写 DDL）"
+    # 2. 折叠到终态，再与矩阵比对。
+    #    「折叠」而不是「逐条相等」的理由见 _fold_authorization_statements：判据要守
+    #    的是终态，语句文本只是到达终态的一条路径——而多条链、多次收敛会让同一份
+    #    终态对应无穷多种语句序列。
+    folded = _fold_authorization_statements(chains, roles=frozenset(roles.values()))
+    problems.extend(folded.problems)
+    problems.extend(
+        _compare_folded_to_matrix(
+            folded, declared=declared, declared_columns=declared_columns, roles=roles
         )
+    )
+    problems.extend(_missing_default_revoke_statements(chains, roles=roles))
 
     # 3. 此后的迁移不得手写 GRANT（含 ALTER DEFAULT PRIVILEGES … GRANT）。
     #    SQL 关键字大小写不敏感：`grant` / `Grant` 与 `GRANT` 同权。正则若只认
@@ -1389,7 +1755,7 @@ def data_role_grants_least_privilege() -> AssertionResult:
     from packages.shared.db_grants import (
         DOMAINS,
         business_tables,
-        converge_statements,
+        declared_column_privileges,
         declared_privileges,
         validate_matrix,
     )
@@ -1406,30 +1772,54 @@ def data_role_grants_least_privilege() -> AssertionResult:
         for table in module.Base.metadata.tables.values():
             by_schema.setdefault(table.schema or "", set()).add(table.name)
 
+    # 扫描集合是派生的：主链「收敛迁移及其后」+ 每个 pending 目录（各自拓扑排序）。
+    # 顺序即执行顺序，折叠依赖它——所以宁可在这里因分叉报错，也不排序后继续跑。
     converge_migration, later_migrations = _migration_chain(_LEAST_PRIVILEGE_REVISION)
-    scan_paths = [converge_migration, *later_migrations]
+    chain_paths: dict[str, list[str]] = {
+        "main": [converge_migration, *later_migrations]
+    }
+    chain_paths.update(_pending_migration_chains())
 
+    chains = {
+        name: [
+            statement
+            for path in paths
+            for statement in _rendered_migration_statements(path)
+        ]
+        for name, paths in chain_paths.items()
+    }
+
+    # 判据「不得手写 GRANT」的扫描范围比折叠窄一格，这是刻意的：pending 目录里的
+    # 历史手写授权（批次五建表时顺手 GRANT、例外角色的 USAGE/EXECUTE）是分支链的
+    # 既有事实，改它等于改时间胶囊。它们的**终态**由折叠判据 2 负责，那里一旦偏离
+    # 矩阵就报红；判据 3 负责的是「新增的授权必须走生成器」这一形态约束。
+    literal_scan = list(chain_paths["main"]) + [
+        path
+        for name, paths in chain_paths.items()
+        if name != "main"
+        for path in paths
+        if _calls_converge_statements(path)
+    ]
+
+    roles = {domain: domain_role(domain) for domain in DOMAINS}
     problems = evaluate_least_privilege(
         matrix_problems=validate_matrix(),
         business={domain: business_tables(domain) for domain in DOMAINS},
         orm_tables={
             domain: frozenset(by_schema.get(domain, set())) for domain in DOMAINS
         },
-        converge={
-            domain: converge_statements(domain_role(domain), domain)
-            for domain in DOMAINS
+        declared={domain: declared_privileges(domain) for domain in DOMAINS},
+        declared_columns={
+            domain: declared_column_privileges(domain) for domain in DOMAINS
         },
-        # 回放**全部**授权迁移并取并集：迁移是时间胶囊，新表由新迁移授权，
-        # 只看收敛那一次会在「矩阵加表」后误报（评审 F1）。
-        rendered=[
-            statement
-            for path in scan_paths
-            for statement in _rendered_migration_statements(path)
-        ],
+        roles=roles,
+        chains=chains,
         grant_forbidden_literals={
-            path: _non_docstring_literals(path) for path in scan_paths
+            path: _non_docstring_literals(path) for path in literal_scan
         },
-        unfrozen_converge_calls=_unfrozen_converge_calls(scan_paths),
+        unfrozen_converge_calls=_unfrozen_converge_calls(
+            [path for paths in chain_paths.values() for path in paths]
+        ),
     )
     if problems:
         return (False, "；".join(problems))

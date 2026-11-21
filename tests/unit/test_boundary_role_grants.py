@@ -4,19 +4,30 @@
 断言判据真的成立，还是判据写得太松、怎么改都 PASS。本文件对每一类失效
 各构造一份输入，断言它**恰好**报出对应的那条问题。
 
-五类失效对应五类判据（见 ``evaluate_least_privilege`` 文档）：
+五类失效对应 ``evaluate_least_privilege`` 的前四条判据与矩阵自检：
 1. ORM 有新表但矩阵没声明（新表静默无权限）；
 2. 矩阵声明了不存在的表（陈旧声明，收敛迁移会失败）；
-3. 授权迁移的语句与矩阵不一致（手写 DDL / 矩阵改了迁移没跟上）；
+3. 折叠终态与矩阵不一致（超额授权 / 缺权 / PUBLIC 留权 / 未声明表 / 列级越界）；
 4. 迁移手写 GRANT（绕过矩阵的唯一入口，大小写均拦）；
 5. 授权迁移没声明 tables 快照（读活矩阵，未来新表会让 clean install 崩）。
+
+第 3 类的用例刻意分成两组：**会被收敛掉的历史超额授权不算问题**（这是折叠相对
+「逐条比对」的实质性改进，`i9d0` → `l2a3` 就是这种形态），而**收敛不掉**的必须
+报红。少了前一组，判据会退化成「不许有历史」；少了后一组，判据会退化成「有过
+收敛就都算对」。
 """
 
 from __future__ import annotations
 
 import pytest
 
-from packages.shared.db_grants import business_tables, converge_statements
+from packages.shared.db_grants import (
+    DOMAINS,
+    business_tables,
+    converge_statements,
+    declared_column_privileges,
+    declared_privileges,
+)
 from packages.shared.db_roles import domain_role
 from scripts import boundary_assertions as ba
 
@@ -25,26 +36,20 @@ _ASSET = "asset_service"
 
 
 def _converge() -> dict[str, list[str]]:
-    from packages.shared.db_grants import DOMAINS
-
     return {domain: converge_statements(domain_role(domain), domain) for domain in DOMAINS}
 
 
 def _rendered() -> list[str]:
-    from packages.shared.db_grants import DOMAINS
-
     return [statement for domain in sorted(DOMAINS) for statement in _converge()[domain]]
 
 
 def _business() -> dict[str, frozenset[tuple[str, str]]]:
-    from packages.shared.db_grants import DOMAINS
-
     return {domain: business_tables(domain) for domain in DOMAINS}
 
 
 def _orm() -> dict[str, frozenset[str]]:
     return {
-        _PROJECT: frozenset({"projects", "episodes", "script_revisions", "organizations"}),
+        _PROJECT: frozenset({"projects", "episodes", "scenes", "script_revisions", "organizations"}),
         _ASSET: frozenset({"asset_versions", "qc_reports"}),
     }
 
@@ -55,13 +60,23 @@ def _evaluate(**overrides: object) -> list[str]:
         "matrix_problems": [],
         "business": _business(),
         "orm_tables": _orm(),
-        "converge": _converge(),
-        "rendered": _rendered(),
+        "declared": {domain: declared_privileges(domain) for domain in DOMAINS},
+        "declared_columns": {
+            domain: declared_column_privileges(domain) for domain in DOMAINS
+        },
+        "roles": {domain: domain_role(domain) for domain in DOMAINS},
+        # 单链样本即「矩阵的全量执行」：作为基线，它必须在零问题的前提下成立，
+        # 否则下面所有「恰好报一条」的断言都失去意义。
+        "chains": {"main": _rendered()},
         "grant_forbidden_literals": {},
         "unfrozen_converge_calls": [],
     }
     kwargs.update(overrides)
     return ba.evaluate_least_privilege(**kwargs)  # type: ignore[arg-type]
+
+
+def _with_extra(*statements: str) -> dict[str, list[str]]:
+    return {"main": [*_rendered(), *statements]}
 
 
 # --------------------------------------------------------------------------- #
@@ -97,29 +112,112 @@ def test_stale_matrix_table_is_reported() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 3. 迁移语句与矩阵不一致
+# 3. 折叠终态与矩阵不一致
 # --------------------------------------------------------------------------- #
-def test_extra_grant_in_migration_is_reported() -> None:
-    rendered = [*_rendered(), "GRANT DELETE ON project_planning.projects TO project_planning_role"]
-    problems = _evaluate(rendered=rendered)
-    assert any("迁移多执行 1 条" in p for p in problems), problems
+def test_over_grant_on_matrix_table_is_reported() -> None:
+    problems = _evaluate(
+        chains=_with_extra(
+            f"GRANT DELETE ON project_planning.episodes TO {domain_role(_PROJECT)}"
+        )
+    )
+    assert any("DELETE" in p and "≠ 矩阵声明" in p for p in problems), problems
 
 
-def test_missing_statement_in_migration_is_reported() -> None:
-    rendered = _rendered()[1:]
-    problems = _evaluate(rendered=rendered)
-    assert any("迁移少执行 1 条" in p for p in problems), problems
+def test_missing_grant_in_migration_is_reported() -> None:
+    """矩阵声明了权限、迁移里没有 —— 结果是运行期 42501，而不是「暂时没人用」。"""
+    granted = (
+        f"GRANT SELECT, INSERT, UPDATE ON project_planning.scenes TO {domain_role(_PROJECT)}"
+    )
+    chains = {"main": [statement for statement in _rendered() if statement != granted]}
+    problems = _evaluate(chains=chains)
+    assert any("project_planning.scenes" in p and "≠ 矩阵声明" in p for p in problems), problems
 
 
 def test_missing_default_privilege_revoke_is_reported() -> None:
     """少撤销一条默认权限也算不一致：那正是「未来新表自动带权限」的入口。"""
-    rendered = [
+    chains = {
+        "main": [
+            statement
+            for statement in _rendered()
+            if "REVOKE ALL ON SEQUENCES" not in statement
+        ]
+    }
+    problems = _evaluate(chains=chains)
+    assert any("缺少默认权限撤销" in p for p in problems), problems
+
+
+def test_grant_on_undeclared_table_is_reported() -> None:
+    """矩阵之外的表被授权 —— 授权面由「谁顺手建了表」决定，正是 N-06 的根因。"""
+    problems = _evaluate(
+        chains=_with_extra(
+            f"GRANT SELECT ON project_planning.shots TO {domain_role(_PROJECT)}"
+        )
+    )
+    assert any("未声明的表权限" in p and "shots" in p for p in problems), problems
+
+
+def test_public_grant_is_reported() -> None:
+    """``PUBLIC`` 的授权对所有角色生效，按角色过滤的比对看不见它（评审 F4）。"""
+    problems = _evaluate(
+        chains=_with_extra("GRANT SELECT ON project_planning.scenes TO PUBLIC")
+    )
+    assert any("PUBLIC 仍持有" in p for p in problems), problems
+
+
+def test_mass_grant_is_reported() -> None:
+    """``ON ALL TABLES`` 折不出来，必须报红而不是被静默跳过。"""
+    problems = _evaluate(
+        chains=_with_extra(
+            f"GRANT SELECT ON ALL TABLES IN SCHEMA {_PROJECT} TO {domain_role(_PROJECT)}"
+        )
+    )
+    assert any("整 schema 授权无法折算" in p for p in problems), problems
+
+
+def test_default_privilege_grant_is_reported() -> None:
+    """给域角色授默认权限是「未来每张新表天生带权限」，终态判据必须拦住。"""
+    problems = _evaluate(
+        chains=_with_extra(
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {_PROJECT} GRANT SELECT ON TABLES TO "
+            f"{domain_role(_PROJECT)}"
+        )
+    )
+    assert any("默认 TABLES 权限" in p for p in problems), problems
+
+
+def test_column_level_over_grant_is_reported() -> None:
+    """列级授权是另一份 ACL：整表比对相等不代表列级也对。"""
+    problems = _evaluate(
+        chains=_with_extra(
+            f"GRANT SELECT (entity_id) ON project_planning.projects TO "
+            f"{domain_role(_ASSET)}"
+        )
+    )
+    assert any("列级授权" in p for p in problems), problems
+
+
+def test_over_grant_revoked_by_later_convergence_is_not_reported() -> None:
+    """「先超额授权、再由后续迁移收敛」是合法修复形态，不得报红。
+
+    这正是 ``i9d0``（批次五建表时手写 ``GRANT … DELETE``）→ ``l2a3``（批次八按
+    矩阵收敛）的真实形态。旧判据（语句多重集逐条相等）把它判成「多执行 1 条」，
+    于是判据逼人在「不改历史」与「过闸门」之间二选一——最终一定会有人删掉收敛
+    迁移去迎合闸门。判据要守的是**终态**，不是「历史上从未超额」。
+    """
+    converged_scenes = [
         statement
-        for statement in _rendered()
-        if "REVOKE ALL ON SEQUENCES" not in statement
+        for statement in _converge()[_PROJECT]
+        if "project_planning.scenes" in statement
     ]
-    problems = _evaluate(rendered=rendered)
-    assert any("迁移少执行" in p for p in problems), problems
+    chains = {
+        "main": _rendered(),
+        "feat": [
+            f"GRANT SELECT, INSERT, UPDATE, DELETE ON project_planning.scenes TO "
+            f"{domain_role(_PROJECT)}",
+            *converged_scenes,
+        ],
+    }
+    assert _evaluate(chains=chains) == []
 
 
 # --------------------------------------------------------------------------- #
@@ -247,6 +345,29 @@ def test_real_repository_declares_snapshot() -> None:
 
     converge_migration, later = ba._migration_chain(ba._LEAST_PRIVILEGE_REVISION)
     assert ba._unfrozen_converge_calls([converge_migration, *later]) == []
+
+
+def test_real_repository_scans_pending_migration_chains() -> None:
+    """DATA-6 的扫描集合必须覆盖 ``pending/`` 下的分支链。
+
+    这条守的是一个**范围**缺陷而不是内容缺陷：旧实现按 alembic 主链派生扫描集合，
+    而 ``data/migrations/pending/<feature>/`` 不在 ``versions/`` 里（放进去会造成双
+    head 二义性），于是分支链新建并授权的表（``scenes``）对判据完全隐形——报出来
+    的还是「主链少执行 3 条」，把「我没扫到」说成「你少做了」。
+
+    断言三件事，缺一件扫描集合就会再次失去意义：目录被发现、顺序可判定（没有
+    分叉）、并且链里确实有矩阵执行器（否则「扫到了」也只是扫到一堆无关文件）。
+    """
+    from scripts import boundary_assertions as ba
+
+    chains = ba._pending_migration_chains()
+    assert chains, "pending 目录未被扫描：分支链的授权迁移将完全隐形"
+    ordered = [path for paths in chains.values() for path in paths]
+    assert ba._unfrozen_converge_calls(ordered) == []
+    assert any(ba._calls_converge_statements(path) for path in ordered), (
+        "pending 链里没有任何 converge_statements 调用："
+        "授权迁移没被识别为矩阵执行器，折叠会漏掉整张表"
+    )
 
 
 # --------------------------------------------------------------------------- #

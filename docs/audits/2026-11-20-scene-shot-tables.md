@@ -1,5 +1,11 @@
 # 镜头域与场次域运行时落地（批次五 i9d0e1f2a3b4）
 
+> **后续状态（2026-11-21）**：本报告的「Scene 运行时全无」只描述批次五当时。
+> A13 已登记 `SCENE.CREATE / SCENE.READ / SCENE.STATUS.CHANGE`，Scene 的
+> 领域层、ORM、服务、API 与批次八授权收敛均已落地；Shot 域仍押后
+> （`SHOT.REVISION.CONFIRM` 未实现）。详见
+> `docs/audits/2026-11-21-scene-runtime-and-grants.md` 与正式 ADR-R27。正文保留原样。
+
 - 日期：2026-11-20
 - 范围：建 `project_planning.scenes` / `shot_planning.shots`；给各域 `shot_id` / `scene_id` 接边；收敛 `shot_revisions` 的草案/正式分层
 - 目标库：`ai_film_industrial` @ `localhost:15444`（head `i9d0e1f2a3b4`）

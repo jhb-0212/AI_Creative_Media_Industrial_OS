@@ -18,6 +18,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     ForeignKeyConstraint,
     Index,
@@ -33,6 +34,7 @@ from packages.shared.status_constraint import status_check
 from services.project_planning.domain.enums import (
     EpisodeStatus,
     ProjectStatus,
+    SceneStatus,
     ScriptStatus,
 )
 
@@ -197,3 +199,61 @@ class EpisodeModel(EntityMixin, Base):
     project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     episode_ref: Mapped[str] = mapped_column(String(64), nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
+
+
+class SceneModel(EntityMixin, Base):
+    """scenes 表模型（场次，归属 Episode，作用域收敛到 Project）。
+
+    表结构与批次五（``i9d0e1f2a3b4``）逐列一致；这里补 ORM 映射不是「第二份
+    事实源」，而是让领域模型与持久化模型可互换——两者的列清单必须一致，
+    否则 ``alembic check`` 会把真实存在的约束当成待删除项，下一个人「修 CI」
+    时删掉它，归属外键随之失效（``uq_projects_entity_tenant`` 已有同类教训）。
+
+    归属完整性（三层，缺一层都留一个可绕的洞）：
+    - ``fk_scenes_project_tenant_org``：三列外键，锁死「场次的项目必须是同租户
+      同组织的真实项目」。单列 ``project_id`` 只能证明项目存在。
+    - ``fk_scenes_episode_project``：``(episode_id, project_id) → episodes``，
+      锁死「场次挂的集必须属于同一个项目」——跨项目挂载在数据库层被拒。
+    - ``uq_scenes_project_code``：项目内场次编号唯一；它是展示编号，但重复的
+      展示编号会让「按编号沟通」变成运气问题。
+    """
+
+    __tablename__ = "scenes"
+    __table_args__ = (
+        UniqueConstraint("scene_id", name="uq_scenes_identity"),
+        # 信封主键与业务身份必须同值（契约 C.3.1）。领域模型用 property 表达
+        # 同一件事，此处是数据库侧的最后一道：绕过应用层的写入也会被拒。
+        CheckConstraint("entity_id = scene_id", name="ck_scenes_single_identity"),
+        # 镜头侧复合外键的被引用键：shots(project_id, scene_id) → scenes。
+        UniqueConstraint("project_id", "scene_id", name="uq_scenes_project_scene"),
+        UniqueConstraint("project_id", "scene_code", name="uq_scenes_project_code"),
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id", "organization_id"],
+            [
+                f"{SCHEMA_NAME}.projects.entity_id",
+                f"{SCHEMA_NAME}.projects.tenant_id",
+                f"{SCHEMA_NAME}.projects.organization_id",
+            ],
+            name="fk_scenes_project_tenant_org",
+        ),
+        ForeignKeyConstraint(
+            ["episode_id", "project_id"],
+            [
+                f"{SCHEMA_NAME}.episodes.entity_id",
+                f"{SCHEMA_NAME}.episodes.project_id",
+            ],
+            name="fk_scenes_episode_project",
+        ),
+        status_check((s.value for s in SceneStatus), table="scenes"),
+        {"schema": SCHEMA_NAME},
+    )
+
+    # 业务字段
+    scene_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    scene_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    # 归属锚点：Scene 唯一的上行引用（集），配合 project_id 构成复合外键。
+    episode_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # 组织归属键（内部键，不进 API 响应）。NOT NULL：场景必须有组织归属，
+    # 由服务层从父项目拷贝，调用方不得自填。
+    organization_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)

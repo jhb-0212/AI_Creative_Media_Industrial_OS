@@ -129,12 +129,13 @@ def test_non_frozen_state_allows_child_creation() -> None:
 def test_frozen_is_not_terminal_alias() -> None:
     """冻结态与终态是交叉关系，不能互相推导。
 
-    `Project.COMPLETED` 不是终态（仍有 COMPLETED->ARCHIVED 边），但可以声明为冻结。
-    若实现把 frozen_states 默认取 terminal_states()，本用例会在构造时就不成立——
+    `Project.COMPLETED` 不是终态（仍有 COMPLETED->ARCHIVED 边），但**已声明为冻结**。
+    若实现把 frozen_states 默认取 terminal_states()，`COMPLETED` 会被静默排除——
     这正是要防的「新增状态时静默继承一个没人想过的语义」。
     """
     completed_is_terminal = PROJECT_LIFECYCLE.is_terminal(ProjectStatus.COMPLETED)
     assert completed_is_terminal is False
+    assert PROJECT_LIFECYCLE.is_frozen(ProjectStatus.COMPLETED) is True
 
     probe_frozen = _episode_lifecycle((EpisodeStatus.ACTIVE,))  # ACTIVE 非终态
     assert probe_frozen.is_frozen(EpisodeStatus.ACTIVE) is True
@@ -153,23 +154,45 @@ def test_episode_archived_freezes_children() -> None:
 
 
 def test_project_archived_freezes_children() -> None:
-    assert PROJECT_LIFECYCLE.frozen_labels() == ("ARCHIVED",)
+    assert PROJECT_LIFECYCLE.frozen_labels() == ("COMPLETED", "ARCHIVED")
     with pytest.raises(DomainError):
         PROJECT_LIFECYCLE.assert_child_creation_allowed(
             ProjectStatus.ARCHIVED, child_object="Episode"
         )
 
 
-def test_project_completed_currently_not_frozen() -> None:
-    """当前按「只冻结 ARCHIVED」落地。本用例是**待裁定的显式化**：
+def test_project_completed_freezes_children() -> None:
+    """`COMPLETED` 也冻结子集合（2026-11-21 裁定）。
 
-    断言写在这里，是为了让「COMPLETED 也会冻结子集合」这个决定一旦做出时，
-    必须同步改这条用例——而不是悄悄改变行为、没有任何测试变红。
+    判据是**状态图给不出回路**，不是「终态自然该冻结」：`COMPLETED` 只有
+    `COMPLETED -> ARCHIVED` 一条出边，没有回到 `ACTIVE` 的路。项目一旦完成，
+    内容即定稿；此时放行登记新集数，会得到一条永远推不动（`DRAFT` 无入边可
+    继续）的孤儿数据——写入成功、后续全堵。
+
+    这条用例同时钉住「两态都在册」：只冻结 `ARCHIVED` 的实现会在此变红。
     """
-    assert PROJECT_LIFECYCLE.is_frozen(ProjectStatus.COMPLETED) is False
-    PROJECT_LIFECYCLE.assert_child_creation_allowed(
-        ProjectStatus.COMPLETED, child_object="Episode"
-    )
+    assert PROJECT_LIFECYCLE.is_frozen(ProjectStatus.COMPLETED) is True
+    with pytest.raises(DomainError):
+        PROJECT_LIFECYCLE.assert_child_creation_allowed(
+            ProjectStatus.COMPLETED, child_object="Episode"
+        )
+
+
+def test_project_freeze_does_not_swallow_draft_or_active() -> None:
+    """冻结集合不得扩大化：`DRAFT` / `ACTIVE` / `ON_HOLD` 必须仍可建集数。
+
+    只加正向断言不够——把整个 states 元组塞进 frozen_states 也能让上面两条通过，
+    却会把项目域彻底锁死。故此处逐个断言放行。
+    """
+    for status in (
+        ProjectStatus.DRAFT,
+        ProjectStatus.ACTIVE,
+        ProjectStatus.ON_HOLD,
+    ):
+        assert PROJECT_LIFECYCLE.is_frozen(status) is False
+        PROJECT_LIFECYCLE.assert_child_creation_allowed(
+            status, child_object="Episode"
+        )
 
 
 def test_episode_actions_are_the_declared_owner() -> None:

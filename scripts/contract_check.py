@@ -120,6 +120,13 @@ _STATE_MACHINE_SOURCES: dict[str, tuple[str, str]] = {
         "services.project_planning.domain.state_machine",
         "EPISODE_ALLOWED_TRANSITIONS",
     ),
+    # 批次 A13 补入：此前 scenes/scenes 转移表只有契约、没有实现，故不在检查范围，
+    # 闸门全绿是**正确行为**而不是漏检（反向完备性只遍历本表）。入口落地后必须
+    # 纳入，否则「有转移表、无动作可触发」这类静默缺口会重新隐形。
+    "Scene": (
+        "services.project_planning.domain.state_machine",
+        "SCENE_ALLOWED_TRANSITIONS",
+    ),
     "AssetVersion": (
         "services.asset_service.domain.state_machine",
         "ASSET_ALLOWED_TRANSITIONS",

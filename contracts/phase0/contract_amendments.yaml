@@ -537,5 +537,83 @@ amendments:
       - '读接口与会签事实未立项：AUDIT.STATUS.HISTORY.READ 与 audit.approval_signatures 属 D2b，需所有者裁定新动作；在此之前会签动作保持 fail-closed'
       - '既有 append_only 两表（asset_service.qc_reports / asset_versions）的 TRUNCATE 守卫随本批迁移补齐，属同型缺口修复，不单列修订'
 
+  - id: 'V205-R14-A13'
+    title: 'Scene 运行时入口——创建、读取与状态推进三个动作'
+    retroactive: false
+    recorded_at: '2026-11-21'
+    discovered_by: 'ADR-R27 草案（docs/adr/ADR-R27-scene-shot-runtime-entry.PROPOSED.md）；批次五建表后发现「约束已就位、闭环为 0」'
+    reason: >-
+      批次五（i9d0e1f2a3b4）已把 scenes / shots 两张表、12 条外键与 RLS 全部建好，
+      但契约里 SCENE.* 一个动作都没有（84 个动作中零命中），于是这两张表只能读
+      （直连 SQL），任何服务层写入都没有入口。硬阻塞链是结构性的：
+      Scene 无创建入口 → scenes 无行可插 → shots.scene_id NOT NULL 无合法值 →
+      6 条接边外键无目标可指 → 镜头域整段不可推进。本次补的是链条第一环。
+      三个动作的裁定与边界：① SCENE.CREATE 镜像 EPISODE.CREATE，而不是扩展
+      SHOT.REVISION.CONFIRM 的 resource_type（那会让「有镜头确认权的人」自动获得
+      「建场次权」，两个角色集不同，混淆即丢失职责分离，ADR-R19 已先一步拒绝）；
+      ② SCENE.READ 不在 ADR-R27 草案的三条清单内，本次补入：只开创建不开读取会
+      得到一个写进去再也查不到的域，与 EPISODE.READ 也不对称——这不是范围扩张，
+      是让入口自洽；③ SCENE.STATUS.CHANGE 采用「单动作 + 目标状态作参数」，
+      与 A2/A3 先例（PROJECT/EPISODE.STATUS.CHANGE）同形，转移合法性由
+      state_machines.yaml 的 Scene 转移表在运行时校验，不按边拆分动作。
+      **ADR-R27/Q4 的 SHOT.STATUS.CHANGE 本次不登记**，理由是可验证的：
+      shots 表 shot_revision_id NOT NULL 且指向 shot_revisions，而 SHOT.REVISION.CONFIRM
+      在 action_implementations 中仍是 not_implemented ⇒ 镜头行在运行期无法产生。
+      此时登记 SHOT.STATUS.CHANGE 会得到一个「永远 404 的已实现动作」，
+      台账将声称有一项能力而实际不可达——那正是本项目反复禁止的「静态不可达被
+      说成已完成」。镜头域应作为整体（CONFIRM + STATUS.CHANGE）在下一批落地，
+      已登记在 action_implementations 的 not_implemented 里保持可见。
+      本次不新增对象与状态机：Scene 的 schema 与三态转移表此前已经存在
+      （state_machines.yaml#Scene，registration_status=PENDING_PHASE1_REVIEW）。
+    adr: 'docs/adr/ADR-R27-scene-shot-runtime-entry.md'
+    approved_by: '项目所有者（会话内裁定「按工程铁律改就行」）'
+    approved_at: '2026-11-21'
+    source_commits: []
+    additions:
+      actions:
+        - action_key: 'SCENE.CREATE'
+          why: >-
+            场次登记是镜头域的第一环：缺它则 shots.scene_id 无合法值可填，
+            批次五建的 12 条外键与 RLS 全部空转
+        - action_key: 'SCENE.READ'
+          why: >-
+            与 EPISODE.READ 对称；只写不读的对象无法被任何后续流程使用，
+            也无法在故障时被观察
+        - action_key: 'SCENE.STATUS.CHANGE'
+          why: >-
+            Scene 的三态三条边此前零动作可触发；不补则场次永远停在 DRAFT，
+            ACTIVE（可挂载镜头）与 ARCHIVED（不可复活）都无法到达
+      schema_invariants:
+        - id: 'SC-1'
+          status: 'RUNTIME_ENFORCED'
+          why: >-
+            领域模型把 scene_id 做成 entity_id 的只读投影，批次五 ORM/迁移再以
+            CHECK (entity_id = scene_id) 兜底，已不是待实现缺口
+        - id: 'SC-2'
+          status: 'RUNTIME_ENFORCED'
+          why: >-
+            批次五建立 (project_id, episode_id) 与 (project_id, scene_id) 复合外键，
+            verify_batch5 对真实库做了引用校验；不再只停留在契约文字
+        - id: 'SC-3'
+          status: 'RUNTIME_ENFORCED'
+          why: >-
+            uq_scenes_project_code 与非空校验已在 ORM/迁移落地，内存仓储与真实库
+            同语义拒绝重复编号
+        - id: 'SC-5'
+          status: 'RUNTIME_ENFORCED'
+          why: >-
+            SCENE_LIFECYCLE 无 ARCHIVED 出边；批次六/七的数据库守卫在归档时检查
+            在制镜头，终态不可复活与归档前置条件均有运行时执行点
+    counts_after:
+      actions: 87
+      openapi_operations: 87
+      schema_objects: 84
+      state_machines: 43
+    residual_risks:
+      - 'SHOT.STATUS.CHANGE 与 SHOT.REVISION.CONFIRM 未登记/未实现，镜头域仍不可推进；两者必须成对落地，否则状态推进没有可作用的对象（已在 action_implementations 显式登记）'
+      - 'Scene 的 registration_status 仍为 PENDING_PHASE1_REVIEW：本次只补入口，不改状态集；PENDING 的固化要等 Phase 1 验收，届时若正文仍未定义 Scene 状态，需所有者重新裁定'
+      - 'SCENE.CREATE 的幂等键沿用 entity_id 与 (project_id, scene_code) 唯一约束；跨集重复编号会被唯一约束拒绝而非幂等返回，调用方需以 409 语义处理'
+      - '归档守卫依赖 fk_shots_scene_project 的可见性论证（批次六注释）：该外键若被降级或删除，A 侧的「同项目可见」前提失效，必须重做论证'
+
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

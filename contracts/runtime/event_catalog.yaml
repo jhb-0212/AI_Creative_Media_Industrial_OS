@@ -179,3 +179,27 @@ events:
       - changed_by
       - tenant_id
     contract_ref: contracts/state_machines/state_machines.yaml#Episode
+  - event_type: SCENE_CREATED
+    aggregate_type: Scene
+    emitted_by: services/project_planning/service/scene_service.py
+    payload_required:
+      - scene_id
+      - project_id
+      - episode_id
+      - scene_code
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#Scene
+  - event_type: SCENE_STATUS_CHANGED
+    aggregate_type: Scene
+    emitted_by: services/project_planning/service/scene_service.py
+    payload_required:
+      - scene_id
+      - project_id
+      - episode_id
+      - from_status
+      - to_status
+      - changed_by
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#Scene

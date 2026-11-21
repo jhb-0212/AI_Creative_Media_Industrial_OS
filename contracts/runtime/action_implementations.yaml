@@ -36,6 +36,15 @@ implemented:
   EPISODE.STATUS.CHANGE:
     route: "POST /episodes/{entity_id}/status"
     module: services/project_planning/api/episode_routes.py
+  SCENE.CREATE:
+    route: "POST /scenes"
+    module: services/project_planning/api/scene_routes.py
+  SCENE.READ:
+    route: "GET /scenes/{entity_id}"
+    module: services/project_planning/api/scene_routes.py
+  SCENE.STATUS.CHANGE:
+    route: "POST /scenes/{entity_id}/status"
+    module: services/project_planning/api/scene_routes.py
   SCRIPT.IMPORT:
     route: "POST /scripts/import"
     module: services/project_planning/api/script_routes.py

@@ -4,21 +4,27 @@
 
 | 项 | 状态 |
 | --- | --- |
-| 迁移是否已上链 | **是**。七个迁移已提交到 `integration/phase1-identity-data-ownership`（`4278971` / `256ce6e` / `2c1037c` / `bcbf10e` / 批次二 `f8a9` / 授权修复 `71bad21` / 批次三 `g7b8`） |
-| 目标库是否已执行 | **是**。`localhost:15444/ai_film_industrial` 从 `c4e5f6a7b8d9` 升到 `g7b8c9d0e1f2` |
-| 归属闭环 | **18/18 PASS**（`convalidated` 全 `t`，违规行数全 0） |
+| 迁移是否已上链 | 本目录现有 **12 个迁移源**（`a9b8` → `l2a3`）；主工作区 `versions/` 只保留 main 链，分支激活状态以分支 worktree 为准。禁止把分支链文件直接复制进 main 的 `versions/`。 |
+| 目标库是否已执行 | **是**。`localhost:15444/ai_film_industrial` 已推进到 `l2a3b4c5d6e7`（批次七阻断集合函数 + 批次八 `scenes` 权限收敛） |
+| 归属闭环 | **34/34 PASS**（`convalidated` 全 `t`，违规行数全 0；台账四种坏状态自检均可 FAIL） |
 | **覆盖完整性** | **8/8 PASS**——台账之外无归属表；豁免 2 条且前提逐条实检 |
+| **归属一致性自检** | **5/5 PASS**；真实库仍有 1 条已登记 DANGLING：`shots.rework_basis_ref → workflow.rework_tasks`（`ReworkTask` 有契约无表） |
 | 逐表覆盖矩阵 | **70/70 PASS**，N/A 0，待裁决缺口 0 |
 | 受控例外验证 | **37/37 PASS** |
-| 授权完整性 | **11/11 PASS**，不变量「有表写权限 ⇒ 有函数 EXECUTE」零漂移 |
+| 授权完整性 | **11/11 PASS**；授权面矩阵闸门 DATA-6 亦 PASS（分支链授权迁移已纳入回放） |
 | RLS 行为验收 | **10/10 PASS** |
-| 生产库 | **未触碰**（`15432` / `ai_film_verify` / 模板库均未操作） |
-| 阶段 3 | **仍不放行**——本轮是数据与约束落地，不是放行评审 |
+| 批次行为验证 | 批次二 **16/16**、批次三 **15/15**、批次四 **21/21**、批次五 **26/26**、批次六 **13/13**、批次七 **10/10** |
+| Scene 运行时单测 | **18/18 PASS**（含幂等先于冻结、父链双冻结、守卫调用点与变异式顺序断言） |
+| 生产库 | **未触碰**（`15432` / `ai_film_verify` 未操作） |
+| 阶段 3 | **仍不放行**——本轮是数据、约束与 Scene 入口落地，不是放行评审 |
 
 执行报告：`docs/audits/2026-11-20-quarantine-project-activation.md`
 批次二报告：`docs/audits/2026-11-20-ownership-fk-batch2.md`
 批次三 + 覆盖闸门报告：`docs/audits/2026-11-20-ownership-closure-episodes.md`
 授权修复报告：`docs/audits/2026-11-20-audit-role-overgrant-fix.md`
+场景与镜头建表报告：`docs/audits/2026-11-20-scene-shot-tables.md`
+父链冻结与归档守卫报告：`docs/audits/2026-11-21-parent-freeze-and-archive-guard.md`
+本轮收口报告：`docs/audits/2026-11-21-scene-runtime-and-grants.md`
 例外工单：`docs/audits/2026-11-20-workorder-WO-OWN-2026-1120-001.md`
 
 > **本目录源码在激活后经过一次修正**（`71bad21`）：删掉 `b0c9` 的角色名单、把 `d2e3` 的审计可写范围从 18 张表收窄到 `projects`。两条都是根因修复不是补丁，详见授权修复报告。目标库 15444 已按等价 `REVOKE` 对齐——新建库跑迁移直接得到正确状态，已建的库需执行报告 §五 的那段 SQL。这是当前唯一「源码与库」的差异点。
@@ -68,6 +74,11 @@ main（`c1a2b3d4e5f6`）。一旦放进主工作区的 `versions/`：
 | `e3f4a5b6c7d8_repair_rls_bypass.py` | 19 条 scope 策略的 repair 旁路（**侵入既有 RLS**，须评审）+ 原表达式备份表 |
 | `f8a9b0c1d2e3_ownership_fk_batch2.py` | 批次二：`qc_reports` / `shot_specs` / `approval_steps` 三列归属外键（NOT VALID），撤销 `a9b8.DERIVED_NO_FK` 对后两张的处置 |
 | `g7b8c9d0e1f2_ownership_fk_episodes.py` | 批次三：`episodes` 三列归属外键（NOT VALID）。由覆盖闸门抓出，非人工复查 |
+| `h8c9d0e1f2a3_ownership_consistency_fk.py` | 批次四：父子归属一致性复合外键 + 父表唯一键 |
+| `i9d0e1f2a3b4_scene_shot_tables.py` | 批次五：`scenes` / `shots` 建表、状态 CHECK、接边外键与 RLS |
+| `j0e1f2a3b4c5_scene_archive_invariant.py` | 批次六：场次归档时的跨表在制镜头守卫（A/B 双侧） |
+| `k1f2a3b4c5d6_shot_archive_blocking_states.py` | 批次七：阻断集合单源化 + `BLOCKED` 不阻断裁定；两个触发器去掉状态预过滤 |
+| `l2a3b4c5d6e7_scene_grants.py` | 批次八：`scenes` 权限按矩阵收敛，撤销批次五手写授权中的 DELETE |
 | `verify_on_clone.py` | 在克隆库上跑 a9b8 的 upgrade / VALIDATE / 新写入语义 / downgrade，13 项断言 |
 | `docs/audits/mig-recon/verify_exception.py` | b0c9 的行为验证（基线 / 结构 / 判定 / 端到端 / 降级 / 幂等），37 项 |
 | `docs/audits/mig-recon/verify_guard_coverage.py` | 13 张守卫表**逐表**矩阵，证明每张表都真的接通例外通道 |

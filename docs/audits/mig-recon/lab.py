@@ -159,6 +159,17 @@ OWNERSHIP_STACK: tuple[str, ...] = (
     # 出现「CREATE OR REPLACE 静默覆盖旧实现」，于是测到的是上一版逻辑。
     # 故这一层进栈，并在 assert_rewound 里单独数一次。
     "j0e1f2a3b4c5",
+    # 批次七：把「哪些镜头状态算在制」收敛成一个函数，两个守卫与两个触发器的
+    # WHEN 子句都从它取值。同样是函数型迁移，同批次六的理由进栈；
+    # 另外它**改写**了批次六的两个函数，所以回退顺序必须严格 k1f2 → j0e1f2：
+    # 反了的话批次六的 downgrade 会 DROP 掉一个已经被批次七改过的函数体，
+    # 而批次七的 downgrade 随后又去引用不复存在的对象。
+    "k1f2a3b4c5d6",
+    # 批次八：`scenes` 的表级权限收敛到授权矩阵（去掉批次五手写的 DELETE）。
+    # 进栈的理由与批次六/七不同：它不是函数型迁移，而是**授权**迁移。但回退
+    # 顺序同样不能漏——它必须早于批次五的 `DROP TABLE`，否则 downgrade 里的
+    # `GRANT ... ON ... scenes` 会在表已消失后执行而报 42P01。
+    "l2a3b4c5d6e7",
 )
 
 
@@ -315,6 +326,11 @@ async def assert_rewound(conn: asyncpg.Connection) -> list[str]:
         "批次六归档守卫": "SELECT (to_regprocedure("
         "'project_planning.scenes_archive_guard()') IS NOT NULL)::int"
         " + (to_regprocedure('shot_planning.shots_parent_scene_guard()') IS NOT NULL)::int",
+        # 批次七同理单列，但断言的对象是「那个函数还在不在」，不是「守卫还在不在」——
+        # 守卫在批次七之后仍然存在（被 CREATE OR REPLACE 改写），所以只数守卫
+        # 会让批次七漏撤时算出一个看起来正常的 2。
+        "批次七阻断集合函数": "SELECT (to_regprocedure("
+        "'shot_planning.shot_archive_blocking_states()') IS NOT NULL)::int",
         # 批次四单列两项：一批里有**两类**对象（父表唯一键、子表复合外键），
         # 它们的回退方向相反且互不牵连。只记一个聚合数时，「唯一键撤了但外键没撤」
         # 这种半回退会算出一个非零的、看起来正常的总数。

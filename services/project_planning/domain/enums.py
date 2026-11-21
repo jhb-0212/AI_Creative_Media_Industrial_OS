@@ -64,3 +64,22 @@ class EpisodeStatus(str, Enum):
     DRAFT = "DRAFT"            # 草稿：集数已登记，未进入正式生产
     ACTIVE = "ACTIVE"          # 进行中：集数进入生产流程
     ARCHIVED = "ARCHIVED"      # 归档（终态，不可原地复活）
+
+
+class SceneStatus(str, Enum):
+    """场次状态。
+
+    对齐契约：contracts/state_machines/state_machines.yaml → objects → Scene
+    （DRAFT→ACTIVE→ARCHIVED，`source_kind: derived_from_parent_lifecycle`）。
+
+    与 Episode 形状完全一致是刻意的：两者在归属语义上没有差别（都是「上级聚合
+    下的有序子集合」），各造一套状态名只会让跨层校验无法复用同一套判定。
+    刻意不含 IN_REVIEW（审核结论归 GateInstance）、不含 LOCKED（锁定是剧本版本
+    与资产的语义）、不含任何生产进度态（那是 Shot 的职责）。
+
+    转移表权威定义见 domain/state_machine.py 的 SCENE_ALLOWED_TRANSITIONS。
+    """
+
+    DRAFT = "DRAFT"            # 草稿：场次已登记，尚未启用（可修改/补编号）
+    ACTIVE = "ACTIVE"          # 进行中：可挂载镜头
+    ARCHIVED = "ARCHIVED"      # 归档（终态，不可原地复活）

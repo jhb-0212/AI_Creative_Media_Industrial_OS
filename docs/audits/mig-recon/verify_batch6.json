@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-21T02:18:19.303126+00:00",
+  "generated_at": "2026-11-21T03:34:49.933485+00:00",
   "revision": "j0e1f2a3b4c5",
   "lab": "lab_scene_archive_invariant",
   "verdict": "PASS",
@@ -55,7 +55,7 @@
     {
       "id": "F5",
       "status": "PASS",
-      "expect": "归档成功（当前范围只含 IN_PRODUCTION；BLOCKED 归所有者裁定）",
+      "expect": "归档成功（BLOCKED 不计在制 —— 2026-11-21 裁定，见批次七；复活路径由 B 侧守卫关闭）",
       "observed": "sqlstate=00000 UPDATE 1"
     },
     {

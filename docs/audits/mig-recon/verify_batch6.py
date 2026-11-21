@@ -13,7 +13,8 @@ F2  无子镜头的场次归档不受影响。
 F3  只拦状态转换：IN_PRODUCTION 镜头改非状态列（shot_code）不受影响。
 F4  同事务内新建场次 + 建 IN_PRODUCTION 镜头不误伤（父行此刻可能查不到，
     由外键兜底，不由本触发器判）。
-F5  BLOCKED 子镜头当前**不拦**（钉住范围，防被悄悄改）。
+F5  BLOCKED 子镜头**不拦**归档（2026-11-21 裁定）。它的正当性不在本脚本，
+    而在批次七的 S3：归档后该镜头推不进 IN_PRODUCTION，复活路径已被关死。
 P1  以真实业务角色 `svc_project_planning` 归档，得到的是 P0001（业务拒绝）
     而不是 42501（权限不足）——这是 SECURITY DEFINER 的核心证据：
     该角色对 shot_planning.shots **零权限**，用 INVOKER 会让所有归档全挂。
@@ -333,7 +334,8 @@ async def main() -> int:
             record(
                 "F5",
                 st == "00000" and n == 1,
-                "归档成功（当前范围只含 IN_PRODUCTION；BLOCKED 归所有者裁定）",
+                "归档成功（BLOCKED 不计在制 —— 2026-11-21 裁定，见批次七；"
+                "复活路径由 B 侧守卫关闭）",
                 f"sqlstate={st} {msg}".strip(),
             )
 
