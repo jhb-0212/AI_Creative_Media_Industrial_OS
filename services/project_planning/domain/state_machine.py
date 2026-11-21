@@ -40,6 +40,7 @@ from packages.shared.lifecycle import (
     Transition,
 )
 from services.project_planning.domain.enums import (
+    ConstraintPackStatus,
     EpisodeStatus,
     ProjectStatus,
     ReworkTaskStatus,
@@ -162,6 +163,20 @@ REWORK_TASK_STATUS_CHANGE_ACTION = "REWORK.TASK.STATUS.CHANGE"
 # A22：ShotSpec 的唯一转移边（DRAFT → LOCKED）由 HIGH 风险的锁定动作独占。
 # 创建动作不拥有任何边——它不改变状态，只决定出生点。
 SHOT_SPEC_LOCK_ACTION = "SHOTSPEC.LOCK"
+
+# A23：ConstraintPack 的两类边分属两个动作，语义差别是刻意的：
+# - DRAFT → ACTIVE 归 CONSTRAINT.PACK.LOCK（HIGH，导演/授权 TD）；
+# - ACTIVE → STALE / SUPERSEDED / REVOKED 归 CONSTRAINT.PACK.STATUS.CHANGE。
+#
+# 为什么治理边不能也归 LOCK：LOCK 的回答是「这份包的锁定义务已尽、可以作生成
+# 输入」，治理边回答的是「这份包此后还能不能被用」。共用一个入口会让「锁一份
+# 新包」与「撤销一份已生效的包」成为同一种通行证——恰恰是 N-07 修掉的形态。
+#
+# STATUS.CHANGE 已在契约登记（A23，`not_implemented`），运行时本批不实现：
+# 三条治理边的下游消费者（生成路线、STALE 传播）尚不存在，现在实现只能得到
+# 「能改状态、但没人读」的边。逐边债务登记在 state_machine_gaps.yaml。
+CONSTRAINT_PACK_LOCK_ACTION = "CONSTRAINT.PACK.LOCK"
+CONSTRAINT_PACK_STATUS_CHANGE_ACTION = "CONSTRAINT.PACK.STATUS.CHANGE"
 
 # Scene：3 条边，全部归 SCENE.STATUS.CHANGE（与 Episode 同构）。
 #
@@ -374,6 +389,56 @@ SHOT_SPEC_ALLOWED_TRANSITIONS: dict[ShotSpecStatus, frozenset[ShotSpecStatus]] =
 
 
 # --------------------------------------------------------------------------- #
+# ConstraintPack：4 条边，两个动作分领（A23）。
+#
+# 契约（7.9）：「DRAFT → ACTIVE；ACTIVE 后可进入 STALE / SUPERSEDED / REVOKED」。
+# 四态之后没有任何出边——STALE / SUPERSEDED / REVOKED 都是治理结论，不可原地
+# 恢复（恢复须新建版本重走审批）；ACTIVE 是唯一可作生成输入的状态。
+#
+# 为什么 ACTIVE 到三个治理态是三条边而不是一个「STATUS.CHANGE 万能边」：
+# 每条边的前置依据不同（撤销要有撤销依据、失效要指认失效源、取代要有新版引用），
+# 合成一条会让「凭什么进这个状态」在边表里消失。边表是准入凭据的来源，
+# 合并之后就只剩服务层记得。
+# --------------------------------------------------------------------------- #
+CONSTRAINT_PACK_TRANSITIONS: tuple[Transition[ConstraintPackStatus], ...] = (
+    Transition(
+        ConstraintPackStatus.DRAFT,
+        ConstraintPackStatus.ACTIVE,
+        CONSTRAINT_PACK_LOCK_ACTION,
+    ),
+    Transition(
+        ConstraintPackStatus.ACTIVE,
+        ConstraintPackStatus.STALE,
+        CONSTRAINT_PACK_STATUS_CHANGE_ACTION,
+    ),
+    Transition(
+        ConstraintPackStatus.ACTIVE,
+        ConstraintPackStatus.SUPERSEDED,
+        CONSTRAINT_PACK_STATUS_CHANGE_ACTION,
+    ),
+    Transition(
+        ConstraintPackStatus.ACTIVE,
+        ConstraintPackStatus.REVOKED,
+        CONSTRAINT_PACK_STATUS_CHANGE_ACTION,
+    ),
+)
+
+CONSTRAINT_PACK_LIFECYCLE = Lifecycle(
+    object_name="ConstraintPack",
+    states=tuple(ConstraintPackStatus),
+    edges=CONSTRAINT_PACK_TRANSITIONS,
+    # 创建即草稿：与 ShotSpec 同形，显式声明而不是靠图上无入边推导。
+    initial_states=(ConstraintPackStatus.DRAFT,),
+    # 叶子对象：没有子对象挂在约束包下（约束条目是包内 JSON 数组，不是独立对象）。
+    frozen_states=(),
+)
+
+CONSTRAINT_PACK_ALLOWED_TRANSITIONS: dict[
+    ConstraintPackStatus, frozenset[ConstraintPackStatus]
+] = CONSTRAINT_PACK_LIFECYCLE.allowed_transitions()
+
+
+# --------------------------------------------------------------------------- #
 # 兼容入口：既有调用方与测试使用「按对象命名」的函数。
 # 语义统一为「只判结构，不含所有权」——所有权校验在 edge_owned_by 与聚合根的
 # transition_to 上，任何真正的推进都必须经过后者。
@@ -421,6 +486,11 @@ def assert_transition_episode(
 
 __all__ = [
     "ALLOWED_TRANSITIONS",
+    "CONSTRAINT_PACK_ALLOWED_TRANSITIONS",
+    "CONSTRAINT_PACK_LIFECYCLE",
+    "CONSTRAINT_PACK_LOCK_ACTION",
+    "CONSTRAINT_PACK_STATUS_CHANGE_ACTION",
+    "CONSTRAINT_PACK_TRANSITIONS",
     "EPISODE_ALLOWED_TRANSITIONS",
     "EPISODE_LIFECYCLE",
     "EPISODE_STATUS_CHANGE_ACTION",

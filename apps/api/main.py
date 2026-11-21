@@ -59,6 +59,7 @@ from services.project_planning.api.episode_routes import router as episode_route
 from services.project_planning.api.project_routes import router as project_router  # noqa: E402
 from services.project_planning.api.script_routes import router as script_router  # noqa: E402
 from services.project_planning.api.shot_planning_routes import (  # noqa: E402
+    constraint_pack_router,
     draft_router,
     rework_router,
     scene_router,
@@ -74,6 +75,7 @@ app.include_router(shot_router)
 app.include_router(draft_router)
 app.include_router(rework_router)
 app.include_router(shot_spec_router)
+app.include_router(constraint_pack_router)
 app.include_router(asset_router)
 
 

@@ -12,6 +12,7 @@ schema 演进时各自陈旧——而陈旧的播种代码表现为「测试莫�
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 
 from sqlalchemy import text
@@ -268,6 +269,105 @@ async def seed_shot_spec(
                 fps_den=fps_den,
                 cut_points=cut_points,
                 status=status,
+            ),
+        )
+        await session.commit()
+
+
+# --------------------------------------------------------------------------- #
+# ConstraintPack（A23）
+# --------------------------------------------------------------------------- #
+CONSTRAINT_PACK_INSERT = """
+    INSERT INTO project_planning.constraint_packs
+        (entity_id, entity_type, schema_version, entity_version, status,
+         owner_module, tenant_id, created_at, created_by, updated_at,
+         constraint_pack_id, project_id, scene_id, shot_ids, shot_group_ids,
+         applicability, locked_dimensions, constraints, source_previz_revision,
+         version, approved_by, approved_at)
+    VALUES
+        (:eid, 'ConstraintPack', 205, 1, :status, 'project_planning',
+         :tid, :now, 'tester', :now,
+         :pack_id, :pid, :sid, CAST(:shots AS text[]), CAST(:groups AS text[]),
+         :applicability, CAST(:dims AS text[]), CAST(:entries AS jsonb), '',
+         :version, :approved_by, :approved_at)
+"""
+
+# 一条合法条目：八字段齐备（CP-3）。
+CONSTRAINT_ENTRY: dict[str, str] = {
+    "constraint_id": "c-1",
+    "target": "character.wardrobe",
+    "shot_scope": "S01-01",
+    "rule": "外套保持深灰",
+    "source": "导演确认",
+    "authority_level": "HIGH",
+    "valid_at": "S01",
+    "approval_ref": "apr-1",
+}
+
+
+def constraint_pack_params(
+    *,
+    entity_id: str,
+    project_id: str,
+    tenant,
+    shot_ids: list[str],
+    scene_id: str = "",
+    shot_group_ids: list[str] | None = None,
+    applicability: str = "APPLICABLE",
+    locked_dimensions: list[str] | None = None,
+    constraints: list[dict[str, object]] | None = None,
+    version: int = 1,
+    status: str = "DRAFT",
+    approved_by: str = "",
+    approved_at: datetime | None = None,
+    constraint_pack_id: str | None = None,
+) -> dict[str, object]:
+    """约束包播种参数。
+
+    ``shot_ids`` / ``locked_dimensions`` / ``constraints`` / ``version`` 都允许传
+    越界值：库层 CHECK 与触发器的负向用例必须能绕过领域层，否则「库层也拦得住」
+    只是一句注释。``constraint_pack_id`` 缺省取 entity_id（首个版本），显式给出
+    不同的值用于构造「同一逻辑包的第二版本」。
+    """
+    return {
+        "eid": entity_id,
+        "pack_id": constraint_pack_id or entity_id,
+        "pid": project_id,
+        "sid": scene_id,
+        "tid": tenant,
+        "now": now(),
+        "shots": shot_ids,
+        "groups": shot_group_ids if shot_group_ids is not None else [],
+        "applicability": applicability,
+        "dims": locked_dimensions if locked_dimensions is not None else ["cut_points"],
+        "entries": json.dumps(
+            constraints if constraints is not None else [CONSTRAINT_ENTRY]
+        ),
+        "version": version,
+        "status": status,
+        "approved_by": approved_by,
+        "approved_at": approved_at,
+    }
+
+
+async def seed_constraint_pack(
+    admin_sessionmaker,
+    *,
+    entity_id: str,
+    project_id: str,
+    tenant,
+    shot_ids: list[str],
+    **overrides: object,
+) -> None:
+    async with admin_sessionmaker() as session:
+        await session.execute(
+            text(CONSTRAINT_PACK_INSERT),
+            constraint_pack_params(
+                entity_id=entity_id,
+                project_id=project_id,
+                tenant=tenant,
+                shot_ids=shot_ids,
+                **overrides,  # type: ignore[arg-type]
             ),
         )
         await session.commit()

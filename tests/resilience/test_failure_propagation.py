@@ -68,6 +68,14 @@ class _Shots(ShotRepository):
         self.rows = {shot.entity_id: shot}
         self.saved: list[Shot] = []
 
+    async def existing_ids_in_project(
+        self, project_id: str, shot_ids: list[str]
+    ) -> set[str]:
+        # 本文件不建约束包：镜头归属查询只服务 CONSTRAINT.PACK.CREATE。
+        # 让它直接失败，是为了把「别处误用这个端口」变成红灯，而不是返回一个
+        # 看起来合理的空集（空集会让「镜头都不属于本项目」变成静默通过）。
+        raise AssertionError("本用例不涉及约束包，不应查询镜头归属")
+
     async def add(self, shot: Shot) -> None:
         self.rows[shot.entity_id] = shot
 

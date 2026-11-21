@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from services.project_planning.domain.constraint_pack import ConstraintPack
 from services.project_planning.domain.enums import ShotStatus
 from services.project_planning.domain.rework_task import ReworkTask
 from services.project_planning.domain.scene import Scene
@@ -100,6 +101,22 @@ class ShotRepository(ABC):
 
         放在仓储而不是服务里拼 SQL：判定口径（按 scene_id 过滤、按状态过滤）是
         数据访问细节，散在服务层会让「另一种写法」悄悄放宽守卫。
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    async def existing_ids_in_project(
+        self, project_id: str, shot_ids: list[str]
+    ) -> set[str]:
+        """返回 ``shot_ids`` 中**确实属于该项目**的那些 id（A23）。
+
+        为什么需要它：约束包的 ``shot_ids`` 是数组，数组元素无法用外键表达归属，
+        库层只能靠触发器兜底（``trg_constraint_packs_shots`` 抛 23503）。但 23503
+        会被统一翻译成「引用关系不成立，不可幂等」，调用方收到 409 时不知道该改
+        哪个参数。服务层先查一次，能给出「这些镜头不在本项目」的 400。
+
+        返回值是**命中集合**而不是布尔值：调用方要能点出具体是哪几个 id 越界，
+        否则「有镜头不属于本项目」这句话在生产环境里等于没说。
         """
         raise NotImplementedError
 
@@ -202,4 +219,53 @@ class ShotSpecRepository(ABC):
     @abstractmethod
     async def get_by_revision(self, shot_revision_id: str) -> ShotSpec | None:
         """按绑定修订查询（口径与 uq_shot_spec_per_revision 一致：修订全局唯一）。"""
+        raise NotImplementedError
+
+
+class ConstraintPackRepository(ABC):
+    """约束包仓储（A23）。
+
+    只有五个方法，其中两个不是「顺手加的查询」：
+
+    - ``get_active_by_pack``：部分唯一索引 ``uq_constraint_pack_single_active``
+      被违反时，服务层必须能回答**生效中的是哪一版**。版本推进没有入口
+      （``CONSTRAINT.PACK.STATUS.CHANGE`` 未实现）时，这条查询是唯一能把
+      「新版本锁不上」翻译成可读原因的地方。
+    - ``get_by_pack_version``：``uq_constraint_pack_version`` 冲突时点出占用者。
+
+    刻意没有 ``update_content`` / ``delete``：包的锁定义务一旦生效，内容就不可
+    原地改（7.9「变更须新建版本并 supersede 旧版本」）。多一个内容写入方法就多
+    一条绕过版本语义的路径，而它不会有任何闸门会红。
+    """
+
+    @abstractmethod
+    async def add(self, pack: ConstraintPack) -> None:
+        """新增约束包（INSERT）。唯一冲突 → DuplicateEntityError；归属失败 → ReferentialIntegrityError。"""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def save(self, pack: ConstraintPack, expected_version: int) -> None:
+        """乐观锁保存（条件更新，命中 0 行抛 ConcurrentModificationError）。"""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def get_by_id(self, entity_id: str) -> ConstraintPack | None:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def get_active_by_pack(self, constraint_pack_id: str) -> ConstraintPack | None:
+        """该逻辑包当前 ACTIVE 的版本（同一 pack_id 至多一个，由部分唯一索引保证）。"""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def get_by_pack_version(
+        self, constraint_pack_id: str, version: int
+    ) -> ConstraintPack | None:
+        """该逻辑包某个版本的实体（``uq_constraint_pack_version`` 冲突时点出占用者）。
+
+        与 ``get_by_id`` 的区别不是「少一次扫描」：冲突发生在
+        ``(constraint_pack_id, version)`` 上，占用者可能是**另一行**（不同
+        entity_id）。只知道「版本重复」而不说「被哪一个实体占着」，调用方就无法
+        判断该换 version 还是该换 pack_id。
+        """
         raise NotImplementedError

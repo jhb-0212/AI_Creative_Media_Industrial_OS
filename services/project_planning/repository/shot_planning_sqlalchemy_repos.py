@@ -16,7 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.port_errors import translate_write_error
+from services.project_planning.domain.constraint_pack import ConstraintPack
 from services.project_planning.domain.enums import (
+    ConstraintPackStatus,
     ReworkTaskStatus,
     SceneStatus,
     ShotDraftStatus,
@@ -35,6 +37,7 @@ from services.project_planning.repository._versioning import (
     conditional_update,
 )
 from services.project_planning.repository.orm import (
+    ConstraintPackModel,
     ReworkTaskModel,
     SceneModel,
     ShotBreakdownDraftModel,
@@ -43,6 +46,7 @@ from services.project_planning.repository.orm import (
     ShotSpecModel,
 )
 from services.project_planning.repository.shot_planning_repositories import (
+    ConstraintPackRepository,
     ReworkTaskRepository,
     SceneRepository,
     ShotDraftRepository,
@@ -307,6 +311,24 @@ class SqlAlchemyShotRepository(ShotRepository):
         )
         return result.scalar_one_or_none() is not None
 
+    async def existing_ids_in_project(
+        self, project_id: str, shot_ids: list[str]
+    ) -> set[str]:
+        """返回确实属于该项目的镜头 id（A23 约束包作用范围校验）。
+
+        用 ``IN`` 而不是「逐个查」：一次往返换回命中集合，调用方据此点出越界 id。
+        空列表直接返回空集（``IN ()`` 在 SQL 里是语法错误，不是「都不存在」）。
+        """
+        if not shot_ids:
+            return set()
+        result = await self._session.execute(
+            select(ShotModel.entity_id).where(
+                ShotModel.project_id == project_id,
+                ShotModel.entity_id.in_(shot_ids),
+            )
+        )
+        return set(result.scalars().all())
+
 
 # --------------------------------------------------------------------------- #
 # ShotRevision
@@ -563,6 +585,135 @@ class SqlAlchemyShotSpecRepository(ShotSpecRepository):
         )
         model = result.scalar_one_or_none()
         return _spec_to_domain(model) if model is not None else None
+
+
+# --------------------------------------------------------------------------- #
+# ConstraintPack
+# --------------------------------------------------------------------------- #
+def _pack_to_domain(m: ConstraintPackModel) -> ConstraintPack:
+    try:
+        status = ConstraintPackStatus(m.status)
+    except ValueError as exc:
+        raise _bad_status("constraint_packs", m.status) from exc
+    return ConstraintPack(
+        entity_id=m.entity_id,
+        constraint_pack_id=m.constraint_pack_id,
+        project_id=m.project_id,
+        scene_id=m.scene_id,
+        # 驱动可能给 tuple（asyncpg 对 text[] 的返回形态），统一转 list：
+        # 领域层用 list 做「去重保序」与「是否为空」判定，tuple 会让
+        # ``pack.shot_ids == [...]`` 这类比较静默为假。
+        shot_ids=list(m.shot_ids),
+        shot_group_ids=list(m.shot_group_ids),
+        applicability=m.applicability,
+        locked_dimensions=list(m.locked_dimensions),
+        constraints=list(m.constraints),
+        source_previz_revision=m.source_previz_revision,
+        version=m.version,
+        approved_by=m.approved_by,
+        approved_at=m.approved_at,
+        status=status,
+        schema_version=m.schema_version,
+        entity_version=m.entity_version,
+        owner_module=m.owner_module,
+        created_at=m.created_at,
+        created_by=m.created_by,
+        updated_at=m.updated_at,
+        audit_ref=m.audit_ref,
+        tenant_id=m.tenant_id,
+    )
+
+
+def _pack_to_orm(p: ConstraintPack) -> ConstraintPackModel:
+    return ConstraintPackModel(
+        entity_id=p.entity_id,
+        entity_type=p.ENTITY_TYPE,
+        schema_version=p.schema_version,
+        entity_version=p.entity_version,
+        status=p.status.value,
+        owner_module=p.owner_module,
+        tenant_id=p.tenant_id,
+        created_at=p.created_at,
+        created_by=p.created_by,
+        updated_at=p.updated_at,
+        audit_ref=p.audit_ref,
+        constraint_pack_id=p.constraint_pack_id,
+        project_id=p.project_id,
+        scene_id=p.scene_id,
+        shot_ids=list(p.shot_ids),
+        shot_group_ids=list(p.shot_group_ids),
+        applicability=p.applicability,
+        locked_dimensions=list(p.locked_dimensions),
+        # 深拷贝：domain 的 dict 若与 ORM 共享引用，一次原地修改会同时改到
+        # 「已提交的快照」与「待写入的对象」。JSONB 不像数组能靠 list() 复制。
+        constraints=[dict(entry) for entry in p.constraints],
+        source_previz_revision=p.source_previz_revision,
+        version=p.version,
+        approved_by=p.approved_by,
+        approved_at=p.approved_at,
+    )
+
+
+class SqlAlchemyConstraintPackRepository(ConstraintPackRepository):
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, pack: ConstraintPack) -> None:
+        try:
+            async with self._session.begin_nested():
+                self._session.add(_pack_to_orm(pack))
+        except (IntegrityError, ProgrammingError) as exc:
+            translate_write_error(exc, entity_id=pack.entity_id)
+
+    async def save(self, pack: ConstraintPack, expected_version: int) -> None:
+        # 与 add 一样要翻译驱动异常：DRAFT→ACTIVE 会撞部分唯一索引
+        # ``uq_constraint_pack_single_active``（同一逻辑包已有生效版本）。
+        # 不翻译的话，路由层收到原始 IntegrityError 只能给 500，而这是一个
+        # 有明确业务含义的冲突（新版本还没被授权取代旧版本）。
+        try:
+            await conditional_update(
+                self._session,
+                ConstraintPackModel,
+                pack.entity_id,
+                expected_version,
+                _orm_update_values(_pack_to_orm(pack)),
+            )
+        except (IntegrityError, ProgrammingError) as exc:
+            translate_write_error(exc, entity_id=pack.entity_id)
+
+    async def get_by_id(self, entity_id: str) -> ConstraintPack | None:
+        result = await self._session.execute(
+            select(ConstraintPackModel).where(
+                ConstraintPackModel.entity_id == entity_id
+            )
+        )
+        model = result.scalar_one_or_none()
+        return _pack_to_domain(model) if model is not None else None
+
+    async def get_active_by_pack(self, constraint_pack_id: str) -> ConstraintPack | None:
+        result = await self._session.execute(
+            select(ConstraintPackModel).where(
+                ConstraintPackModel.constraint_pack_id == constraint_pack_id,
+                ConstraintPackModel.status == ConstraintPackStatus.ACTIVE.value,
+            )
+        )
+        model = result.scalar_one_or_none()
+        return _pack_to_domain(model) if model is not None else None
+
+    async def get_by_pack_version(
+        self, constraint_pack_id: str, version: int
+    ) -> ConstraintPack | None:
+        # 走唯一约束 uq_constraint_pack_version 的同一组列，因此最多一行；
+        # 用 scalar_one_or_none 而不是 first()：出现两行就意味着唯一索引没生效，
+        # 那是库层缺陷，应当在读取处就炸，而不是随手取一条让故障看起来正常。
+        result = await self._session.execute(
+            select(ConstraintPackModel).where(
+                ConstraintPackModel.constraint_pack_id == constraint_pack_id,
+                ConstraintPackModel.version == version,
+            )
+        )
+        model = result.scalar_one_or_none()
+        return _pack_to_domain(model) if model is not None else None
 
 
 # --------------------------------------------------------------------------- #

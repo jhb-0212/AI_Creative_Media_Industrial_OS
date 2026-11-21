@@ -199,6 +199,18 @@ DOMAIN_GRANTS: dict[str, tuple[TableGrant, ...]] = {
             "无 DELETE：LOCKED 是终态，改规格走新修订 + 新规格，历史不可物理删除。",
         ),
         _grant(
+            PROJECT_PLANNING,
+            "constraint_packs",
+            "SELECT INSERT UPDATE",
+            "SELECT：约束包读取 + 幂等回读 + 作用镜头归属校验；"
+            "INSERT：CONSTRAINT.PACK.CREATE；"
+            "UPDATE：CONSTRAINT.PACK.LOCK 的 DRAFT→ACTIVE 与版本递增"
+            "（三条治理边的动作 CONSTRAINT.PACK.STATUS.CHANGE 尚未实现，"
+            "授权面先留在这里——它一旦实现不需要再改矩阵）。"
+            "无 DELETE：STALE/SUPERSEDED/REVOKED 都是治理结论，"
+            "包历史是「当时凭什么锁」的唯一证据，不可物理删除。",
+        ),
+        _grant(
             "audit",
             "status_transitions",
             "SELECT INSERT",

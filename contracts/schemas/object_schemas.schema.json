@@ -4180,6 +4180,58 @@
       "x-afs-sources": [
         "7.9 隐式连续性依赖登记（字段）"
       ],
+        "x-afs-invariants": [
+          {
+            "id": "CP-1",
+            "statement": "适用性自述一致：applicability 必填且只取 APPLICABLE / NOT_APPLICABLE；取 NOT_APPLICABLE 时 locked_dimensions 与 constraints 必须同时为空——标为「无锁定约束」却列了维度或条目，是同一份包的两句相反的话。",
+            "enforced_by": "RUNTIME_ENFORCED"
+          },
+          {
+            "id": "CP-2",
+            "statement": "锁定维度受控：locked_dimensions 的每个值必须落在 7.9 列举的七个维度内（camera_intrinsics、camera_extrinsics、camera_path、blocking、shot_size_nodes、cut_points、spatial_relations），允许为空数组（NOT_APPLICABLE 的包没有维度）。",
+            "enforced_by": "RUNTIME_ENFORCED"
+          },
+          {
+            "id": "CP-3",
+            "statement": "约束条目完备：constraints 的每条必含 constraint_id、target、shot_scope、rule、source、authority_level、valid_at、approval_ref 八项且取值非空；constraint_id 在包内唯一（条目没有独立对象，它就是包内唯一地址）。",
+            "enforced_by": "RUNTIME_ENFORCED"
+          },
+          {
+            "id": "CP-4",
+            "statement": "作用镜头真实且同项目：shot_ids 非空、元素不重复，且每个 id 必须指向同项目的 Shot。跨项目或悬空的镜头 id 会让「这些镜头被约束」在生成阶段无法落到任何对象上。",
+            "enforced_by": "RUNTIME_ENFORCED"
+          },
+          {
+            "id": "CP-5",
+            "statement": "包与项目同租户：project_id 与 tenant_id 必须同时命中同一个 projects 行；单列外键只能证明项目存在，挡不住跨租户错配。",
+            "enforced_by": "RUNTIME_ENFORCED"
+          },
+          {
+            "id": "CP-6",
+            "statement": "同一逻辑包至多一个 ACTIVE 版本：constraint_pack_id + status=ACTIVE 唯一。两个 ACTIVE 版本并存会让「哪一份生效」没有答案，而下游必须按 pack 查询锁定维度。",
+            "enforced_by": "RUNTIME_ENFORCED"
+          },
+          {
+            "id": "CP-7",
+            "statement": "只有 ACTIVE 可作为生成输入：DRAFT 未获批、STALE 已失效、SUPERSEDED 已被取代、REVOKED 授权已撤销，四者都不得进入生成。当前生成域尚未落地，无消费者可校验。",
+            "enforced_by": "RUNTIME_PENDING"
+          }
+        ],
+        "x-afs-exclusions": [
+          {
+            "field": "镜头内容（时长 / 切点 / 相机路径 / 主体走位）",
+            "why": "内容归 ShotSpec（8.12）。约束包只说「不许改什么」，不说「要拍成什么样」；把内容放进来会让「改一句台词」变成一次约束重新审批"
+          },
+          {
+            "field": "constraints 条目的独立身份与状态机",
+            "why": "7.9 把条目定义为包内 object[]，条目没有自己的生命周期；建表会让「包内条目」出现第二个可被直接引用的入口，而契约只承认前者"
+          },
+          {
+            "field": "生成结果 / 渲染产物",
+            "why": "约束包是生成的前置输入，不是产物；产物归 AssetVersion"
+          }
+        ],
+        "x-afs-retired-fields": [],
       "additionalProperties": true,
       "x-afs-enum-note": "正文“类型”列声明为 enum 的字段：applicability、status；取值以正文该行说明列与对应状态机/枚举注册表为准，Schema 记 string 以允许后续扩展。"
     },

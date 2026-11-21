@@ -161,6 +161,13 @@ _STATE_MACHINE_SOURCES: dict[str, tuple[str, str]] = {
         "services.project_planning.domain.state_machine",
         "SHOT_SPEC_ALLOWED_TRANSITIONS",
     ),
+    # A23：五态四条边——DRAFT→ACTIVE 归 CONSTRAINT.PACK.LOCK，三条治理边归
+    # CONSTRAINT.PACK.STATUS.CHANGE（契约已登记、运行时未实现，逐边债务在
+    # state_machine_gaps.yaml）。进这张表意味着四条边都必须与契约逐条相等。
+    "ConstraintPack": (
+        "services.project_planning.domain.state_machine",
+        "CONSTRAINT_PACK_ALLOWED_TRANSITIONS",
+    ),
 }
 
 
@@ -774,15 +781,22 @@ _RESOURCE_SERIALIZERS: dict[str, tuple[str, str]] = {
     # A22：规格从第一天起纳入 to_dict ↔ 契约的双向比对。A13 的五个对象没进来，
     # 它们的「响应字段是否等于契约字段」至今无人校验——本条不重复那个缺口。
     "ShotSpec": ("services.project_planning.domain.shot_spec", "ShotSpec"),
+    "ConstraintPack": (
+        "services.project_planning.domain.constraint_pack",
+        "ConstraintPack",
+    ),
 }
 
 
 def _serializer_factories() -> dict[str, object]:
     """构造最小合法领域对象，用于校验 to_dict() 与契约定义的一致性。"""
+    from datetime import UTC, datetime
     from uuid import uuid4
 
     from services.asset_service.domain.asset_version import AssetVersion
     from services.asset_service.domain.qc_report import QCReport
+    from services.project_planning.domain.constraint_pack import ConstraintPack
+    from services.project_planning.domain.enums import ConstraintPackStatus
     from services.project_planning.domain.episode import Episode
     from services.project_planning.domain.project import Project
     from services.project_planning.domain.script import ScriptRevision
@@ -846,6 +860,32 @@ def _serializer_factories() -> dict[str, object]:
             subject_paths="lead-center",
             shot_size_changes="none",
             previz_ref="previz-probe",
+        ),
+        "ConstraintPack": ConstraintPack(
+            entity_id="probe-pack",
+            created_by="probe",
+            tenant_id=tenant_id,
+            project_id="probe-project",
+            shot_ids=["probe-shot"],
+            applicability="APPLICABLE",
+            # 探针取 ACTIVE 形态：DRAFT 下 approved_at 为空串，会掩盖
+            # ``approved_at`` 的序列化分支是否与契约类型一致。
+            locked_dimensions=["cut_points"],
+            constraints=[
+                {
+                    "constraint_id": "probe-constraint",
+                    "target": "probe-target",
+                    "shot_scope": "probe-scope",
+                    "rule": "probe-rule",
+                    "source": "probe-source",
+                    "authority_level": "probe-level",
+                    "valid_at": "2026-11-21T00:00:00Z",
+                    "approval_ref": "probe-approval",
+                }
+            ],
+            approved_by="probe",
+            approved_at=datetime(2026, 11, 21, tzinfo=UTC),
+            status=ConstraintPackStatus.ACTIVE,
         ),
     }
 
@@ -1323,127 +1363,151 @@ def _implemented_action_keys() -> set[str]:
     return {str(key) for key in (ledger.get("implemented") or {})}
 
 
-def _declared_transition_entry_gaps() -> dict[str, dict[str, object]]:
+def _declared_transition_entry_gaps() -> dict[str, dict[str, dict[str, object]]]:
     """读取并校验 ``transition_entry_gaps`` 分区（形状坏 = 契约损坏 → ValueError）。
 
-    文件缺失返回空登记：**不再无条件 PASS**——是否真的「无债务」由调用方的反向
-    完备性检查判定，删文件不能把缺口变绿。
+    结构是三层：``对象 → 转移边标签 → 债务详情``。**边级**而不是对象级，理由见
+    ``check_transition_entry_gaps`` 的 docstring。
+
+    文件缺失返回空登记：**不再无条件 PASS**——是否真的「无债务」由反向完备性
+    检查判定，删文件不能把缺口变绿。
     """
     if not STATE_GAPS_PATH.exists():
         return {}
     raw = load_yaml_mapping(STATE_GAPS_PATH).get("transition_entry_gaps") or {}
     if not isinstance(raw, dict):
         raise ValueError(
-            f"{STATE_GAPS_PATH.name} 的 transition_entry_gaps 必须是「对象 → 债务详情」映射，"
-            f"实际是 {type(raw).__name__}"
+            f"{STATE_GAPS_PATH.name} 的 transition_entry_gaps 必须是"
+            f"「对象 → 转移边 → 债务详情」映射，实际是 {type(raw).__name__}"
         )
-    declared: dict[str, dict[str, object]] = {}
-    for obj_name, detail in raw.items():
-        if not isinstance(detail, dict):
+    declared: dict[str, dict[str, dict[str, object]]] = {}
+    for obj_name, edges in raw.items():
+        if not isinstance(edges, dict):
             raise ValueError(
-                f"{STATE_GAPS_PATH.name} 的 transition_entry_gaps.{obj_name} 必须是映射，"
-                f"实际是 {type(detail).__name__}"
+                f"{STATE_GAPS_PATH.name} 的 transition_entry_gaps.{obj_name} "
+                f"必须是「转移边 → 债务详情」映射，实际是 {type(edges).__name__}"
             )
-        declared[str(obj_name)] = detail
+        per_edge: dict[str, dict[str, object]] = {}
+        for label, detail in edges.items():
+            if not isinstance(detail, dict):
+                raise ValueError(
+                    f"{STATE_GAPS_PATH.name} 的 "
+                    f"transition_entry_gaps.{obj_name}.{label} 必须是映射，"
+                    f"实际是 {type(detail).__name__}"
+                )
+            per_edge[str(label)] = detail
+        declared[str(obj_name)] = per_edge
     return declared
-
-
-def _status_change_action_keys(resource_type: str) -> set[str]:
-    """返回 action_registry 里某 resource_type 的「状态变更类」action_key。
-
-    「状态变更类」定义为 action_key 不以 ``.CREATE`` / ``.READ`` 结尾的动作——
-    CREATE 只创建对象（产出初始态）、READ 只读，均不触发状态转移；其余动作
-    （IMPORT/LOCK/APPROVE/STATUS.CHANGE 等）才可能触发状态变更。
-    """
-    registry = load_yaml_mapping(CONTRACTS / "action_registry" / "action_registry.yaml")
-    result: set[str] = set()
-    for action in registry.get("actions", []):
-        if not isinstance(action, dict):
-            continue
-        # resource_type 可能是组合（"Shot/ShotRevision"）。此前只取第一段，
-        # 导致组合里的第二个对象永远拿不到状态变更动作，被误判成「无入口」。
-        rtypes = {
-            item.strip()
-            for item in str(action.get("resource_type", "")).split("/")
-            if item.strip()
-        }
-        key = str(action.get("action_key", ""))
-        if resource_type in rtypes and not key.endswith((".CREATE", ".READ")):
-            result.add(key)
-    return result
 
 
 def check_transition_entry_gaps() -> bool:
     """校验「转移无 HTTP 入口」债务登记的诚实性（审计 P2-1 的闸门化）。
 
-    与 check_state_reachability 的差异：后者只验证「状态在域转移表里可达」，
-    但「可达」不等于「可执行」——Project/Episode 的转移在域表里可达，却没有任何
-    action 能触发（停在 DRAFT 无法推进）。本函数校验 state_machine_gaps.yaml 的
-    transition_entry_gaps 分区，**双向**校验：
+    **为什么判到边而不是对象**（A23 的判据升级）
+    --------------------------------------------------
+    旧的判据是对象级：只要该对象有**任意一个**已实现的状态变更 action，就认为
+    「入口已补上」。这留了一个固定的盲区——一个对象有几条边，其中一条有入口、
+    其余没有时，判据照样绿。A13 之后的 ``ConstraintPack`` 正好是这种形态：
+    ``DRAFT→ACTIVE`` 归 ``CONSTRAINT.PACK.LOCK``（已实现），三条治理边归
+    ``CONSTRAINT.PACK.STATUS.CHANGE``（未实现），对象级判据看不见后三条。
 
-    1. 正向：登记对象必须是已实现状态机（_STATE_MACHINE_SOURCES）；
-    2. 正向：reason / contract_ref / unblocks_when 三项完整（债务不能含糊）；
-    3. 正向防陈旧：若该对象**已有已实现的状态变更 action**，说明入口真的补上了，
-       登记就变成陈旧债务，必须删条目；
-    4. 反向完备性：已实现状态机里「有转移边、却没有任何已实现的状态变更 action」
-       的对象**必须**登记债务——否则删掉条目、甚至删掉整个债务文件，闸门都会
-       打印 PASS，P2-1 重新变成静默缺口（审查 N3）。
+    「有边、可达、但没有任何动作能走」与「对象完全没有入口」是同一类失效，
+    而对象级判据只覆盖后者。判到边之后，应检集合直接来自边表的
+    ``Transition.owner_action``——不需要再按 action_key 命名猜「哪些动作会改
+    状态」，也不需要额外维护一张手写清单（手写清单的陈旧方向恰好是漏检）。
+
+    四类校验：
+
+    1. 正向形状：登记对象必须是已实现状态机；登记的边必须真实存在（防手抄错边）；
+    2. 正向完整：``reason`` / ``contract_ref`` / ``unblocks_when`` 三项齐全；
+    3. 正向防陈旧：该边的 ``owner_action`` 已在运行时台账 implemented 中 → 入口
+       真的补上了，登记必须删除；
+    4. 反向完备性：每条 ``owner_action`` 未实现的边**必须**登记——删条目、甚至
+       删整个债务文件，闸门都会报红。
 
     两个刻意的口径：
-    - 「已补上入口」只认**运行时台账 implemented** 的动作，不认 action_registry 里
-      的登记。本项目要求「先在契约登记、再实现」，若按契约登记判定，先登记
-      PROJECT.STATUS.CHANGE（not_implemented）就会把真实缺口误判成陈旧债务，
-      反而逼着人删掉它。
-    - 债务详情必须是映射：坏形状抛 ValueError（由 main 统一转 `[FAIL]`），
-      不能让闸门带着 traceback 崩掉。
+    - 「已补上入口」只认**运行时台账 implemented**，不认 action_registry 的登记。
+      本项目要求「先在契约登记、再实现」，若按契约登记判定，先登记
+      ``CONSTRAINT.PACK.STATUS.CHANGE`` 就会把真实缺口误判成陈旧债务，反而逼着
+      人删掉它。
+    - 本判据**不**回答「action 实现了但服务方法没写」这类更深的问题：那需要
+      跑通业务路径，属集成测试的语义面。判据只对自己的语义面负责。
     """
     declared = _declared_transition_entry_gaps()
     implemented = _implemented_action_keys()
+    lifecycles, lifecycle_problems = _implemented_lifecycles()
     ok = True
     count = 0
+    edge_total = 0
 
-    for obj_name, detail in declared.items():
+    for problem in lifecycle_problems:
+        print(f"[FAIL] {problem}")
+        ok = False
+
+    # 1-3. 正向：登记必须指向真实的、仍未实现的边。
+    for obj_name in sorted(declared):
+        edges = declared[obj_name]
         if obj_name not in _STATE_MACHINE_SOURCES:
             print(f"[FAIL] {obj_name} 不在已实现状态机清单里，不得登记转移入口债务")
             ok = False
             continue
-        count += 1
-        missing = [
-            key for key in _TRANSITION_DEBT_REQUIRED if not str(detail.get(key, "")).strip()
-        ]
-        if missing:
-            print(f"[FAIL] {obj_name} 转移入口债务登记缺字段: {missing}")
+        lifecycle = lifecycles.get(obj_name)
+        if lifecycle is None:
+            print(f"[FAIL] {obj_name} 找不到 Lifecycle 实例，无法判定其转移入口债务")
             ok = False
-        # 防陈旧：入口已实现却未删债务。
-        live_actions = _status_change_action_keys(obj_name) & implemented
-        if live_actions:
+            continue
+        known = {edge.label: edge for edge in lifecycle.edges}
+        for label in sorted(edges):
+            count += 1
+            detail = edges[label]
+            edge = known.get(label)
+            if edge is None:
+                print(
+                    f"[FAIL] {obj_name} 的债务登记指向不存在的转移边 {label!r}："
+                    f"该对象已登记的边为 {sorted(known)}"
+                )
+                ok = False
+                continue
+            missing = [
+                key
+                for key in _TRANSITION_DEBT_REQUIRED
+                if not str(detail.get(key, "")).strip()
+            ]
+            if missing:
+                print(f"[FAIL] {obj_name} 边 {label} 的转移入口债务缺字段: {missing}")
+                ok = False
+            if edge.owner_action in implemented:
+                print(
+                    f"[FAIL] {obj_name} 边 {label} 的 owner_action "
+                    f"{edge.owner_action} 已实现——该债务已陈旧，必须删条目"
+                )
+                ok = False
+
+    # 4. 反向完备性：每条「owner_action 未实现」的边都必须登记。
+    for obj_name in sorted(_STATE_MACHINE_SOURCES):
+        lifecycle = lifecycles.get(obj_name)
+        if lifecycle is None:
+            # 已由 lifecycle_problems 报出（找不到 Lifecycle 的对象无法判定边）。
+            continue
+        declared_edges = declared.get(obj_name, {})
+        for edge in lifecycle.edges:
+            edge_total += 1
+            if edge.owner_action in implemented:
+                continue
+            if edge.label in declared_edges:
+                continue
             print(
-                f"[FAIL] {obj_name} 已有**已实现**的状态变更 action "
-                f"{sorted(live_actions)}——转移入口债务已陈旧，必须删条目"
+                f"[FAIL] {obj_name} 的转移边 {edge.label} 由未实现的 "
+                f"{edge.owner_action} 拥有，却未在 state_machine_gaps.yaml 的 "
+                "transition_entry_gaps 登记债务"
+                "——缺口不能靠「删条目/删文件」变绿"
             )
             ok = False
 
-    # 反向完备性：没有已实现入口的对象，必须把缺口写在债务文件里。
-    for obj_name in sorted(_STATE_MACHINE_SOURCES):
-        if obj_name in declared:
-            continue
-        if _status_change_action_keys(obj_name) & implemented:
-            continue
-        module_path, var_name = _STATE_MACHINE_SOURCES[obj_name]
-        if not _load_impl_transitions(module_path, var_name):
-            # 没有转移边的状态机不存在「转移入口」问题，不制造假债务。
-            continue
-        print(
-            f"[FAIL] {obj_name} 有转移边但没有任何已实现的状态变更 action，"
-            "却未在 state_machine_gaps.yaml 的 transition_entry_gaps 登记债务"
-            "——缺口不能靠「删条目/删文件」变绿"
-        )
-        ok = False
-
     if ok:
         print(
-            f"[PASS] 状态转移入口债务：显式登记 {count} 项"
-            f"（{len(_STATE_MACHINE_SOURCES)} 个状态机无陈旧/越界/漏登记）"
+            f"[PASS] 状态转移入口债务：显式登记 {count} 条边"
+            f"（{len(_STATE_MACHINE_SOURCES)} 个状态机共 {edge_total} 条边逐边比对）"
         )
     return ok
 
@@ -2032,6 +2096,7 @@ _STATUS_ENUM_SOURCES: dict[str, tuple[str, str]] = {
     ),
     "ReworkTask": ("services.project_planning.domain.enums", "ReworkTaskStatus"),
     "ShotSpec": ("services.project_planning.domain.enums", "ShotSpecStatus"),
+    "ConstraintPack": ("services.project_planning.domain.enums", "ConstraintPackStatus"),
 }
 
 # 已落库的表 → 契约对象名（表名与对象名不同名是常态，显式登记避免靠猜）。
@@ -2047,6 +2112,7 @@ _STATUS_TABLES: dict[str, str] = {
     "project_planning.shot_breakdown_drafts": "ShotBreakdownDraft",
     "project_planning.rework_tasks": "ReworkTask",
     "project_planning.shot_specs": "ShotSpec",
+    "project_planning.constraint_packs": "ConstraintPack",
 }
 
 
