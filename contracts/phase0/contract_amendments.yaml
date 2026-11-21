@@ -652,8 +652,56 @@ amendments:
     residual_risks:
       - 'SH-2 后半句「Shot 与同一 shot_id 的全部修订父级（project/episode/scene）完全一致」仍无复合外键承载：shot_revisions 只有 (project_id, shot_id) 一条外键，修订的 episode_id / scene_id 与 Shot 是否一致由服务写入时保证，属已登记缺口，不改判 ENFORCED'
       - 'SH-4「shot_revision_id 必须指向存在且 ACTIVE 的修订」在库层无约束（该列不是外键），只有服务层保证；补外键会与「Shot 首次确认时先建修订、后落 Shot」的写入顺序冲突，需单独设计'
-      - 'SC-5 归档前置条件是「同事务查询 + 拒绝」，查询与写入之间仍存在并发窗口：另一事务可在此间隙把某镜头推入 IN_PRODUCTION。唯一约束无法表达该不变量，缓解是归档走行锁重查，属未实现'
       - '编号唯一域改为项目内后，跨集重名会在登记时被拒：若未来确认业务上允许跨集同名，需另立修订放宽 SC-3 / SH-3，而不是在实现里悄悄松绑'
+
+  - id: 'V205-R14-A15'
+    title: 'SC-5 并发窗口根治（父行锁协议）；23505 映射逐路径核对'
+    retroactive: false
+    recorded_at: '2026-11-21'
+    discovered_by: >-
+      A14 交付后逐条复核剩余风险，两项被要求「要么实现、要么说清为什么不做」：
+      ① SC-5 归档前置条件只做到「同事务查询 + 拒绝」，查询与写入之间的并发窗口仍在；
+      ② A13 债务第 7 条指出 23505 未翻译成统一 409，需逐路径核对。
+    reason: >-
+      两项都不改契约文本（SC-5 的陈述本身已包含两侧语义），改的是**实现强度**。
+      ① 归档前置条件从「查一次」升级为成对的行锁协议：父侧持排他行锁重判，子侧
+      （镜头进入 IN_PRODUCTION）持同一行的共享锁后确认父场次未归档。这不是加兜底
+      而是消除结构性缺陷——唯一索引表达不了「子行集合里不得存在某状态」，延迟约束
+      在 READ COMMITTED 下是 write skew（双方都看不到对方未提交的改写），
+      SERIALIZABLE 要全库所有写路径付序列化重试代价。代价是写入协议多一条不变量：
+      加锁顺序必须父→子。
+      前置条件声明挂在 Transition 边上（ParentPrecondition / ChildPrecondition），
+      触发条件由边表派生而非服务层手写分支：进入在产的边有三条、进入归档的边有
+      两条，手写 if 只覆盖作者当时想到的那一条，漏掉的那条不会让任何闸门变红。
+      ② 五个对象的八条写入路径逐条核对 23505 的来源与映射，修掉三条会冒 500 的
+      分支（场景登记的 entity_id 分支、拆镜确认的 shot / shot_revision 插入）。
+      保留 500 的三处是「代码缺陷」的失败形态（uuid 主键冲突、库层 CHECK 被穿透），
+      把它们伪装成 409 会让真实故障看起来像用户输入错误。
+    adr: 'docs/adr/ADR-R40-scene-shot-rework-runtime-entry.md'
+    approved_by: '项目所有者（2026-11-21 会话内逐条指示：归档走行锁重查、异常映射逐路径核对）'
+    approved_at: '2026-11-21'
+    source_commits: []
+    modifications:
+      invariants:
+        - object: 'Scene'
+          ids: ['SC-5']
+          from: 'RUNTIME_ENFORCED'
+          to: 'RUNTIME_ENFORCED'
+          why: >-
+            定级不变，强制强度提高：归档侧由「同事务查询」改为「排他行锁内重判」，
+            子侧（Shot → IN_PRODUCTION）取同一行共享锁，并发窗口关闭。
+    counts_after:
+      actions: 96
+      openapi_operations: 96
+      schema_objects: 84
+      state_machines: 43
+    resolved_residual_risks:
+      - 'SC-5 归档前置条件的并发窗口：已由父行锁协议关闭（ADR-R40 §6.3），对应条目自 A14 residual_risks 删除，避免陈旧债务留在台账上'
+    residual_risks:
+      - '「加锁顺序必须父→子」成为跨聚合写入的前提：新增涉及父子两行的前置条件时必须遵守同一顺序，否则引入死锁。当前无自动判据，靠评审与本 ADR 约束'
+      - 'translate_write_error 不透出约束名（constraint 参数恒为空），服务层区分 23505 成因靠回读数据，多一次往返；约束名可由驱动异常直接取得，属可做未做'
+      - 'SC-5 的并发用例需真实 PostgreSQL：本机无容器环境，仅在 CI 上执行（test_scene_archive_concurrency.py）'
+      - '归档之后仍可在其下新增镜头（SHOT.DRAFT.CONFIRM 只校验场次存在且属本项目）：SC-5 只规定「归档前不得有在产镜头」，未规定「归档后不得新增子对象」，属契约缺口而非实现偏离。新镜头以 NOT_STARTED 出生，无法进入在产，但仍可 BLOCKED / CANCELLED；是否把「归档即冻结子对象集合」写进契约需所有者裁定'
 
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

@@ -43,6 +43,31 @@ class SceneRepository(ABC):
         """按项目 + 场次编号查询（幂等键与唯一约束口径一致：项目内唯一）。"""
         raise NotImplementedError
 
+    @abstractmethod
+    async def lock_for_archive(self, entity_id: str) -> Scene | None:
+        """以**排他行锁**读取场次，锁持有到事务结束（归档前置条件的建立侧）。
+
+        为什么这里的失败契约是「返回 None」而不是抛错：锁不到行有两种成因
+        （不存在 / 不在当前作用域），调用方对两者给同一个 404——不泄漏存在性。
+        真正的失败通道是「拿不到锁」，那会由数据库的等锁机制表达，不需要端口翻译。
+
+        为什么必须由仓储提供而不是在服务层拼 SQL：锁模式（``FOR UPDATE``）与
+        子对象侧的锁模式（``FOR KEY SHARE``）必须**成对**，任一侧写错都表现为
+        「查了但没锁住」——静默失效。成对的声明放在同一层，才有机会被同一条用例
+        两个方向各验一次。
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    async def lock_for_child_write(self, entity_id: str) -> Scene | None:
+        """以**共享行锁**读取场次（子对象写入前的确认侧，与上一方法配对）。
+
+        共享而非排他：子对象只需与「父行被排他改写的时刻」互斥，不应因此挡住
+        父行的其它并发写（那会把所有镜头写路径串行化）。锁模式的选择理由见
+        ``sqlalchemy`` 实现里的 ``_scene_lock_statement``。
+        """
+        raise NotImplementedError
+
 
 class ShotRepository(ABC):
     @abstractmethod

@@ -8,8 +8,11 @@
 - 编号唯一：SC-3 要求 scene_code 在**项目内**唯一，因此幂等回读键是
   (project_id, scene_code)，与唯一约束同口径；跨集撞号按「编号被占用」报错，
   不报成幂等冲突。
-- 归档前置条件：SC-5 要求归档前确认其下不存在 IN_PRODUCTION 的镜头，因此在
-  状态推进前查一次；这是本服务唯一跨聚合读，代价是必要的（见 change_status）。
+- 归档前置条件：SC-5 要求归档前确认其下不存在 IN_PRODUCTION 的镜头。判定不是
+  「查一次」而是「持排他行锁后重判」（见 _lock_and_assert_no_shot_in_production）：
+  只查不锁在并发下必然被穿透，而这条不变量一旦被穿透，库里就会出现「已归档场次
+  带着在产镜头」——那些镜头永远失去可推进的父级。
+  这是本服务唯一跨聚合读，代价是必要的。
 - 登记与 SCENE_CREATED 同事务写入；状态推进复用 advance_status 唯一路径。
 """
 
@@ -19,11 +22,15 @@ import uuid
 from uuid import UUID
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.lifecycle import ChildPrecondition
 from packages.shared.outbox_writer import OutboxWriter
 from packages.shared.port_errors import DuplicateEntityError, ReferentialIntegrityError
 from services.project_planning.domain.enums import SceneStatus, ShotStatus
 from services.project_planning.domain.scene import Scene
-from services.project_planning.domain.state_machine import SCENE_STATUS_CHANGE_ACTION
+from services.project_planning.domain.state_machine import (
+    SCENE_LIFECYCLE,
+    SCENE_STATUS_CHANGE_ACTION,
+)
 from services.project_planning.repository.episode_repo import EpisodeRepository
 from services.project_planning.repository.shot_planning_repositories import (
     SceneRepository,
@@ -110,23 +117,23 @@ class SceneService:
                 if existing is not None:
                     _assert_same_request(existing, project_id, episode_id, scene_code)
                     return existing
-                raise DomainError(
-                    ErrorRegistry.INTERNAL_ERROR, detail="场次写入冲突"
-                ) from exc
-            # 未带幂等键却撞唯一约束：唯一可能来源是编号已被占用（SC-3 项目内唯一）。
-            # 这不是「同一个幂等键复用」，报成幂等冲突会把调用方引向错误的修复
-            # 方向（重试不会成功，必须换编号）。
+            # 回读不到同 id 的行 ⇒ 撞的不是主键，是 SC-3 的编号唯一约束。
+            # 两个成因必须分开报：带幂等键重放（重试即可）与编号被占用（必须换
+            # 编号，重试永远不会成功）。判断依据是**数据**，不是异常类型——端口
+            # 层对两者都给 DuplicateEntityError，靠类型区分等于靠猜。
+            # 之前这里在「带了 entity_id 但回读不到」时直接报 INTERNAL_ERROR，
+            # 把一个业务冲突伪装成服务端故障：调用方会重试，而重试必然继续失败。
             taken = await self._repository.get_by_project_code(project_id, scene_code)
-            if taken is None:
+            if taken is not None:
                 raise DomainError(
-                    ErrorRegistry.INTERNAL_ERROR, detail="场次写入冲突"
+                    ErrorRegistry.IDEMPOTENCY_CONFLICT,
+                    detail=(
+                        f"场次编号 {scene_code} 在项目内已被占用"
+                        f"（SC-3：项目内唯一，占用者 episode_id={taken.episode_id}）"
+                    ),
                 ) from exc
             raise DomainError(
-                ErrorRegistry.IDEMPOTENCY_CONFLICT,
-                detail=(
-                    f"场次编号 {scene_code} 在项目内已被占用"
-                    f"（SC-3：项目内唯一，占用者 episode_id={taken.episode_id}）"
-                ),
+                ErrorRegistry.INTERNAL_ERROR, detail="场次写入冲突"
             ) from exc
 
         self._outbox_writer.record(
@@ -173,16 +180,16 @@ class SceneService:
         # 为什么「终态无出边」不够：边表只保证归档之后不被复活，不保证归档本身
         # 合法。若带着在产镜头归档，那些镜头会永久失去可推进的父级——这不是
         # 「以后修一下」，是状态库里出现无法收敛的对象。
-        if (
-            target_status is SceneStatus.ARCHIVED
-            and scene.status is not SceneStatus.ARCHIVED
-            and await self._shot_repository.has_with_status(
-                scene.scene_id, ShotStatus.IN_PRODUCTION
-            )
-        ):
-            raise DomainError(
-                ErrorRegistry.STATE_TRANSITION_DENIED,
-                detail="场次下仍有 IN_PRODUCTION 的镜头，拒绝归档（SC-5）",
+        #
+        # 「何时求值」由边表声明派生，不在这里写 ``if target is ARCHIVED``：
+        # 进入归档的边有两条（DRAFT/ACTIVE），手写分支只覆盖当时想到的那条，
+        # 而漏掉的那条不会让任何闸门变红。
+        child_precondition = SCENE_LIFECYCLE.child_precondition(
+            scene.status, target_status
+        )
+        if child_precondition is not None:
+            scene = await self._lock_and_assert_no_shot_in_production(
+                scene, child_precondition
             )
 
         await advance_status(
@@ -204,6 +211,37 @@ class SceneService:
             actor=changed_by,
         )
         return scene
+
+    async def _lock_and_assert_no_shot_in_production(
+        self, scene: Scene, precondition: ChildPrecondition
+    ) -> Scene:
+        """持排他行锁重读场次，并在锁内判定「其下无在产镜头」。
+
+        为什么「同事务查询 + 拒绝」不够（这是本轮补上的根因）
+        --------------------------------------------------
+        这条前置条件与子对象的写入共享数据，却不共享任何约束：唯一索引只能保证
+        单表内不重复，表达不了「子行集合里不得存在某状态」。于是「先查后写」在
+        并发下必然被穿透——查的瞬间成立，写的瞬间已不成立，而数据库不会拒绝。
+
+        锁把两侧从「各看各的快照」变成「同一行上的先后」：归档持排他锁重判，
+        镜头进入在产前先取同一行的共享锁（ShotService）。任一方先到，另一方都
+        要等它提交，然后基于它的结果重新判定。
+
+        返回**锁内读到的那一行**，而不是调用方先前读到的那一行：判定与版本必须
+        同源，否则乐观锁用的是过期版本，正常的归档会被误报成并发冲突。
+        """
+        locked = await self._repository.lock_for_archive(scene.entity_id)
+        if locked is None:
+            raise DomainError(
+                ErrorRegistry.NOT_FOUND, detail=f"场次不存在: {scene.entity_id}"
+            )
+        if await self._shot_repository.has_with_status(
+            locked.entity_id, ShotStatus(precondition.forbidden_status)
+        ):
+            raise DomainError(
+                ErrorRegistry.STATE_TRANSITION_DENIED, detail=precondition.message
+            )
+        return locked
 
 
 def _assert_same_request(

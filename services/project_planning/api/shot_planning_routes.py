@@ -149,6 +149,9 @@ def _shot_service(session: AsyncSession) -> ShotService:
     return ShotService(
         SqlAlchemyShotRepository(session),
         SqlAlchemyReworkTaskRepository(session),
+        # 镜头进入在产前要持父场次的共享行锁（SC-5 的并发侧），
+        # 与 SceneService 归档侧的排他锁配对，缺任一侧屏障即失效。
+        SqlAlchemySceneRepository(session),
         SqlAlchemyOutboxWriter(session),
     )
 

@@ -33,7 +33,12 @@
 
 from __future__ import annotations
 
-from packages.shared.lifecycle import Lifecycle, Transition
+from packages.shared.lifecycle import (
+    ChildPrecondition,
+    Lifecycle,
+    ParentPrecondition,
+    Transition,
+)
 from services.project_planning.domain.enums import (
     EpisodeStatus,
     ProjectStatus,
@@ -149,10 +154,40 @@ SHOT_DRAFT_DISCARD_ACTION = "SHOT.DRAFT.DISCARD"
 REWORK_TASK_STATUS_CHANGE_ACTION = "REWORK.TASK.STATUS.CHANGE"
 
 # Scene：3 条边，全部归 SCENE.STATUS.CHANGE（与 Episode 同构）。
+#
+# SC-5 的跨聚合前置条件在这里声明（ADR-R40 §6.3），两侧成对：
+# - 父侧（归档）：其下不得存在 IN_PRODUCTION 的镜头；
+# - 子侧（Shot 进入在产）：父场次不得已归档。
+#
+# 为什么声明成边属性而不是写进服务层的 if：手写分支只覆盖当时想到的边，
+# 而进入 IN_PRODUCTION 的边有三条（NOT_STARTED / BLOCKED / PRODUCTION_COMPLETE）。
+# 只要其中一条漏了屏障，不变量就被静默绕过，且没有任何闸门会红。挂在边上之后，
+# 「要不要屏障」是每条边的显式决定，服务层按边表派生触发条件。
+SCENE_ARCHIVE_CHILD_PRECONDITION = ChildPrecondition(
+    object_name="Shot",
+    forbidden_status=ShotStatus.IN_PRODUCTION.value,
+    message="场次下仍有 IN_PRODUCTION 的镜头，拒绝归档（SC-5）",
+)
+SHOT_IN_PRODUCTION_PARENT_PRECONDITION = ParentPrecondition(
+    object_name="Scene",
+    forbidden_status=SceneStatus.ARCHIVED.value,
+    message="父场次已归档，镜头不可进入 IN_PRODUCTION（SC-5 的并发侧）",
+)
+
 SCENE_TRANSITIONS: tuple[Transition[SceneStatus], ...] = (
     Transition(SceneStatus.DRAFT, SceneStatus.ACTIVE, SCENE_STATUS_CHANGE_ACTION),
-    Transition(SceneStatus.DRAFT, SceneStatus.ARCHIVED, SCENE_STATUS_CHANGE_ACTION),
-    Transition(SceneStatus.ACTIVE, SceneStatus.ARCHIVED, SCENE_STATUS_CHANGE_ACTION),
+    Transition(
+        SceneStatus.DRAFT,
+        SceneStatus.ARCHIVED,
+        SCENE_STATUS_CHANGE_ACTION,
+        child_precondition=SCENE_ARCHIVE_CHILD_PRECONDITION,
+    ),
+    Transition(
+        SceneStatus.ACTIVE,
+        SceneStatus.ARCHIVED,
+        SCENE_STATUS_CHANGE_ACTION,
+        child_precondition=SCENE_ARCHIVE_CHILD_PRECONDITION,
+    ),
 )
 
 SCENE_LIFECYCLE = Lifecycle(
@@ -165,18 +200,35 @@ SCENE_LIFECYCLE = Lifecycle(
 # 这里只有一个动作，但所有权判定照常执行——它的价值在「未来新增专属动作
 # （如 SHOT.CANCEL）时必须显式改边表」，而不是让新动作悄悄共享入口。
 # BLOCKED→NOT_STARTED 是合法回退：阻塞解除后可能整体重排而未启动。
+#
+# 三条进入 IN_PRODUCTION 的边全部带父场次屏障（SC-5 的并发侧）。三条都要：
+# 屏障的语义是「进入在产」，与从哪个状态进来无关；只给其中一条加，等于允许
+# 从另外两条绕过归档判定。
 SHOT_TRANSITIONS: tuple[Transition[ShotStatus], ...] = (
-    Transition(ShotStatus.NOT_STARTED, ShotStatus.IN_PRODUCTION, SHOT_STATUS_CHANGE_ACTION),
+    Transition(
+        ShotStatus.NOT_STARTED,
+        ShotStatus.IN_PRODUCTION,
+        SHOT_STATUS_CHANGE_ACTION,
+        parent_precondition=SHOT_IN_PRODUCTION_PARENT_PRECONDITION,
+    ),
     Transition(ShotStatus.NOT_STARTED, ShotStatus.BLOCKED, SHOT_STATUS_CHANGE_ACTION),
     Transition(ShotStatus.NOT_STARTED, ShotStatus.CANCELLED, SHOT_STATUS_CHANGE_ACTION),
     Transition(ShotStatus.IN_PRODUCTION, ShotStatus.PRODUCTION_COMPLETE, SHOT_STATUS_CHANGE_ACTION),
     Transition(ShotStatus.IN_PRODUCTION, ShotStatus.BLOCKED, SHOT_STATUS_CHANGE_ACTION),
     Transition(ShotStatus.IN_PRODUCTION, ShotStatus.CANCELLED, SHOT_STATUS_CHANGE_ACTION),
     Transition(ShotStatus.BLOCKED, ShotStatus.NOT_STARTED, SHOT_STATUS_CHANGE_ACTION),
-    Transition(ShotStatus.BLOCKED, ShotStatus.IN_PRODUCTION, SHOT_STATUS_CHANGE_ACTION),
+    Transition(
+        ShotStatus.BLOCKED,
+        ShotStatus.IN_PRODUCTION,
+        SHOT_STATUS_CHANGE_ACTION,
+        parent_precondition=SHOT_IN_PRODUCTION_PARENT_PRECONDITION,
+    ),
     Transition(ShotStatus.BLOCKED, ShotStatus.CANCELLED, SHOT_STATUS_CHANGE_ACTION),
     Transition(
-        ShotStatus.PRODUCTION_COMPLETE, ShotStatus.IN_PRODUCTION, SHOT_STATUS_CHANGE_ACTION
+        ShotStatus.PRODUCTION_COMPLETE,
+        ShotStatus.IN_PRODUCTION,
+        SHOT_STATUS_CHANGE_ACTION,
+        parent_precondition=SHOT_IN_PRODUCTION_PARENT_PRECONDITION,
     ),
 )
 

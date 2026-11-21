@@ -7,6 +7,10 @@
 守卫所需字段由本服务写入实体，再由领域层 ``transition_to`` 判定——
 赋值与判定分离是刻意的：守卫必须能读到「这次请求打算写什么」，
 但「能不能写」仍由领域层说了算。
+
+另有一条**跨聚合**前置条件不归领域层：进入 IN_PRODUCTION 还要求父场次未归档
+（SC-5 的并发侧）。它需要一次带行锁的读取，而领域层不做 IO；触发条件由边表
+声明派生（``SHOT_IN_PRODUCTION_PARENT_PRECONDITION``），见 _assert_parent_accepts。
 """
 
 from __future__ import annotations
@@ -15,12 +19,17 @@ from datetime import datetime
 from uuid import UUID
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.lifecycle import ParentPrecondition
 from packages.shared.outbox_writer import OutboxWriter
 from services.project_planning.domain.enums import ReworkTaskStatus, ShotStatus
 from services.project_planning.domain.shot import Shot
-from services.project_planning.domain.state_machine import SHOT_STATUS_CHANGE_ACTION
+from services.project_planning.domain.state_machine import (
+    SHOT_LIFECYCLE,
+    SHOT_STATUS_CHANGE_ACTION,
+)
 from services.project_planning.repository.shot_planning_repositories import (
     ReworkTaskRepository,
+    SceneRepository,
     ShotRepository,
 )
 from services.project_planning.service.transition import advance_status
@@ -31,10 +40,12 @@ class ShotService:
         self,
         repository: ShotRepository,
         rework_task_repository: ReworkTaskRepository,
+        scene_repository: SceneRepository,
         outbox_writer: OutboxWriter,
     ) -> None:
         self._repository = repository
         self._rework_task_repository = rework_task_repository
+        self._scene_repository = scene_repository
         self._outbox_writer = outbox_writer
 
     async def get_shot(self, entity_id: str) -> Shot:
@@ -79,6 +90,15 @@ class ShotService:
                     detail="已关闭的返工任务不能作为新的返工依据",
                 )
 
+        # SC-5 的并发侧：进入在产前必须先与父场次的归档侧串行化。
+        # 触发条件同样由边表派生（三条进入 IN_PRODUCTION 的边都声明了它），
+        # 不是这里手写 ``if target is IN_PRODUCTION``。
+        parent_precondition = SHOT_LIFECYCLE.parent_precondition(
+            shot.status, target_status
+        )
+        if parent_precondition is not None:
+            await self._assert_parent_accepts(shot, parent_precondition)
+
         shot.blocked_reason = blocked_reason
         shot.rework_basis_ref = rework_basis_ref
         shot.cancellation_ref = cancellation_ref
@@ -109,3 +129,30 @@ class ShotService:
             authority_ref=authority_ref,
         )
         return shot
+
+    async def _assert_parent_accepts(
+        self, shot: Shot, precondition: ParentPrecondition
+    ) -> None:
+        """持共享行锁确认父场次未归档（SC-5 的并发侧，与归档侧的排他锁配对）。
+
+        为什么子对象也要管这件事：只堵归档那一侧仍有一个窗口——归档事务已经锁住
+        父行、判定「无在产镜头」、正在写状态；此刻另一个事务把镜头推入在产并提交，
+        归档照样成功，库里就出现「已归档场次带着在产镜头」。
+
+        共享锁的粒度是刻意的：它只与父行的**排他改写**互斥（归档），不与父行的
+        普通更新互斥——为后者付串行化代价没有收益（锁模式成对的理由见
+        repository 层的 ``scene_lock_statement``）。
+
+        与领域守卫的分工：守卫判「这次请求带的字段够不够」，本函数判「另一张表里
+        的行允许不允许」。前者一次查询即可，后者必须加锁——这正是父行锁不能塞进
+        ``transition_to`` 的原因：领域层不做 IO。
+        """
+        parent = await self._scene_repository.lock_for_child_write(shot.scene_id)
+        if parent is None:
+            raise DomainError(
+                ErrorRegistry.NOT_FOUND, detail=f"父场次不存在: {shot.scene_id}"
+            )
+        if parent.status.value == precondition.forbidden_status:
+            raise DomainError(
+                ErrorRegistry.STATE_TRANSITION_DENIED, detail=precondition.message
+            )

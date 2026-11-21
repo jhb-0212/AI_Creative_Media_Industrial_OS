@@ -20,6 +20,14 @@ Scene 为什么必须预先存在（ADR-R19 §121）
 本服务**不**在确认时隐式创建场次。草案里的 scene_id 必须指向一条已存在的
 Scene（由 SCENE.CREATE 登记）；否则等于替所有者裁定「确认拆镜即建立正式场次」，
 而 R19 明确拒绝了这个语义扩张。
+
+唯一冲突必须被解释，不能冒成 500（ADR-R40 §6.4）
+--------------------------------------------------
+本服务是全项目唯一**批量**写入镜头编号的路径，而编号是用户可见的业务键——
+冲突是常态，不是异常。端口层对唯一冲突只给一个异常（``DuplicateEntityError``），
+但这里有两个成因、两种修复方向：草案内重号（改草案）、项目内已被占用（换编号）。
+所以异常在服务层被翻译成两种带具体占用者信息的 409，而不是让它冒到 API 层变成
+500——500 的含义是「服务端坏了」，而这件事的修法在调用方手里。
 """
 
 from __future__ import annotations
@@ -452,7 +460,20 @@ class ShotDraftService:
             created_by=confirmed_by,
             tenant_id=tenant_id,
         )
-        await self._shot_repository.add(shot)
+        try:
+            await self._shot_repository.add(shot)
+        except DuplicateEntityError as exc:
+            # 唯一冲突的成因必须回读后解释：草案内重号（改草案）与项目内已被
+            # 占用（换编号）都是 409，但修复方向相反（ADR-R40 §6.4）。
+            # 未捕获时这一支会冒成 500——拆镜确认是本轮唯一会批量写入镜头
+            # 编号的路径，而编号是用户可见的业务键，冲突是常态而非异常。
+            conflict = await self._shot_code_conflict(draft, shot.shot_code)
+            raise conflict from exc
+        except ReferentialIntegrityError as exc:
+            raise DomainError(
+                ErrorRegistry.CONCURRENT_MODIFICATION,
+                detail="镜头归属的场次已变化，请基于最新数据重试",
+            ) from exc
 
         revision = ShotRevision(
             entity_id=revision_id,
@@ -486,7 +507,24 @@ class ShotDraftService:
             created_by=confirmed_by,
             tenant_id=tenant_id,
         )
-        await self._revision_repository.add(revision)
+        try:
+            await self._revision_repository.add(revision)
+        except DuplicateEntityError as exc:
+            # 每个 Shot 恰一个 ACTIVE 修订（ux_shot_active_revision）。库里出现
+            # 第二个，说明另一个事务刚刚为同一镜头确认了修订——这是并发，不是
+            # 数据错误，重试语义正确。
+            raise DomainError(
+                ErrorRegistry.CONCURRENT_MODIFICATION,
+                detail=(
+                    f"镜头 {shot_id} 的修订已被并发确认"
+                    "（同一镜头只允许一个 ACTIVE 修订），请刷新后重试"
+                ),
+            ) from exc
+        except ReferentialIntegrityError as exc:
+            raise DomainError(
+                ErrorRegistry.CONCURRENT_MODIFICATION,
+                detail="镜头修订归属的镜头已变化，请基于最新数据重试",
+            ) from exc
 
         self._outbox_writer.record(
             aggregate_type="Shot",
@@ -520,6 +558,41 @@ class ShotDraftService:
             },
         )
         return revision.entity_id
+
+    async def _shot_code_conflict(
+        self, draft: ShotBreakdownDraft, shot_code: str
+    ) -> DomainError:
+        """把镜头编号的唯一冲突解释成调用方能执行的修复动作（ADR-R40 §6.4）。
+
+        为什么必须回读一次：端口层对**所有**唯一冲突都给同一个异常，而这条路径
+        上有两个成因——草案内编号重复（改草案）与项目内编号已被别的镜头占用
+        （换编号）。两者都是 409，但修复方向相反；不回读就只能给「重复提交」
+        这种听上去像重试就好的说法，而重试必然继续失败。
+
+        占用者若来自本草案自己（同一事务内先建的镜头），说明是草案内部重号；
+        否则是本项目已存在的镜头。区分这两个来源不需要额外查询：占用行自带
+        ``source_draft_ref``。
+        """
+        taken = await self._shot_repository.get_by_project_code(
+            draft.project_id, shot_code
+        )
+        if taken is None:
+            return DomainError(
+                ErrorRegistry.INTERNAL_ERROR,
+                detail=f"镜头编号 {shot_code} 写入冲突，且回读不到占用者",
+            )
+        source = taken.source_draft_ref if isinstance(taken.source_draft_ref, dict) else {}
+        if source.get("draft_id") == draft.entity_id:
+            origin = "本草案内编号重复"
+        else:
+            origin = f"占用者 scene_id={taken.scene_id}"
+        return DomainError(
+            ErrorRegistry.IDEMPOTENCY_CONFLICT,
+            detail=(
+                f"镜头编号 {shot_code} 在项目内已被占用"
+                f"（SH-3：项目内唯一，{origin}）。请修订草案后重新提交确认"
+            ),
+        )
 
 
 def _required_text(container: dict[str, Any], key: str, where: str) -> str:

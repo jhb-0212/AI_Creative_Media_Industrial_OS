@@ -46,6 +46,48 @@ from packages.errors.error_codes import DomainError, ErrorRegistry
 
 
 @dataclass(frozen=True)
+class ParentPrecondition:
+    """子对象走这条边时，**父对象**必须不处于某状态。
+
+    为什么这条约束声明在边上，而不是写成服务层的一个 ``if target is ...``
+    ----------------------------------------------------------------
+    两个理由，都不是风格问题：
+
+    1. **漏写的方向是不安全的一侧**。手写分支只覆盖作者当时想到的那条边；此后
+       新增一条进入同一目标的边（例如 ``BLOCKED -> IN_PRODUCTION``）不会有任何
+       东西提示要同步加屏障，不变量就被静默绕过。声明在边上，触发条件由边表
+       派生，新增边必须显式回答「要不要屏障」——不回答就查不到。
+    2. **代价只由需要它的边承担**。多数边与父对象无关，把它们也拖进一次跨聚合
+       查询 + 一次行锁，是把正确性成本摊到所有写路径上。
+
+    并发语义（这是它与普通守卫的区别）
+    ----------------------------------------------------------------
+    普通守卫只看**本次请求带来的值**，一次查询即可判定；本约束看的是**另一张表
+    里的行**，而那个行会被并发事务改写。「先查后写」在并发下必然被穿透：查的
+    瞬间还成立，写的瞬间已不成立，且数据库没有任何约束会拒绝。所以两侧必须在
+    同一行上串行化——父侧持排他行锁后重判，子侧持共享行锁后确认。声明与执行
+    分居两层：边表回答「需不需要」，服务层回答「怎么加锁」。
+    """
+
+    object_name: str
+    forbidden_status: str
+    message: str
+
+
+@dataclass(frozen=True)
+class ChildPrecondition:
+    """父对象走这条边时，**其下子对象**必须不处于某状态（``ParentPrecondition`` 的另一侧）。
+
+    两侧成对存在才构成一条完整的并发约束：只声明父侧，子对象仍可能在归档之后
+    被推入该状态；只声明子侧，归档仍可能在子对象已处于该状态时通过。
+    """
+
+    object_name: str
+    forbidden_status: str
+    message: str
+
+
+@dataclass(frozen=True)
 class Transition[StatusT]:
     """一条已登记的转移边：结构 + 所有者 + 准入构件。
 
@@ -57,12 +99,19 @@ class Transition[StatusT]:
     边上」这一形态。资产域的守卫依赖 ``AssetVersion`` 与一次 QC 计数查询，项目域
     当前无边级守卫；为它们编一个只覆盖共同字段的 Protocol，会让共享层假装理解
     它并不理解的东西，也会让真正的守卫类型在调用点被擦除。不透明比假装更诚实。
+
+    ``parent_precondition`` / ``child_precondition`` 与 ``guards`` 的区别是刻意的：
+    前者是**共享层按名字解释**的结构化声明（父对象名 + 禁止状态 + 说明），因为它
+    跨聚合、且需要调用方在写之前做一次加锁读取——这是一条完整协议，不该由每个
+    域各写一份；后者是不透明构件，因为它的判定依赖各域自己的实体形状与查询。
     """
 
     source: StatusT
     target: StatusT
     owner_action: str
     guards: tuple[Any, ...] = ()
+    parent_precondition: ParentPrecondition | None = None
+    child_precondition: ChildPrecondition | None = None
 
     @property
     def label(self) -> str:
@@ -197,6 +246,29 @@ class Lifecycle[StatusT]:
                 return edge
         return None
 
+    # ------------------------------------------------------------------ #
+    # 跨聚合前置条件（并发约束的声明侧）
+    # ------------------------------------------------------------------ #
+    def parent_precondition(
+        self, source: StatusT, target: StatusT
+    ) -> ParentPrecondition | None:
+        """该边是否要求父对象不处于某状态；未登记边返回 None。
+
+        为什么「未登记边」返回 None 而不是抛错：调用方拿到 None 后照常走
+        ``transition_to``，未登记的边会在那里被拒（顺序不变）。若这里先抛，
+        「非法转移」与「父对象不满足条件」两种失败会挤在同一个位置上，
+        调用方就无法给出正确的错误码。
+        """
+        edge = self.edge_for(source, target)
+        return edge.parent_precondition if edge is not None else None
+
+    def child_precondition(
+        self, source: StatusT, target: StatusT
+    ) -> ChildPrecondition | None:
+        """该边是否要求其下子对象不处于某状态（``parent_precondition`` 的另一侧）。"""
+        edge = self.edge_for(source, target)
+        return edge.child_precondition if edge is not None else None
+
 
 def validate_lifecycle[StatusT](
     object_name: str,
@@ -237,6 +309,7 @@ def validate_lifecycle[StatusT](
             )
         if not edge.owner_action.strip():
             problems.append(f"边 {edge.label} 的 owner_action 为空")
+        problems.extend(_precondition_problems(edge))
 
     seen: dict[tuple[object, object], str] = {}
     for edge in edge_list:
@@ -250,6 +323,27 @@ def validate_lifecycle[StatusT](
             continue
         seen[key] = edge.owner_action
 
+    return problems
+
+
+def _precondition_problems(edge: Transition[object]) -> list[str]:
+    """跨聚合前置条件的结构自检。
+
+    只查「声明是否完整」，不查「声明是否真实」：父对象名与禁止状态是否存在，
+    属于契约闸门（``contract_check``）与跨对象引用的职责。这里能拦住的是
+    空声明——一个 ``object_name=""`` 的屏障会让服务层去锁一张不存在的表。
+    """
+    problems: list[str] = []
+    for label, precondition in (
+        ("parent_precondition", edge.parent_precondition),
+        ("child_precondition", edge.child_precondition),
+    ):
+        if precondition is None:
+            continue
+        for field in ("object_name", "forbidden_status", "message"):
+            value = getattr(precondition, field)
+            if not isinstance(value, str) or not value.strip():
+                problems.append(f"边 {edge.label} 的 {label}.{field} 为空")
     return problems
 
 
@@ -275,7 +369,9 @@ def _status_value(status: object) -> str:
 
 
 __all__ = [
+    "ChildPrecondition",
     "Lifecycle",
+    "ParentPrecondition",
     "Transition",
     "validate_lifecycle",
 ]

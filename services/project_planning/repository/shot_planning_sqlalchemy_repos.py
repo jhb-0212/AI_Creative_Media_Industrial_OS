@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,6 +52,31 @@ def _bad_status(table: str, value: str) -> DomainError:
     return DomainError(
         ErrorRegistry.INTERNAL_ERROR, detail=f"{table} 存量状态非法: {value!r}"
     )
+
+
+def scene_lock_statement(
+    entity_id: str, *, exclusive: bool
+) -> Select[SceneModel]:
+    """父行锁读取语句：SC-5 两个方向的唯一落点（ADR-R40 §6.3）。
+
+    锁模式为什么是**这一对**，而不是随便选一个：
+
+    - 归档侧 ``FOR UPDATE``（``exclusive=True``）：它建立前置条件（「其下无在产
+      镜头」），因此必须把「锁 → 重判 → 写」这三步与任何想破坏前置条件的人隔开。
+      排他锁与所有行锁冲突，做到这一点。
+    - 子对象侧 ``FOR KEY SHARE``（``exclusive=False``）：它只与 ``FOR UPDATE``
+      冲突，不挡父行的普通更新（``FOR NO KEY UPDATE``，例如 DRAFT→ACTIVE）。
+      父行的普通更新并不建立 SC-5 的前置条件，为它付串行化代价没有收益。
+
+    ``read=True`` 与 ``key_share=True`` **必须同时给**：SQLAlchemy 只给
+    ``key_share=True`` 时渲染成 ``FOR NO KEY UPDATE``——那与自身不冲突，屏障会
+    静默失效（写对的代码 + 写错的锁 = 一次什么都没挡住的检查）。渲染结果由
+    ``tests/unit/test_row_lock_protocol.py`` 逐字钉住，避免方言升级后悄悄改语义。
+    """
+    stmt = select(SceneModel).where(SceneModel.entity_id == entity_id)
+    if exclusive:
+        return stmt.with_for_update()
+    return stmt.with_for_update(read=True, key_share=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -133,6 +158,19 @@ class SqlAlchemySceneRepository(SceneRepository):
                 SceneModel.project_id == project_id,
                 SceneModel.scene_code == scene_code,
             )
+        )
+        model = result.scalar_one_or_none()
+        return _scene_to_domain(model) if model is not None else None
+
+    async def lock_for_archive(self, entity_id: str) -> Scene | None:
+        return await self._lock(entity_id, exclusive=True)
+
+    async def lock_for_child_write(self, entity_id: str) -> Scene | None:
+        return await self._lock(entity_id, exclusive=False)
+
+    async def _lock(self, entity_id: str, *, exclusive: bool) -> Scene | None:
+        result = await self._session.execute(
+            scene_lock_statement(entity_id, exclusive=exclusive)
         )
         model = result.scalar_one_or_none()
         return _scene_to_domain(model) if model is not None else None
