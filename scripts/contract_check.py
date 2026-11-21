@@ -127,9 +127,27 @@ _STATE_MACHINE_SOURCES: dict[str, tuple[str, str]] = {
         "services.project_planning.domain.state_machine",
         "SCENE_ALLOWED_TRANSITIONS",
     ),
+    "Shot": (
+        "services.project_planning.domain.state_machine",
+        "SHOT_ALLOWED_TRANSITIONS",
+    ),
+    "ShotRevision": (
+        "services.project_planning.domain.state_machine",
+        "SHOTREVISION_ALLOWED_TRANSITIONS",
+    ),
     "AssetVersion": (
         "services.asset_service.domain.state_machine",
         "ASSET_ALLOWED_TRANSITIONS",
+    ),
+}
+
+# 有回边的状态机必须从 Lifecycle.initial_states 取初始态，不能从「无入边」推导；
+# 这里登记的是**对象 → Lifecycle 常量**，与上面的邻接集投影同一模块、同源派生。
+_LIFECYCLE_SOURCES: dict[str, tuple[str, str]] = {
+    "Shot": ("services.project_planning.domain.state_machine", "SHOT_LIFECYCLE"),
+    "ShotRevision": (
+        "services.project_planning.domain.state_machine",
+        "SHOTREVISION_LIFECYCLE",
     ),
 }
 
@@ -147,6 +165,21 @@ def _load_impl_transitions(module_path: str, var_name: str) -> set[tuple[str, st
             tgt_value = tgt.value if hasattr(tgt, "value") else str(tgt)
             result.add((src_value, tgt_value))
     return result
+
+
+def _load_initial_states(obj_name: str, edges: set[tuple[str, str]]) -> set[str]:
+    """读取显式初始态；未登记的对象沿用「无入边」推导（既有生命周期多为 DAG）。"""
+    source = _LIFECYCLE_SOURCES.get(obj_name)
+    if source is None:
+        return set()
+    import importlib
+
+    module = importlib.import_module(source[0])
+    lifecycle = getattr(module, source[1])
+    return {
+        state.value if hasattr(state, "value") else str(state)
+        for state in getattr(lifecycle, "initial_states", ())
+    }
 
 
 def check_project_state_machine() -> bool:
@@ -1167,10 +1200,20 @@ def _declared_state_gaps() -> dict[str, dict[str, dict[str, object]]]:
 _STATE_TOKEN_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,}$")
 
 
-def _reachable_states(edges: set[tuple[str, str]]) -> set[str]:
-    """从「无入边的实现状态」出发，沿实现转移边求可达闭包。"""
-    targets = {tgt for _, tgt in edges}
-    initials = {src for src, _ in edges} - targets
+def _reachable_states(
+    edges: set[tuple[str, str]], explicit_initials: set[str] | None = None
+) -> set[str]:
+    """从初始态出发沿实现转移边求可达闭包。
+
+    DAG 可继续按「无入边」推导；有回边的状态机必须由领域 Lifecycle 显式声明
+    初始态（Shot 的 BLOCKED↔NOT_STARTED、ShotRevision 的返工取代都会让所有
+    状态都有入边），否则闸门会把整张图误判为不可达。
+    """
+    if explicit_initials:
+        initials = set(explicit_initials)
+    else:
+        targets = {tgt for _, tgt in edges}
+        initials = {src for src, _ in edges} - targets
     reachable = set(initials)
     frontier = list(initials)
     while frontier:
@@ -1209,7 +1252,7 @@ def check_state_reachability() -> bool:
             continue
         states = {str(s) for s in entry.get("allowed_states") or []}
         edges = _load_impl_transitions(module_path, var_name)
-        reachable = _reachable_states(edges)
+        reachable = _reachable_states(edges, _load_initial_states(obj_name, edges))
         obj_gaps = declared.get(obj_name) or {}
         checked += 1
 
@@ -1295,9 +1338,15 @@ def _status_change_action_keys(resource_type: str) -> set[str]:
     for action in registry.get("actions", []):
         if not isinstance(action, dict):
             continue
-        rtype = str(action.get("resource_type", "")).split("/")[0]
+        # 一个 action 可同时拥有多个资源类型（SHOT.REVISION.CONFIRM 就是
+        # Shot/ShotRevision）。只取第一段会让第二个对象被误判为「无动作可触发」。
+        rtypes = {
+            part.strip()
+            for part in str(action.get("resource_type", "")).split("/")
+            if part.strip()
+        }
         key = str(action.get("action_key", ""))
-        if rtype == resource_type and not key.endswith((".CREATE", ".READ")):
+        if resource_type in rtypes and not key.endswith((".CREATE", ".READ")):
             result.add(key)
     return result
 
@@ -1654,6 +1703,8 @@ _STATUS_ENUM_SOURCES: dict[str, tuple[str, str]] = {
     "Project": ("services.project_planning.domain.enums", "ProjectStatus"),
     "ScriptRevision": ("services.project_planning.domain.enums", "ScriptStatus"),
     "Episode": ("services.project_planning.domain.enums", "EpisodeStatus"),
+    "Shot": ("services.project_planning.domain.enums", "ShotStatus"),
+    "ShotRevision": ("services.project_planning.domain.enums", "ShotRevisionStatus"),
     "AssetVersion": ("services.asset_service.domain.enums", "AssetStatus"),
 }
 
@@ -1662,6 +1713,8 @@ _STATUS_TABLES: dict[str, str] = {
     "project_planning.projects": "Project",
     "project_planning.episodes": "Episode",
     "project_planning.script_revisions": "ScriptRevision",
+    "shot_planning.shots": "Shot",
+    "shot_planning.shot_revisions": "ShotRevision",
     "asset_service.asset_versions": "AssetVersion",
 }
 

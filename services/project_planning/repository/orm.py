@@ -22,10 +22,13 @@ from sqlalchemy import (
     DateTime,
     ForeignKeyConstraint,
     Index,
+    Integer,
     String,
+    Text,
     UniqueConstraint,
     Uuid,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from packages.shared.database import Base
@@ -36,10 +39,14 @@ from services.project_planning.domain.enums import (
     ProjectStatus,
     SceneStatus,
     ScriptStatus,
+    ShotRevisionStatus,
+    ShotStatus,
 )
 
 # 独立 schema 名称（数据所有权边界）。
 SCHEMA_NAME = "project_planning"
+# 镜头域表在独立 schema；运行时服务通过端口写入，模块边界不因此变成第二套真相。
+SHOT_SCHEMA_NAME = "shot_planning"
 
 
 class OrganizationModel(Base):
@@ -256,4 +263,203 @@ class SceneModel(EntityMixin, Base):
     project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     # 组织归属键（内部键，不进 API 响应）。NOT NULL：场景必须有组织归属，
     # 由服务层从父项目拷贝，调用方不得自填。
+    organization_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+
+
+class ShotModel(EntityMixin, Base):
+    """shots 表（稳定逻辑镜头，只承载身份、展示编号与粗粒度进度）。
+
+    约束形状与批次五迁移逐条对应；这里声明它们是让 ORM 成为可校验的投影，
+    而不是让「数据库有、模型没有」的约束在下一次 `alembic check` 时被误删。
+    """
+
+    __tablename__ = "shots"
+    __table_args__ = (
+        UniqueConstraint("shot_id", name="uq_shots_identity"),
+        CheckConstraint("entity_id = shot_id", name="ck_shots_single_identity"),
+        UniqueConstraint("project_id", "shot_code", name="uq_shots_project_code"),
+        UniqueConstraint("project_id", "shot_id", name="uq_shots_project_shot"),
+        status_check((s.value for s in ShotStatus), table="shots"),
+        CheckConstraint(
+            "(status = 'BLOCKED' AND blocked_reason IS NOT NULL) OR "
+            "(status <> 'BLOCKED' AND blocked_reason IS NULL)",
+            name="ck_shots_blocked_reason",
+        ),
+        CheckConstraint(
+            "(status = 'CANCELLED' AND cancellation_ref IS NOT NULL AND cancelled_at IS NOT NULL) OR "
+            "(status <> 'CANCELLED' AND cancellation_ref IS NULL AND cancelled_at IS NULL)",
+            name="ck_shots_cancelled",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id", "organization_id"],
+            [
+                f"{SCHEMA_NAME}.projects.entity_id",
+                f"{SCHEMA_NAME}.projects.tenant_id",
+                f"{SCHEMA_NAME}.projects.organization_id",
+            ],
+            name="fk_shots_project_tenant_org",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "scene_id"],
+            [f"{SCHEMA_NAME}.scenes.project_id", f"{SCHEMA_NAME}.scenes.scene_id"],
+            name="fk_shots_scene_project",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "rework_basis_ref"],
+            ["workflow.rework_tasks.project_id", "workflow.rework_tasks.rework_task_id"],
+            name="fk_shots_rework_basis",
+        ),
+        # 与首版修订互为引用，故必须可延迟；理由见批次五迁移注释。
+        ForeignKeyConstraint(
+            ["shot_revision_id", "project_id", "tenant_id", "organization_id"],
+            [
+                f"{SHOT_SCHEMA_NAME}.shot_revisions.entity_id",
+                f"{SHOT_SCHEMA_NAME}.shot_revisions.project_id",
+                f"{SHOT_SCHEMA_NAME}.shot_revisions.tenant_id",
+                f"{SHOT_SCHEMA_NAME}.shot_revisions.organization_id",
+            ],
+            name="fk_shots_current_revision",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        {"schema": SHOT_SCHEMA_NAME},
+    )
+
+    shot_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    shot_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    scene_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    shot_revision_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    blocked_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rework_basis_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    cancellation_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    source_draft_ref: Mapped[dict[str, object] | None] = mapped_column(
+        JSONB, nullable=True
+    )
+    organization_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+
+
+class ShotRevisionModel(EntityMixin, Base):
+    """shot_revisions 表（不可变内容版本，批次十后与契约 required 对齐）。"""
+
+    __tablename__ = "shot_revisions"
+    __table_args__ = (
+        UniqueConstraint("shot_revision_id", name="uq_shot_revision_identity"),
+        CheckConstraint(
+            "entity_id = shot_revision_id", name="ck_shot_revisions_single_identity"
+        ),
+        # 四列唯一键：三条真实引用边的复合外键目标（批次十一）。
+        UniqueConstraint(
+            "entity_id",
+            "project_id",
+            "tenant_id",
+            "organization_id",
+            name="uq_shot_revisions_entity_project_tenant_org",
+        ),
+        status_check((s.value for s in ShotRevisionStatus), table="shot_revisions"),
+        CheckConstraint(
+            "confirmed_by = 'LEGACY_BACKFILL' OR basis_script_revision_id IS NOT NULL",
+            name="ck_sr_basis_script",
+        ),
+        CheckConstraint(
+            "(constraint_pack_applicability = 'BOUND' AND constraint_pack_id IS NOT NULL) OR "
+            "(constraint_pack_applicability = 'NOT_APPLICABLE' AND constraint_pack_id IS NULL)",
+            name="ck_sr_constraint_pack",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id", "organization_id"],
+            [
+                f"{SCHEMA_NAME}.projects.entity_id",
+                f"{SCHEMA_NAME}.projects.tenant_id",
+                f"{SCHEMA_NAME}.projects.organization_id",
+            ],
+            name="fk_shot_revisions_project_tenant_org",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "episode_id"],
+            [f"{SCHEMA_NAME}.episodes.project_id", f"{SCHEMA_NAME}.episodes.entity_id"],
+            name="fk_shot_revisions_episode_identity",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "scene_id"],
+            [f"{SCHEMA_NAME}.scenes.project_id", f"{SCHEMA_NAME}.scenes.scene_id"],
+            name="fk_shot_revisions_scene_project",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "shot_id"],
+            [f"{SHOT_SCHEMA_NAME}.shots.project_id", f"{SHOT_SCHEMA_NAME}.shots.shot_id"],
+            name="fk_shot_revisions_shot_project",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        ForeignKeyConstraint(
+            ["basis_script_revision_id", "project_id", "tenant_id", "organization_id"],
+            [
+                f"{SCHEMA_NAME}.script_revisions.entity_id",
+                f"{SCHEMA_NAME}.script_revisions.project_id",
+                f"{SCHEMA_NAME}.script_revisions.tenant_id",
+                f"{SCHEMA_NAME}.script_revisions.organization_id",
+            ],
+            name="fk_sr_basis_script",
+        ),
+        ForeignKeyConstraint(
+            ["constraint_pack_id", "project_id", "tenant_id", "organization_id"],
+            [
+                f"{SHOT_SCHEMA_NAME}.constraint_packs.entity_id",
+                f"{SHOT_SCHEMA_NAME}.constraint_packs.project_id",
+                f"{SHOT_SCHEMA_NAME}.constraint_packs.tenant_id",
+                f"{SHOT_SCHEMA_NAME}.constraint_packs.organization_id",
+            ],
+            name="fk_sr_constraint_pack",
+        ),
+        ForeignKeyConstraint(
+            ["supersedes_shot_revision_id", "project_id", "tenant_id", "organization_id"],
+            [
+                f"{SHOT_SCHEMA_NAME}.shot_revisions.entity_id",
+                f"{SHOT_SCHEMA_NAME}.shot_revisions.project_id",
+                f"{SHOT_SCHEMA_NAME}.shot_revisions.tenant_id",
+                f"{SHOT_SCHEMA_NAME}.shot_revisions.organization_id",
+            ],
+            name="fk_sr_supersedes",
+        ),
+        {"schema": SHOT_SCHEMA_NAME},
+    )
+
+    shot_revision_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    shot_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    episode_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    scene_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    episode_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    scene_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    narrative_intent: Mapped[str] = mapped_column(Text, nullable=False)
+    character_refs: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    location_ref: Mapped[str] = mapped_column(String(256), nullable=False)
+    prop_refs: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    constraint_pack_applicability: Mapped[str] = mapped_column(String(32), nullable=False)
+    constraint_pack_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    creative_autonomy: Mapped[str] = mapped_column(String(8), nullable=False)
+    risk: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    quality_profile: Mapped[str] = mapped_column(String(32), nullable=False)
+    intent_ref: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    basis_script_revision_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    script_anchors: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    source_draft_ref: Mapped[dict[str, object] | None] = mapped_column(
+        JSONB, nullable=True
+    )
+    source_candidate_refs: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    change_origin: Mapped[str] = mapped_column(String(32), nullable=False)
+    supersedes_shot_revision_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    change_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    changed_fields: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
+    provenance: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    confirmed_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revision_no: Mapped[int] = mapped_column(Integer, nullable=False)
     organization_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)

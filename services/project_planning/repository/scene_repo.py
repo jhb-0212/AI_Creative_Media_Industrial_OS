@@ -43,6 +43,16 @@ class SceneRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def get_by_id_for_child_write(self, entity_id: str) -> Scene | None:
+        """**带锁**读取场次（创建其下 Shot 前用）。
+
+        语义同 ``EpisodeRepository.get_by_project_ref_for_child_write``：
+        ``FOR SHARE`` 与归档更新冲突，但不与子表 INSERT 的外键 KEY SHARE 冲突。
+        刻意不给默认实现——缺锁实现必须显式失败，不能悄悄退化成普通读。
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     async def get_by_project_code(self, project_id: str, scene_code: str) -> Scene | None:
         """按项目 + 场次编号查询（幂等回读用）。
 

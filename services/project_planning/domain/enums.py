@@ -66,6 +66,35 @@ class EpisodeStatus(str, Enum):
     ARCHIVED = "ARCHIVED"      # 归档（终态，不可原地复活）
 
 
+class ShotStatus(str, Enum):
+    """镜头状态（五态，所有者 2026-11-18《Shot 独立建模裁定》）。
+
+    对齐契约：contracts/state_machines/state_machines.yaml → objects → Shot。
+    三个刻意的边界：不设 IN_REVIEW（审核结论归 GateInstance）、不设 REWORK
+    （返工归 ReworkTask）、不设 DELIVERED（Gate 3/4 结论归 GateInstance 与交付物）。
+    PRODUCTION_COMPLETE ≠ Gate 通过。CANCELLED 为终态，恢复须新建 Shot。
+    转移表权威定义见 domain/state_machine.py 的 SHOT_ALLOWED_TRANSITIONS。
+    """
+
+    NOT_STARTED = "NOT_STARTED"                  # 未启动
+    IN_PRODUCTION = "IN_PRODUCTION"              # 生产中
+    BLOCKED = "BLOCKED"                          # 阻塞（须写 blocked_reason）
+    CANCELLED = "CANCELLED"                      # 取消（终态，须授权记录 + 时间）
+    PRODUCTION_COMPLETE = "PRODUCTION_COMPLETE"  # 生产完成（非 Gate 通过）
+
+
+class ShotRevisionStatus(str, Enum):
+    """镜头修订状态（两态，从不可变版本语义推导，ADR-R17）。
+
+    一个修订要么当前有效（ACTIVE），要么被同一 shot_id 的更高 revision_no 取代
+    （SUPERSEDED），不存在第三态。草案态属 ShotBreakdownDraft；生产进度属 Shot。
+    终态 SUPERSEDED 不可原地复活。
+    """
+
+    ACTIVE = "ACTIVE"
+    SUPERSEDED = "SUPERSEDED"
+
+
 class SceneStatus(str, Enum):
     """场次状态。
 

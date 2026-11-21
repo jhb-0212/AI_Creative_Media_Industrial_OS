@@ -39,6 +39,8 @@ from services.project_planning.domain.enums import (
     ProjectStatus,
     SceneStatus,
     ScriptStatus,
+    ShotRevisionStatus,
+    ShotStatus,
 )
 
 # --------------------------------------------------------------------------- #
@@ -49,6 +51,8 @@ from services.project_planning.domain.enums import (
 PROJECT_STATUS_CHANGE_ACTION = "PROJECT.STATUS.CHANGE"
 EPISODE_STATUS_CHANGE_ACTION = "EPISODE.STATUS.CHANGE"
 SCENE_STATUS_CHANGE_ACTION = "SCENE.STATUS.CHANGE"
+SHOT_STATUS_CHANGE_ACTION = "SHOT.STATUS.CHANGE"
+SHOT_REVISION_CONFIRM_ACTION = "SHOT.REVISION.CONFIRM"
 SCRIPT_IMPORT_ACTION = "SCRIPT.IMPORT"
 SCRIPT_LOCK_REQUEST_ACTION = "SCRIPT.LOCK.REQUEST"
 SCRIPT_LOCK_APPROVE_ACTION = "SCRIPT.LOCK.APPROVE"
@@ -131,6 +135,69 @@ SCENE_LIFECYCLE = Lifecycle(
 )
 
 # --------------------------------------------------------------------------- #
+# Shot：10 条边，全部归 SHOT.STATUS.CHANGE。
+# 五态来自所有者 2026-11-18 裁定（ADR-R18），不是正文原文。这里**登记全部 10 条
+# 边**以与契约 state_machines.yaml 一致（契约闸门逐边比对，少一条即红）；但
+# 「结构上不可执行」的两类边由服务层的 fail-closed 守卫拦：
+# - 进入 CANCELLED 三边要求 cancellation_ref + cancelled_at，而「授权记录」对象
+#   连契约都没有（归属闸门 AUTH_RECORD_UNMODELED 豁免的前提）。服务层拒绝带
+#   无法解析的 cancellation_ref 的推进，绝不写成「写入即成功」。
+# - PRODUCTION_COMPLETE→IN_PRODUCTION 要求 rework_basis_ref；批次九已建
+#   workflow.rework_tasks + 复合外键，故这条边已有真实目标、可执行。
+# 6 条守卫字段（blocked_reason / rework_basis_ref / cancellation_ref+cancelled_at）
+# 在 Shot 实体 transition_to 里按边强制详见 shot.py；DB CHECK 再兜一次。
+#
+# 含环是设计事实：BLOCKED↔NOT_STARTED 的回退、PRODUCTION_COMPLETE→IN_PRODUCTION
+# 的返工都合法，故所有状态都有入边。可达性闸门因此对 Shot 采用显式初始态
+# （见 contract_check.py 的 _INITIAL_STATES），不从「无入边」推导。
+# --------------------------------------------------------------------------- #
+SHOT_TRANSITIONS: tuple[Transition[ShotStatus], ...] = (
+    Transition(ShotStatus.NOT_STARTED, ShotStatus.BLOCKED, SHOT_STATUS_CHANGE_ACTION),
+    Transition(ShotStatus.NOT_STARTED, ShotStatus.CANCELLED, SHOT_STATUS_CHANGE_ACTION),
+    Transition(ShotStatus.NOT_STARTED, ShotStatus.IN_PRODUCTION, SHOT_STATUS_CHANGE_ACTION),
+    Transition(ShotStatus.BLOCKED, ShotStatus.IN_PRODUCTION, SHOT_STATUS_CHANGE_ACTION),
+    Transition(ShotStatus.BLOCKED, ShotStatus.NOT_STARTED, SHOT_STATUS_CHANGE_ACTION),
+    Transition(ShotStatus.BLOCKED, ShotStatus.CANCELLED, SHOT_STATUS_CHANGE_ACTION),
+    Transition(ShotStatus.IN_PRODUCTION, ShotStatus.BLOCKED, SHOT_STATUS_CHANGE_ACTION),
+    Transition(ShotStatus.IN_PRODUCTION, ShotStatus.CANCELLED, SHOT_STATUS_CHANGE_ACTION),
+    Transition(
+        ShotStatus.IN_PRODUCTION, ShotStatus.PRODUCTION_COMPLETE, SHOT_STATUS_CHANGE_ACTION
+    ),
+    Transition(
+        ShotStatus.PRODUCTION_COMPLETE, ShotStatus.IN_PRODUCTION, SHOT_STATUS_CHANGE_ACTION
+    ),
+)
+
+# Shot 是叶节点（无子对象），不冻结任何子集合。终态 CANCELLED 由边表无出边表达。
+SHOT_LIFECYCLE = Lifecycle(
+    object_name="Shot",
+    states=tuple(ShotStatus),
+    edges=SHOT_TRANSITIONS,
+    # 有回边，无入边推导会得到空集。正式镜头只由 SHOT.REVISION.CONFIRM 创建，
+    # 创建的那一刻固定在 NOT_STARTED——这是领域事实，不是从图上猜出来的。
+    initial_states=(ShotStatus.NOT_STARTED,),
+)
+
+# ShotRevision：1 条边 ACTIVE→SUPERSEDED，归 SHOT.REVISION.CONFIRM。
+# 首版由 CONFIRM 原子创建即 ACTIVE；后续确认新修订时把旧版推 SUPERSEDED，
+# 同一动作既是创建入口也是取代入口（契约 SHOT.REVISION.CONFIRM 的 resource_type
+# 为 Shot/ShotRevision，正是为此）。SUPERSEDED 无出边，终态不可复活。
+SHOTREVISION_TRANSITIONS: tuple[Transition[ShotRevisionStatus], ...] = (
+    Transition(
+        ShotRevisionStatus.ACTIVE,
+        ShotRevisionStatus.SUPERSEDED,
+        SHOT_REVISION_CONFIRM_ACTION,
+    ),
+)
+SHOTREVISION_LIFECYCLE = Lifecycle(
+    object_name="ShotRevision",
+    states=tuple(ShotRevisionStatus),
+    edges=SHOTREVISION_TRANSITIONS,
+    # ACTIVE 有入边（返工取代）但确是首版初始态；同 Shot，不能按无入边推导。
+    initial_states=(ShotRevisionStatus.ACTIVE,),
+)
+
+# --------------------------------------------------------------------------- #
 # ScriptRevision：5 条边，三个动作分领（这是本项目里所有权最有实际后果的对象）。
 # - 两步审批流：申请人提交 DRAFT→LOCK_PENDING，批准人 LOCK_PENDING→LOCKED；
 # - 版本取代：新版本导入使旧版本 SUPERSEDED（三个来源态同归 SCRIPT.IMPORT）。
@@ -169,6 +236,12 @@ EPISODE_ALLOWED_TRANSITIONS: dict[EpisodeStatus, frozenset[EpisodeStatus]] = (
 SCENE_ALLOWED_TRANSITIONS: dict[SceneStatus, frozenset[SceneStatus]] = (
     SCENE_LIFECYCLE.allowed_transitions()
 )
+SHOT_ALLOWED_TRANSITIONS: dict[ShotStatus, frozenset[ShotStatus]] = (
+    SHOT_LIFECYCLE.allowed_transitions()
+)
+SHOTREVISION_ALLOWED_TRANSITIONS: dict[
+    ShotRevisionStatus, frozenset[ShotRevisionStatus]
+] = SHOTREVISION_LIFECYCLE.allowed_transitions()
 
 # --------------------------------------------------------------------------- #
 # 兼容入口：既有调用方与测试使用「按对象命名」的函数。
@@ -190,6 +263,32 @@ def assert_transition(
     返回该边，便于调用方复用同一条声明（避免「校验一遍、再查一遍」）。
     """
     return PROJECT_LIFECYCLE.assert_registered(source, target)
+
+
+def can_transition_shot(source: ShotStatus, target: ShotStatus) -> bool:
+    """判断 Shot 的 source -> target 是否为已登记转移。"""
+    return SHOT_LIFECYCLE.edge_for(source, target) is not None
+
+
+def assert_transition_shot(
+    source: ShotStatus, target: ShotStatus
+) -> Transition[ShotStatus]:
+    """校验 Shot 转移结构，未登记则抛 DomainError。"""
+    return SHOT_LIFECYCLE.assert_registered(source, target)
+
+
+def can_transition_shot_revision(
+    source: ShotRevisionStatus, target: ShotRevisionStatus
+) -> bool:
+    """判断 ShotRevision 的 source -> target 是否为已登记转移。"""
+    return SHOTREVISION_LIFECYCLE.edge_for(source, target) is not None
+
+
+def assert_transition_shot_revision(
+    source: ShotRevisionStatus, target: ShotRevisionStatus
+) -> Transition[ShotRevisionStatus]:
+    """校验 ShotRevision 转移结构，未登记则抛 DomainError。"""
+    return SHOTREVISION_LIFECYCLE.assert_registered(source, target)
 
 
 def can_transition_script(source: ScriptStatus, target: ScriptStatus) -> bool:
@@ -247,12 +346,24 @@ __all__ = [
     "SCRIPT_LOCK_APPROVE_ACTION",
     "SCRIPT_LOCK_REQUEST_ACTION",
     "SCRIPT_TRANSITIONS",
+    "SHOTREVISION_ALLOWED_TRANSITIONS",
+    "SHOTREVISION_LIFECYCLE",
+    "SHOTREVISION_TRANSITIONS",
+    "SHOT_ALLOWED_TRANSITIONS",
+    "SHOT_LIFECYCLE",
+    "SHOT_REVISION_CONFIRM_ACTION",
+    "SHOT_STATUS_CHANGE_ACTION",
+    "SHOT_TRANSITIONS",
     "assert_transition",
     "assert_transition_episode",
     "assert_transition_scene",
     "assert_transition_script",
+    "assert_transition_shot",
+    "assert_transition_shot_revision",
     "can_transition",
     "can_transition_episode",
     "can_transition_scene",
     "can_transition_script",
+    "can_transition_shot",
+    "can_transition_shot_revision",
 ]

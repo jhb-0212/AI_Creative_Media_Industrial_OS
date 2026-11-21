@@ -108,11 +108,23 @@ class Lifecycle[StatusT]:
     #: 「不该长子对象」的状态未必是终态（``Project.COMPLETED`` 仍有出边）。
     #: 两者是交叉关系，不能互相推导。
     frozen_states: tuple[StatusT, ...] = ()
+    #: 初始状态集合。默认空表示「由无入边节点推导」，适用于 DAG；
+    #: 有回边的状态机（如 Shot 的 BLOCKED↔NOT_STARTED）必须显式声明，
+    #: 否则可达性闸门会把所有状态都误判成不可达。
+    initial_states: tuple[StatusT, ...] = ()
 
     def __post_init__(self) -> None:
         problems = validate_lifecycle(
             self.object_name, self.states, self.edges, self.frozen_states
         )
+        initial_list = list(self.initial_states)
+        if _duplicates(initial_list):
+            problems.append("initial_states 有重复项")
+        for state in initial_list:
+            if state not in set(self.states):
+                problems.append(
+                    f"initial_states 含未声明状态 {_status_value(state)!r}"
+                )
         if problems:
             raise ValueError(
                 f"{self.object_name} 状态机边表非法：" + "；".join(problems)

@@ -68,6 +68,16 @@ class OutboxRecorder(Protocol):
         self, *, fact: TransitionFact, event: TransitionEvent
     ) -> UUID: ...
 
+    def record(
+        self,
+        *,
+        aggregate_type: str,
+        aggregate_id: str,
+        tenant_id: UUID,
+        event_type: str,
+        payload: dict[str, Any],
+    ) -> UUID: ...
+
 
 async def advance_status(
     entity: VersionedStatusEntity,
@@ -196,6 +206,55 @@ async def advance_status(
     return True
 
 
+async def save_versioned_entity(
+    entity: VersionedStatusEntity,
+    *,
+    mutation: Callable[[str, str], object],
+    audit_ref: str,
+    repository: StatusRepository,
+    outbox_writer: OutboxRecorder,
+    aggregate_type: str,
+    aggregate_id: str,
+    event_type: str,
+    tenant_id: UUID,
+    payload: Mapping[str, Any],
+    owner_action: str,
+    conflict_detail: str,
+) -> None:
+    """落库一次**非状态**版本化变更，并强制留下事件。
+
+    为什么需要独立入口而不是直接 ``repository.save()``
+    --------------------------------------------------
+    镜头确认下一版时，``Shot.status`` 不变但 ``shot_revision_id`` 与
+    ``entity_version`` 前移。它同样是一次可观察的版本推进：若服务层各自 save，
+    就可能「指针变了、事件没写」，而 ``data.transition_single_entry`` 原本只放行
+    ``advance_status`` 里的 save——这正是它在 Shot 域报红的原因。
+
+    这里刻意**不写** ``audit.status_transitions``：该表有
+    ``ck_status_transition_advances (from_status <> to_status)``，把同态的版本
+    前移记成「状态迁移」会让事实表撒谎。事件是这类变更的正确事实载体：
+    ``SHOT_REVISION_CONFIRMED`` 的 payload 已固定到修订号和来源。
+
+    与 ``advance_status`` 一样，mutation 回调收到同一个 owner_action 与 audit_ref，
+    领域层据此判定动作归属；落库与事件同处调用方事务，不可能只成功一半。
+    """
+    expected_version = entity.entity_version
+    mutation(audit_ref, owner_action)
+    try:
+        await repository.save(entity, expected_version)
+    except ConcurrentModificationError as exc:
+        raise DomainError(
+            ErrorRegistry.CONCURRENT_MODIFICATION, detail=conflict_detail
+        ) from exc
+    outbox_writer.record(
+        aggregate_type=aggregate_type,
+        aggregate_id=aggregate_id,
+        tenant_id=tenant_id,
+        event_type=event_type,
+        payload=dict(payload),
+    )
+
+
 def _effective_organization_id(
     entity: VersionedStatusEntity, explicit: UUID | None
 ) -> UUID | None:
@@ -224,4 +283,5 @@ __all__ = [
     "StatusRepository",
     "VersionedStatusEntity",
     "advance_status",
+    "save_versioned_entity",
 ]

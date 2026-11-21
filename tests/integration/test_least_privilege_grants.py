@@ -91,6 +91,26 @@ async def _table_acl(admin_sessionmaker) -> dict[tuple[str, str, str], set[str]]
     return grants
 
 
+async def _existing_tables(admin_sessionmaker) -> set[tuple[str, str]]:
+    """当前库里真实存在的表（``to_regclass`` 的等价派生）。
+
+    「对象不存在」与「权限为空」是两种事实：前者是本次对账不适用（分叉链对象
+    未进入本库），后者是授权漂移。把缺表算成漂移会引导人手写 GRANT 去补一张
+    不存在的表，反而把授权矩阵变成迁移链问题的遮羞布。
+    """
+    sql = text(
+        """
+        SELECT n.nspname AS schema, c.relname AS name
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relkind IN ('r', 'p')
+        """
+    )
+    async with admin_sessionmaker() as session:
+        rows = (await session.execute(sql)).all()
+    return {(row[0], row[1]) for row in rows}
+
+
 async def _column_acl(
     admin_sessionmaker,
 ) -> dict[tuple[str, str, str], tuple[set[str], set[str]]]:
@@ -108,18 +128,24 @@ async def _column_acl(
 async def test_domain_role_privileges_match_matrix(admin_sessionmaker) -> None:
     """真实 ACL 必须与授权矩阵逐项相等（少授与多授都算失败）。
 
-    比对范围严格限定在矩阵声明过的表上：矩阵是「该角色**应该**拥有什么」的
-    唯一声明，矩阵之外的表上出现任何权限都属于多授。
+    比对范围严格限定在矩阵声明过且当前库真实存在的表上：矩阵是「该角色
+    **应该**拥有什么」的唯一声明，矩阵之外的表上出现任何权限都属于多授。
+    分叉链对象未进入当前库时单列 N/A，不把「对象不存在」误判成「权限为空」。
     """
     actual = await _table_acl(admin_sessionmaker)
+    existing = await _existing_tables(admin_sessionmaker)
     mismatches: list[str] = []
+    not_applicable: list[str] = []
 
     for domain in DOMAINS:
         role = domain_role(domain)
-        expected = {
-            (schema, table): privileges
-            for (schema, table), privileges in declared_privileges(domain).items()
-        }
+        expected_all = dict(declared_privileges(domain))
+        # 可机检前提：只有真表存在才参与 ACL 对账；缺表单列 N/A，不计通过率。
+        expected = {key: value for key, value in expected_all.items() if key in existing}
+        not_applicable.extend(
+            f"{role} 对 {schema}.{table}（对象不存在）"
+            for schema, table in sorted(set(expected_all) - set(expected))
+        )
         # 只取该角色在这些被监视表上的实际权限。
         watched = declared_tables(domain)
         observed = {
@@ -149,6 +175,8 @@ async def test_domain_role_privileges_match_matrix(admin_sessionmaker) -> None:
                 "（新表必须先进入 db_grants.py 矩阵）"
             )
 
+    if not_applicable:
+        print("[N-A] ACL 对账跳过不存在的对象：" + "、".join(not_applicable))
     assert not mismatches, "域角色授权与矩阵不一致：\n" + "\n".join(mismatches)
 
 

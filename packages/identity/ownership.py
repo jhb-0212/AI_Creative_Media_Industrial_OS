@@ -136,6 +136,15 @@ _RESOLVE_SQL: dict[str, str] = {
           ON p.entity_id = s.project_id AND p.tenant_id = s.tenant_id
         WHERE s.entity_id = :rid
     """,
+    # Shot 的归属经 scene_id/project_id 收敛到项目；采用 shots 自带的三列归属键，
+    # 与 (project_id, scene_id) 复合外键一致，不再绕两层父表制造可漂移的第二路径。
+    "Shot": """
+        SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
+        FROM shot_planning.shots AS s
+        JOIN project_planning.projects AS p
+          ON p.entity_id = s.project_id AND p.tenant_id = s.tenant_id
+        WHERE s.entity_id = :rid
+    """,
     "AssetVersion": """
         SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
         FROM asset_service.asset_versions AS a

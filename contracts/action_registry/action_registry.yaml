@@ -3,7 +3,7 @@
 # 校验口径：action_key 全局唯一、命名规范、audit_event 与 negative_test_id 一一对应
 registry_source: 'AFS-ARCH-MASTER-V2.0.5 / 31.6 Action Registry'
 registry_version: 'V2.0.5'
-total_actions: 87
+total_actions: 88
 actions:
   - action_key: 'PROJECT.CREATE'
     resource_type: 'Project'
@@ -81,6 +81,17 @@ actions:
     audit_event: 'SHOT_REVISION_CONFIRMED'
     negative_test_id: 'ACT-SHOT-NEG-002'
     negative_test_desc: 'Agent 确认拒绝'
+    status: 'ACTIVE'
+  - action_key: 'SHOT.STATUS.CHANGE'
+    resource_type: 'Shot'
+    scope: 'project/episode/scene/shot'
+    risk_level: 'MEDIUM'
+    token_required: true
+    allowed_principals: '导演/镜头负责人'
+    approval_requirement: '目标状态作参数，运行时按 Shot 转移表校验；进入 BLOCKED 必须写明原因，进入 CANCELLED 必须携带可解析授权记录与取消时间，PRODUCTION_COMPLETE 回退必须携带正式返工依据；CANCELLED 终态不可原地复活。授权记录对象未建模前，CANCELLED 路径 fail-closed 拒绝。'
+    audit_event: 'SHOT_STATUS_CHANGED'
+    negative_test_id: 'ACT-SHOT-NEG-003'
+    negative_test_desc: '无阻塞原因/无返工依据/无授权取消的推进拒绝'
     status: 'ACTIVE'
   - action_key: 'SHOTSPEC.LOCK'
     resource_type: 'ShotSpec'

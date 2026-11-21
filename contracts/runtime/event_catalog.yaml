@@ -203,3 +203,40 @@ events:
       - changed_by
       - tenant_id
     contract_ref: contracts/state_machines/state_machines.yaml#Scene
+  - event_type: SHOT_REVISION_CONFIRMED
+    aggregate_type: ShotRevision
+    emitted_by: services/project_planning/service/shot_service.py
+    payload_required:
+      - shot_id
+      - shot_revision_id
+      - project_id
+      - scene_id
+      - revision_no
+      - confirmed_by
+      - tenant_id
+    contract_ref: contracts/schemas/object_schemas.schema.json#ShotRevision
+  - event_type: SHOT_REVISION_SUPERSEDED
+    aggregate_type: ShotRevision
+    emitted_by: services/project_planning/service/shot_service.py
+    payload_required:
+      - shot_id
+      - shot_revision_id
+      - superseded_by
+      - project_id
+      - from_status
+      - to_status
+      - confirmed_by
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#ShotRevision
+  - event_type: SHOT_STATUS_CHANGED
+    aggregate_type: Shot
+    emitted_by: services/project_planning/service/shot_service.py
+    payload_required:
+      - shot_id
+      - project_id
+      - scene_id
+      - from_status
+      - to_status
+      - changed_by
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#Shot

@@ -615,5 +615,66 @@ amendments:
       - 'SCENE.CREATE 的幂等键沿用 entity_id 与 (project_id, scene_code) 唯一约束；跨集重复编号会被唯一约束拒绝而非幂等返回，调用方需以 409 语义处理'
       - '归档守卫依赖 fk_shots_scene_project 的可见性论证（批次六注释）：该外键若被降级或删除，A 侧的「同项目可见」前提失效，必须重做论证'
 
+  - id: 'V205-R14-A14'
+    title: 'Shot 域闭环——修订确认转正与镜头状态推进两个动作'
+    retroactive: false
+    recorded_at: '2026-11-21'
+    discovered_by: 'ADR-R27；批次十/十一实库核对确认修订表缺 20 个契约字段、三条引用边无外键'
+    reason: >-
+      批次十已让 shot_revisions 对齐契约，批次十一已为三条真实引用边建复合外键，
+      但 SHOT.REVISION.CONFIRM 仍在 action_implementations 的 not_implemented，
+      镜头行无法产生；ADR-R27/Q4 明确要求 CONFIRM 与 SHOT.STATUS.CHANGE 成对落地，
+      否则登记状态推进只会得到一个永远 404 的已实现动作。本次一次补齐两件事：
+      ① CONFIRM 作为唯一正式写入口（首次确认原子创建 Shot + 首个 ShotRevision，
+      后续修订只新增修订并前移指针、旧版转 SUPERSEDED），不开 SHOT.CREATE 后门；
+      ② SHOT.STATUS.CHANGE 采用单动作 + 目标状态作参数的既有形态，转移合法性由
+      Shot 五态边表在运行时判定。取消授权记录对象仍未建模，因此 CANCELLED 三条边
+      在运行时 fail-closed 拒绝，不把不可解析的引用当成成功事实。
+    adr: 'docs/adr/ADR-R27-scene-shot-runtime-entry.md'
+    approved_by: '项目所有者（会话内裁定「按工程铁律改就行」）'
+    approved_at: '2026-11-21'
+    source_commits: []
+    additions:
+      actions:
+        - action_key: 'SHOT.STATUS.CHANGE'
+          why: >-
+            Shot 五态十条边此前零动作可触发；不补则镜头即使被确认也只能停在
+            NOT_STARTED，生产进度、阻塞、返工与终态全部不可达。与 CONFIRM 必须
+            同批登记，避免出现「有对象、无入口」或「有入口、无对象」两种假闭环。
+      schema_invariants:
+        - id: 'SH-1'
+          status: 'RUNTIME_ENFORCED'
+          why: >-
+            Shot.shot_id 做成 entity_id 的只读投影，数据库 ck_shots_single_identity
+            与 ShotRevision 的身份投影共同保证一个镜头只有一套身份
+        - id: 'SH-2'
+          status: 'RUNTIME_ENFORCED'
+          why: >-
+            服务层从 Scene 读 project_id / episode_id / organization_id，批次五复合外键
+            (project_id, scene_id) → scenes 与批次十一三条四列外键在数据库层再兜一次
+        - id: 'SH-4'
+          status: 'RUNTIME_ENFORCED'
+          why: >-
+            CONFIRM 携带 expected_shot_revision_id 做版本冲突拒绝；后续修订在旧版
+            ACTIVE→SUPERSEDED 与 Shot 指针前移上使用乐观锁，同一事务提交
+        - id: 'SH-5'
+          status: 'RUNTIME_ENFORCED'
+          why: >-
+            Shot 聚合根按边校验 blocked_reason / rework_basis_ref / cancellation_ref，
+            数据库 ck_shots_blocked_reason / ck_shots_cancelled 双向 CHECK 再兜底
+        - id: 'SH-7'
+          status: 'RUNTIME_ENFORCED'
+          why: >-
+            CANCELLED 在 SHOT_LIFECYCLE 中无出边；终态复活由边表结构直接拒绝
+    counts_after:
+      actions: 88
+      openapi_operations: 88
+      schema_objects: 84
+      state_machines: 43
+    residual_risks:
+      - 'CANCELLED 的可解析授权记录对象仍未建模；运行时显式拒绝带 cancellation_ref 的推进，不把不可解析引用写进正式对象'
+      - 'SHOT / ShotRevision 状态机 registration_status 仍为 PENDING_PHASE1_REVIEW：本次补入口，不改状态集'
+      - '运行时仓储使用注入的 UnitOfWork；镜头域独立连接池与 svc_shot_planning 写权限需随部署拓扑另行收敛，当前验收以端口语义与数据库守卫为准'
+
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

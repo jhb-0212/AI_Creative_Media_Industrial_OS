@@ -96,6 +96,10 @@ class InMemorySceneRepository(SceneRepository):
         stored = self._store.get(entity_id)
         return replace(stored) if stored is not None else None
 
+    async def get_by_id_for_child_write(self, entity_id: str) -> Scene | None:
+        """进程内无行锁语义，等同普通读；SQL 实现用 FOR SHARE 真正加锁。"""
+        return await self.get_by_id(entity_id)
+
     async def get_by_project_code(
         self, project_id: str, scene_code: str
     ) -> Scene | None:

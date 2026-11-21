@@ -184,7 +184,7 @@ class SceneService:
 
     async def _lock_ancestors_for_child_write(
         self, project_id: str, episode_ref: str
-    ):
+    ) -> tuple[Project, Episode]:
         """按自顶向下顺序锁定 Project → Episode，并确认归属真实。
 
         这里**只做加锁与存在性检查**，刻意不含冻结判定：冻结判定必须排在幂等

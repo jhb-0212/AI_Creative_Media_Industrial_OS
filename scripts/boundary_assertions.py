@@ -2221,11 +2221,19 @@ def _all_migrations_text() -> str:
     return "\n".join(parts)
 
 
-# 状态推进的唯一入口白名单：文件 → 允许调用 transition_to 的函数。
-# 只有这两个函数能推进状态；新增第三个即报红（ADR-R23 §D2-b）。
+# 有版本号的实体写入口白名单：文件 → 允许改状态 / 落库的函数。
+# - transition_to / save 只允许出现在这些函数里；
+# - advance_status：状态真的变化，写 status_transitions 事实 + 事件；
+# - save_versioned_entity：状态不变但版本指针前移（Shot 修订确认），
+#   因事实表有 from_status <> to_status 约束，只能写事件，不能伪造状态迁移事实。
+# 新增第三个函数即报红（ADR-R23 §D2-b）。
 _TRANSITION_ENTRY_WHITELIST: dict[tuple[str, str], str] = {
     ("services/asset_service/service/asset_service.py", "_advance"): "资产域唯一推进点",
-    ("services/project_planning/service/transition.py", "advance_status"): "项目域唯一推进点",
+    ("services/project_planning/service/transition.py", "advance_status"): "项目域状态推进点",
+    (
+        "services/project_planning/service/transition.py",
+        "save_versioned_entity",
+    ): "项目域非状态版本变更唯一落库点",
 }
 
 # 状态字段名。改状态有两种写法（调用领域方法 / 直接赋值 self.status），

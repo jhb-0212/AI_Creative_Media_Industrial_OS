@@ -114,6 +114,17 @@ class SqlAlchemySceneRepository(SceneRepository):
         model = result.scalar_one_or_none()
         return _to_domain(model) if model is not None else None
 
+    async def get_by_id_for_child_write(self, entity_id: str) -> Scene | None:
+        """``FOR SHARE`` 读取场次，阻止并发归档与「先锁后判」之间的窗口。"""
+        stmt = (
+            select(SceneModel)
+            .where(SceneModel.entity_id == entity_id)
+            .with_for_update(read=True)
+        )
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        return _to_domain(model) if model is not None else None
+
     async def get_by_project_code(
         self, project_id: str, scene_code: str
     ) -> Scene | None:

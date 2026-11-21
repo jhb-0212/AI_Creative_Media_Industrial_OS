@@ -16,11 +16,11 @@
 
 | 正文类目 | 文件 | 字节 | SHA-256 | 对应章节 |
 |---|---|---|---|---|
-| ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 273775 | `dec10b689a76479bc9d52b1d73223876791d062da4ae6469641586a61ec39563` | 8.x 对象契约 / C.3 数据契约 |
-| ② OpenAPI 草案 | `contracts/openapi/openapi.draft.yaml` | 113753 | `99e979790047853da9840ffd485d1f4ae6b8e1f7230eed115fc3a330fae03ebc` | 31.6（由 Action Registry 派生） |
+| ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 273779 | `91410e5055116bda6aaa79900fa19824836d7a3f5a3801cb078b47c6a3ab2cf0` | 8.x 对象契约 / C.3 数据契约 |
+| ② OpenAPI 草案 | `contracts/openapi/openapi.draft.yaml` | 118867 | `9dee83b03afe9fa3d5cfc8bf874407fa83cb0a3e2304b82efb3ddf4025403a6e` | 31.6（由 Action Registry 派生） |
 | ③ 状态机 | `contracts/state_machines/state_machines.yaml` | 45288 | `cebc9f2373a6ee3ae359806116632bd0a34ced2fea03d3e9b7db1014bba1fe44` | 31.5 / 8.6 / 32.6 / 33.3 / 34.7 |
-| ④ Action Registry | `contracts/action_registry/action_registry.yaml` | 43652 | `ed3b3ae9fe6ee1a6ba7e3c324016054ed6a329471a35eff6817e890cb0d0cf0b` | 31.6 唯一注册表 |
-| ⑤ 权限矩阵 | `contracts/permission/permission_matrix.yaml` | 4212 | `c45a96cbf790568527b6a42a06fc4e20d5228f166b2d8e98d3abce7dd5709f6c` | C.5 / 31.6 |
+| ④ Action Registry | `contracts/action_registry/action_registry.yaml` | 46001 | `ced96451a9b73b3f9d8404aa50b79d0e81a9e53001b33265742d1dabf933fcec` | 31.6 唯一注册表 |
+| ⑤ 权限矩阵 | `contracts/permission/permission_matrix.yaml` | 4212 | `575584cbbfd5248e1d27215444bc8f507cbfd83be3ef27d103150496914c3312` | C.5 / 31.6 |
 | ⑥ 预算与成本口径 | `contracts/budget/budget_caliber.yaml` | 2511 | `29e1d7d470f115ff41b07daaebfb198ccea9246316a2dd4b43a28b52596a0aef` | C.2 / 34.6 |
 | ⑦ 指标字典 | `contracts/metrics/metric_dictionary.yaml` | 7567 | `fb909bccf1da14c74efaad77d77cf73d86c34126b41052def1d0185e4ea4f8cb` | 31.10 / 34.13 |
 | ⑧ 冻结包清单 | `contracts/phase0/phase0_manifest.md` | — | 自指不登记，见 `phase0_manifest.md.sha256` | 31.11 契约证据清单 |
@@ -42,6 +42,8 @@
 - `V205-R14-A10`
 - `V205-R14-A11`
 - `V205-R14-A12`
+- `V205-R14-A13`
+- `V205-R14-A14`
 
 契约名称全集必须精确等于「基线清单 ∪ 已批准修订」，由
 `scripts/freeze_manifest.py --check` 逐名称判定（不是只看数量）。
