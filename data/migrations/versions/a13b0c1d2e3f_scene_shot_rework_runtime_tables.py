@@ -136,14 +136,55 @@ def _envelope_columns() -> list[sa.schema.Column]:
     ]
 
 
-def upgrade() -> None:
-    # 复合外键的引用目标：episodes(project_id, entity_id) 唯一。
+def _ensure_episodes_entity_unique() -> None:
+    """确保 episodes 上存在 (project_id, entity_id) 唯一键，且语义等价。
+
+    fail-closed：若同名约束存在但列集不同（不是这两个列的唯一键），拒绝升级——
+    静默跳过会让后续复合外键引用一个语义错误的键，那是比中止迁移更坏的失败。
+    列顺序不参与比较：唯一性对列顺序不敏感，PG 外键引用只要求列集唯一。
+    """
+    bind = op.get_bind()
+    existing = bind.execute(
+        sa.text(
+            """
+            SELECT a.attname
+            FROM pg_constraint c
+            JOIN unnest(c.conkey) AS k(attnum) ON true
+            JOIN pg_attribute a
+              ON a.attrelid = c.conrelid AND a.attnum = k.attnum
+            WHERE c.conrelid = to_regclass(:rel)
+              AND c.conname = :name
+              AND c.contype = 'u'
+            """
+        ),
+        {"rel": f"{_SCHEMA}.episodes", "name": "uq_episodes_entity_project"},
+    ).scalars().all()
+    wanted = {"project_id", "entity_id"}
+    if existing and set(existing) != wanted:
+        raise RuntimeError(
+            "uq_episodes_entity_project 已存在但列集不等价："
+            f"实际={sorted(existing)}，期望={sorted(wanted)}；拒绝在不兼容约束上建外键"
+        )
+    if existing:
+        return  # 同名同列集，复用即可（列序无关）
     op.create_unique_constraint(
         "uq_episodes_entity_project",
         "episodes",
         ["project_id", "entity_id"],
         schema=_SCHEMA,
     )
+
+
+def upgrade() -> None:
+    # 复合外键的引用目标：episodes(project_id, entity_id) 唯一。
+    #
+    # 幂等创建：这个唯一键在归属治理链（pending/feat-ownership/i9d0e1f2a3b4）
+    # 与 ORM EpisodeModel 里也已声明，二者列序为 (entity_id, project_id)。唯一性
+    # 与列顺序无关，PostgreSQL 的外键引用只要求被引用列集上有唯一约束。历史上
+    # 同一测试库可能已被治理链迁移建过同名约束——无条件 create 会以 42710
+    # 中止整条正式链。这里用 catalog 实判后跳过，既能从干净库升级，也能从
+    # 混合残留库升级；跳过的前提是约束已存在且列集等价（可机检）。
+    _ensure_episodes_entity_unique()
 
     # --- rework_tasks（先建：shots 的 rework_basis_ref 引用它） ---
     op.create_table(
@@ -443,6 +484,7 @@ def downgrade() -> None:
     )
     op.drop_table("rework_tasks", schema=_SCHEMA)
 
-    op.drop_constraint(
-        "uq_episodes_entity_project", "episodes", schema=_SCHEMA, type_="unique"
-    )
+    # 刻意不删除 uq_episodes_entity_project：升级时若该键已存在（治理链残留），
+    # a13b0 是复用而非创建，降级没有所有权删除它；干净库上虽由本迁移创建，
+    # 但 EpisodeModel 本就声明了同名唯一键，保留它是合法目标状态。删除会让
+    # 「降级到 c1a2」反而丢失一个领域模型声明的约束，属反向破坏。

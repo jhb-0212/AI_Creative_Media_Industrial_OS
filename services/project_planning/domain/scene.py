@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from services.project_planning.domain.entity import OWNER_MODULE, Entity
@@ -41,6 +42,14 @@ class Scene(Entity):
     project_id: str = ""
     episode_id: str = ""
     status: SceneStatus = SceneStatus.DRAFT
+
+    #: 组织归属键（内部键，不进 API 响应，不进当前部署的物理表）。
+    #:
+    #: 它由服务层从父项目拷贝，是 TransitionFact 归属链与父链一致性校验的内存
+    #: 载体。远端 a13b0 单 schema 表未落此列（RLS 承担归属隔离），v2 归属链
+    #: 迁移会在三列归属外键中使用它；两条链共用同一个领域对象，故字段必须存在。
+    #: 调用方不得自填——自填等于允许「场次挂 A 项目却写 B 组织」。
+    organization_id: UUID | None = None
 
     def __post_init__(self) -> None:
         super()._validate_envelope()

@@ -2198,11 +2198,30 @@ def _is_self_status_setattr(call: ast.Call) -> bool:
     )
 
 
+class _EmptyScalarResult:
+    """忠实模拟 SQLAlchemy ``Result.scalars()`` 的返回：支持 .all()/.first()/迭代。
+
+    迁移里的幂等守卫会用 ``bind.execute(...).scalars().all()`` 判断约束是否存在；
+    真实 SQLAlchemy 的 ``scalars()`` 返回 ScalarResult 而非 list。此前 mock 返回裸
+    list，导致任何写法正确的迁移在回放时崩在 ``'list' object has no attribute
+    'all'``——闸门把 mock 的 API 失真报成「迁移无法回放」，指向错误的方向。
+    """
+
+    def all(self) -> list[object]:
+        return []
+
+    def first(self) -> None:
+        return None
+
+    def __iter__(self):
+        return iter(())
+
+
 class _EmptyResult:
     """空查询结果：迁移里的「先查后判」在回放时一律得到空集。"""
 
-    def scalars(self) -> list[object]:
-        return []
+    def scalars(self) -> _EmptyScalarResult:
+        return _EmptyScalarResult()
 
     def all(self) -> list[object]:
         return []
