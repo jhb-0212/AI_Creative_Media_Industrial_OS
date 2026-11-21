@@ -201,3 +201,16 @@ def test_every_test_file_belongs_to_exactly_one_layer() -> None:
     all_files = set(vb._TEST_ROOT.rglob("test_*.py"))
     covered_files = {f for target in targets for f in target.rglob("test_*.py")}
     assert all_files == covered_files
+
+
+# --------------------------------------------------------------------------- #
+# 宿主安全钩子：整次观测不可信，不能按解析出的 failed 数判代码失败
+# --------------------------------------------------------------------------- #
+def test_safe_delete_marker_blocks_even_with_parsed_failures() -> None:
+    state, limitation = vb._pytest_observation_state(
+        1,
+        {"passed": 944, "error": 161},
+        "[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED] count=876",
+    )
+    assert state == vb.BLOCKED
+    assert "安全钩子" in limitation

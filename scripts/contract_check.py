@@ -3,26 +3,28 @@
 职责：校验冻结契约（contracts/）与实现派生之间的一致性，作为 CI 门禁。
 当前覆盖：
 1. contracts/ 下所有 YAML / JSON 文件的语法解析。
-2. contracts/state_machines/state_machines.yaml 中 Project 状态机
+2. contracts/phases/phase_map.yaml 与基线 §31.2 唯一阶段总表逐字一致，
+   非权威阶段表登记从正文派生且双向完备（Gate C 自动检查）。
+4. contracts/state_machines/state_machines.yaml 中 Project 状态机
    与 services/project_planning/domain/state_machine.py 的转移表一致性。
 3. Action Registry ↔ OpenAPI 路径一一对应（未注册 Action 不得暴露端点）。
-4. 运行时 ↔ 契约覆盖（contracts/runtime/action_implementations.yaml 台账：
+5. 运行时 ↔ 契约覆盖（contracts/runtime/action_implementations.yaml 台账：
    ACTIVE action 必须实现或登记未实现的原因，已声明的 route 必须真实存在）。
-5. Permission Matrix 结构完整（action_matrix 覆盖全部 action_key）。
-6. object_schemas.schema.json 的 P0 对象定义完整性。
-7. 已实现 action 的资源类型必须在 object_schemas 中有定义，或在
+6. Permission Matrix 结构完整（action_matrix 覆盖全部 action_key）。
+7. object_schemas.schema.json 的 P0 对象定义完整性。
+8. 已实现 action 的资源类型必须在 object_schemas 中有定义，或在
    contracts/runtime/resource_schema_exemptions.yaml 中登记豁免原因
    （防止 ADR-R07 那类「动作有、对象无」的缺口静默通过 CI）。
-8. 全部 ACTIVE action 的资源类型必须有定义/豁免，或在
+9. 全部 ACTIVE action 的资源类型必须有定义/豁免，或在
    contracts/runtime/resource_schema_gaps.yaml 中登记显式债务
    （reason / contract_ref / unblocks_when / referenced_by），并双向校验：
    未登记缺口报红、陈旧债务报红、孤儿债务报红、字段缺失报红。
-9. 事件契约（contracts/runtime/event_catalog.yaml ↔ 代码 ↔ action registry）：
+10. 事件契约（contracts/runtime/event_catalog.yaml ↔ 代码 ↔ action registry）：
    未登记事件报红、陈旧事件报红、emitted_by 漂移报红；已实现非 READ 动作的
    audit_event 必须已登记，否则须在 event_emission_gaps.yaml 显式登记债务。
-10. 对象引用目标（object_schemas 的 x-afs-reference-targets）：声明的字段必须存在、
+11. 对象引用目标（object_schemas 的 x-afs-reference-targets）：声明的字段必须存在、
     声明的目标必须是已定义对象；悬空引用报红（Scene 曾因此长期缺失而全绿）。
-11. 状态枚举四层一致性（state_machines → enum_registry → object_schemas → Runtime）：
+12. 状态枚举四层一致性（state_machines → enum_registry → object_schemas → Runtime）：
     allowed_states 与转移边、枚举注册表、Schema 的 status.enum、status 字段分类台账、
     别名/跨域标记层、已实现对象的 Domain Enum 与数据库 CHECK 全部逐值对齐。
     （旧版只比对象名不比状态集，于是三处状态集合可以各自漂移而全绿。）
@@ -52,6 +54,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 CONTRACTS = ROOT / "contracts"
+BASELINE_DOC = ROOT / "docs" / "baseline" / "AI影视工业化生产平台V2.0.5.md"
 
 # 在脚本运行时将仓库根加入 sys.path，使领域模块可导入。
 if str(ROOT) not in sys.path:
@@ -3271,6 +3274,119 @@ def check_proposal_status() -> bool:
 # --------------------------------------------------------------------------- #
 # 入口
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Gate C：阶段表必须是基线 §31.2 的派生（不是又一份手写事实）
+# --------------------------------------------------------------------------- #
+_PHASE_31_2_HEADING = "31.2 平台 Phase 0—4 唯一阶段总表"
+_PHASE_DOMAINS = ("core_production", "community", "other_domain")
+
+
+def _normalize_phase_text(text: str) -> str:
+    """只消除排版噪声（空白 / Markdown 强调），不消除任何语义字串。"""
+    return re.sub(r"\s+", "", text.replace("**", ""))
+
+
+def _baseline_phase_tables() -> tuple[dict[str, tuple[str, str, str]], set[tuple[int, str]]]:
+    """从基线正文派生：权威阶段行 + 非权威阶段表所在的（标题行号, 章节名）。
+
+    行号取章节标题行而不是表格行：章节身份由标题确定，表格内的空行/换行不该
+    让登记项失效。集合双向比对时，行号漂移与章节缺席都会报红。
+    """
+    lines = BASELINE_DOC.read_text(encoding="utf-8").splitlines()
+    authoritative: dict[str, tuple[str, str, str]] = {}
+    others: set[tuple[int, str]] = set()
+    heading: tuple[int, str] | None = None
+    in_authoritative = False
+    for index, line in enumerate(lines, 1):
+        stripped = line.strip()
+        if stripped.startswith("### "):
+            title = stripped[4:].strip()
+            heading = (index, title)
+            in_authoritative = title.startswith(_PHASE_31_2_HEADING)
+            continue
+        if not stripped.startswith("| Phase "):
+            continue
+        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+        if len(cells) < 4:
+            continue
+        if in_authoritative:
+            authoritative[cells[0]] = (cells[1], cells[2], cells[3])
+        elif heading is not None:
+            section = heading[1].split("（", 1)[0].strip()
+            others.add((heading[0], section))
+    return authoritative, others
+
+
+def check_phase_map_against_baseline() -> bool:
+    """Gate C：逐字比对 §31.2 权威表，并双向校验非权威阶段表登记。
+
+    freeze_manifest 只锁 phase_map 的哈希，发现不了「漂移后重签」；过去没有任何
+    判据读基线正文。Phase 2 的 community/other_domain 因此与权威表相反（派生文件
+    允许 Phase 2 产生 CreatorRelease，基线明确禁止），而闸门全绿。
+    """
+    baseline_rows, other_tables = _baseline_phase_tables()
+    ok = True
+    if len(baseline_rows) != 5:
+        print(f"[FAIL] 基线 {_PHASE_31_2_HEADING} 应有 5 行，实际 {sorted(baseline_rows)}")
+        return False
+
+    data = load_yaml_file(CONTRACTS / "phases" / "phase_map.yaml")
+    phases = data.get("phases")
+    if not isinstance(phases, list):
+        print("[FAIL] phase_map.phases 缺失或非列表")
+        return False
+
+    seen: set[str] = set()
+    for entry in phases:
+        if not isinstance(entry, dict):
+            print(f"[FAIL] phase_map.phases 含非映射项：{entry}")
+            ok = False
+            continue
+        phase_id = entry.get("id")
+        if phase_id in seen or phase_id not in baseline_rows:
+            print(f"[FAIL] phase_map 阶段 id 重复或基线中不存在：{phase_id}")
+            ok = False
+            continue
+        seen.add(phase_id)
+        for field, expected in zip(_PHASE_DOMAINS, baseline_rows[phase_id], strict=True):
+            actual = _normalize_phase_text(str(entry.get(field) or ""))
+            if actual != _normalize_phase_text(expected):
+                print(f"[FAIL] {phase_id}.{field} 与基线 {_PHASE_31_2_HEADING} 不一致")
+                ok = False
+    missing_phases = set(baseline_rows) - seen
+    if missing_phases:
+        print(f"[FAIL] phase_map 缺少基线阶段：{sorted(missing_phases)}")
+        ok = False
+
+    registered: set[tuple[int, str]] = set()
+    for item in data.get("non_authoritative_phase_tables") or []:
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("line"), int)
+            or not isinstance(item.get("section"), str)
+        ):
+            print(f"[FAIL] 非权威阶段表登记项格式错误：{item}")
+            ok = False
+            continue
+        key = (item["line"], item["section"])
+        if key in registered:
+            print(f"[FAIL] 非权威阶段表登记重复：{key}")
+            ok = False
+        registered.add(key)
+    for key in sorted(other_tables - registered):
+        print(f"[FAIL] 基线非权威阶段表未登记：{key}")
+        ok = False
+    for key in sorted(registered - other_tables):
+        print(f"[FAIL] 非权威阶段表登记已陈旧：{key}")
+        ok = False
+
+    if ok:
+        print(
+            f"[PASS] 阶段表派生一致：{len(baseline_rows)} 个阶段 / "
+            f"{len(other_tables)} 个非权威表登记"
+        )
+    return ok
+
 def main() -> int:
     ok = True
     yaml_files = list(CONTRACTS.rglob("*.yaml")) + list(CONTRACTS.rglob("*.yml"))
@@ -3285,6 +3401,7 @@ def main() -> int:
 
     try:
         ok &= check_state_machines()
+        ok &= check_phase_map_against_baseline()
         ok &= check_action_openapi_consistency()
         ok &= check_runtime_contract_coverage()
         ok &= check_implemented_resource_schemas()

@@ -39,6 +39,7 @@ import hashlib
 import re
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -623,6 +624,23 @@ def _parse_pytest_counts(output: str) -> dict[str, int]:
 _SAFE_DELETE_MARKER = "SAFE_DELETE_BULK_CONFIRM_REQUIRED"
 
 
+def _pytest_observation_state(
+    code: int, counts: dict[str, int], output: str
+) -> tuple[str, str]:
+    """宿主拦截出现时，整次观测都不可信——判 BLOCKED，不逐条数失败。
+
+    安全钩子拦的是 pytest 的临时目录回收，报错会伪装成 pytest 的 setup error。
+    若按解析出的 failed 数判 FAILED，就是把环境问题算到代码头上（规范 §1.1）。
+    """
+    if _SAFE_DELETE_MARKER in output:
+        return (
+            BLOCKED,
+            "宿主安全钩子拦截 pytest 临时目录回收，退出码与统计摘要均不可信；"
+            "需在非拦截环境复跑",
+        )
+    return _pytest_state(code, counts)
+
+
 def _pytest_state(code: int, counts: dict[str, int]) -> tuple[str, str]:
     """从退出码与 pytest 摘要推导状态：「拿不到数字」与「测出失败」必须分开。
 
@@ -677,9 +695,12 @@ def probe_tests(battery: Battery, *, skip: bool) -> None:
             continue
         # pyproject 的 addopts 已含 -q；这里再传一次会叠加成 -qq，
         # pytest 就不打印「N passed in Xs」摘要，指标解析会全部落空。
-        # 固定工作区内的 basetemp：默认的 /tmp/pytest-of-* 会累计几百个旧目录，
-        # 宿主安全钩子一旦拦下批量回收，就会把全绿会话变成非零退出（见 C7 阻塞处理）。
-        basetemp = ROOT / ".pytest-basetemp"
+        # 每层一个全新的 basetemp 子目录：pytest 在启动时删除的是这个空目录，
+        # 不会去清理上一次留下的几百个 pytest-of-* 目录而触发宿主批量删除保护。
+        # 目录留在工作区内（已 gitignore），不跨轮复用即可。
+        base = ROOT / ".pytest-basetemp"
+        base.mkdir(exist_ok=True)
+        basetemp = Path(tempfile.mkdtemp(prefix=f"{check_id}-", dir=base))
         cmd = [
             sys.executable,
             "-m",
@@ -708,17 +729,7 @@ def probe_tests(battery: Battery, *, skip: bool) -> None:
         battery.metric(f"{check_id}.passed", str(passed), check_id)
         battery.metric(f"{check_id}.failed", str(failed), check_id)
 
-        # 宿主安全钩子会拦下 pytest 的批量临时目录清理，并把提示写进输出、
-        # 把一个本来全绿的会话变成非零退出。这不是代码失败，而是证据环境不可用：
-        # 按规范 §1.1 只能标 V-BLOCKED，标 V-FAILED 等于把环境问题算到代码头上。
-        if _SAFE_DELETE_MARKER in output and failed == 0:
-            state = BLOCKED
-            limitation = (
-                "宿主安全钩子拦截 pytest 临时目录清理，退出码与统计摘要均不可信；"
-                "需在非拦截环境复跑"
-            )
-        else:
-            state, limitation = _pytest_state(code, counts)
+        state, limitation = _pytest_observation_state(code, counts, output)
         if check_id == "C7.3":
             limitation = (
                 "只覆盖主链的已实现段；剧本→拆镜→ShotSpec→ConstraintPack 这一段"

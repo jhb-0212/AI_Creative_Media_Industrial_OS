@@ -1,6 +1,6 @@
 # 核验电池（时点证据）
 
-> 生成时间：2026-11-21T15:37:11Z（UTC）　提交：`8f5033b`　工作树：不洁净
+> 生成时间：2026-11-21T16:12:45Z（UTC）　提交：`6792b77`　工作树：不洁净
 > 本文件由 `scripts/verification_battery.py` 生成，**禁止手工编辑**。
 > 本文件只陈述事实与证据等级，不含合规判断；合规结论见同日审计报告。
 
@@ -28,7 +28,7 @@
 - `[V-VERIFIED][E2] C1.1 V2.0.5 基线正文：证据：docs/baseline/AI影视工业化生产平台V2.0.5.md 与 contracts/phase0/frozen_inventory.yaml:baseline；限制：只证明文件字节未变，不证明其内容正确或已被人类批准`
   - 详情：bytes=489607（登记 489607）; sha256=9a9940c5523c2c96…（登记 9a9940c5523c2c96…）
 - `[V-VERIFIED][E2] C4.1 冻结清单自指哈希：证据：contracts/phase0/phase0_manifest.md.sha256:1；限制：侧车与正文同源生成（--write 同时刷新），因此同谋篡改无法被本判据发现`
-  - 详情：actual=fde3e5cd1369784f… declared=fde3e5cd1369784f…
+  - 详情：actual=9202cce55e0ad9c9… declared=9202cce55e0ad9c9…
 - `[V-VERIFIED][E2] C2.2 修订台账只追加：证据：contracts/phase0/contract_amendments.yaml vs HEAD；限制：只比对 id 序列，不比对条目内容：改写正文但不改 id 的形态本判据看不到`
   - 详情：HEAD 23 条 / 当前 23 条
 - `[V-VERIFIED][E3] C5.1 ruff 全仓 lint：证据：D:\Users\9527\Desktop\AI_Creative_Media_Industrial_OS\.venv\Scripts\ruff.exe check .；限制：本项只证明检查器自身的判定域，不覆盖运行期行为`
@@ -42,7 +42,7 @@
   - 详情：head=d7e8f9a0b1c2 current=d7e8f9a0b1c2
 - `[V-VERIFIED][E5] C6.2 模型与迁移无漂移：证据：alembic check（真实 PostgreSQL）；限制：只比对 ORM 模型与迁移，不校验数据层约束是否真的生效`
 - `[V-VERIFIED][E4] C7.1 单元、工程判据、架构判据：证据：pytest tests\architecture tests\engineering tests\unit；限制：执行通过只证明本层用例覆盖的行为，不证明生产环境可靠`
-  - 详情：passed=1100 failed=0
+  - 详情：passed=1106 failed=0
 - `[V-VERIFIED][E4+E5] C7.2 集成（真实 PG）、韧性、权限负向：证据：pytest tests\integration tests\permission tests\resilience；限制：执行通过只证明本层用例覆盖的行为，不证明生产环境可靠`
   - 详情：passed=126 failed=0
 - `[V-VERIFIED][E4+E5] C7.3 端到端主链（真实 PG + ASGI）：证据：pytest tests\e2e；限制：只覆盖主链的已实现段；剧本→拆镜→ShotSpec→ConstraintPack 这一段由逐域用例证明，端到端链路尚未串起`
@@ -53,7 +53,7 @@
 | 指标 | 值 | 来源 |
 |---|---|---|
 | `C7.1.failed` | 0 | C7.1 |
-| `C7.1.passed` | 1100 | C7.1 |
+| `C7.1.passed` | 1106 | C7.1 |
 | `C7.2.failed` | 0 | C7.2 |
 | `C7.2.passed` | 126 | C7.2 |
 | `C7.3.failed` | 0 | C7.3 |
@@ -72,7 +72,7 @@
 | `invariants_partial` | 0 | C3.1 |
 | `invariants_total` | 23 | C3.1 |
 | `invariants_verified` | 23 | C3.1 |
-| `manifest_sha256` | fde3e5cd1369784f550189828f7981d94423f5cc3ee6d4b196d92bc6e9611398 | C4.1 |
+| `manifest_sha256` | 9202cce55e0ad9c993ee8a0dc683f4a56dfbc579038aea3f045dc0a3ad0db278 | C4.1 |
 | `migration_current` | d7e8f9a0b1c2 | C6.1 |
 | `migration_head` | d7e8f9a0b1c2 | C6.1 |
 | `registered_not_implemented` | 21 | C3.1 |

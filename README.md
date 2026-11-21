@@ -83,6 +83,8 @@ docs/          # 架构/ADR/runbook/SOP
 两套体系不得混用：`[V-*]` 只证明事实，`[A-*]` 才判断是否符合基准；
 报告必须分别给出九项最终状态，禁止只给一个 PASS。
 铁律编号直接引用基线 §1.3.2-1…5，仓库不另立第二套编号。
+已出具的报告：Phase 0 专项（2026-11-21-phase0-verification-and-audit.md）、
+首次全仓取证（2026-11-21-verification-and-audit-annotation-baseline.md）。
 
 ## 自动化闸门
 
