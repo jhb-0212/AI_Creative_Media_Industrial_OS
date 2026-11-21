@@ -545,7 +545,7 @@ _LIFECYCLE_SOURCES: tuple[tuple[str, str, str, str, str, str], ...] = (
         "services/asset_service/domain/asset_version.py",
         "AssetVersion",
     ),
-    # A13（ADR-R40）：同一条事务链上的五个对象，所有权判定逐个执行。
+    # A13（ADR-R28）：同一条事务链上的五个对象，所有权判定逐个执行。
     (
         "Scene",
         "services.project_planning.domain.state_machine",

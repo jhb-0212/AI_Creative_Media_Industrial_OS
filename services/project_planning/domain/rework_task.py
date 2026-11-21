@@ -7,7 +7,7 @@
 - 7.6 精准返工：VERIFYING 须有复核人且不得为返工执行人本人；REJECTED 合法但
   当前无任何授权入边，按 31.5 未登记转移一律拒绝。
 
-归属 project_planning 的理由（ADR-R40 §3.3）：Shot.rework_basis_ref 的守卫需要
+归属 project_planning 的理由（ADR-R28 §3.3）：Shot.rework_basis_ref 的守卫需要
 「引用的返工任务真实存在且状态合法」。若本对象在资产域，这条校验就只能跨服务
 或退化为字符串非空——守卫名存实亡。同域后它是一次同 schema 查询，外加库层外键。
 """

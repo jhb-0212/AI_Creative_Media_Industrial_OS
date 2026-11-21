@@ -16,7 +16,7 @@
 4. **闸门真的会拦**：`reference_target_problems()` / `enum_registry_coverage_problems()`
    是纯函数，本文件直接注入悬空引用与缺失对象，验证它们返回问题而不是静默通过。
 
-**诚实说明（2026-11-20 更新）**：A13 / ADR-R40 已把 Scene 的运行时补齐——ORM、
+**诚实说明（2026-11-20 更新）**：A13 / ADR-R28 已把 Scene 的运行时补齐——ORM、
 迁移、service、action 与状态机全部就位，SC-1 / SC-2 / SC-3 / SC-5 由
 `RUNTIME_PENDING` 改判为 `RUNTIME_ENFORCED`。因此本节从「断言还没做」翻转为
 「断言已做且定级没有虚高」：反向的谎（实现了但定级不更新）与正向的谎

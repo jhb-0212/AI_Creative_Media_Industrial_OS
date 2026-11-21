@@ -52,7 +52,7 @@ class SceneRepository(ABC):
         真正的失败通道是「拿不到锁」，那会由数据库的等锁机制表达，不需要端口翻译。
 
         为什么必须由仓储提供而不是在服务层拼 SQL：锁模式（``FOR UPDATE``）与
-        子对象侧的锁模式（``FOR KEY SHARE``）必须**成对**，任一侧写错都表现为
+        子对象侧的锁模式（``FOR SHARE``）必须**成对**，任一侧写错都表现为
         「查了但没锁住」——静默失效。成对的声明放在同一层，才有机会被同一条用例
         两个方向各验一次。
         """
@@ -62,9 +62,15 @@ class SceneRepository(ABC):
     async def lock_for_child_write(self, entity_id: str) -> Scene | None:
         """以**共享行锁**读取场次（子对象写入前的确认侧，与上一方法配对）。
 
-        共享而非排他：子对象只需与「父行被排他改写的时刻」互斥，不应因此挡住
-        父行的其它并发写（那会把所有镜头写路径串行化）。锁模式的选择理由见
-        ``sqlalchemy`` 实现里的 ``_scene_lock_statement``。
+        共享而非排他：子对象只需要与「父行状态被改写的时刻」互斥，不需要独占
+        父行——排他锁会让两个并发确认在同一场次上互相阻塞，而它们各自插入不同的
+        镜头，并不冲突。
+
+        为什么是 ``FOR SHARE`` 而不是 ``FOR KEY SHARE``：后者与 ``FOR NO KEY
+        UPDATE`` 兼容，而 ``UPDATE ... SET status`` 取的正是 ``NO KEY UPDATE``，
+        因此 KEY SHARE 挡不住一次没有显式排他锁的归档——屏障会静默失效，且与
+        「两侧成对」的假设相反（它要求父侧必须写对）。``FOR SHARE`` 不依赖父侧。
+        渲染结果与选择理由见 ``shot_planning_sqlalchemy_repos.scene_lock_statement``。
         """
         raise NotImplementedError
 

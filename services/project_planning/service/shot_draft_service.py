@@ -3,7 +3,7 @@
 本服务是镜头域唯一的事务链入口：
     草案 → 确认（认领 + 落定） → Shot + 首个 ShotRevision
 
-确认的两跳为什么必须同事务（ADR-R40 §4）
+确认的两跳为什么必须同事务（ADR-R28 §4）
 --------------------------------------------------
 PENDING_CONFIRM→IN_REVIEW 是「认领」，IN_REVIEW→CONFIRMED 是「落定」。
 认领的作用是抢占：两个审核人同时确认时，第二个会在认领那一步撞乐观锁。
@@ -21,7 +21,7 @@ Scene 为什么必须预先存在（ADR-R19 §121）
 Scene（由 SCENE.CREATE 登记）；否则等于替所有者裁定「确认拆镜即建立正式场次」，
 而 R19 明确拒绝了这个语义扩张。
 
-唯一冲突必须被解释，不能冒成 500（ADR-R40 §6.4）
+唯一冲突必须被解释，不能冒成 500（ADR-R28 §6.4）
 --------------------------------------------------
 本服务是全项目唯一**批量**写入镜头编号的路径，而编号是用户可见的业务键——
 冲突是常态，不是异常。端口层对唯一冲突只给一个异常（``DuplicateEntityError``），
@@ -46,10 +46,12 @@ from services.project_planning.domain.enums import (
     ShotRevisionStatus,
     ShotStatus,
 )
+from services.project_planning.domain.scene import Scene
 from services.project_planning.domain.shot import Shot
 from services.project_planning.domain.shot_draft import ShotBreakdownDraft
 from services.project_planning.domain.shot_revision import ShotRevision
 from services.project_planning.domain.state_machine import (
+    SCENE_LIFECYCLE,
     SHOT_DRAFT_CONFIRM_ACTION,
     SHOT_DRAFT_DISCARD_ACTION,
     SHOT_DRAFT_RETURN_ACTION,
@@ -365,6 +367,39 @@ class ShotDraftService:
             )
         return draft
 
+    async def _lock_parent_scenes(self, draft: ShotBreakdownDraft) -> dict[str, Scene]:
+        """按 ``scene_id`` 全序锁定本次确认涉及的全部父场次，并在锁内判冻结。
+
+        为什么取锁、归属检查、冻结判定必须一起做，且都排在**建行之前**：
+        这三点各自都是「读到的状态在写入瞬间可能已不成立」的来源——锁保证读到
+        权威版本，归属检查防止把镜头挂到别的项目的场次下，冻结判定回答「这个
+        场次还接不接受新镜头」。拆开做就会出现「锁了 A、去锁 B 时 A 已变」的窗口，
+        比不加锁更危险：它给人一种已经串行化的错觉。
+
+        为什么先排序：一份草案可以引用多个场次，两个确认事务若以相反顺序取锁
+        就会形成等待环。环只可能由顺序不一致产生，固定全序即可消除。按
+        ``scene_id`` 而不是草案里的出现顺序，是因为后者由调用方决定。
+        """
+        locked: dict[str, Scene] = {}
+        for scene_id in sorted(_scene_ids_of(draft)):
+            scene = await self._scene_repository.lock_for_child_write(scene_id)
+            if scene is None or scene.project_id != draft.project_id:
+                raise DomainError(
+                    ErrorRegistry.NOT_FOUND,
+                    detail=(
+                        f"草案引用的场次不存在或不属于本项目: {scene_id}。"
+                        "场次必须先由 SCENE.CREATE 登记（ADR-R19 §121）"
+                    ),
+                )
+            # 场次归档即冻结子集合（与「归档前不得有在产镜头」是同一规则的两侧）：
+            # 归档之后仍能新增镜头，会让归档场次下长出一堆永远无法进产的僵尸镜头，
+            # 而它们会被下游的进度与预算统计当作真实对象。
+            SCENE_LIFECYCLE.assert_child_creation_allowed(
+                scene.status, child_object="Shot"
+            )
+            locked[scene_id] = scene
+        return locked
+
     async def _materialize_shots(
         self,
         draft: ShotBreakdownDraft,
@@ -377,7 +412,13 @@ class ShotDraftService:
 
         全部写操作都在当前事务内；任何一步失败都会让整个确认回滚，
         不会留下「部分镜头已建、草案仍待确认」的中间状态。
+
+        父场次在**建行之前**一次性锁定并判冻结：草案可能引用多个场次，
+        边建边锁会让两个确认事务以相反顺序取锁而死锁（环只可能由顺序不一致
+        产生，所以固定按 ``scene_id`` 排序）。
         """
+        locked_scenes = await self._lock_parent_scenes(draft)
+
         revision_refs: list[str] = []
         for index, block in enumerate(draft.scene_breakdowns):
             if not isinstance(block, dict):
@@ -386,15 +427,7 @@ class ShotDraftService:
                     detail=f"scene_breakdowns[{index}] 必须是对象",
                 )
             scene_id = _required_text(block, "scene_id", f"scene_breakdowns[{index}]")
-            scene = await self._scene_repository.get_by_id(scene_id)
-            if scene is None or scene.project_id != draft.project_id:
-                raise DomainError(
-                    ErrorRegistry.NOT_FOUND,
-                    detail=(
-                        f"草案引用的场次不存在或不属于本项目: {scene_id}。"
-                        "场次必须先由 SCENE.CREATE 登记（ADR-R19 §121）"
-                    ),
-                )
+            scene = locked_scenes[scene_id]
 
             shots = block.get("shots")
             if not isinstance(shots, list) or not shots:
@@ -464,7 +497,7 @@ class ShotDraftService:
             await self._shot_repository.add(shot)
         except DuplicateEntityError as exc:
             # 唯一冲突的成因必须回读后解释：草案内重号（改草案）与项目内已被
-            # 占用（换编号）都是 409，但修复方向相反（ADR-R40 §6.4）。
+            # 占用（换编号）都是 409，但修复方向相反（ADR-R28 §6.4）。
             # 未捕获时这一支会冒成 500——拆镜确认是本轮唯一会批量写入镜头
             # 编号的路径，而编号是用户可见的业务键，冲突是常态而非异常。
             conflict = await self._shot_code_conflict(draft, shot.shot_code)
@@ -562,7 +595,7 @@ class ShotDraftService:
     async def _shot_code_conflict(
         self, draft: ShotBreakdownDraft, shot_code: str
     ) -> DomainError:
-        """把镜头编号的唯一冲突解释成调用方能执行的修复动作（ADR-R40 §6.4）。
+        """把镜头编号的唯一冲突解释成调用方能执行的修复动作（ADR-R28 §6.4）。
 
         为什么必须回读一次：端口层对**所有**唯一冲突都给同一个异常，而这条路径
         上有两个成因——草案内编号重复（改草案）与项目内编号已被别的镜头占用
@@ -593,6 +626,23 @@ class ShotDraftService:
                 f"（SH-3：项目内唯一，{origin}）。请修订草案后重新提交确认"
             ),
         )
+
+
+def _scene_ids_of(draft: ShotBreakdownDraft) -> set[str]:
+    """草案引用的场次集合。
+
+    提取逻辑只有这一份：锁定阶段与建行阶段共用它，避免「锁的集合」与
+    「用的集合」在后续改动中悄悄分叉（分叉的后果是某个场次没被锁就写入）。
+    """
+    ids: set[str] = set()
+    for index, block in enumerate(draft.scene_breakdowns):
+        if not isinstance(block, dict):
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=f"scene_breakdowns[{index}] 必须是对象",
+            )
+        ids.add(_required_text(block, "scene_id", f"scene_breakdowns[{index}]"))
+    return ids
 
 
 def _required_text(container: dict[str, Any], key: str, where: str) -> str:

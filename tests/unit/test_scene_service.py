@@ -24,8 +24,13 @@ import pytest
 from packages.errors.error_codes import DomainError
 from packages.shared.port_errors import DuplicateEntityError
 from packages.shared.status_transition import TransitionEvent, TransitionFact
-from services.project_planning.domain.enums import SceneStatus, ShotStatus
+from services.project_planning.domain.enums import (
+    ProjectStatus,
+    SceneStatus,
+    ShotStatus,
+)
 from services.project_planning.domain.episode import Episode
+from services.project_planning.domain.project import Project
 from services.project_planning.domain.scene import Scene
 from services.project_planning.domain.shot import Shot
 from services.project_planning.repository.shot_planning_repositories import (
@@ -36,6 +41,7 @@ from services.project_planning.service.scene_service import SceneService
 
 _NOW = datetime(2026, 11, 20, 12, 0, tzinfo=UTC)
 _TENANT = uuid4()
+_ORG = uuid4()
 
 
 # --------------------------------------------------------------------------- #
@@ -128,11 +134,54 @@ class _ShotStore(ShotRepository):
 
 
 class _EpisodeStore:
+    """内存集数仓储：实现带锁读的两条路径（按业务键、按 id 探测后带锁读）。
+
+    A13 正式链用 ``episode_id`` 寻址，但端口只提供按 ``(project_id, episode_ref)``
+    的带锁读，所以服务会先按 id 探测业务键再带锁读——替身必须同时支持这两步，
+    否则测出来的是「替身不支持」而不是「服务行为」。
+    """
+
     def __init__(self, episodes: list[Episode]) -> None:
         self._rows = {e.entity_id: e for e in episodes}
+        self.child_write_reads: list[str] = []
 
     async def get_by_id(self, entity_id: str) -> Episode | None:
         return self._rows.get(entity_id)
+
+    async def get_by_project_ref_for_child_write(
+        self, project_id: str, episode_ref: str
+    ) -> Episode | None:
+        self.child_write_reads.append(episode_ref)
+        for episode in self._rows.values():
+            if (
+                episode.project_id == project_id
+                and episode.episode_ref == episode_ref
+            ):
+                return episode
+        return None
+
+
+class _ProjectStore:
+    """内存项目仓储：只让带锁读有语义（父链冻结判定走它）。"""
+
+    def __init__(self, project: Project) -> None:
+        self._project = project
+        self.child_write_reads = 0
+
+    async def add(self, project: Project) -> None:  # pragma: no cover
+        raise AssertionError("本用例不创建项目")
+
+    async def save(  # pragma: no cover
+        self, project: Project, expected_version: int
+    ) -> None:
+        raise AssertionError("本用例不保存项目")
+
+    async def get_by_id(self, entity_id: str) -> Project | None:
+        return self._project
+
+    async def get_by_id_for_child_write(self, entity_id: str) -> Project | None:
+        self.child_write_reads += 1
+        return self._project
 
 
 @dataclass
@@ -161,11 +210,15 @@ class _Outbox:
         return uuid4()
 
 
-def _episode(project_id: str = "proj-1", episode_id: str = "ep-1") -> Episode:
+def _episode(
+    project_id: str = "proj-1",
+    episode_id: str = "ep-1",
+    episode_ref: str = "EP01",
+) -> Episode:
     return Episode(
         entity_id=episode_id,
         project_id=project_id,
-        episode_ref="EP01",
+        episode_ref=episode_ref,
         title="第一集",
         created_by="user-1",
         tenant_id=_TENANT,
@@ -203,12 +256,24 @@ def _shot(scene_id: str = "scene-1", status: ShotStatus = ShotStatus.IN_PRODUCTI
     )
 
 
+def _project(status: ProjectStatus = ProjectStatus.ACTIVE) -> Project:
+    return Project(
+        entity_id="proj-1",
+        project_name="probe",
+        created_by="user-1",
+        tenant_id=_TENANT,
+        status=status,
+        organization_id=_ORG,
+    )
+
+
 def _service(
     *,
     scenes: _SceneStore | None = None,
     shots: _ShotStore | None = None,
     episodes: list[Episode] | None = None,
     outbox: _Outbox | None = None,
+    project: Project | None = None,
 ) -> tuple[SceneService, _SceneStore, _ShotStore, _Outbox]:
     # 两个替身共用一条调用序列：SC-5 的顺序判据（先锁后查）只能从这条序列上读出来。
     calls: list[str] = []
@@ -222,6 +287,7 @@ def _service(
         _EpisodeStore(episodes if episodes is not None else [_episode()]),  # type: ignore[arg-type]
         writer,  # type: ignore[arg-type]
         shot_store,
+        _ProjectStore(project or _project()),  # type: ignore[arg-type]
     )
     return service, scene_store, shot_store, writer
 
@@ -375,7 +441,10 @@ async def test_archived_parent_denies_before_rechecking_children() -> None:
 async def test_same_scene_code_in_another_episode_is_rejected_as_occupied() -> None:
     """跨集同名必须被拒：契约 SC-3 是**项目内**唯一，不是集内唯一。"""
     service, store, _, outbox = _service(
-        episodes=[_episode("proj-1", "ep-1"), _episode("proj-1", "ep-2")]
+        episodes=[
+            _episode("proj-1", "ep-1", "EP01"),
+            _episode("proj-1", "ep-2", "EP02"),
+        ]
     )
     await service.create_scene(
         project_id="proj-1",

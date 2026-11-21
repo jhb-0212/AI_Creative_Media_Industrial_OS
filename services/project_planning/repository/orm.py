@@ -177,7 +177,7 @@ class ScriptModel(EntityMixin, Base):
 class SceneModel(EntityMixin, Base):
     """scenes 表模型（场次，归属 Episode）。
 
-    归属完整性（A13 / ADR-R40 §6）：
+    归属完整性（A13 / ADR-R28 §6）：
     - 复合外键 (project_id, episode_id) → episodes(project_id, entity_id)：单列外键
       只能证明集数存在，无法阻止「场次属项目 A、集数属项目 B」的跨项目错配。
     - (project_id, scene_code) 唯一：契约 SC-3 要求「scene_code 在项目内唯一」，
@@ -418,7 +418,7 @@ class ReworkTaskModel(EntityMixin, Base):
     """rework_tasks 表模型（返工任务）。
 
     归属 project_planning 而非资产域，是为了让 Shot.rework_basis_ref 的守卫
-    能在同 schema 内用外键锁死（ADR-R40 §3.3）。affected_asset_version_ids 是
+    能在同 schema 内用外键锁死（ADR-R28 §3.3）。affected_asset_version_ids 是
     跨域值引用，只能不加外键——这是已登记债务，不是疏漏。
     """
 

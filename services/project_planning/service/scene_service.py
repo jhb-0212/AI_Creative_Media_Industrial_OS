@@ -60,12 +60,19 @@ class SceneService:
         repository: SceneRepository,
         episode_repository: EpisodeRepository,
         outbox_writer: OutboxWriter,
-        shot_repository: ShotRepository | None = None,
-        project_repository: ProjectRepository | None = None,
+        shot_repository: ShotRepository,
+        project_repository: ProjectRepository,
     ) -> None:
-        # 位置参数顺序保持 A13 运行时原样（repository, episode_repository,
-        # outbox_writer, shot_repository），归属治理线所需的 project_repository
-        # 作为第五个可选依赖追加——这样两条线的装配代码与测试替身都无需重排。
+        """两条守卫依赖（镜头、父项目）都是**必需**的。
+
+        它们曾经是可选的，靠调用点 ``if xxx is None: raise`` 兜底。那种写法防不住
+        真正的失效模式：生产装配漏传时，构造照常成功，直到某次归档或某次登记才
+        在运行期 500。而漏传的那个分支恰好是「判定守卫」——它不会拦错数据，它
+        会让正确的操作失败，或者更糟：在写对 ``if`` 之前静默跳过判定。
+
+        守卫依赖的可用性因此不该是运行期检查，而是类型系统的前提：
+        **构造成功 ⇒ 两个不变量都有执行者**。
+        """
         self._repository = repository
         self._episode_repository = episode_repository
         self._outbox_writer = outbox_writer
@@ -122,21 +129,22 @@ class SceneService:
                 _assert_same_request(existing, project_id, episode.entity_id, scene_code)
                 return existing
 
-        # 治理线（episode_ref 寻址）才在服务层做组织键与父链冻结检查。
-        # A13 正式链（episode_id 寻址）把父链冻结放在数据库守卫，project 为
-        # None——那条线上的组织归属由 RLS 承担，不在服务层复判（见 _resolve_parents）。
-        if project is not None:
-            if organization_id is None:
-                # 场次的组织归属键在归属链表上是 NOT NULL，而个人租户项目没有组织键。
-                # 给出可诊断的 4xx，不让它落到 23502 被翻译成「归属已变化」。
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR,
-                    detail=(
-                        "项目缺少组织归属，无法登记场次："
-                        "场次表要求 (project_id, tenant_id, organization_id) 三列成立"
-                    ),
-                )
-            self._assert_ancestors_open_for_child_write(project, episode)
+        # 组织键只有治理线（episode_ref 寻址、走归属链表）要求。
+        # A13 正式链的组织归属由父项目直接决定，个人租户项目为 NULL 是合法的；
+        # 在这里无条件判空，会把合法的个人租户项目挡在门外。
+        if episode_ref is not None and organization_id is None:
+            # 场次的组织归属键在归属链表上是 NOT NULL，而个人租户项目没有组织键。
+            # 给出可诊断的 4xx，不让它落到 23502 被翻译成「归属已变化」。
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=(
+                    "项目缺少组织归属，无法登记场次："
+                    "场次表要求 (project_id, tenant_id, organization_id) 三列成立"
+                ),
+            )
+
+        # 父链冻结：**两条寻址线共有**，且必须在幂等检查之后（见上）。
+        self._assert_ancestors_open_for_child_write(project, episode)
 
         scene = Scene(
             entity_id=entity_id or uuid.uuid4().hex,
@@ -219,23 +227,40 @@ class SceneService:
         project_id: str,
         episode_id: str | None,
         episode_ref: str | None,
-    ) -> tuple[Project | None, Episode, UUID | None]:
-        """锁定并解析父链，返回 (project | None, episode, 组织归属键 | None)。
+    ) -> tuple[Project, Episode, UUID | None]:
+        """锁定并解析父链，返回 (project, episode, 组织归属键 | None)。
 
-        - governance 线（``episode_ref``）：必须装配 project_repository，按
-          Project → Episode 固定锁序带锁读，返回 project 以触发服务层的组织键与
-          逐级冻结判定。父行查不到必须失败关闭——RLS 在租户上下文不符时会静默
-          返回 0 行，写成 ``if parent is not None`` 会让越权写入被包装成「父不存在」。
-        - A13 正式链（``episode_id``）：只按 id 读集数并校验归属；父链冻结与组织
-          隔离由数据库守卫/RLS 承担（见 ADR-R40），服务层不重复判定，故 project
-          返回 None、组织键返回 None。
+        两条寻址线**都**走「Project → Episode」固定锁序带锁读，差别只在组织键：
+
+        - governance 线（``episode_ref``，走归属链表）：返回
+          ``project.organization_id``，由调用点判非空。
+        - A13 正式链（``episode_id``）：组织归属由父项目直接决定，个人租户项目
+          为 NULL 是合法的，故返回 None、调用点不判空。
+
+        为什么正式链也必须锁读父链
+        ---------------------------------
+        此前这里写的是「父链冻结与组织隔离由数据库守卫/RLS 承担」，而库里既没有
+        触发器、也没有带状态谓词的 RLS 策略——那句话没有对应物。它造成的实际效果
+        是：``episode_id`` 寻址下归档项目/集数仍可新增场次，而所有闸门都是绿的
+        （因为缺口的方向恰好是不安全的那一侧）。规则现在只有一份实现，两条线都走它。
+
+        为什么正式链要两跳读
+        ---------------------------------
+        本端口只有按 ``(project_id, episode_ref)`` 的带锁读，而入参是 ``entity_id``。
+        先按 id 读到业务键、再按业务键带锁读权威行：``episode_ref`` 是创建时固定的
+        标识，领域对象上没有任何修改它的路径，因此二次定位不会漂移。两跳之间若被
+        并发归档，锁读读到的是新版本（READ COMMITTED 重检），判定随之成立。
+
+        父行查不到必须失败关闭——RLS 在租户上下文不符时会静默返回 0 行，写成
+        ``if parent is not None`` 会让越权写入被包装成「父不存在」。
         """
+        project = await self._project_repository.get_by_id_for_child_write(project_id)
+        if project is None:
+            raise DomainError(
+                ErrorRegistry.NOT_FOUND, detail=f"项目不存在: {project_id}"
+            )
+
         if episode_ref is not None:
-            project = await self._project_repo().get_by_id_for_child_write(project_id)
-            if project is None:
-                raise DomainError(
-                    ErrorRegistry.NOT_FOUND, detail=f"项目不存在: {project_id}"
-                )
             episode = await self._episode_repository.get_by_project_ref_for_child_write(
                 project_id, episode_ref
             )
@@ -246,27 +271,26 @@ class SceneService:
                 )
             return project, episode, project.organization_id
 
-        # episode_id 寻址：A13 正式链口径，只校验集数归属；冻结交给 DB 守卫。
-        episode = await self._episode_repository.get_by_id(episode_id or "")
-        if episode is None:
+        # episode_id 寻址：先定位业务键，再带锁读权威行。
+        probe = await self._episode_repository.get_by_id(episode_id or "")
+        if probe is None:
             raise DomainError(
                 ErrorRegistry.NOT_FOUND, detail=f"集数不存在: {episode_id}"
             )
-        if episode.project_id != project_id:
+        if probe.project_id != project_id:
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,
                 detail="集数不属于声明的项目（跨项目挂载被拒绝）",
             )
-        return None, episode, None
-
-    def _project_repo(self) -> ProjectRepository:
-        """返回父项目仓储；未装配则 fail-closed——治理线父链冻结不能静默缺席。"""
-        if self._project_repository is None:
+        episode = await self._episode_repository.get_by_project_ref_for_child_write(
+            project_id, probe.episode_ref
+        )
+        if episode is None:
             raise DomainError(
-                ErrorRegistry.INTERNAL_ERROR,
-                detail="SceneService 缺少 project_repository，父链冻结守卫不可用",
+                ErrorRegistry.CONCURRENT_MODIFICATION,
+                detail="集数在读取与锁定之间被变更，请重试",
             )
-        return self._project_repository
+        return project, episode, None
 
     @staticmethod
     def _assert_ancestors_open_for_child_write(
@@ -314,11 +338,6 @@ class SceneService:
             scene.status, target_status
         )
         if child_precondition is not None:
-            if self._shot_repository is None:
-                raise DomainError(
-                    ErrorRegistry.INTERNAL_ERROR,
-                    detail="SceneService 缺少 shot_repository，SC-5 归档守卫不可用",
-                )
             scene = await self._lock_and_assert_no_shot_in_production(
                 scene, child_precondition
             )
