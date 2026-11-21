@@ -16,6 +16,13 @@
 #                     31.5）。允许状态可以没有入边：那是「合法但当前无授权入口」的
 #                     旁支，不是遗漏。
 #   guards         —— 特定转移必须携带的证据字段。
+#   frozen_states  —— 处于这些状态时，其下不得再新增子对象（「这一支不再长了」）。
+#                     这是关于**状态**的性质，不是关于某个动作的性质：写成四个
+#                     调用点 if 时，漏掉的那条不会让任何闸门变红。可以没有子对象
+#                     的对象（如 ShotRevision）也必须显式写 [] ——「没有声明」与
+#                     「声明为空」在运行期同形，只有显式才能被判据区分。
+#                     不得由终态推导：Project.COMPLETED 仍有出边（→ARCHIVED），
+#                     却是冻结态；终态与冻结态是交叉关系。
 #
 # allowed_states 按字母序书写：它是集合不是序列，顺序不承载语义；字母序让
 # 手工增删与 diff 稳定，也避免「两份文件顺序不同」被误判为契约漂移。
@@ -102,6 +109,9 @@ objects:
   - {from: GENERATED, to: TECHNICAL_QC}
   - {from: HUMAN_REVIEW, to: APPROVED}
   - {from: TECHNICAL_QC, to: HUMAN_REVIEW}
+  # 资产版本是叶子对象：没有子对象引用它，冻结策略不适用。显式写 [] 而不是省略，
+  # 判据才能区分「本对象不冻结子集合」与「忘了给这个对象表态」。
+  frozen_states: []
   note: >-
     8.5 标题写“Asset 生命周期”，对应受控资产版本对象 AssetVersion。QUARANTINED 不得直接转 GOLD，必须补齐证据并经授权复核；
     分支进入各旁支的具体前置条件正文未逐条给出，未登记的状态转移一律拒绝。
@@ -499,6 +509,8 @@ objects:
   - {from: IN_PROGRESS, to: DONE}
   - {from: OPEN, to: IN_PROGRESS}
   - {from: VERIFYING, to: CLOSED}
+  # 返工任务不是容器：shots 以值引用 rework_basis_ref，不构成归属。
+  frozen_states: []
   note: >-
     VERIFYING 须有复核人且不得为返工执行人本人；CLOSED 为终态。
     REJECTED（返工被驳回）已在 7.6 的 status 枚举中登记，但正文未画出进入该状态的授权边，
@@ -670,6 +682,13 @@ objects:
   - {from: DRAFT, to: ARCHIVED}
   - {from: ON_HOLD, to: ACTIVE}
   - {from: ON_HOLD, to: ARCHIVED}
+  # 冻结子集合（子对象 Episode）。COMPLETED 与 ARCHIVED 都**没有回到 ACTIVE 的路**：
+  # 在这两个状态下登记的子对象会合法落库，却永远无法伴随父对象回到可推进的状态；
+  # 而 COMPLETED 同时意味着交付范围已经固化，事后追加会改写已成立的交付事实。
+  # 因此「交付后再补录」不能靠把 COMPLETED 移出本元组来实现——那会让补录绕过任何
+  # 状态变更事实；正确路径是另行登记重开边（COMPLETED→ACTIVE）与专属动作，
+  # 让补录以一次可审计的状态变更开始。判断依据见 ADR-R28 §6.6。
+  frozen_states: [ARCHIVED, COMPLETED]
   note: >-
     ARCHIVED 为终态，不可原地复活（红线「终态不可原地复活」）；未登记转移一律拒绝（31.5）。主文档未为 Project 单列权威状态机，
     此条目属 Phase 1 主链第一环「项目创建」实现所需的新增建模，遵循 31.11 启用前复核补登；待 Phase 1 验收时以本文档为唯一权威复核后固化。
@@ -688,6 +707,8 @@ objects:
   - {from: LOCKED, to: SUPERSEDED}
   - {from: LOCK_PENDING, to: LOCKED}
   - {from: LOCK_PENDING, to: SUPERSEDED}
+  # 剧本修订是叶子对象：没有子对象挂在它下面，冻结策略不适用。
+  frozen_states: []
   note: >-
     剧本导入（SCRIPT.IMPORT）产出 DRAFT 状态的可编辑剧本版本（ADR-032：AI 拆镜输出默认草案，人工确认前不得写入 ScriptLock）；
     锁定采用两步审批流——申请人（requested_by）提交锁定申请 DRAFT→LOCK_PENDING（SCRIPT.LOCK.REQUEST），
@@ -707,6 +728,9 @@ objects:
   - {from: ACTIVE, to: ARCHIVED}
   - {from: DRAFT, to: ACTIVE}
   - {from: DRAFT, to: ARCHIVED}
+  # 冻结子集合（子对象 Scene / ScriptRevision）：ARCHIVED 为终态，没有回到
+  # DRAFT/ACTIVE 的路，归档后登记的子对象只会成为无法推进的悬空事实。
+  frozen_states: [ARCHIVED]
   note: >-
     Episode 为项目层级下的集数聚合，归属于 Project（Project → Episode 一对多）；
     剧本导入（SCRIPT.IMPORT）与锁定（SCRIPT.LOCK.APPROVE）的 scope 为 project/episode，必须先有归属该项目的 Episode 才能挂载剧本版本，
@@ -726,6 +750,10 @@ objects:
   - {from: ACTIVE, to: ARCHIVED}
   - {from: DRAFT, to: ACTIVE}
   - {from: DRAFT, to: ARCHIVED}
+  # 冻结子集合（子对象 Shot）：ARCHIVED 为终态，归档后不得再挂新镜头。
+  # 与 SC-5 的 A 侧守卫（归档时不得存在 IN_PRODUCTION 镜头）方向相反、互不替代：
+  # 前者挡「归档后新增」，后者挡「归档时有在制」，两条都必须有。
+  frozen_states: [ARCHIVED]
   note: >-
     正文只给出层级关系（项目包含集、集包含场景、场景包含镜头），从未定义 Scene 的字段表， 也从未给出状态集。本条目采用与 Episode 完全一致的生命周期形状——理由不是照抄，
     而是 同一层级的三个聚合若各有一套命名不同的状态，实现方要为每一层单独学习，跨层校验也无法 复用同一套判定；Scene 与 Episode 在归属语义上没有差异，
@@ -773,6 +801,10 @@ objects:
   - transition: {from: BLOCKED, to: CANCELLED}
     fields: [cancellation_ref, cancelled_at]
     rule: 同上：阻塞导致的取消仍须有授权记录，不能把「卡住了」直接变成「不做了」
+  # 刻意留空：Shot 不是「建完就封存」的容器——返工任务必须在 PRODUCTION_COMPLETE
+  # 之后仍能创建（rework_basis_ref 指向该状态下的回退依据）。若在这里冻结，
+  # 合法返工流程会被挡在门外。这个判断若变化，必须改契约（而不是改代码）。
+  frozen_states: []
   note: >-
     正文从未给出 Shot 的完整状态集，唯一出现的 status: IN_PRODUCTION 只是 8.3 的示例值， 不是枚举；以下五态是项目所有者 2026-11-18 明确给出的新增设计决策，
     不冒充正文规定。 三个刻意的边界：不设 IN_REVIEW（审核结论归 GateInstance，按 scope=shot 绑定精确 shot_revision_id，
@@ -800,6 +832,8 @@ objects:
   - {from: IN_REVIEW, to: RETURNED}
   - {from: PENDING_CONFIRM, to: DISCARDED}
   - {from: PENDING_CONFIRM, to: IN_REVIEW}
+  # 草案是叶子对象：确认后由 Shot / ShotRevision 承接内容，草案本身不再长出子对象。
+  frozen_states: []
   note: >-
     拆镜草案的状态集按所有者设计固定为五态：待确认（PENDING_CONFIRM，草案生成后的初始态）、 确认中（IN_REVIEW，有人认领审阅，避免两名审核人同时确认）、已确认（CONFIRMED，
     必须携带 confirmed_shot_revision_refs 完成「确认即绑定」）、已退回（RETURNED，必须写明退回原因）、 已废弃（DISCARDED）。
@@ -820,6 +854,8 @@ objects:
   initial_state: ACTIVE
   transitions:
   - {from: ACTIVE, to: SUPERSEDED}
+  # 修订是叶子对象：不可变版本链，没有子对象挂在修订下。
+  frozen_states: []
   note: >-
     正文没有为 ShotRevision 单列状态机，也没有给出审核/生产进度状态集；此处的两态是从不可变 版本语义推导的最小必要集，不是正文原文。
     依据：8.2 规定 ShotRevision 保存每次内容修订、 标识不得复用；2635 行规定任何分支合并都生成新的 ShotRevision「并保留父版本、差异摘要、 审批记录和来源引用；

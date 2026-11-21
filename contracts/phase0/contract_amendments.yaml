@@ -936,10 +936,60 @@ amendments:
     resolved_residual_risks:
       - 'A15 的「归档之后仍可在其下新增镜头」：已由 Lifecycle.frozen_states + 四条创建路径接线关闭，对应条目自 A15 residual_risks 删除'
     residual_risks:
-      - 'Project 的 frozen_states 含 COMPLETED 与 ARCHIVED：COMPLETED 是否应冻结属语义裁定，当前按主线实现保留；若业务上允许「交付后再补录集数」，需改 frozen_states 元组并另立修订'
       - '冻结判定依赖父行锁（FOR SHARE）才能并发正确：四条创建路径都先取父行锁再判定，加锁顺序固定为 Project → Episode → Scene。该顺序当前无自动判据，靠评审与本 ADR 约束'
       - '闸门的冻结豁免表（organizations / rework_tasks / shots）目前是显式登记而非派生：新增父表时必须表态，但豁免理由的正确性仍需人工判断'
-      - 'Shot 的 frozen_states 为空是刻意的：ReworkTask 要在 PRODUCTION_COMPLETE 之后创建，Shot 不是「建完就封存」的容器。这个判断若变化，闸门不会自动发现，需人工复核'
+
+  - id: 'V205-R14-A20'
+    title: '冻结策略进入状态机契约——COMPLETED 语义裁定，冻结态从「代码里的判断」变成「契约事实」'
+    retroactive: false
+    recorded_at: '2026-11-21'
+    discovered_by: >-
+      A19 residual_risks 的第一条：Project 的 frozen_states 含 COMPLETED，是否应冻结属
+      语义裁定；并明确指出「闸门不会替你发现这个判断变化，它只检查有没有声明」。
+      所有者以「按最优的来」授权按最优方案处置，不再停留在待确认状态。
+    reason: >-
+      裁定一：COMPLETED 继续冻结子集合（不移出元组）。理由不是偏好，而是转移图上的
+      事实——Project 从 COMPLETED 只有一条出边（→ARCHIVED），没有任何回到 ACTIVE /
+      DRAFT 的路。因此在该状态下登记的子对象会合法落库，却永远无法伴随父对象回到可
+      推进的状态；而 COMPLETED 同时是「交付范围已固化」的事实，事后追加会改写已成立
+      的交付记录，且不留任何状态变更痕迹。反过来，「交付后补录」这个需求也不该靠把
+      COMPLETED 移出冻结集来实现：那会让补录绕过状态变更事实与审计。正确路径是另行
+      登记重开边（COMPLETED→ACTIVE）与专属动作，让补录以一次可审计的状态变更开始；
+      当前契约未登记该边，故本项目尚不支持该流程，冻结不减少任何已支持的能力。
+
+      裁定二：把冻结策略搬进契约（state_machines.yaml 每个已实现对象的 frozen_states）。
+      在此之前它是唯一不受契约治理的生命周期事实：改一行元组就能让归档项目重新接受
+      新集数，而四道闸门全绿——A19 的覆盖判据只回答「有没有声明」，不回答「声明的是
+      哪几个状态」。搬迁后，判断变化有三处可见痕迹：代码与契约不一致→新增判据
+      check_frozen_state_contract() 红；契约文件哈希变化→freeze_manifest --check 红；
+      重新签清单→需要一条已批准的修订登记。三步都要求人看见「冻结语义变了」，而不是
+      让一行 diff 混在别的改动里。
+
+      「没声明」与「声明为空」在运行期同形，因此 9 个已实现对象一律显式写出该字段
+      （不冻结写 []），并由判据双向比对（缺失→红、未声明状态→红、重复→红、两侧集合
+      不等→红、有 Lifecycle 未登记→红）。未新增动作/对象/状态机，计数不变。
+    adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
+    approved_by: '项目所有者（2026-11-21 会话内「按最优的来」授权按最优方案处置 A19 剩余语义裁定）'
+    approved_at: '2026-11-21'
+    source_commits: []
+    additions:
+      actions: []
+      openapi_operations: []
+      schema_objects: []
+      state_machines: []
+    counts_after:
+      actions: 96
+      openapi_operations: 96
+      schema_objects: 84
+      state_machines: 43
+    resolved_residual_risks:
+      - 'A19 的「Project 的 frozen_states 含 COMPLETED 是否应冻结属语义裁定」：已裁定保留冻结（COMPLETED 无回到 ACTIVE/DRAFT 的路，且交付事实已固化），并把冻结态提升为契约事实，对应条目自 A19 删除'
+      - 'A19 的「Shot 的 frozen_states 为空若变化，闸门不会自动发现」：已由契约↔实现一致性判据 + 契约哈希闭环，对应条目自 A19 删除'
+    residual_risks:
+      - '加锁顺序（Project → Episode → Scene）仍无自动判据，靠评审与本 ADR 约束（承自 A19）'
+      - '冻结豁免表（organizations / rework_tasks / shots）的理由正确性仍需人工判断（承自 A19）'
+      - '契约中的 frozen_states 只对 9 个已实现状态机强制：其余 34 个 text_authority_only 对象尚未表态冻结策略，实现时须补登，否则新判据会以「找不到条目/缺字段」报红'
+      - '「交付后补录」若成为真实业务需求，正确落点是登记 COMPLETED→ACTIVE 重开边与专属动作（含审批与事件），而不是把 COMPLETED 移出 frozen_states；该边当前未登记，属未支持流程而非缺口'
 
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []
