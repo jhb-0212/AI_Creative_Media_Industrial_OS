@@ -231,6 +231,32 @@ CLASSIFICATION: dict[tuple[str, str], Edge | NonRef] = {
     ("shot_planning.shot_revisions", "scene_ref"): NonRef(
         "soft_pointer", "草案期场次业务编码，仅作来源追溯；归属由 scene_id 承担"
     ),
+    # ---- 批次十/十一：契约字段落库后新增的列 ----
+    # 三条真实引用边必须建外键，不登记成 NonRef——那等于把「跨项目借用
+    # 剧本依据/约束包/上一版」从判据里删掉（批次十一已建四列复合外键）。
+    ("shot_planning.shot_revisions", "basis_script_revision_id"): Edge(
+        "project_planning.script_revisions",
+        "剧本依据必须是同项目同租户同组织的真实版本；legacy 夹具行为 NULL，由 ck_sr_basis_script 限死"
+    ),
+    ("shot_planning.shot_revisions", "constraint_pack_id"): Edge(
+        "shot_planning.constraint_packs",
+        "applicability=BOUND 时必填且须同项目；NOT_APPLICABLE 时必须为空，双向 CHECK 已落库"
+    ),
+    ("shot_planning.shot_revisions", "supersedes_shot_revision_id"): Edge(
+        "shot_planning.shot_revisions",
+        "自引用复合外键：只允许同项目的上一版修订被取代；首版为空合法"
+    ),
+    # 三条非边：jsonb 内嵌精确版本引用，单列外键表达不了；地点是外部
+    # 主数据/文本引用，不决定项目归属（归属由 scene_id 承担）。
+    ("shot_planning.shot_revisions", "intent_ref"): NonRef(
+        "embedded_object", "jsonb 内嵌 {intent_id, intent_version}，精确版本引用且由契约 schema 校验结构"
+    ),
+    ("shot_planning.shot_revisions", "source_draft_ref"): NonRef(
+        "embedded_object", "jsonb 内嵌 {draft_id, draft_version}；与 shots.source_draft_ref 同类"
+    ),
+    ("shot_planning.shot_revisions", "location_ref"): NonRef(
+        "soft_pointer", "地点为外部主数据引用/文本，不是项目实体；归属由 scene_id 承担"
+    ),
     ("generation_execution.generation_tasks", "budget_reservation_ref"): NonRef(
         "reservation", "预算预留单号，由预算域生成"
     ),

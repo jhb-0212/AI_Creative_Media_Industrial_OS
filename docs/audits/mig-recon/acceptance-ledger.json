@@ -1,9 +1,9 @@
 {
   "meta": {
-    "db": "tmp_batch9_mutant",
+    "db": "ai_film_industrial",
     "host": "localhost",
     "port": 15444,
-    "ts": "2026-11-21 12:06:45",
+    "ts": "2026-11-21 12:37:23",
     "server": "16.15 (Debian 16.15-1.pgdg13+2)"
   },
   "rows": [
@@ -260,12 +260,12 @@
       "constraint": "fk_rework_tasks_project_tenant_org",
       "parent": null,
       "note": "",
-      "table_exists": false,
-      "constraint_exists": false,
-      "convalidated": null,
-      "violations": null,
-      "verdict": "未建立（表不存在）",
-      "pass": false
+      "table_exists": true,
+      "constraint_exists": true,
+      "convalidated": true,
+      "violations": 0,
+      "verdict": "PASS",
+      "pass": true
     },
     {
       "table": "project_planning.projects",
@@ -483,7 +483,7 @@
       "note": "期望 0"
     }
   ],
-  "passed": 34,
+  "passed": 35,
   "total": 35,
-  "closed": false
+  "closed": true
 }

@@ -1,6 +1,6 @@
 # ADR-R27：Scene / Shot 运行时入口与父链冻结
 
-状态：已裁定；Scene 运行时已实施，Shot 运行时押后（2026-11-21）
+状态：已裁定；Scene 运行时已实施；Shot 前置根因（修订表对齐契约 + 三条引用边）已于 2026-11-21 落地（批次十/十一），Shot 运行时入口仍押后
 关联：ADR-R19（Scene 契约）、ADR-R18（Shot 契约）、ADR-R11（不可变守卫）、ADR-R23（状态推进事实）、ADR-R25（最小权限）
 草案：`docs/adr/ADR-R27-scene-shot-runtime-entry.PROPOSED.md`（原件保留，不回改）
 契约修订：`V205-R14-A13`（先登记，后改派生文件）
@@ -92,7 +92,9 @@
 ## 未闭合（显式登记，不是遗漏）
 
 1. Shot 域仍无创建/推进入口：`SHOT.REVISION.CONFIRM` 与 `SHOT.STATUS.CHANGE` 必须成对落地。
-2. `shots.rework_basis_ref → workflow.rework_tasks` 仍为 DANGLING：`ReworkTask` 有契约无表。
+   （前置已就绪：批次十让 `shot_revisions` 对齐契约 schema、批次十一给三条引用边建复合外键；
+   详见 `docs/audits/2026-11-21-shot-revision-schema-alignment.md`。运行时全栈仍是下一步。）
+2. `shots.rework_basis_ref → workflow.rework_tasks` 的 DANGLING 已消除（批次九建表 + 复合外键）。
 3. `GateInstance` 无 schema；`afs_audit` 的 SELECT 范围尚未逐项论证。
 4. 目标验证库相对主链仍有 9 项 ACL 漂移（详见本轮审计报告），属历史积累，未在本 ADR 范围内消化。
 5. `Scene` 的 `registration_status` 仍为 `PENDING_PHASE1_REVIEW`：本轮补入口，不改状态集。

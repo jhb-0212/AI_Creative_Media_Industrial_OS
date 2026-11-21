@@ -1,8 +1,8 @@
 {
-  "derived": 54,
+  "derived": 60,
   "ok": true,
   "counts": {
-    "PASS": 23,
+    "PASS": 26,
     "NO_FK": 0,
     "FK_NOT_COMPOSITE": 0,
     "PENDING_VALIDATE": 0,
@@ -103,6 +103,20 @@
     },
     {
       "table": "shot_planning.shot_revisions",
+      "column": "basis_script_revision_id",
+      "parent": "project_planning.script_revisions",
+      "status": "PASS",
+      "detail": "fk_sr_basis_script"
+    },
+    {
+      "table": "shot_planning.shot_revisions",
+      "column": "constraint_pack_id",
+      "parent": "shot_planning.constraint_packs",
+      "status": "PASS",
+      "detail": "fk_sr_constraint_pack"
+    },
+    {
+      "table": "shot_planning.shot_revisions",
       "column": "episode_id",
       "parent": "project_planning.episodes",
       "status": "PASS",
@@ -128,6 +142,13 @@
       "parent": "shot_planning.shots",
       "status": "PASS",
       "detail": "fk_shot_revisions_shot_project"
+    },
+    {
+      "table": "shot_planning.shot_revisions",
+      "column": "supersedes_shot_revision_id",
+      "parent": "shot_planning.shot_revisions",
+      "status": "PASS",
+      "detail": "fk_sr_supersedes"
     },
     {
       "table": "shot_planning.shot_specs",

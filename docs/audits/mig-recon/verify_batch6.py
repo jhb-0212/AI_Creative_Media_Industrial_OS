@@ -159,9 +159,27 @@ async def seed_shot(
             scene_ref="SC001",
             episode_id=EPISODE,
             scene_id=scene_id,
-            intent_summary="验收用",
-            shot_description="验收用",
-            revision=1,
+            # 批次十后这些是契约必填列。给合法值而不是让通用占位填
+            # varchar(32)（"probe-<col>" 超长会报截断，看起来像迁移坏了）。
+            # confirmed_by 用 legacy 哨兵，才能合法地不填剧本依据：夹具
+            # 本来就不是人类确认的修订，不能为过 CHECK 编造一条剧本版本。
+            description="验收用",
+            narrative_intent="验收用",
+            character_refs=json.dumps([]),
+            location_ref="LOC-B6",
+            prop_refs=json.dumps([]),
+            constraint_pack_applicability="NOT_APPLICABLE",
+            creative_autonomy="L1",
+            risk=json.dumps({"level": "LOW"}),
+            quality_profile="UNIFIED_HIGH_QUALITY",
+            intent_ref=json.dumps({"intent_id": "intent-b6", "intent_version": 1}),
+            script_anchors=json.dumps(["EP001:1"]),
+            change_origin="BREAKDOWN_CONFIRM",
+            changed_fields=json.dumps([]),
+            provenance=json.dumps({"legacy_backfill": True}),
+            confirmed_by="LEGACY_BACKFILL",
+            confirmed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            revision_no=1,
         )
         await lab.insert_minimal_row(
             c,
