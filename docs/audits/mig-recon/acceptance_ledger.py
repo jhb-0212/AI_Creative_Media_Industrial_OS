@@ -355,7 +355,85 @@ async def quarantine_stats(conn: asyncpg.Connection) -> dict[str, object]:
     }
 
 
-def render_md(rows: list[dict[str, object]], q: dict[str, object], meta: dict[str, object]) -> str:
+# ─────────────────────── 不变量复算（不是外键，是「不得存在」） ───────────────────────
+# 为什么外键台账兜不住它
+# --------------------
+# 外键只能表达「引用的行存在」，表达不了「某类行**不存在**」。批次六的
+# 「归档场次不得留下 IN_PRODUCTION 镜头」属于后者，因此无法进 `Row` 台账。
+#
+# 但把它写成「触发器已存在」是不行的：那是**装置存在**，不是**不变量成立**——
+# 正是 D-10.1 禁止的「以迁移已执行替代判定」。所以这里放两条**可复算**的检查：
+# 一条数违例行（能 FAIL），一条数守卫函数是否缺失（防止有人删了函数还以为在保护）。
+INVARIANTS: tuple[tuple[str, str, str | None], ...] = (
+    (
+        "归档场次残留 IN_PRODUCTION 镜头（违例行数）",
+        "SELECT count(*) FROM project_planning.scenes sc "
+        "WHERE sc.status = 'ARCHIVED' AND EXISTS ("
+        "  SELECT 1 FROM shot_planning.shots s "
+        "  WHERE s.scene_id = sc.scene_id AND s.status = 'IN_PRODUCTION')",
+        "project_planning.scenes_archive_guard()",
+    ),
+    (
+        "归档守卫函数缺失数",
+        "SELECT count(*) FROM (VALUES "
+        "('project_planning.scenes_archive_guard'), "
+        "('shot_planning.shots_parent_scene_guard')) v(f) "
+        "WHERE to_regprocedure(v.f || '()') IS NULL",
+        "project_planning.scenes_archive_guard()",
+    ),
+)
+
+
+async def collect_invariants(conn: asyncpg.Connection) -> list[dict[str, object]]:
+    """三态：PASS / FAIL / N-A。
+
+    N-A 的语义是「该层尚未应用，本轮不可判」，**不折算成 PASS**，且单列出来
+    供人裁决——把未应用算成通过，会让台账在只有一半迁移的库上显示闭环。
+    """
+    out: list[dict[str, object]] = []
+    for title, sql, requires in INVARIANTS:
+        if requires is not None and await conn.fetchval(
+            f"SELECT to_regprocedure('{requires}') IS NULL"
+        ):
+            out.append(
+                {
+                    "title": title,
+                    "status": "N-A",
+                    "actual": None,
+                    "note": "批次六未应用（守卫函数不存在），本轮不判也不计入通过率",
+                }
+            )
+            continue
+        try:
+            actual = await conn.fetchval(sql)
+        except asyncpg.PostgresError as exc:
+            # 列/表不存在 ≠ 0 条违规。判「不可计算」，绝不落成 0。
+            out.append(
+                {
+                    "title": title,
+                    "status": "FAIL",
+                    "actual": None,
+                    "note": f"不可计算：{type(exc).__name__}: {exc}",
+                }
+            )
+            continue
+        out.append(
+            {
+                "title": title,
+                "status": "PASS" if actual == 0 else "FAIL",
+                "actual": actual,
+                "note": "期望 0",
+            }
+        )
+    return out
+
+
+def render_md(
+    rows: list[dict[str, object]],
+    q: dict[str, object],
+    meta: dict[str, object],
+    invariants: list[dict[str, object]] | None = None,
+) -> str:
     passed = sum(1 for r in rows if r["pass"])
     overall = f"PASS（{len(rows)}/{len(rows)} 闭环）" if passed == len(rows) else f"未通过（{passed}/{len(rows)}）"
 
@@ -429,6 +507,30 @@ def render_md(rows: list[dict[str, object]], q: dict[str, object], meta: dict[st
         "> 不得以「迁移已执行」「约束已创建」替代该项判定（D-10.1 四条不可接受结果）。",
         "",
     ]
+    if invariants:
+        lines += [
+            "## 四、跨表不变量（外键表达不了的「不得存在」）",
+            "",
+            "| 检查项 | 判定 | 实测 | 说明 |",
+            "| --- | --- | --- | --- |",
+        ]
+        for inv in invariants:
+            lines.append(
+                f"| {inv['title']} | {inv['status']} | {inv['actual']} | {inv['note']} |"
+            )
+        na = [i["title"] for i in invariants if i["status"] == "N-A"]
+        if na:
+            lines += [
+                "",
+                f"> 有 **{len(na)}** 项为 N-A（该层未应用），不计入通过率，单列供裁决："
+                f"{'、'.join(na)}。",
+            ]
+        lines += [
+            "",
+            "> 「守卫函数存在」只说明装置没被删掉；**不变量成立**由上面那条违例行数证明。",
+            "> 两者不可互相替代。",
+            "",
+        ]
     return "\n".join(lines)
 
 
@@ -439,6 +541,7 @@ async def run(db: str, port: int, host: str = "localhost", write: bool = True) -
     try:
         rows = await collect(conn)
         q = await quarantine_stats(conn)
+        invariants = await collect_invariants(conn)
         server = await conn.fetchval("SHOW server_version")
     finally:
         await conn.close()
@@ -447,16 +550,20 @@ async def run(db: str, port: int, host: str = "localhost", write: bool = True) -
 
     ts = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     meta = {"db": db, "host": host, "port": port, "ts": ts, "server": server}
+    inv_fail = [i for i in invariants if i["status"] == "FAIL"]
     result = {
         "meta": meta,
         "rows": rows,
         "quarantine": q,
+        "invariants": invariants,
         "passed": sum(1 for r in rows if r["pass"]),
         "total": len(rows),
-        "closed": all(r["pass"] for r in rows),
+        # 闭环判据同时含两类：外键台账全绿 ∧ 不变量无 FAIL。
+        # N-A 不影响闭环（该层未应用），但会单列在报告里等人裁决。
+        "closed": all(r["pass"] for r in rows) and not inv_fail,
     }
     if write:
-        OUT_MD.write_text(render_md(rows, q, meta), encoding="utf-8")
+        OUT_MD.write_text(render_md(rows, q, meta, invariants), encoding="utf-8")
         OUT_JSON.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     return result
 
@@ -485,6 +592,10 @@ SELFTEST_MIGRATIONS: tuple[tuple[str, str], ...] = (
     ("*_ownership_fk_episodes.py", "ownership_fk_batch3"),
     ("*_ownership_consistency_fk.py", "ownership_fk_batch4"),
     ("*_scene_shot_tables.py", "ownership_batch5"),
+    # 批次六只建函数与触发器，不建外键、不加列。它进这份清单的理由不是
+    # 「有外键要验」，而是自检本身要跑通：`repair_row_allowed` 等基线对象
+    # 来自批次一/二，漏一层会让自检在错误的前提上求值。
+    ("*_scene_archive_invariant.py", "ownership_batch6"),
 )
 
 

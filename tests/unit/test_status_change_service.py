@@ -138,6 +138,11 @@ class _FakeEpisodeRepository(EpisodeRepository):
                 return ep
         return None
 
+    async def get_by_project_ref_for_child_write(
+        self, project_id: str, episode_ref: str
+    ) -> Episode | None:
+        return await self.get_by_project_ref(project_id, episode_ref)
+
 
 # --------------------------------------------------------------------------- #
 # Project.change_status

@@ -29,6 +29,7 @@ import pytest
 from packages.errors.error_codes import DomainError
 from packages.identity.principal import Principal
 from packages.shared.outbox_writer import OutboxWriter
+from services.project_planning.domain.episode import Episode
 from services.project_planning.domain.script import ScriptRevision
 from services.project_planning.repository.episode_repo import EpisodeRepository
 from services.project_planning.repository.project_repo import ProjectRepository
@@ -120,6 +121,19 @@ class _MatchingEpisodeRepository(EpisodeRepository):
 
     async def get_by_project_ref(self, project_id: str, episode_ref: str):  # type: ignore[override]
         return object()
+
+    async def get_by_project_ref_for_child_write(  # type: ignore[override]
+        self, project_id: str, episode_ref: str
+    ):
+        # 创建路径要读父状态的冻结标志，故返回真实聚合（object() 无 status 属性）。
+        return Episode(
+            entity_id="ep-child-write",
+            project_id=project_id,
+            episode_ref=episode_ref,
+            title="e",
+            created_by="u",
+            tenant_id=uuid.uuid4(),
+        )
 
 
 def _script() -> ScriptRevision:

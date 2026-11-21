@@ -118,3 +118,24 @@ class SqlAlchemyEpisodeRepository(EpisodeRepository):
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
         return _to_domain(model) if model is not None else None
+
+    async def get_by_project_ref_for_child_write(
+        self, project_id: str, episode_ref: str
+    ) -> Episode | None:
+        """``FOR SHARE`` 读取父集数（导入剧本版本前用）。
+
+        ``with_for_update(read=True)`` 生成 ``FOR SHARE``。**不是** ``key_share=True``：
+        后者生成的 ``FOR KEY SHARE`` 只与改键值/删除冲突，挡不住归档的
+        ``UPDATE ... SET status``——实测见 ``verify_parent_freeze_lock.py`` 的 H1/H2。
+        """
+        stmt = (
+            select(EpisodeModel)
+            .where(
+                EpisodeModel.project_id == project_id,
+                EpisodeModel.episode_ref == episode_ref,
+            )
+            .with_for_update(read=True)
+        )
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        return _to_domain(model) if model is not None else None

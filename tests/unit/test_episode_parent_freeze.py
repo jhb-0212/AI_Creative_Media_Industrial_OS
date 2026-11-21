@@ -73,6 +73,13 @@ class _EpisodeRepo(EpisodeRepository):
                 return ep
         return None
 
+    async def get_by_project_ref_for_child_write(
+        self, project_id: str, episode_ref: str
+    ) -> Episode | None:
+        # 假件没有并发概念，锁语义由真库装置验证（verify_parent_freeze_*）；
+        # 这里只保证「读到的是哪一行」与无锁版一致。
+        return await self.get_by_project_ref(project_id, episode_ref)
+
 
 class _Outbox(OutboxWriter):
     def __init__(self) -> None:

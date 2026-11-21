@@ -1,5 +1,5 @@
 {
-  "at": "2026-11-20T17:16:37+08:00",
+  "at": "2026-11-21T09:36:26+08:00",
   "passed": 15,
   "failed": 0,
   "not_applicable": 0,
@@ -8,9 +8,9 @@
     {
       "id": "P0",
       "phase": "基线",
-      "desc": "回退到 f8a9b0c1d2e3 已应用的状态（撤掉 3 层）",
+      "desc": "回退到 f8a9b0c1d2e3 已应用的状态（撤掉 4 层）",
       "ok": true,
-      "detail": "i9d0e1f2a3b4/h8c9d0e1f2a3/g7b8c9d0e1f2"
+      "detail": "j0e1f2a3b4c5/i9d0e1f2a3b4/h8c9d0e1f2a3/g7b8c9d0e1f2"
     },
     {
       "id": "P1",

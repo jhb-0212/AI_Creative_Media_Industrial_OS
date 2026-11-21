@@ -1,15 +1,15 @@
 # 批次五（i9d0e1f2a3b4）建表与接边 — 行为验证
 
-- 执行时间：2026-11-20T17:16:26+08:00
+- 执行时间：2026-11-21T09:36:35+08:00
 - 目标：`localhost:15444` 克隆库 `t5_lab`（模板 `ai_film_industrial`），用完即删
 - 基线：克隆后回退到 `h8c9d0e1f2a3` 已应用（撤掉批次五）
-- 迁移：`C:/Users/EDY/Desktop/AI制作工作台/AI_Creative_Media_Industrial_OS/data/migrations/pending/feat-ownership/i9d0e1f2a3b4_scene_shot_tables.py`
+- 迁移：`data/migrations/pending/feat-ownership/i9d0e1f2a3b4_scene_shot_tables.py`
 - 结果：**26/26**
 
 | # | 阶段 | 用例 | 结果 | 说明 |
 | --- | --- | --- | --- | --- |
 | P0a | 基线 | 清空业务行（避免上一轮遗留的正式修订挡住回退） | PASS | projects 3→0，asset_versions 3→0 |
-| P0 | 基线 | 回退到 h8c9d0e1f2a3 已应用（撤掉 1 层） | PASS | i9d0e1f2a3b4 |
+| P0 | 基线 | 回退到 h8c9d0e1f2a3 已应用（撤掉 2 层） | PASS | j0e1f2a3b4c5/i9d0e1f2a3b4 |
 | P1 | 前提 | 基线里 shots / scenes 均不存在（否则测的不是本迁移） | PASS | 命中 0 张 |
 | P2 | 前提 | 两个同组织项目 + 各自一集 | PASS | b5-pa / b5-pb |
 | G1 | 缺口 | 建表前：shot_id 写一个不存在的镜头，插入成功（裸 varchar 无人管） | PASS | INSERT 0 1 |

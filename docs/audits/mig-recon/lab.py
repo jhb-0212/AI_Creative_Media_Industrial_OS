@@ -18,7 +18,10 @@ import hashlib
 import importlib.util
 import json
 import sys
+import uuid as _uuid
+from datetime import date as _date
 from datetime import datetime, timezone
+from decimal import Decimal as _Decimal
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -151,6 +154,11 @@ OWNERSHIP_STACK: tuple[str, ...] = (
     # 再撤批次四——漏掉本层时 `rewind_to` 会直接撞 `DependentObjectsStillExist`
     # （对方报的是「批次四撤不动」，根因却是「批次五没进栈」）。
     "i9d0e1f2a3b4",
+    # 批次六：归档场次「不得留下在制品」的双向守卫。它是**函数与触发器**，
+    # 不是表——回退时残留的函数不会让任何表级断言变红，只会在下次应用时
+    # 出现「CREATE OR REPLACE 静默覆盖旧实现」，于是测到的是上一版逻辑。
+    # 故这一层进栈，并在 assert_rewound 里单独数一次。
+    "j0e1f2a3b4c5",
 )
 
 
@@ -302,6 +310,11 @@ async def assert_rewound(conn: asyncpg.Connection) -> list[str]:
         "AND conname IN ('fk_shot_specs_shot_project','fk_shot_visual_plans_shot_project',"
         "'fk_generation_tasks_shot_project','fk_shot_route_selections_shot_project',"
         "'fk_constraint_packs_scene_project','fk_shot_revisions_shot_project')",
+        # 批次六是函数而非表。表级断言全绿也拦不住「函数没撤」——
+        # 而残留的函数会让下次 CREATE OR REPLACE 静默覆盖，测到旧实现。
+        "批次六归档守卫": "SELECT (to_regprocedure("
+        "'project_planning.scenes_archive_guard()') IS NOT NULL)::int"
+        " + (to_regprocedure('shot_planning.shots_parent_scene_guard()') IS NOT NULL)::int",
         # 批次四单列两项：一批里有**两类**对象（父表唯一键、子表复合外键），
         # 它们的回退方向相反且互不牵连。只记一个聚合数时，「唯一键撤了但外键没撤」
         # 这种半回退会算出一个非零的、看起来正常的总数。
@@ -380,6 +393,94 @@ async def fn_hash(conn: asyncpg.Connection, schema: str, name: str) -> str:
         name,
     )
     return hashlib.sha256((body or "").encode()).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# 造数据（派生列，不写死清单）
+# ---------------------------------------------------------------------------
+# 为什么从 `pg_attribute` 派生而不是在装置里手写 INSERT 列清单
+# ------------------------------------------------------------
+# 本项目已经三次栽在「清单只列当时用得上的」：`qc_reports` 漏列、`episodes`
+# 从未进判断、`OWNERSHIP_STACK` 漏第五层。造数用的列清单是同一形态——表加一列
+# 后，手写 INSERT 会在下次跑该装置时炸，而报错是 `null value in column ...`,
+# 看起来像「表结构变了」，实际是「清单没跟上」。派生则永远与库一致。
+#
+# 类型覆盖不到时**直接报错**，不猜：猜出来的值会让用例在某天静默进入错误分支。
+#
+# 占位值必须是 **Python 类型对象**而不是字符串：asyncpg 的二进制协议按类型
+# 编码，传 "2026-01-01T00:00:00+00:00" 给 timestamptz 会得到
+# `DataError: expected a datetime.date or datetime.datetime instance` ——
+# 看起来像「表结构不对」，实际是夹具给了错类型。
+_FALLBACK_BY_TYPE = {
+    "uuid": lambda name: _uuid.UUID(int=0),
+    "varchar": lambda name: f"probe-{name}",
+    "text": lambda name: f"probe-{name}",
+    "bpchar": lambda name: "x",
+    "int2": lambda name: 1,
+    "int4": lambda name: 1,
+    "int8": lambda name: 1,
+    "float4": lambda name: 0.0,
+    "float8": lambda name: 0.0,
+    "numeric": lambda name: _Decimal("0"),
+    "bool": lambda name: False,
+    "json": lambda name: "{}",
+    "jsonb": lambda name: "{}",
+    "timestamp": lambda name: datetime(2026, 1, 1),
+    "timestamptz": lambda name: datetime(2026, 1, 1, tzinfo=timezone.utc),
+    "date": lambda name: _date(2026, 1, 1),
+}
+
+
+async def insert_minimal_row(
+    conn: asyncpg.Connection, table: str, **overrides: object
+) -> dict[str, object]:
+    """插入一行「只满足 NOT NULL」的记录，返回实际写入的列值。
+
+    ``overrides`` 覆盖任意列（含可空列）。未覆盖的 NOT NULL 无默认列按类型
+    填占位值；类型不在映射表内直接抛错。
+    """
+    rows = await conn.fetch(
+        """
+        SELECT a.attname,
+               t.typname,
+               a.attnotnull,
+               a.atthasdef,
+               a.attidentity <> '' AS is_identity,
+               a.attgenerated <> '' AS is_generated
+        FROM pg_attribute a
+        JOIN pg_type t ON t.oid = a.atttypid
+        WHERE a.attrelid = $1::regclass
+          AND a.attnum > 0
+          AND NOT a.attisdropped
+        ORDER BY a.attnum
+        """,
+        table,
+    )
+
+    values: dict[str, object] = {}
+    for row in rows:
+        name = row["attname"]
+        if row["is_identity"] or row["is_generated"]:
+            continue
+        if name in overrides:
+            values[name] = overrides[name]
+            continue
+        if not row["attnotnull"] or row["atthasdef"]:
+            continue
+        maker = _FALLBACK_BY_TYPE.get(row["typname"])
+        if maker is None:
+            raise RuntimeError(
+                f"{table}.{name} 的 NOT NULL 列类型 {row['typname']} 无占位规则，"
+                "请在 overrides 里显式给出"
+            )
+        values[name] = maker(name)
+
+    cols = ", ".join(values)
+    marks = ", ".join(f"${i}" for i in range(1, len(values) + 1))
+    await conn.execute(
+        f'INSERT INTO {table} ({cols}) VALUES ({marks})', *values.values()
+    )
+    return values
 
 
 # ---------------------------------------------------------------------------

@@ -1,17 +1,17 @@
 # 归属栈角色授权完整性验证（名单式授权删除后）
 
-- 执行时间：2026-11-20T17:16:47+08:00
+- 执行时间：2026-11-21T09:36:59+08:00
 - - 目标：`localhost:15444` 克隆库 `gx_lab`（模板 `ai_film_industrial`），用完即删
-- - 迁移源：`C:\Users\EDY\Desktop\AI制作工作台\AI_Creative_Media_Industrial_OS\data\migrations\pending\feat-ownership`
+- - 迁移源：`data\migrations\pending\feat-ownership`
 - - 受守卫表：13 张（清单取自 `b0c9.GUARD_ORDER`，不手写）
 - 结果：**11/11**
 
 | # | 阶段 | 用例 | 结果 | 说明 |
 | --- | --- | --- | --- | --- |
-| G0 | 基线 | 回退归属栈至激活前基线（9 层） | PASS | projects 3→0，asset_versions 3→0；归属三列外键=0; 两列组织外键=0; 例外映射表=0; 例外判定函数=0; RLS 表达式备份表=0; 批次二归属外键=0; 批次三归属外键=0; 批次五新表=0; 批次五收敛边=0; 批次四父表唯一键=0; 批次四复合外键=0 |
-| G1 | 中间态 | 两个判定函数已创建（b0c9 之后） | PASS | allows=39539 map=39538 |
+| G0 | 基线 | 回退归属栈至激活前基线（10 层） | PASS | projects 3→0，asset_versions 3→0；归属三列外键=0; 两列组织外键=0; 例外映射表=0; 例外判定函数=0; RLS 表达式备份表=0; 批次二归属外键=0; 批次三归属外键=0; 批次五新表=0; 批次五收敛边=0; 批次六归档守卫=0; 批次四父表唯一键=0; 批次四复合外键=0 |
+| G1 | 中间态 | 两个判定函数已创建（b0c9 之后） | PASS | allows=41738 map=41737 |
 | G2 | 中间态 | 此刻的写者均已持有函数 EXECUTE | PASS | 无漂移 |
-| G3 | 终态 | 归属栈全部应用（9 层，末层 i9d0e1f2a3b4） | PASS | 9 层 |
+| G3 | 终态 | 归属栈全部应用（10 层，末层 j0e1f2a3b4c5） | PASS | 10 层 |
 | G4 | 终态 | 不变量：对受守卫表有写权限者必持两函数 EXECUTE（37 个 角色×表） | PASS | 零漂移 |
 | G4b | 终态 | 写者矩阵非空 | PASS | 7 个角色：afs_data_repair, postgres, svc_asset, svc_generation_execution, svc_qc_governance, svc_shot_planning… |
 | G5 | 终态 | `afs_data_repair` 对两函数均有 EXECUTE（11 张表） | PASS | 全部具备（历史坑：曾只授 allows 不授 map_match） |

@@ -46,3 +46,27 @@ class EpisodeRepository(ABC):
         指定 project，杜绝跨项目悬空引用。
         """
         raise NotImplementedError
+
+    @abstractmethod
+    async def get_by_project_ref_for_child_write(
+        self, project_id: str, episode_ref: str
+    ) -> Episode | None:
+        """**带锁**按项目 + 集数标识读取集数（创建子对象前用）。
+
+        与 ``get_by_project_ref`` 的区别只有一处：对目标行加 ``FOR SHARE``，
+        使「读父状态 → 判定冻结 → 建子对象」与「归档父行」在并发下相遇。
+
+        为什么需要它（实测，见 ``docs/audits/mig-recon/verify_parent_freeze_lock.py``）：
+        - ``FOR KEY SHARE`` **挡不住** ``UPDATE ... SET status``（只与改键值/删除冲突），
+          用它等于没加锁；
+        - ``FOR SHARE`` 与归档的非键列更新冲突，且与子表 INSERT 的外键检查
+          （取 KEY SHARE）不冲突，故不会误伤正常创建；
+        - READ COMMITTED 下等锁结束后读到的是**新版本**（重检），不会拿着旧快照放行。
+
+        调用方必须已处于事务中，否则锁在语句结束即释放、退化为无锁读
+        （见 ``verify_parent_freeze_e2e.py`` 对会话事务边界的端到端断言）。
+
+        刻意**不给默认实现**：有默认实现就等于允许某个适配器悄悄退回无锁读，
+        而没有任何闸门会发现——与 ``transition_to`` 的 ``action`` 参数同理。
+        """
+        raise NotImplementedError

@@ -3,7 +3,7 @@
     "db": "ai_film_industrial",
     "host": "localhost",
     "port": 15444,
-    "ts": "2026-11-20 17:13:43",
+    "ts": "2026-11-21 09:35:59",
     "server": "16.15 (Debian 16.15-1.pgdg13+2)"
   },
   "rows": [
@@ -456,6 +456,20 @@
     "quarantine_projects": 1,
     "ratio": 0.333333
   },
+  "invariants": [
+    {
+      "title": "归档场次残留 IN_PRODUCTION 镜头（违例行数）",
+      "status": "PASS",
+      "actual": 0,
+      "note": "期望 0"
+    },
+    {
+      "title": "归档守卫函数缺失数",
+      "status": "PASS",
+      "actual": 0,
+      "note": "期望 0"
+    }
+  ],
   "passed": 34,
   "total": 34,
   "closed": true
