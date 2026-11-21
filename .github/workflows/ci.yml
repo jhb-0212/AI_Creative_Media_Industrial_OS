@@ -145,6 +145,11 @@ jobs:
         run: uv run python scripts/contract_check.py
       - name: Layering check (铁律 1：依赖方向 + 服务间直连 + 导入期循环)
         run: uv run python scripts/architecture_check.py
+      - name: Merge readiness (静默覆盖缺陷 + 覆盖面防呆，闸门自身的负向测试见 tests/engineering)
+        # 多分支整合的教训机械化：字典重复键/同名顶层定义会静默覆盖、不报任何错；
+        # 覆盖面防呆防止新代码目录天然免疫闸门。轻量模式不含 --git（PR 分支落后
+        # main 是正常的）与 --full（本 job 已逐项跑过 ruff/mypy/contract/arch/freeze）。
+        run: uv run python scripts/merge_readiness.py
 
   permission-negative-tests:
     runs-on: ubuntu-24.04
