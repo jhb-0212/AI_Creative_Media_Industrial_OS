@@ -47,10 +47,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE_DOC = ROOT / "docs" / "baseline" / "AI影视工业化生产平台V2.0.5.md"
+
+# 治理 YAML 统一走严格 loader（拒绝重复映射键）；独立运行时需注入仓库根到 sys.path。
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from packages.shared.yaml_strict import DuplicateYamlKeyError, load_yaml_file  # noqa: E402
 
 # 「游离副本」扫描时跳过的目录：它们不是仓库交付物，把基线正文放进去也不构成
 # 「读者会读到第二份正文」的风险（依赖包与工具缓存的内部文件不会被当作基线引用）。
@@ -112,10 +115,15 @@ ARTIFACTS: tuple[Artifact, ...] = (
 
 
 def _load_yaml(path: Path) -> Any:
-    """读取 YAML；文件缺失属于冻结包损坏，直接抛可读错误而非 AttributeError。"""
+    """读取 YAML；文件缺失/重复键属于冻结包损坏，抛可读错误而非静默覆盖。"""
     if not path.exists():
         raise FreezeDriftError(f"缺少文件：{_rel(path)}")
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
+    try:
+        return load_yaml_file(path)
+    except DuplicateYamlKeyError as exc:
+        # 重复映射键曾让 contract_amendments 的 revocations 块静默失效；
+        # 冻结校验必须把它当作包损坏报红，而不是让 safe_load 隐式取后键。
+        raise FreezeDriftError(f"冻结包 YAML 损坏：{exc}") from exc
 
 
 def _sha256(path: Path) -> str:

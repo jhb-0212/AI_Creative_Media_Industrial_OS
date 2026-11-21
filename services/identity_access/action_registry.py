@@ -32,9 +32,8 @@ from dataclasses import dataclass
 from functools import cache, lru_cache
 from pathlib import Path
 
-import yaml
-
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.yaml_strict import load_yaml_file
 
 # 仓库根 → contracts/action_registry/action_registry.yaml。
 # 本文件位于 <repo>/services/identity_access/action_registry.py，
@@ -115,7 +114,7 @@ def _load_registry() -> dict[str, ActionDefinition]:
     try:
         if not _CONTRACT_PATH.exists():
             raise FileNotFoundError(f"契约缺失: {_CONTRACT_PATH}")
-        data = yaml.safe_load(_CONTRACT_PATH.read_text(encoding="utf-8"))
+        data = load_yaml_file(_CONTRACT_PATH)
         if not isinstance(data, dict):
             raise ValueError(
                 f"action_registry 解析结果不是映射: {type(data).__name__}"

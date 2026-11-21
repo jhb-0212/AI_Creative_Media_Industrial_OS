@@ -31,12 +31,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import asyncpg
-import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
-import acceptance_ledger as ledger
-import lab
-from verify_batch6 import (
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+import acceptance_ledger as ledger  # noqa: E402
+import lab  # noqa: E402
+from verify_batch6 import (  # noqa: E402
     HOST,
     PORT,
     PWD,
@@ -46,6 +49,8 @@ from verify_batch6 import (
     seed_shot,
     sqlstate_of,
 )
+
+from packages.shared.yaml_strict import load_yaml_file  # noqa: E402
 
 LAB = "lab_shot_archive_blocking"
 MIG = (
@@ -323,13 +328,11 @@ async def main() -> int:
 
 
 def _contract_shot_states() -> set[str]:
-    data = yaml.safe_load(
-        (
-            Path(__file__).parents[3]
-            / "contracts"
-            / "state_machines"
-            / "state_machines.yaml"
-        ).read_text(encoding="utf-8")
+    data = load_yaml_file(
+        Path(__file__).parents[3]
+        / "contracts"
+        / "state_machines"
+        / "state_machines.yaml"
     )
     entry = next(o for o in data["objects"] if o.get("object") == "Shot")
     return set(entry["allowed_states"])

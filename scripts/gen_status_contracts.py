@@ -47,9 +47,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 ROOT = Path(__file__).resolve().parent.parent
+
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from packages.shared.yaml_strict import load_yaml_file  # noqa: E402
+
 STATE_MACHINES = ROOT / "contracts" / "state_machines" / "state_machines.yaml"
 ENUM_REGISTRY = ROOT / "contracts" / "enums" / "enum_registry.yaml"
 SCHEMA = ROOT / "contracts" / "schemas" / "object_schemas.schema.json"
@@ -66,7 +69,7 @@ _CLASSES = (_LIFECYCLE, _ENVELOPE_ONLY, _LIFECYCLE_GAP)
 # 权威源读取
 # --------------------------------------------------------------------------- #
 def load_yaml_mapping(path: Path) -> dict[str, Any]:
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data = load_yaml_file(path)
     if not isinstance(data, dict):
         raise ValueError(f"{path} 解析结果不是映射（可能为空文件）")
     return data

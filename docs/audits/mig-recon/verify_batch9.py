@@ -25,11 +25,14 @@ import sys
 from pathlib import Path
 
 import asyncpg
-import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
-import lab
-from verify_batch6 import (
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+import lab  # noqa: E402
+from verify_batch6 import (  # noqa: E402
     HOST,
     ORG,
     PORT,
@@ -42,6 +45,8 @@ from verify_batch6 import (
     seed_shot,
     sqlstate_of,
 )
+
+from packages.shared.yaml_strict import load_yaml_file  # noqa: E402
 
 LAB = "lab_rework_tasks"
 TABLE = "workflow.rework_tasks"
@@ -68,9 +73,7 @@ def contract() -> dict:
         (ROOT / "contracts/schemas/object_schemas.schema.json").read_text(encoding="utf-8")
     )
     definition = schema["definitions"]["ReworkTask"]
-    states = yaml.safe_load(
-        (ROOT / "contracts/state_machines/state_machines.yaml").read_text(encoding="utf-8")
-    )
+    states = load_yaml_file(ROOT / "contracts/state_machines/state_machines.yaml")
     state = next(item for item in states["objects"] if item["object"] == "ReworkTask")
     return {"required": set(definition["required"]), "states": set(state["allowed_states"])}
 

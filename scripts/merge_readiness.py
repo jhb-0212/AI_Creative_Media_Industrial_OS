@@ -31,10 +31,17 @@ B. 静态与契约检查编排（``uv run python scripts/merge_readiness.py --fu
 覆盖面防呆；有负向测试（tests/engineering/test_merge_readiness.py）；
 不把「本次教训列表」硬编码成白名单/黑名单（那会重蹈清单腐烂的覆辙）。
 
+C. 远端基线新鲜度（``--git`` 模式，G5 的机器判定）：
+   - 真实 fetch，失败标 BLOCKED-ENV（不是 PASS、不是代码 FAIL）：
+     没有网络/远端对象就没有证据，禁止基于旧基线合并；
+   - 三方 SHA 核对（GitHub API 远端 main / 本地 origin/main / 目标 HEAD）；
+   - 目标提交对象可读、提交结构合法（tree 行 + 合法父 sha；根提交可无父）。
+   退出码三态：0=PASS / 1=代码缺陷 FAIL / 2=BLOCKED-ENV 环境阻塞。
+
 用法：
     轻量（只静态派生）：  uv run python scripts/merge_readiness.py
     完整（含 CI 全口径）：uv run python scripts/merge_readiness.py --full
-    仅检查工作树/分支关系：uv run python scripts/merge_readiness.py --git
+    含 git 前置 + 远端基线：uv run python scripts/merge_readiness.py --git
 """
 
 from __future__ import annotations
@@ -45,6 +52,7 @@ import shutil
 import subprocess
 import sys
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -85,11 +93,17 @@ CHECK_COMMANDS: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 @dataclass(frozen=True)
 class Finding:
-    """一条可机检的发现。rule 是规则号，location 是 file:line，message 说明原因。"""
+    """一条可机检的发现。rule 是规则号，location 是 file:line，message 说明原因。
+
+    ``blocked`` 标记「环境阻塞」而非代码缺陷（G5 三态里的 BLOCKED-ENV）：
+    API/网络/远端对象不可得时，既不能当作 PASS，也不应记成代码 FAIL。
+    它同样阻止合并（返回非零），但输出与退出码与真实缺陷区分，便于人工裁定。
+    """
 
     rule: str
     location: str
     message: str
+    blocked: bool = False
 
 
 def iter_python_files(root: Path) -> list[Path]:
@@ -278,6 +292,159 @@ def check_git(root: Path = ROOT) -> list[Finding]:
     return findings
 
 
+# --------------------------------------------------------------------------- #
+# G5：远端基线新鲜度（把 runbook 的 BLOCKED-ENV 变成机器判定）
+# --------------------------------------------------------------------------- #
+# 外部 I/O 收敛为可注入 callable：默认走真实 git / gh，测试注入假实现，
+# 判据逻辑保持纯函数式——「证据不足」与「证据表明不一致」必须能被分别证明。
+def _real_fetch(root: Path) -> tuple[int, str]:
+    p = subprocess.run(
+        ("git", "fetch", "origin", "main"), cwd=root,
+        capture_output=True, text=True, check=False,
+    )
+    return p.returncode, (p.stderr + p.stdout).strip()
+
+
+def _real_api_sha(root: Path) -> tuple[int, str]:
+    """从 GitHub API 读远端 main 的真实 SHA（权威事实源，非本地跟踪引用）。"""
+    p = subprocess.run(
+        ("gh", "api", "repos/{owner}/{repo}/git/ref/heads/main", "--jq", ".object.sha"),
+        cwd=root, capture_output=True, text=True, check=False,
+    )
+    return p.returncode, p.stdout.strip()
+
+
+def _real_cat_file(root: Path, sha: str) -> tuple[int, str]:
+    p = subprocess.run(
+        ("git", "cat-file", "-p", sha), cwd=root,
+        capture_output=True, text=True, check=False,
+    )
+    return p.returncode, p.stdout
+
+
+def _is_hex_sha(value: str) -> bool:
+    """判断是否为合法 git 对象 sha（SHA-1 40 位或 SHA-256 64 位十六进制）。"""
+    return len(value) in (40, 64) and all(c in "0123456789abcdefABCDEF" for c in value)
+
+
+def check_remote_baseline(
+    root: Path = ROOT,
+    *,
+    fetch_fn: Callable[[Path], tuple[int, str]] | None = None,
+    api_sha_fn: Callable[[Path], tuple[int, str]] | None = None,
+    cat_file_fn: Callable[[Path, str], tuple[int, str]] | None = None,
+) -> list[Finding]:
+    """G5：合并前证明远端基线新鲜 + 三方一致，环境不可得时标 BLOCKED-ENV。
+
+    判据（对应 runbook G5 与用户工程裁决）：
+    1. 必须执行真实 fetch；fetch 失败 = 环境阻塞（BLOCKED-ENV），**不是 PASS、
+       也不是代码缺陷**。没有通道就没有证据，不得据此做需要最新基线的合并。
+    2. fetch 成功后核对三方 SHA：GitHub API 的远端 main、本地 origin/main、
+       目标提交（当前分支 HEAD 或指定提交）。任一不等 = 证据表明不一致 = FAIL。
+    3. 目标提交对象必须可读、提交结构合法（有 tree、父 sha 合法；根提交可无父）；
+       否则证据不足 = FAIL。
+    4. 三项全部满足才无 finding（PASS）。
+
+    注：本检查带网络依赖，仅在本地 ``--git`` 模式运行；CI 无远端历史，不跑此项。
+    """
+    findings: list[Finding] = []
+    fetch = fetch_fn or _real_fetch
+    api_sha = api_sha_fn or _real_api_sha
+    cat_file = cat_file_fn or _real_cat_file
+
+    # 1) 真实 fetch —— 环境阻塞与代码缺陷在此分流。
+    rc_fetch, fetch_out = fetch(root)
+    if rc_fetch != 0:
+        findings.append(
+            Finding(
+                "G5 远端基线",
+                "git fetch origin main",
+                f"BLOCKED-ENV：无法执行真实 fetch（退出码 {rc_fetch}）——"
+                f"{fetch_out[:200]}。没有通道就没有证据，禁止基于旧基线合并/变基/发布；"
+                "这不记作代码缺陷，但绝不输出 PASS。",
+                blocked=True,
+            )
+        )
+        return findings
+
+    def git_out(*args: str) -> tuple[int, str]:
+        p = subprocess.run(
+            ("git", *args), cwd=root, capture_output=True, text=True, check=False
+        )
+        return p.returncode, p.stdout.strip()
+
+    rc_api, api_main = api_sha(root)
+    if rc_api != 0 or not api_main:
+        findings.append(
+            Finding(
+                "G5 远端基线",
+                "gh api git/ref/heads/main",
+                f"BLOCKED-ENV：无法读取远端 main 权威 SHA（退出码 {rc_api}）——"
+                "没有远端事实源就无法核对本地跟踪引用是否新鲜，"
+                "禁止基于旧基线合并；不记作代码缺陷，但绝不输出 PASS。",
+                blocked=True,
+            )
+        )
+        return findings
+
+    rc_ref, track_sha = git_out("rev-parse", "--verify", "refs/remotes/origin/main")
+    rc_head, target_sha = git_out("rev-parse", "--verify", "HEAD")
+    if rc_ref != 0 or rc_head != 0 or not track_sha or not target_sha:
+        findings.append(
+            Finding(
+                "G5 远端基线",
+                "git rev-parse",
+                "fetch 后无法解析 origin/main 或 HEAD；证据不足，禁止合并。",
+            )
+        )
+        return findings
+
+    # 2) 三方 SHA 一致性（API 远端 / 本地跟踪引用 / 目标提交）。
+    if not (api_main == track_sha == target_sha):
+        findings.append(
+            Finding(
+                "G5 远端基线",
+                "三方 SHA",
+                f"远端 main / origin/main / HEAD 不一致："
+                f"api={api_main[:12]} track={track_sha[:12]} head={target_sha[:12]}；"
+                "先 git fetch && git merge/rebase 到最新远端基线再合并。",
+            )
+        )
+
+    # 3) 目标提交对象可读 + 提交结构可解析（对象级一致性，非 tree 级）。
+    #    判据是「确实是合法 commit 对象」：必须有 tree 行；若有 parent 行则其 sha
+    #    必须是合法 hex。根提交没有 parent 是合法 Git 语义，不因缺 parent 误伤；
+    #    但对象损坏（无 tree / 非法 parent sha）不能被放过。
+    rc_obj, raw = cat_file(root, target_sha)
+    if rc_obj != 0 or not raw:
+        findings.append(
+            Finding(
+                "G5 远端基线",
+                target_sha[:12],
+                "目标提交对象不可读；合并对象的字节无法核验，禁止合并。",
+            )
+        )
+    else:
+        lines = raw.splitlines()
+        has_tree = any(ln.startswith("tree ") and len(ln.split()) == 2 for ln in lines)
+        parents = [
+            ln.split()[1]
+            for ln in lines
+            if ln.startswith("parent ") and len(ln.split()) == 2
+        ]
+        bad_parent = [p for p in parents if not _is_hex_sha(p)]
+        if not has_tree or bad_parent:
+            findings.append(
+                Finding(
+                    "G5 远端基线",
+                    target_sha[:12],
+                    f"目标提交对象结构非法（缺 tree 行={not has_tree}，"
+                    f"非法父 sha={bad_parent[:2]}）；提交对象无法可信核验，禁止合并。",
+                )
+            )
+    return findings
+
+
 def run_external_checks(root: Path = ROOT) -> list[Finding]:
     """B 类：逐项跑 CI 口径检查器。任何一项非零退出即记为发现，fail-closed。"""
     findings: list[Finding] = []
@@ -303,6 +470,7 @@ def run_all(root: Path = ROOT, *, full: bool = False, git: bool = False) -> list
     findings = check_static(root)
     if git:
         findings += check_git(root)
+        findings += check_remote_baseline(root)
     if full:
         findings += run_external_checks(root)
     return findings
@@ -316,16 +484,34 @@ def main() -> int:
         help="额外跑 ruff/mypy/contract/architecture/freeze 静态与契约检查（不含 pytest/DB/镜像，完整验收以 CI 为准）",
     )
     parser.add_argument(
-        "--git", action="store_true", help="额外检查工作树洁净度与分支是否落后 origin/main"
+        "--git",
+        action="store_true",
+        help="额外检查工作树洁净度、分支是否落后 origin/main、以及 G5 远端基线新鲜度"
+        "（真实 fetch + 三方 SHA + 对象核验；网络不可得标 BLOCKED-ENV，退出码 2）",
     )
     args = parser.parse_args()
 
     findings = run_all(ROOT, full=args.full, git=args.git)
-    for f in findings:
+    code_faults = [f for f in findings if not f.blocked]
+    blocked = [f for f in findings if f.blocked]
+
+    for f in code_faults:
         print(f"[FAIL] {f.rule} | {f.location} | {f.message}")
-    if findings:
-        print(f"[FAIL] 合并前自检未通过：{len(findings)} 项发现")
+    for f in blocked:
+        print(f"[BLOCKED-ENV] {f.rule} | {f.location} | {f.message}")
+
+    # 三态：代码缺陷优先（exit 1）；仅环境阻塞 = BLOCKED-ENV（exit 2，绝不报 PASS）；
+    # 全绿才 PASS（exit 0）。环境阻塞不记作代码 FAIL，但同样阻止合并决策。
+    if code_faults:
+        tail = f"（另有 {len(blocked)} 项环境阻塞）" if blocked else ""
+        print(f"[FAIL] 合并前自检未通过：{len(code_faults)} 项代码/判据缺陷{tail}")
         return 1
+    if blocked:
+        print(
+            f"[BLOCKED-ENV] 合并前自检受阻：{len(blocked)} 项环境阻塞——"
+            "证据不足，不宣称一致；禁止据此做需要最新基线的合并/变基/发布（G5）"
+        )
+        return 2
 
     mode = "静态派生" + (" + git" if args.git else "") + (" + 静态与契约检查" if args.full else "")
     print(f"[PASS] 合并前自检通过（{mode}）：字典重复键 0 / 同名顶层定义 0 / 覆盖面防呆 OK"
