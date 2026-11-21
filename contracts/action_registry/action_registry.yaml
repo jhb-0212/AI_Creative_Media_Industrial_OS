@@ -931,7 +931,7 @@ actions:
     status: 'ACTIVE'
   # ------------------------------------------------------------------ #
   # V205-R14-A13：Scene / Shot / ShotBreakdownDraft / ReworkTask 运行时入口
-  # 契约依据 docs/adr/ADR-R40-scene-shot-rework-runtime-entry.md
+  # 契约依据 docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md
   # ------------------------------------------------------------------ #
   - action_key: 'SCENE.CREATE'
     resource_type: 'Scene'
@@ -1045,7 +1045,7 @@ actions:
     allowed_principals: '导演/制片/QC 审核人'
     approval_requirement: >-
       登记返工任务。target_ref 必须非空；affected_asset_version_ids 是跨域值引用，
-      库层不加外键（ADR-R40 §7 债务 1）。
+      库层不加外键（ADR-R28 §7 债务 1）。
     audit_event: 'REWORK_TASK_CREATED'
     negative_test_id: 'ACT-REWORK-NEG-001'
     negative_test_desc: '无目标对象的返工任务拒绝'

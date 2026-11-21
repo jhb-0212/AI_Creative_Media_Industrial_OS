@@ -541,7 +541,7 @@ amendments:
     title: 'Scene / Shot / ShotRevision / ShotBreakdownDraft / ReworkTask 运行时入口'
     retroactive: false
     recorded_at: '2026-11-20'
-    discovered_by: 'docs/adr/ADR-R40-scene-shot-rework-runtime-entry.md；ADR-R19 §121（Scene 创建入口未定）、ADR-R18 §12（首次确认原子创建 Shot + ShotRevision）、A12 残余风险第 2 条（审批事实无独立对象）'
+    discovered_by: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md；ADR-R19 §121（Scene 创建入口未定）、ADR-R18 §12（首次确认原子创建 Shot + ShotRevision）、A12 残余风险第 2 条（审批事实无独立对象）'
     reason: >-
       契约侧四份 ADR 已把对象钉死，运行时一行代码都没有，且存在一条首尾相接的阻塞链：
       Shot.required 含 shot_revision_id → 需要 ShotRevision → 唯一创建入口是
@@ -549,9 +549,9 @@ amendments:
       SHOT.DRAFT.CREATE。任何一环单独实现都会立刻撞上下一环。同时 Shot 的 10 条转移边
       中 6 条带守卫，守卫依赖的 ReworkTask（无表）与授权记录（无契约对象）都不存在。
       本修订把整条链一次接通，避免留下三处半成品；动作增量 10 个，对象与状态机均已存在，
-      故 schema_objects / state_machines 不变。四项裁定见 ADR-R40 §2：ReworkTask 随批建表、
+      故 schema_objects / state_machines 不变。四项裁定见 ADR-R28 §2：ReworkTask 随批建表、
       授权记录用 authority_ref 字符串承载、表 + API + 动作全出、4 条无入口边与入口同时开放。
-    adr: 'docs/adr/ADR-R40-scene-shot-rework-runtime-entry.md'
+    adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
     approved_by: '项目所有者（2026-11-20 会话内逐条裁定四项决定）'
     approved_at: '2026-11-20'
     source_commits: []
@@ -574,7 +574,7 @@ amendments:
         - action_key: 'SHOT.DRAFT.DISCARD'
           why: '拥有 PENDING_CONFIRM→DISCARDED 与 IN_REVIEW→DISCARDED。'
         - action_key: 'REWORK.TASK.CREATE'
-          why: '返工任务登记。归属 project_planning 域：Shot.rework_basis_ref 的守卫需要同域校验，跨域会退化为字符串非空，守卫名存实亡（ADR-R40 §3.3）。'
+          why: '返工任务登记。归属 project_planning 域：Shot.rework_basis_ref 的守卫需要同域校验，跨域会退化为字符串非空，守卫名存实亡（ADR-R28 §3.3）。'
         - action_key: 'REWORK.TASK.STATUS.CHANGE'
           why: '拥有 ReworkTask 已登记的 4 条边（OPEN→IN_PROGRESS→DONE→VERIFYING→CLOSED）。REJECTED 无入边，契约已登记「合法但当前无授权入口」，本批不擅自补边。'
         - action_key: 'SHOT.DRAFT.READ'
@@ -615,7 +615,7 @@ amendments:
       随之把 10 条已被运行时真实强制的不变量从 RUNTIME_PENDING 改判为 RUNTIME_ENFORCED，
       并给不变量定级词汇表补第三档——此前只有 SCHEMA / RUNTIME_PENDING，交付完成后定级
       只能继续说谎。
-    adr: 'docs/adr/ADR-R40-scene-shot-rework-runtime-entry.md'
+    adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
     approved_by: '项目所有者（2026-11-20 会话内三项逐条裁定：实现服从契约 / 本轮实现前置条件 / 加 DB CHECK）'
     approved_at: '2026-11-20'
     source_commits: []
@@ -677,7 +677,7 @@ amendments:
       分支（场景登记的 entity_id 分支、拆镜确认的 shot / shot_revision 插入）。
       保留 500 的三处是「代码缺陷」的失败形态（uuid 主键冲突、库层 CHECK 被穿透），
       把它们伪装成 409 会让真实故障看起来像用户输入错误。
-    adr: 'docs/adr/ADR-R40-scene-shot-rework-runtime-entry.md'
+    adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
     approved_by: '项目所有者（2026-11-21 会话内逐条指示：归档走行锁重查、异常映射逐路径核对）'
     approved_at: '2026-11-21'
     source_commits: []
@@ -696,7 +696,7 @@ amendments:
       schema_objects: 84
       state_machines: 43
     resolved_residual_risks:
-      - 'SC-5 归档前置条件的并发窗口：已由父行锁协议关闭（ADR-R40 §6.3），对应条目自 A14 residual_risks 删除，避免陈旧债务留在台账上'
+      - 'SC-5 归档前置条件的并发窗口：已由父行锁协议关闭（ADR-R28 §6.3），对应条目自 A14 residual_risks 删除，避免陈旧债务留在台账上'
     residual_risks:
       - '「加锁顺序必须父→子」成为跨聚合写入的前提：新增涉及父子两行的前置条件时必须遵守同一顺序，否则引入死锁。当前无自动判据，靠评审与本 ADR 约束'
       - 'translate_write_error 不透出约束名（constraint 参数恒为空），服务层区分 23505 成因靠回读数据，多一次往返；约束名可由驱动异常直接取得，属可做未做'
@@ -842,8 +842,44 @@ amendments:
       - 'SHOT / ShotRevision 状态机 registration_status 仍为 PENDING_PHASE1_REVIEW：本次补入口，不改状态集'
       - '运行时仓储使用注入的 UnitOfWork；镜头域独立连接池与 svc_shot_planning 写权限需随部署拓扑另行收敛，当前验收以端口语义与数据库守卫为准'
 
-# 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
-revocations: []
+
+  - id: 'V205-R14-A18'
+    title: '第二轮审查整改——ADR 编号去歧义与三个 P1 业务不变量根治'
+    retroactive: true  # 编号治理 + 既有裁定的代码落地，不新增/删除动作
+    recorded_at: '2026-11-21'
+    discovered_by: '第二轮工程审查（GitHub 仓库只读复核）；A14 residual_risks 的 CANCELLED fail-closed 裁定；a13b0 单列外键与 pending m3b4 复合外键的边界差异'
+    reason: >-
+      第二轮审查发现三类必须根治的问题：① ADR-R40 编号被两份不同决策共用，
+      同一编号下 §2/§3.3/§6.3 指 Scene/Shot 运行时、附录 D.x 指统一授权模型，
+      引用无法仅凭编号消歧；② Shot 取消授权：代码采信任意 cancellation_ref
+      字符串写入 authority_ref，违背 A14 已登记的「运行时显式拒绝」裁定；
+      ③ ReworkTask 执行人 owner 来自请求体，与可信 Principal 的复核人比较时
+      可被自报值绕过职责分离；④ Shot 返工依据在正式链 a13b0 是单列外键，
+      同租户多项目下可借用他项目返工授权。本次依次：把 scene-shot ADR 重编号
+      为 R28 并集中更新 5+ 处引用（R40 专属授权模型）；取消引用在服务层入口
+      与领域守卫双层 fail-closed、审计事实不再写不可解析引用；owner 改由可信
+      created_by 派生（认领制）且职责分离统一走 identity 单一判定；正式链新增
+      b1c2d3e4f5a6 迁移把 rework_basis_ref 升级为复合外键并真库验证跨项目拒绝。
+      未新增动作/对象/状态机，故计数不变。
+    adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
+    approved_by: '项目所有者（会话内逐条裁定四项整改方案）'
+    approved_at: '2026-11-21'
+    source_commits: []
+    additions:
+      actions: []
+      openapi_operations: []
+      schema_objects: []
+      state_machines: []
+    counts_after:
+      actions: 96
+      openapi_operations: 96
+      schema_objects: 84
+      state_machines: 43
+    residual_risks:
+      - 'CANCELLED 三条边在可解析授权记录对象建模前保持 fail-closed 不可用；新对象建模需另立修订'
+      - '正式链 project_planning 与 pending 归属链 shot_planning/workflow 两套 schema 并存；本修订只统一正式链的返工引用归属，未合并两套结构'
+      - 'ADR-R28 为 scene-shot 运行时入口的唯一标识；R40 专属统一授权模型（仍为 PROPOSED 目标架构）'
 
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []
+

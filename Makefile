@@ -30,7 +30,7 @@ arch-check: ## 分层依赖校验（铁律 1：依赖方向/服务间直连/导�
 merge-check: ## 合并前自检（轻量）：字典重复键/同名定义/覆盖面防呆
 	python scripts/merge_readiness.py
 
-merge-check-full: ## 合并前自检（完整）：轻量 + git 前置 + CI 全口径
+merge-check-full: ## 合并前自检：轻量 + git 前置 + 静态与契约检查（pytest/DB/镜像以 CI 为准）
 	python scripts/merge_readiness.py --git --full
 
 up: ## 本地启动（docker-compose）

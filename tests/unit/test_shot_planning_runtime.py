@@ -146,18 +146,29 @@ def test_shot_enters_blocked_with_reason() -> None:
     assert shot.status is ShotStatus.BLOCKED
 
 
-def test_shot_cancel_requires_authorization_and_timestamp() -> None:
+def test_shot_cancel_is_fail_closed_until_authorization_object_exists() -> None:
+    """A14 裁定：可解析授权记录对象未建模前，拒绝一切推进至 CANCELLED。
+
+    即使调用方自报了 cancellation_ref + cancelled_at（字段齐全），也必须拒绝——
+    守卫只能判非空，无法证明授权真实成立。这是「字段齐全就放行」的反例。
+    """
+    shot = _shot()
+    # 字段齐全也不能进 CANCELLED：自报字符串不等于真实授权。
+    shot.cancellation_ref = "approval://cancel/1"
+    shot.cancelled_at = _NOW
+    with pytest.raises(DomainError) as exc:
+        shot.transition_to(ShotStatus.CANCELLED, "audit-1", SHOT_STATUS_CHANGE_ACTION)
+    assert exc.value.error_code.code == "STATE_TRANSITION_DENIED"
+    assert "无法解析" in exc.value.detail
+    assert shot.status is ShotStatus.NOT_STARTED, "拒绝后状态不得改变"
+
+
+def test_shot_cancel_missing_fields_still_denied() -> None:
+    """缺字段本就拒绝；与 fail-closed 是两条独立理由，各自都要能红。"""
     shot = _shot()
     with pytest.raises(DomainError):
         shot.transition_to(ShotStatus.CANCELLED, "audit-1", SHOT_STATUS_CHANGE_ACTION)
-
-    shot.cancellation_ref = "approval://cancel/1"
-    with pytest.raises(DomainError):  # 缺 cancelled_at 仍然拒绝
-        shot.transition_to(ShotStatus.CANCELLED, "audit-1", SHOT_STATUS_CHANGE_ACTION)
-
-    shot.cancelled_at = _NOW
-    shot.transition_to(ShotStatus.CANCELLED, "audit-1", SHOT_STATUS_CHANGE_ACTION)
-    assert shot.status is ShotStatus.CANCELLED
+    assert shot.status is ShotStatus.NOT_STARTED
 
 
 def test_shot_cancelled_is_terminal() -> None:

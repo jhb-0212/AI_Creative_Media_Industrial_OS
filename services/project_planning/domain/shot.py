@@ -93,9 +93,20 @@ class Shot(Entity):
             return
 
         if target is ShotStatus.CANCELLED:
-            _require(self.cancellation_ref, "取消必须给出 cancellation_ref（授权记录）")
-            _require(self.cancelled_at, "取消必须给出 cancelled_at")
-            return
+            # fail-closed（contract_amendments.yaml V205-R14-A14 残留风险登记）：
+            # 可解析的授权记录对象尚未建模，cancellation_ref 是调用方自报字符串，
+            # 守卫只能判非空、无法证明授权真实成立。按契约裁定，运行时显式拒绝
+            # 一切带 cancellation_ref 的推进——CANCELLED 边暂不可用，好过把
+            # 自我声明当成授权依据写进正式对象与审计事实。
+            # 注意：这只挡「推进时写入」，__post_init__ 的证据自洽仍允许存量
+            # CANCELLED 对象被加载——历史事实可读，只是不再新增。
+            raise DomainError(
+                ErrorRegistry.STATE_TRANSITION_DENIED,
+                detail=(
+                    "取消授权记录无法解析（可解析授权对象尚未建模），"
+                    "拒绝推进至 CANCELLED"
+                ),
+            )
 
         # 返工回退是唯一允许携带 rework_basis_ref 的「非阻塞非取消」边。
         if (

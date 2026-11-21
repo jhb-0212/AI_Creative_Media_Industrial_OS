@@ -157,3 +157,71 @@ def test_external_check_records_nonzero_exit(monkeypatch: pytest.MonkeyPatch, tm
     assert findings
     assert all(f.rule == "C CI 口径" for f in findings)
     assert len(findings) == len(mr.CHECK_COMMANDS)  # 每项都失败，一项一条
+
+
+# --------------------------------------------------------------------------- #
+# P2-01：git 分支新鲜度（第二轮审查发现的 revision range 写反 + fail-open）
+# --------------------------------------------------------------------------- #
+def _git(root: Path, *args: str) -> None:
+    import subprocess
+
+    subprocess.run(("git", *args), cwd=root, check=True, capture_output=True)
+
+
+def _make_git_repo(root: Path) -> None:
+    """造一个含 origin/main 引用与一个 feature 分支的最小 git 仓库。"""
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "test@example.com")
+    _git(root, "config", "user.name", "test")
+    (root / "seed.txt").write_text("init\n", encoding="utf-8")
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "init")
+    _git(root, "branch", "-M", "main")
+    # origin/main 就指向当前 main
+    _git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+    _git(root, "checkout", "-qb", "feature")
+
+
+def _g2(findings: list[object]) -> list[object]:
+    return [f for f in findings if getattr(f, "rule", "") == "G2 分支新鲜度"]
+
+
+def test_git_ahead_branch_is_not_falsely_reported_as_behind(tmp_path: Path) -> None:
+    """feature 领先 origin/main（正常开发提交）不得被误报为落后——写反方向的回归。"""
+    _make_git_repo(tmp_path)
+    (tmp_path / "work.txt").write_text("feature work\n", encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-qm", "feature work")
+    assert _g2(mr.check_git(tmp_path)) == [], "领先提交不该被当成落后"
+
+
+def test_git_behind_branch_is_flagged(tmp_path: Path) -> None:
+    """分支真正落后 origin/main 时必须报红（写反方向时这条会漏）。"""
+    _make_git_repo(tmp_path)
+    # 在 main 上多提交，然后把 origin/main 指过去；feature 停在原地
+    _git(tmp_path, "checkout", "-q", "main")
+    (tmp_path / "main.txt").write_text("upstream work\n", encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-qm", "upstream work")
+    _git(tmp_path, "update-ref", "refs/remotes/origin/main", "HEAD")
+    _git(tmp_path, "checkout", "-q", "feature")
+    findings = _g2(mr.check_git(tmp_path))
+    assert findings, "落后 1 个提交必须报红"
+    assert "落后" in findings[0].message and "1" in findings[0].message
+
+
+def test_git_dirty_worktree_is_flagged(tmp_path: Path) -> None:
+    """脏工作树必须报红（G1，独立判据）。"""
+    _make_git_repo(tmp_path)
+    (tmp_path / "untracked.txt").write_text("dirty\n", encoding="utf-8")
+    findings = [f for f in mr.check_git(tmp_path) if getattr(f, "rule", "").startswith("G1")]
+    assert findings, "未跟踪文件应让工作树判红"
+
+
+def test_git_missing_remote_ref_fails_closed(tmp_path: Path) -> None:
+    """origin/main 引用缺失必须 fail-closed，不能静默当作「不落后」。"""
+    _make_git_repo(tmp_path)
+    _git(tmp_path, "update-ref", "-d", "refs/remotes/origin/main")
+    findings = _g2(mr.check_git(tmp_path))
+    assert findings, "远端引用缺失时静默通过等于 fail-open"
+    assert "不存在" in findings[0].message or "fetch" in findings[0].message

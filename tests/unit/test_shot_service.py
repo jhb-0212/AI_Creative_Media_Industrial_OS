@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import pytest
@@ -252,3 +253,72 @@ def test_reworked_shot_rolls_back_through_the_same_barrier() -> None:
 
     assert precondition is not None, "返工回退边漏了父场次屏障：可从这条边绕过归档判定"
     assert precondition.forbidden_status == SceneStatus.ARCHIVED.value
+
+
+@pytest.mark.asyncio
+async def test_cancellation_ref_is_rejected_before_side_effects() -> None:
+    """A14 裁定：带 cancellation_ref 的推进在服务层入口即拒绝。
+
+    必须证明三件事同时成立：拒绝、实体未被污染、审计事实（authority_ref）
+    未落库——只断言「抛异常」会让「悄悄写了一半」的实现通过。
+    """
+    shot = _shot()
+    scenes = _Scenes([_scene()])
+    service, shots, outbox = _service(shot=shot, scenes=scenes)
+
+    with pytest.raises(DomainError) as exc:
+        await service.change_status(
+            entity_id=shot.entity_id,
+            target_status=ShotStatus.CANCELLED,
+            changed_by="user-1",
+            tenant_id=_TENANT,
+            cancellation_ref="approval://self-declared/1",
+            cancelled_at=datetime(2026, 11, 20, 12, 0, tzinfo=UTC),
+        )
+
+    assert exc.value.error_code.code == "STATE_TRANSITION_DENIED"
+    assert "无法解析" in exc.value.detail
+    assert shot.status is ShotStatus.NOT_STARTED, "拒绝后实体状态不得改变"
+    assert shot.cancellation_ref is None, "自报引用不得写进正式对象"
+    assert shots.saved == [], "拒绝后不得落库"
+    assert outbox.transitions == [], "拒绝后不得写审计事实（含 authority_ref）"
+    assert scenes.locked == [], "取消守卫在入口拒绝，不该走到父锁查询"
+
+
+@pytest.mark.asyncio
+async def test_cross_project_rework_basis_is_denied_before_write() -> None:
+    """P1-03：返工依据必须同项目——库层复合外键之外，服务层先给可读拒绝。"""
+    from services.project_planning.domain.enums import ReworkTaskStatus
+
+    shot = _shot()  # project_id = proj-1
+    scenes = _Scenes([_scene()])
+    service, shots, outbox = _service(shot=shot, scenes=scenes)
+    # 塞一个属于另一项目的返工任务到仓储
+    cross = ReworkTask(
+        entity_id="rework-other-project",
+        project_id="proj-2",
+        issue_id="issue-1",
+        target_ref="asset-1",
+        defect_category="画面",
+        severity="HIGH",
+        root_cause="灯光不足",
+        owner="artist",
+        return_node="LIGHTING",
+        created_by="qc",
+        tenant_id=_TENANT,
+        status=ReworkTaskStatus.OPEN,
+    )
+    service._rework_task_repository.rows[cross.entity_id] = cross  # type: ignore[attr-defined]
+
+    with pytest.raises(DomainError) as exc:
+        await service.change_status(
+            entity_id=shot.entity_id,
+            target_status=ShotStatus.IN_PRODUCTION,
+            changed_by="user-1",
+            tenant_id=_TENANT,
+            rework_basis_ref=cross.entity_id,
+        )
+
+    assert exc.value.error_code.code == "STATE_TRANSITION_DENIED"
+    assert "项目" in exc.value.detail and "proj-2" in exc.value.detail
+    assert shots.saved == [] and outbox.transitions == [], "拒绝后不得落库或写审计"

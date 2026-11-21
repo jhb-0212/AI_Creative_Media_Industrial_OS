@@ -121,7 +121,6 @@ class CreateReworkTaskRequest(BaseModel):
     defect_category: str = Field(..., min_length=1, max_length=64)
     severity: str = Field(..., min_length=1, max_length=32)
     root_cause: str = Field(..., min_length=1)
-    owner: str = Field(..., min_length=1, max_length=64)
     return_node: str = Field(..., min_length=1, max_length=64)
     affected_asset_version_ids: list[str] = Field(default_factory=list)
     downstream_task_ids: list[str] = Field(default_factory=list)
@@ -494,7 +493,6 @@ async def create_rework_task(
         defect_category=body.defect_category,
         severity=body.severity,
         root_cause=body.root_cause,
-        owner=body.owner,
         return_node=body.return_node,
         affected_asset_version_ids=body.affected_asset_version_ids,
         downstream_task_ids=body.downstream_task_ids,

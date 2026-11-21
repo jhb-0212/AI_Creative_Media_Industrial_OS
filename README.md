@@ -84,7 +84,7 @@ docs/          # 架构/ADR/runbook/SOP
 |---|---|---|---|
 | `ruff` | 风格与常见缺陷 | `ruff check .` | 不证明设计与边界正确 |
 | `mypy` | 类型契约 | `mypy packages services apps workers` | 不覆盖 `scripts/`、`tests/`（脚本与测试的类型错误不在闸门内） |
-| `pytest tests` | 行为正确性、负向路径、分层规则 | `pytest tests` | `tests/e2e`、`tests/resilience` 尚不存在（见「未覆盖范围」） |
+| `pytest tests` | 行为正确性、负向路径、分层规则 | `pytest tests` | `tests/e2e/test_phase1_main_chain.py` 存在，但只覆盖项目/剧本/资产/QC/审批等**已实现段**，不代表 Scene→Generation→Delivery 全链通过；`tests/resilience` 尚不存在（见「未覆盖范围」） |
 | `freeze_manifest` | **契约冻结**：基线正文未变 + 十一类产物哈希一致 + 演进有据（名称全集 == 基线 ∪ 已批准修订） | `python scripts/freeze_manifest.py --check` | 不证明契约内容业务正确，只证明「符合 V2.0.5 且变更可追溯」 |
 | `contract_check` | 派生一致性：Action ↔ OpenAPI ↔ Schema ↔ 状态机 ↔ 事件 ↔ 债务台账 | `python scripts/contract_check.py` | 只证明派生文件互相自洽，**不能**证明符合基线（由 `freeze_manifest` 负责） |
 | `architecture_check` | 层间依赖方向、服务间直连、导入期循环、进程边界（R4：apps 不得 import 签发模块） | `python scripts/architecture_check.py` | 只覆盖顶层分层；服务内 `api/domain/repository` 分层与数据库授权边界未覆盖 |

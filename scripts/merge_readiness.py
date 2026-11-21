@@ -20,10 +20,12 @@ A. 静态派生检查（默认跑，无需外部依赖）：
    覆盖范围 R0 防呆：代码目录清单必须与 architecture_check 的 LAYERS ∪
    NON_LAYER_DIRS 对齐，新增目录会被点名，避免新目录天然免疫检查。
 
-B. CI 口径编排（``uv run python scripts/merge_readiness.py --full``）：
-   逐项调用项目已有的事实源检查器，任何一项红即整体红。这是治「CI 盲区」
-   的根：把散落的闸门收成一次合并前必跑的动作。被编排的检查器是唯一事实源，
-   本脚本不复制它们的判据（避免第二份真相漂移）。
+B. 静态与契约检查编排（``uv run python scripts/merge_readiness.py --full``）：
+   逐项调用项目已有的静态/契约检查器（ruff / mypy / contract / arch / freeze）。
+   **这不是完整 CI**：pytest 全量、权限负向测试、PostgreSQL 迁移升级、
+   downgrade→upgrade 往返、Docker 镜像构建均以 CI 为最终依据（见 .github/workflows/ci.yml）。
+   命名上「full」指本脚本能编排的静态与契约项全集，不承诺覆盖 CI 的运行时与镜像检查——
+   误把静态绿灯当成完整合并验收，正是要防的沉默失败。
 
 设计原则（与 architecture_check.py 一致）：判据写明理由；fail-closed；
 覆盖面防呆；有负向测试（tests/engineering/test_merge_readiness.py）；
@@ -233,9 +235,38 @@ def check_git(root: Path = ROOT) -> list[Finding]:
         )
 
     rc, branch = git_out("rev-parse", "--abbrev-ref", "HEAD")
-    if rc == 0 and branch not in ("HEAD", ""):
-        rc2, behind = git_out("rev-list", "--count", f"origin/main..{branch}")
-        if rc2 == 0 and behind.isdigit() and int(behind) > 0:
+    if rc != 0 or branch in ("HEAD", ""):
+        findings.append(Finding("G2 分支新鲜度", "git rev-parse", "无法解析当前分支名，禁止在 detached HEAD 上合并"))
+        return findings
+
+    # 远端引用必须存在：缺失时 fail-closed，不静默当作「不落后」。
+    rc_ref, remote_sha = git_out("rev-parse", "--verify", "refs/remotes/origin/main")
+    if rc_ref != 0 or not remote_sha:
+        findings.append(
+            Finding(
+                "G2 分支新鲜度",
+                "origin/main",
+                "远端跟踪引用不存在；先 git fetch origin main，无法确认基线新鲜度则禁止合并",
+            )
+        )
+        return findings
+
+    # revision range 方向：`A..B` 统计「B 可达但 A 不可达」的提交。
+    # 落后数 = {branch}..origin/main（主干有、分支没有）；写反会数成领先数，
+    # 导致 feature 分支的正常开发提交被误报为落后，而真正落后反而漏报。
+    rc2, behind_raw = git_out("rev-list", "--count", f"{branch}..origin/main")
+    if rc2 != 0 or not behind_raw.isdigit():
+        findings.append(
+            Finding(
+                "G2 分支新鲜度",
+                branch,
+                f"无法计算落后提交数（git rev-list 退出码 {rc2}，输出 {behind_raw!r}）；"
+                "证据不足不得当作通过",
+            )
+        )
+    else:
+        behind = int(behind_raw)
+        if behind > 0:
             findings.append(
                 Finding(
                     "G2 分支新鲜度",
@@ -280,7 +311,9 @@ def run_all(root: Path = ROOT, *, full: bool = False, git: bool = False) -> list
 def main() -> int:
     parser = argparse.ArgumentParser(description="合并前自检（派生式判据 + CI 口径编排）")
     parser.add_argument(
-        "--full", action="store_true", help="额外跑 ruff/mypy/contract/architecture/freeze 全口径"
+        "--full",
+        action="store_true",
+        help="额外跑 ruff/mypy/contract/architecture/freeze 静态与契约检查（不含 pytest/DB/镜像，完整验收以 CI 为准）",
     )
     parser.add_argument(
         "--git", action="store_true", help="额外检查工作树洁净度与分支是否落后 origin/main"
@@ -294,10 +327,10 @@ def main() -> int:
         print(f"[FAIL] 合并前自检未通过：{len(findings)} 项发现")
         return 1
 
-    mode = "静态派生" + (" + git" if args.git else "") + (" + CI 全口径" if args.full else "")
+    mode = "静态派生" + (" + git" if args.git else "") + (" + 静态与契约检查" if args.full else "")
     print(f"[PASS] 合并前自检通过（{mode}）：字典重复键 0 / 同名顶层定义 0 / 覆盖面防呆 OK"
           + (" / git 前置 OK" if args.git else "")
-          + (" / CI 口径全绿" if args.full else ""))
+          + (" / 静态与契约检查全绿（pytest/DB/镜像仍以 CI 为准）" if args.full else ""))
     return 0
 
 

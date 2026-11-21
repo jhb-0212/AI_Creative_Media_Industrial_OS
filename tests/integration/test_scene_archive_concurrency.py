@@ -41,8 +41,9 @@ from tests.integration.planning_seed import (
 
 # 等锁上限：真卡住时应报「等锁超时」，而不是让测试挂死。
 _LOCK_TIMEOUT = "10s"
-# 让被阻塞的协程跑到「提交给数据库」这一步再断言它没完成。
-_SETTLE_SECONDS = 0.2
+# 轮询 pg_stat_activity 等锁证据的上限（不是「睡一会儿看协程完没完」）。
+_LOCK_WAIT_TIMEOUT = 5.0
+_LOCK_WAIT_POLL = 0.02
 
 
 async def _seed(admin_sessionmaker, *, tenant, suffix: str):
@@ -69,6 +70,41 @@ async def _seed(admin_sessionmaker, *, tenant, suffix: str):
         tenant=tenant,
     )
     return scene_id, shot_id
+
+
+async def _backend_pid(session) -> int:
+    """取某个 session 的 PG 后端 pid，供 pg_stat_activity 精确指认。"""
+    return int((await session.execute(text("SELECT pg_backend_pid()"))).scalar_one())
+
+
+async def _assert_waiting_on_lock(admin_sessionmaker, pid: int, label: str) -> None:
+    """确认目标后端**真的进入了锁等待**（第二轮审查 P2-03）。
+
+    「协程还没 done」只证明它没跑完，可能只是还没被调度到数据库语句——那样
+    本用例证明的是「asyncio 调度」，不是「PG 行锁互斥」。这里从 pg_stat_activity
+    实读 wait_event_type='Lock'，拿到数据库级证据才放行。
+    """
+    import time
+
+    deadline = time.monotonic() + _LOCK_WAIT_TIMEOUT
+    async with admin_sessionmaker() as observer:
+        while time.monotonic() < deadline:
+            row = (
+                await observer.execute(
+                    text(
+                        "SELECT wait_event_type, wait_event FROM pg_stat_activity "
+                        "WHERE pid = :pid"
+                    ),
+                    {"pid": pid},
+                )
+            ).first()
+            if row is not None and row[0] == "Lock":
+                return  # 真实锁等待证据到手
+            await asyncio.sleep(_LOCK_WAIT_POLL)
+    raise AssertionError(
+        f"{label}（pid={pid}）在 {_LOCK_WAIT_TIMEOUT}s 内未进入 pg_stat_activity 的 Lock 等待；"
+        "协程未完成不等于数据库在等锁，本用例无法证明行锁互斥"
+    )
 
 
 async def test_archiving_blocks_a_concurrent_entering_of_production(
@@ -99,14 +135,15 @@ async def test_archiving_blocks_a_concurrent_entering_of_production(
 
         # 4. 子对象侧：进入在产前的共享锁必须被挡住。
         await session_b.execute(text(f"SET LOCAL lock_timeout = '{_LOCK_TIMEOUT}'"))
+        blocked_pid = await _backend_pid(session_b)
         pending = asyncio.create_task(
             SqlAlchemySceneRepository(session_b).lock_for_child_write(scene_id)
         )
-        await asyncio.sleep(_SETTLE_SECONDS)
-        assert not pending.done(), (
-            "子对象侧的共享锁没有被归档方的排他锁挡住："
-            "「先查后写」的窗口在并发下会写入「已归档场次 + 在产镜头」"
+        # 等真实锁证据，而不是「睡 0.2s 看协程完没完」。
+        await _assert_waiting_on_lock(
+            admin_sessionmaker, blocked_pid, "子对象侧共享锁"
         )
+        assert not pending.done(), "已进入锁等待却仍完成：等锁语义异常"
 
         # 5. 归档提交 → 子对象侧醒来，必须看到已归档（EvalPlanQual 后读到新版本）。
         await session_a.commit()
@@ -143,14 +180,12 @@ async def test_entering_production_blocks_a_concurrent_archive(
 
         # 2. 归档方：排他锁必须等待，而不是直接通过。
         await session_b.execute(text(f"SET LOCAL lock_timeout = '{_LOCK_TIMEOUT}'"))
+        blocked_pid = await _backend_pid(session_b)
         pending = asyncio.create_task(
             SqlAlchemySceneRepository(session_b).lock_for_archive(scene_id)
         )
-        await asyncio.sleep(_SETTLE_SECONDS)
-        assert not pending.done(), (
-            "归档方的排他锁没有被镜头侧的共享锁挡住："
-            "归档可以在「镜头刚进在产」的瞬间通过"
-        )
+        await _assert_waiting_on_lock(admin_sessionmaker, blocked_pid, "归档方排他锁")
+        assert not pending.done(), "已进入锁等待却仍完成：等锁语义异常"
 
         # 3. 镜头方提交 → 归档方醒来，必须在锁内看到在产镜头并因此拒绝归档。
         await session_a.commit()

@@ -307,7 +307,7 @@ RLS 全部失效**。这不影响本触发器（它不依赖 RLS），但意味�
 - 未改动任何契约与派生文件（草案阶段只论证）。
 - 未写任何 ORM / service / action 代码（等裁定）。
 - 未改 `state_machines.yaml` 一条边、未改 `object_schemas` 一个字段。
-- 未动 ADR-R40 六个历史版本字节。
+- 未动 ADR-R28 / ADR-R40 六个历史版本字节。
 - 未擅自把 `ShotBreakdownDraft` 的「五态 5 条边无入口」一并纳入（`SHOT.DRAFT.*` 三个动作
   尚未登记，属拆镜域，与本轮相邻但不同域；已在 `action_implementations.yaml` 显式登记债务）。
   另有一处语义交叠须在拆镜域裁定：草案 `IN_REVIEW→CONFIRMED` 与
