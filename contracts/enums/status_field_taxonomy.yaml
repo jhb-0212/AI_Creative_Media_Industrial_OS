@@ -51,7 +51,7 @@ basis_kinds:
     信封 status 是被拆分后剩下的占位位，真正的不变量在那些字段上。
 
 objects:
-  # ---------------- lifecycle：39 个已建模状态机对象 ----------------
+  # ---------------- lifecycle：40 个已建模状态机对象 ----------------
   - {object: Appeal, class: lifecycle}
   - {object: AssetVersion, class: lifecycle}
   - {object: BudgetLedgerTransaction, class: lifecycle}
