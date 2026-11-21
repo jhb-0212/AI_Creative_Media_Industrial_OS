@@ -102,6 +102,9 @@ class _PresentProjectRepository(ProjectRepository):
     async def get_by_id(self, entity_id: str):  # type: ignore[override]
         return object()
 
+    async def get_by_id_for_child_write(self, entity_id: str):  # type: ignore[override]
+        return await self.get_by_id(entity_id)
+
 
 class _MatchingEpisodeRepository(EpisodeRepository):
     """集数归属合法即可（避免把无关的仓储语义带进本组断言）。"""

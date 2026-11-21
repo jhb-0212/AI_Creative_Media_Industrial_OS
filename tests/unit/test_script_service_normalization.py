@@ -116,6 +116,9 @@ class _FakeProjectRepository(ProjectRepository):
             tenant_id=_TENANT,
         )
 
+    async def get_by_id_for_child_write(self, entity_id: str) -> Project | None:
+        return await self.get_by_id(entity_id)
+
 
 class _FakeEpisodeRepository(EpisodeRepository):
     """内存 episode 仓储，用于归属验证。"""

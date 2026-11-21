@@ -106,6 +106,9 @@ class _FakeProjectRepository(ProjectRepository):
     async def get_by_id(self, entity_id: str) -> Project | None:
         return self._store.get(entity_id)
 
+    async def get_by_id_for_child_write(self, entity_id: str) -> Project | None:
+        return await self.get_by_id(entity_id)
+
 
 class _FakeEpisodeRepository(EpisodeRepository):
     """内存 episode 仓储，支持 save 时模拟并发冲突。"""

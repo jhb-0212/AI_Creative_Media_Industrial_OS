@@ -110,6 +110,9 @@ class _FakeProjectRepository(ProjectRepository):
     async def get_by_id(self, entity_id: str):  # type: ignore[override]
         return object()  # 非 None，视为存在
 
+    async def get_by_id_for_child_write(self, entity_id: str):  # type: ignore[override]
+        return await self.get_by_id(entity_id)
+
 
 class _FakeEpisodeRepository(EpisodeRepository):
     async def add(self, episode) -> None:  # type: ignore[override]

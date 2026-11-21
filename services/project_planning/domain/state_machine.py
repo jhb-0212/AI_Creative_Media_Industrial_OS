@@ -71,6 +71,15 @@ PROJECT_LIFECYCLE = Lifecycle(
     object_name="Project",
     states=tuple(ProjectStatus),
     edges=PROJECT_TRANSITIONS,
+    # 冻结子集合（Project 的子对象是 Episode）：归档后不得再登记集数。
+    #
+    # 待裁定：COMPLETED 是否也应冻结。当前**不**冻结，但这大概率是错的——
+    # 契约里 COMPLETED 只有 COMPLETED->ARCHIVED 一条出边，没有回到 ACTIVE 的路，
+    # 也就是说「项目已完成」在状态图上就意味着内容定稿。那么「已完成的项目被追加
+    # 一集」在业务上不成立，可在数据上却是合法的。
+    # 未一并冻结的原因：这是所有者保留的裁定点，本批次按「只冻结 ARCHIVED」落地；
+    # 改为冻结只需往下面的元组里加一个枚举值，其余代码不动。
+    frozen_states=(ProjectStatus.ARCHIVED,),
 )
 
 # --------------------------------------------------------------------------- #
@@ -87,6 +96,9 @@ EPISODE_LIFECYCLE = Lifecycle(
     object_name="Episode",
     states=tuple(EpisodeStatus),
     edges=EPISODE_TRANSITIONS,
+    # 冻结子集合（Episode 的子对象是 Scene 与 ScriptRevision）：归档后不得再登记
+    # 场次，也不得再导入剧本版本。两条路径从同一处派生，不各写一个 if。
+    frozen_states=(EpisodeStatus.ARCHIVED,),
 )
 
 # --------------------------------------------------------------------------- #

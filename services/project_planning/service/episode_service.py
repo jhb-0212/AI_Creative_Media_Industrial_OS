@@ -25,6 +25,7 @@ from services.project_planning.domain.enums import EpisodeStatus
 from services.project_planning.domain.episode import Episode
 from services.project_planning.domain.state_machine import (
     EPISODE_STATUS_CHANGE_ACTION,
+    PROJECT_LIFECYCLE,
 )
 from services.project_planning.repository.episode_repo import EpisodeRepository
 from services.project_planning.repository.project_repo import ProjectRepository
@@ -82,8 +83,11 @@ class EpisodeService:
                 ErrorRegistry.VALIDATION_ERROR, detail="created_by 不能为空"
             )
 
-        # 归属验证：project 必须存在。
-        project = await self._project_repository.get_by_id(project_id)
+        # 归属验证 + 父状态判定：**先锁、再判、后写**，三步同一事务。
+        # 用带共享锁的读（FOR SHARE）而不是普通读，因为「项目已归档则不得再登记集数」
+        # 这条不变量若无锁就只是「查的瞬间成立」——插入的那一刻项目可能已被归档，
+        # 而数据库不会拒绝（它不知道这次插入与那次归档有语义冲突）。
+        project = await self._project_repository.get_by_id_for_child_write(project_id)
         if project is None:
             raise DomainError(
                 ErrorRegistry.NOT_FOUND,
@@ -91,11 +95,22 @@ class EpisodeService:
             )
 
         # 幂等：已存在同 id 直接返回。
+        # 刻意排在冻结判定**之前**：归档后重放一个「当时成功过」的创建请求，
+        # 语义是重试而非新建，必须返回原结果；若先判冻结，正常重试会变成 409，
+        # 调用方将永远无法确认自己那次创建到底有没有生效。
         if entity_id is not None:
             existing = await self._repository.get_by_id(entity_id)
             if existing is not None:
                 _assert_same_request(existing, project_id, episode_ref, title)
                 return existing
+
+        # 冻结判定：项目处于冻结态（当前为 ARCHIVED）时不得再长出新集数。
+        # 判定从 PROJECT_LIFECYCLE 派生，不在这里写 `if project.status == ...`——
+        # 同一规则还要服务于「集数下建场次」「场次下建镜头」，写在各自的服务里
+        # 就是同一规则的第 2、3、4 份实现，漏掉的那份不会报错。
+        PROJECT_LIFECYCLE.assert_child_creation_allowed(
+            project.status, child_object="Episode"
+        )
 
         episode = Episode(
             entity_id=entity_id or uuid.uuid4().hex,

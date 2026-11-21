@@ -38,3 +38,13 @@ class InMemoryProjectRepository(ProjectRepository):
 
     async def get_by_id(self, entity_id: str) -> Project | None:
         return self._store.get(entity_id)
+
+    async def get_by_id_for_child_write(self, entity_id: str) -> Project | None:
+        """内存实现无行锁概念，等同于 ``get_by_id``。
+
+        这不是「忘了实现」：进程内的 dict 不存在跨事务并发窗口，锁在这里没有
+        可表达的语义。方法仍必须存在，因为端口是抽象方法——**锁的缺失应当是
+        显式的（读到这段注释），而不是靠某个实现悄悄不写**。
+        并发正确性只能由 SQL 实现 + 真实数据库验证，见 ADR-R27。
+        """
+        return self._store.get(entity_id)
