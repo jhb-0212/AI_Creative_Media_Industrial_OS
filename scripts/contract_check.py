@@ -1671,6 +1671,168 @@ def check_child_creation_freeze_coverage() -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# 冻结态：契约声明 ↔ 实现声明（策略本身必须是契约事实）
+# --------------------------------------------------------------------------- #
+_FROZEN_STATES_FIELD = "frozen_states"
+
+
+def _implemented_lifecycles() -> tuple[dict[str, Any], list[str]]:
+    """反射已实现状态机模块里的 ``Lifecycle`` 实例，按 ``object_name`` 索引。
+
+    为什么派生而不是再写一张「对象名 → Lifecycle 变量名」的表：那是又一份手写
+    清单，新增状态机时它不会自己跟上，而漏登记的方向恰好是「少比对一个对象」——
+    表现为绿灯。派生之后，模块里新出现的 Lifecycle 会**自己**进入比对范围；
+    「找不到」与「重名」由返回值显式报出，而不是被静默跳过。
+
+    只扫描 ``_STATE_MACHINE_SOURCES`` 引用的模块，而不是全仓：本判据的语义面是
+    「已实现状态机的冻结策略」，跨域扩张（资产域接同一规则）应当是一次有意识的
+    登记，而不是被某次无关 import 悄悄改变判决。
+    """
+    import importlib
+
+    from packages.shared.lifecycle import Lifecycle
+
+    lifecycles: dict[str, Any] = {}
+    owners: dict[str, str] = {}
+    problems: list[str] = []
+    for module_path in sorted({path for path, _ in _STATE_MACHINE_SOURCES.values()}):
+        module = importlib.import_module(module_path)
+        for var_name, value in vars(module).items():
+            if not isinstance(value, Lifecycle):
+                continue
+            owner = f"{module_path}.{var_name}"
+            previous = owners.get(value.object_name)
+            if previous is not None:
+                problems.append(
+                    f"object_name={value.object_name!r} 有多个 Lifecycle"
+                    f"（{previous} / {owner}）：冻结策略会出现两份声明，"
+                    "比对结果取决于遍历顺序"
+                )
+                continue
+            owners[value.object_name] = owner
+            lifecycles[value.object_name] = value
+    return lifecycles, problems
+
+
+def frozen_state_problems(entry: dict[str, Any], lifecycle: Any) -> list[str]:
+    """单个对象：契约 ``frozen_states`` 与实现 ``Lifecycle.frozen_states`` 的比对。
+
+    抽成纯函数是为了可测试，理由与 ``guard_problems`` 相同：闸门若只能对整份
+    ``state_machines.yaml`` 判定，坏声明就只能靠「改坏契约再跑 CI」来验证，
+    等于没有回归保护。
+
+    四条校验：
+    1. 字段必须**显式存在**——默认值与「声明为空」在运行期同形；
+    2. 必须是字符串列表，且无重复（重复不影响 ``in``，但会让错误信息失真）；
+    3. 每个值必须在 ``allowed_states`` 内（否则 ``in`` 恒假，冻结静默失效）；
+    4. 两侧集合相等，差值分别报出（只报「不一致」会让人猜是哪一侧多了）。
+    """
+    object_name = lifecycle.object_name
+    if _FROZEN_STATES_FIELD not in entry:
+        return [
+            f"{object_name} 的契约条目未声明 {_FROZEN_STATES_FIELD}："
+            "「没声明」与「声明为空」在运行期同形，必须显式写出（不冻结写 []）"
+        ]
+
+    declared = entry.get(_FROZEN_STATES_FIELD)
+    if not isinstance(declared, list):
+        return [
+            f"{object_name} 的 {_FROZEN_STATES_FIELD} 必须是列表，"
+            f"实际是 {type(declared).__name__}"
+        ]
+
+    problems: list[str] = []
+    labels: list[str] = []
+    for item in declared:
+        if not isinstance(item, str) or not item.strip():
+            problems.append(
+                f"{object_name} 的 {_FROZEN_STATES_FIELD} 含非字符串或空值：{item!r}"
+            )
+            continue
+        labels.append(item.strip())
+
+    duplicated = sorted({label for label in labels if labels.count(label) > 1})
+    if duplicated:
+        problems.append(
+            f"{object_name} 的 {_FROZEN_STATES_FIELD} 有重复项：{duplicated}"
+        )
+
+    allowed = {str(state) for state in (entry.get("allowed_states") or [])}
+    unknown = sorted(set(labels) - allowed) if allowed else []
+    if unknown:
+        problems.append(
+            f"{object_name} 的 {_FROZEN_STATES_FIELD} 含未声明状态 {unknown}："
+            "in 判定将永远为假，冻结会静默失效"
+        )
+
+    implemented = {str(getattr(state, "value", state)) for state in lifecycle.frozen_states}
+    if set(labels) != implemented:
+        problems.append(
+            f"{object_name} 的冻结态契约与实现不一致："
+            f"契约多 {sorted(set(labels) - implemented)} / "
+            f"实现多 {sorted(implemented - set(labels))}"
+        )
+    return problems
+
+
+def check_frozen_state_contract() -> bool:
+    """冻结态必须是**契约事实**，且与实现逐对象一致。
+
+    为什么把冻结策略搬进契约（根因）
+    --------------------------------
+    A19 之后「归档即冻结」的判定已经统一，但**策略本身**只写在代码里：改一行
+    元组就能让归档后的项目重新接受新集数，而四道闸门全绿——覆盖判据只回答
+    「有没有声明」，不回答「声明的是哪几个状态」。这与本项目对转移边的处理方式
+    不一致：转移边在契约里，改边必须同改契约，``freeze_manifest --check`` 还会因
+    哈希漂移报红。冻结态决定「父对象封存后还能不能长出新子对象」，是与转移同等
+    强度的生命周期事实，没有理由成为唯一的例外。
+
+    搬进契约的收益不是「多一处校验」，而是**判断变化从此有痕迹**：
+    - 改代码不改契约 → 本判据红；
+    - 改契约 → 文件哈希变更，``freeze_manifest --check`` 红，必须重新签清单；
+    - 重新签清单 → 需要一条已批准的修订登记。
+    三步都要求人看见「COMPLETED 的冻结语义变了」，而不是一行 diff 混在别的改动里。
+
+    三向完备：已实现对象必须有 Lifecycle（否则策略无处声明）；契约条目必须显式
+    声明该字段；两侧集合必须相等。另有反向一条：有 Lifecycle 却没登记进
+    ``_STATE_MACHINE_SOURCES`` 的对象同样报红——它的转移与冻结都不会被比对。
+    """
+    data = load_yaml_mapping(CONTRACTS / "state_machines" / "state_machines.yaml")
+    objects = data.get("objects", [])
+    lifecycles, problems = _implemented_lifecycles()
+
+    for object_name in sorted(lifecycles):
+        if object_name not in _STATE_MACHINE_SOURCES:
+            problems.append(
+                f"{object_name} 有 Lifecycle 但未登记进 _STATE_MACHINE_SOURCES："
+                "转移表与冻结策略都不会被本闸门比对"
+            )
+
+    compared = 0
+    for object_name in sorted(_STATE_MACHINE_SOURCES):
+        lifecycle = lifecycles.get(object_name)
+        if lifecycle is None:
+            problems.append(
+                f"{object_name} 已实现状态机但找不到 Lifecycle 实例："
+                "冻结策略无处声明，无法与契约比对"
+            )
+            continue
+        entry = next((o for o in objects if o.get("object") == object_name), None)
+        if entry is None:
+            problems.append(f"state_machines.yaml 中未找到 {object_name} 条目")
+            continue
+        compared += 1
+        problems.extend(frozen_state_problems(entry, lifecycle))
+
+    for problem in problems:
+        print(f"[FAIL] {problem}")
+    if problems:
+        return False
+    print(f"[PASS] 冻结态契约一致：{compared} 个已实现状态机逐对象比对")
+    return True
+
+
+# --------------------------------------------------------------------------- #
 # 事件契约校验（Event Catalog ↔ 代码 ↔ Action Registry）
 # --------------------------------------------------------------------------- #
 EVENT_CATALOG_PATH = CONTRACTS / "runtime" / "event_catalog.yaml"
@@ -3017,6 +3179,7 @@ def main() -> int:
         ok &= check_transition_entry_gaps()
         ok &= check_state_machine_guards()
         ok &= check_child_creation_freeze_coverage()
+        ok &= check_frozen_state_contract()
         ok &= check_permission_matrix()
         ok &= check_schema_objects()
         ok &= check_schema_field_evolution()

@@ -1104,3 +1104,121 @@ def test_freeze_coverage_requires_decision_for_unlisted_parent(
     monkeypatch.delitem(cc._FREEZE_EXEMPT_PARENTS, "organizations")
 
     assert cc.check_child_creation_freeze_coverage() is False
+
+
+# --------------------------------------------------------------------------- #
+# check_frozen_state_contract：冻结策略必须是契约事实
+# --------------------------------------------------------------------------- #
+def _entry_for(lifecycle, **overrides):
+    """用实现侧数据构造一个「本来就该通过」的契约条目，再按用例改坏它。"""
+    entry = {
+        "object": lifecycle.object_name,
+        "allowed_states": [state.value for state in lifecycle.states],
+        "frozen_states": [state.value for state in lifecycle.frozen_states],
+    }
+    entry.update(overrides)
+    return entry
+
+
+def test_frozen_state_contract_passes_on_current_tree() -> None:
+    assert cc.check_frozen_state_contract() is True
+
+
+def test_frozen_state_problems_accepts_consistent_entry() -> None:
+    from services.project_planning.domain import state_machine
+
+    entry = _entry_for(state_machine.PROJECT_LIFECYCLE)
+    assert cc.frozen_state_problems(entry, state_machine.PROJECT_LIFECYCLE) == []
+
+
+def test_frozen_state_problems_requires_explicit_field() -> None:
+    """字段缺失必须报红：默认空元组让「没声明」与「声明为空」运行期同形。"""
+    from services.project_planning.domain import state_machine
+
+    entry = _entry_for(state_machine.PROJECT_LIFECYCLE)
+    entry.pop("frozen_states")
+
+    problems = cc.frozen_state_problems(entry, state_machine.PROJECT_LIFECYCLE)
+    assert any("未声明" in problem for problem in problems), problems
+
+
+def test_frozen_state_problems_rejects_unknown_state() -> None:
+    """冻结一个不在 allowed_states 里的状态 → ``in`` 恒假，必须报红。"""
+    from services.project_planning.domain import state_machine
+
+    entry = _entry_for(
+        state_machine.PROJECT_LIFECYCLE, frozen_states=["ARCHIVEDD", "ARCHIVED"]
+    )
+
+    problems = cc.frozen_state_problems(entry, state_machine.PROJECT_LIFECYCLE)
+    assert any("未声明状态" in problem for problem in problems), problems
+
+
+def test_frozen_state_problems_reports_both_sides_on_drift() -> None:
+    """不一致时要能看出是哪一侧多——只报「不一致」等于让人猜。"""
+    from services.project_planning.domain import state_machine
+
+    entry = _entry_for(state_machine.PROJECT_LIFECYCLE, frozen_states=["ARCHIVED"])
+
+    problems = cc.frozen_state_problems(entry, state_machine.PROJECT_LIFECYCLE)
+    drift = [problem for problem in problems if "不一致" in problem]
+    assert drift, problems
+    assert "实现多 ['COMPLETED']" in drift[0], drift[0]
+
+
+def test_frozen_state_contract_detects_impl_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """实现侧悄悄改冻结集合（契约未动）→ 判据必须变红。
+
+    这正是 A19 residual 指出的形态：改一行元组就能让归档项目重新接受新集数，
+    而冻结覆盖判据仍然全绿（它只问「有没有声明」）。
+    """
+    import dataclasses
+
+    from services.project_planning.domain import state_machine
+
+    real, problems = cc._implemented_lifecycles()
+    assert problems == []
+
+    drifted = dict(real)
+    drifted["Project"] = dataclasses.replace(
+        state_machine.PROJECT_LIFECYCLE,
+        frozen_states=(state_machine.ProjectStatus.ARCHIVED,),
+    )
+    monkeypatch.setattr(cc, "_implemented_lifecycles", lambda: (drifted, []))
+
+    assert cc.check_frozen_state_contract() is False
+
+
+def test_frozen_state_contract_detects_missing_lifecycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """已实现状态机找不到 Lifecycle → 冻结策略无处声明，必须报红。"""
+    real, problems = cc._implemented_lifecycles()
+    assert problems == []
+
+    incomplete = {key: value for key, value in real.items() if key != "Project"}
+    monkeypatch.setattr(cc, "_implemented_lifecycles", lambda: (incomplete, []))
+
+    assert cc.check_frozen_state_contract() is False
+
+
+def test_frozen_state_contract_detects_unregistered_lifecycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """有 Lifecycle 却不在 _STATE_MACHINE_SOURCES 里 → 转移与冻结都不被比对，报红。"""
+    import dataclasses
+
+    from services.project_planning.domain import state_machine
+
+    real, problems = cc._implemented_lifecycles()
+    assert problems == []
+
+    extra = dict(real)
+    extra["Ghost"] = dataclasses.replace(
+        state_machine.PROJECT_LIFECYCLE, object_name="Ghost", frozen_states=()
+    )
+    monkeypatch.setattr(cc, "_implemented_lifecycles", lambda: (extra, []))
+
+    assert cc.check_frozen_state_contract() is False

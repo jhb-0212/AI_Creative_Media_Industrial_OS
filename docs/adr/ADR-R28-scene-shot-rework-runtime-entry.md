@@ -404,6 +404,58 @@ Lifecycle.assert_child_creation_allowed(status, child_object=...) -> None  # 命
 `PRODUCTION_COMPLETE` 之后仍要能建返工任务，`frozen_states` 为空是刻意的）、
 `shots`（同前）。
 
+### 6.6 冻结策略进入契约（2026-11-21，V205-R14-A20）
+
+§6.5 之后还剩一个问题没有回答：**冻结哪个状态**本身只写在代码里。改一行元组，
+归档后的项目就能重新接受新集数，而四道闸门全绿——覆盖判据只回答「有没有声明」，
+不回答「声明的是哪几个状态」。这是本项目里唯一不受契约治理的生命周期事实：转移边
+在契约里，改边必须同改契约，`freeze_manifest --check` 还会因哈希漂移报红；冻结态
+决定「父对象封存后还能不能长出新子对象」，强度不比转移低，没有理由成为例外。
+
+#### 裁定：`Project.COMPLETED` 继续冻结
+
+依据不是偏好，而是转移图上的事实：Project 从 `COMPLETED` 只有一条出边
+（`→ARCHIVED`），**没有任何回到 `ACTIVE` / `DRAFT` 的路**。两个后果：
+
+1. 在 `COMPLETED` 下登记的子对象会合法落库，却永远无法伴随父对象回到可推进的状态
+   ——它出生在一条死路上。
+2. `COMPLETED` 同时是「交付范围已固化」的事实。事后追加会改写已成立的交付记录，
+   而且不留任何状态变更痕迹。
+
+反过来，「交付后补录」这个需求也不该靠把 `COMPLETED` 移出元组来实现：那等于让
+补录绕过状态变更事实与审计，**用取消检查来满足一个新流程**。正确落点是另行登记
+重开边（`COMPLETED→ACTIVE`）与专属动作，让补录以一次可审计的状态变更开始。该边
+当前未登记，所以本项目**尚不支持**该流程——冻结不减少任何已支持的能力。
+
+#### 搬迁：契约成为策略的权威
+
+`state_machines.yaml` 的每个已实现对象新增 `frozen_states`（不冻结写 `[]`）。
+「没声明」与「声明为空」在运行期同形，所以一律显式写出，由判据双向比对。
+
+收益不是「多一处校验」，而是**判断变化从此有痕迹**：
+
+| 变化 | 谁会发现 |
+|---|---|
+| 改代码不改契约 | `check_frozen_state_contract()` 红 |
+| 改契约不改代码 | 同一判据红 |
+| 两者都改 | 契约文件哈希变化 → `freeze_manifest --check` 红 |
+| 重新签清单 | 需要一条已批准的修订登记（`contract_amendments.yaml`） |
+
+三步都要求人看见「冻结语义变了」，而不是让一行 diff 混在别的改动里。
+
+#### 判据形态
+
+`check_frozen_state_contract()` 的应检集合**派生**自 `_STATE_MACHINE_SOURCES`
+引用的模块：反射其中的 `Lifecycle` 实例，按 `object_name` 索引。不新建「对象名 →
+变量名」的映射表——那又是一份手写清单，漏登记的方向恰好是「少比对一个对象」，
+表现为绿灯。五条判据：
+
+1. 已实现状态机找不到 `Lifecycle` → 红（策略无处声明）；
+2. 有 `Lifecycle` 却没登记进 `_STATE_MACHINE_SOURCES` → 红（转移与冻结都不会被比对）；
+3. 契约条目缺 `frozen_states` 字段 → 红（不能靠默认值）；
+4. 值不在 `allowed_states` 内或重复 → 红（`in` 恒假会让冻结静默失效）；
+5. 两侧集合不等 → 红，且**分别报出**「契约多 / 实现多」——只报「不一致」等于让人猜。
+
 ## 7. 已知债务（本批不解决，必须登记）
 
 1. **`affected_asset_version_ids` 无外键**：跨域 ID 数组，库层无法约束。
@@ -439,13 +491,10 @@ Lifecycle.assert_child_creation_allowed(status, child_object=...) -> None  # 命
    寻址线 / `SCRIPT.IMPORT` / `SHOT.DRAFT.CONFIRM` 四条创建路径全部接线，且判定
    从 `Lifecycle.frozen_states` 派生、四条路径都在持父行锁后判定。
    仍属债务的部分：
-   - **`Project.COMPLETED` 是否应冻结子集合**：当前实现（主线既有）把 `COMPLETED`
-     与 `ARCHIVED` 一并列入 `frozen_states`。这是语义裁定而非结构推论——若业务上
-     允许「交付完成后再补录集数」，需改元组并另立修订。闸门不会替你发现这个判断
-     变化，它只检查「有没有声明」。
    - **加锁顺序**（Project → Episode → Scene）无自动判据，靠评审约束。
    - **豁免表的理由正确性**需人工判断：闸门能发现「豁免了但不该豁免」只有一种
      形态——该表已不存在或已无子表引用；理由本身是否成立不在机器判断范围内。
+   - `Project.COMPLETED` 的语义与冻结策略的契约化见 §6.6（A20，已裁定）。
 
 ## 8. 被拒绝的替代方案
 
@@ -455,6 +504,8 @@ Lifecycle.assert_child_creation_allowed(status, child_object=...) -> None  # 命
 | ReworkTask 只登记债务不建表 | 与 D1/D4 矛盾；`rework_basis_ref` 将永远无法校验，返工边成为绕过验收的暗门 |
 | 授权记录新建成 `ApprovalRecord` | 等于再造一个域（契约 + 表 + 动作 + 全链路），且与 A12 的 `StatusTransition` 职责重叠 |
 | 让 `SHOT.REVISION.CONFIRM` 顺带创建 Scene | 替所有者决定语义，且不可逆；R19 已明确拒绝 |
+| 把 `COMPLETED` 移出 `frozen_states` 以支持「交付后补录」 | 补录会绕过状态变更事实与审计，等于用取消检查满足新流程；正确落点是登记 `COMPLETED→ACTIVE` 重开边与专属动作（§6.6） |
+| 给冻结态加一张「理由表」并由判据校验非空 | 判据只能验「写了理由」，验不了理由是否成立；真正的闭环是让策略进契约、由哈希与修订登记强制人看见变化（§6.6） |
 | ReworkTask 落 asset_service | 守卫校验被迫跨服务，违反 R2 或退化为字符串非空 |
 
 ## 9. 验收判据
@@ -501,3 +552,7 @@ Lifecycle.assert_child_creation_allowed(status, child_object=...) -> None  # 命
 17. 守卫依赖不可缺省：`SceneService` 的镜头/父项目仓储是构造期必需参数，装配
     漏传是类型错误而非运行期 500（`mypy` 覆盖；`shot_planning_routes._scene_service`
     是唯一装配点）。
+18. 冻结策略是契约事实（§6.6）：`state_machines.yaml` 的 9 个已实现对象显式声明
+    `frozen_states`，且与 `Lifecycle.frozen_states` 相等；五类缺陷各有负向用例
+    （缺字段、含未声明状态、重复项、两侧不等、Lifecycle 未登记）
+    （`test_contract_check.py`）。
