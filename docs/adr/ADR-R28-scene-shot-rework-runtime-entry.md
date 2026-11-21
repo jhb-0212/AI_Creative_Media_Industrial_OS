@@ -456,6 +456,43 @@ Lifecycle.assert_child_creation_allowed(status, child_object=...) -> None  # 命
 4. 值不在 `allowed_states` 内或重复 → 红（`in` 恒假会让冻结静默失效）；
 5. 两侧集合不等 → 红，且**分别报出**「契约多 / 实现多」——只报「不一致」等于让人猜。
 
+### 6.7 ShotSpec 的契约补全（2026-11-21，V205-R14-A21）
+
+主链下一环是 `ShotSpec`（`8.12`）。核对契约时发现三处缺口叠在同一个对象上：
+
+| 缺口 | 事实 | 后果 |
+|---|---|---|
+| 状态 | `object_schemas` 有 `status`，但是裸 `string`；`state_machines.yaml` 无该对象 | 「锁定」没有合法状态可落 |
+| 创建入口 | Action Registry 只有 `SHOTSPEC.LOCK` | 锁定没有对象可锁 |
+| 分类 | `status_field_taxonomy` 记为 `lifecycle_gap` | 任一状态值都能通过校验 |
+
+#### 状态集：`DRAFT` → `LOCKED`
+
+`8.12` 只给字段与「必须版本化并绑定 `ShotRevision`」，没给状态集。取两态，三个边界都是刻意的：
+
+- **不设 `PARTIALLY_LOCKED`**。`ShotVisualPlan` 的该状态依赖一套「必锁维度全集」，而 `8.12`
+  只给 `locked_dimensions` 字段、没给全集。没有全集，「部分」锁定到哪为止不可判定——把
+  不可验证的判断写进状态机，比不写更糟。部分锁定的事实仍由 `locked_dimensions` 记录。
+- **不设 `SUPERSEDED`**。规格随修订版本化（`SS-2` 绑定精确 `shot_revision_id`），换版发生在
+  `ShotRevision` 层：新修订要有新规格，旧规格对其修订仍然有效，没有「被取代」的语义。
+- **`LOCKED` 为终态**。改规格必须新修订 + 新规格，不得原地解锁——这是红线「终态不可原地复活」
+  在本对象上的落法。
+
+命名共享 `DRAFT` / `LOCKED`，不引入第二套锁定词汇，满足 `status_field_taxonomy` 对该对象的
+解除条件（「不得自创第二套锁定命名」）。
+
+#### 创建入口：`SHOTSPEC.CREATE` 与 `SHOTSPEC.LOCK` 分离
+
+`SHOTSPEC.LOCK` 是 HIGH 风险动作，语义是「为已有规格的锁定维度、依据与审批事件盖章」。
+让它兼做创建，等于把一次未经创建侧校验的写入藏进审批动作里。创建与确认分离是本项目既有
+口径（`SHOT.DRAFT.CREATE` / `SHOT.DRAFT.CONFIRM` 就是两个动作，共用端点但各自登记）。
+
+#### 本批只补契约
+
+`SHOTSPEC.CREATE` / `SHOTSPEC.LOCK` 均登记为 `not_implemented`；表、路由、事件与迁移在下一批。
+`SS-3`（切点单调 / fps·时长换算）仍为 `RUNTIME_PENDING`——定级必须与实现同批，否则就是
+「声称强制、实际没有」，这正是 A19 抓到的 `create_scene` 注释形态。
+
 ## 7. 已知债务（本批不解决，必须登记）
 
 1. **`affected_asset_version_ids` 无外键**：跨域 ID 数组，库层无法约束。

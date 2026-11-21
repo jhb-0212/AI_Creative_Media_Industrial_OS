@@ -13,7 +13,7 @@
 #
 #   lifecycle      —— 有权威状态机（state_machines.allowed_states）；
 #                     Schema 的 status.enum 必须逐值等于 allowed_states，缺一个、
-#                     多一个都报红。共 40 个（ADR-R21 把 PrevizVersion 归位：8.13
+#                     多一个都报红。共 41 个（ADR-R21 把 PrevizVersion 归位：8.13
 #                     明确给出六态权威集，此前误判为 status_split）。
 #   envelope_only  —— 无独立生命周期，status 仅作信封占位；必须写 basis（依据类别）
 #                     + reason（为什么它不是生命周期）+ unblocks_when（哪项领域决策
@@ -21,7 +21,7 @@
 #                     不再接受任意字符串。共 17 个。
 #   lifecycle_gap  —— 应有生命周期但状态机从未登记；必须写 reason / contract_ref /
 #                     unblocks_when 三项债务字段。这三项不是给文案看的：闸门会
-#                     双向校验（登记了却补上状态机 → 陈旧债务报红）。共 19 个。
+#                     双向校验（登记了却补上状态机 → 陈旧债务报红）。共 18 个。
 #
 # 三类互斥且必须覆盖 object_schemas 里每一个带 status 的对象：
 # 漏登记报红、多登记报红、同一个对象出现在两类里报红。删条目不能让闸门变绿，
@@ -86,6 +86,7 @@ objects:
   - {object: Shot, class: lifecycle}
   - {object: ShotBreakdownDraft, class: lifecycle}
   - {object: ShotRevision, class: lifecycle}
+  - {object: ShotSpec, class: lifecycle}
   - {object: ShotVisualPlan, class: lifecycle}
   - {object: ShowcaseSnapshot, class: lifecycle}
   - {object: SkillManifest, class: lifecycle}
@@ -290,14 +291,6 @@ objects:
     reason: 镜头资源分配带已分配/已预留金额与审批引用（allocated_amount / reserved_amount / approval_id）；预留→消耗→释放是资源生命周期，正文未登记。
     contract_ref: 预算章节（镜头预算与配额）
     unblocks_when: 正文补资源分配的状态链（预期与 QuotaReservation 的 REQUESTED→RESERVED→COMMITTED/RELEASED 同构）
-  - object: ShotSpec
-    class: lifecycle_gap
-    reason: >-
-      ShotSpec 是「怎么拍、多长、切在哪」的单一数据源，且带 locked_dimensions
-      （逐字段锁定）。锁定是状态语义：草案、待锁、部分锁定、全锁——这正是
-      ShotVisualPlan 已经登记过的那套形态，但 ShotSpec 自身没有状态机。
-    contract_ref: 8.12 ShotSpec 字段契约
-    unblocks_when: 正文补 ShotSpec 的锁定与换版口径（须与 ShotVisualPlan 的 PARTIALLY_LOCKED/LOCKED 对齐，不得自创第二套锁定命名）
   - object: ShotTierChangeRequest
     class: lifecycle_gap
     reason: 镜头等级变更申请带申请人/批准人（requester / approver）与成本增量，是标准的两步审批流，形状与 ScriptRevision 的 LOCK_PENDING 完全一致，但正文未登记状态机。
