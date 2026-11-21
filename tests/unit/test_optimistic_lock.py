@@ -16,6 +16,7 @@ import pytest
 
 from packages.errors.error_codes import DomainError
 from packages.identity.principal import Principal
+from services.project_planning.domain.episode import Episode
 from services.project_planning.domain.script import ScriptRevision
 from services.project_planning.repository._versioning import (
     ConcurrentModificationError,
@@ -110,6 +111,9 @@ class _FakeProjectRepository(ProjectRepository):
     async def get_by_id(self, entity_id: str):  # type: ignore[override]
         return object()  # 非 None，视为存在
 
+    async def get_by_id_for_child_write(self, entity_id: str):  # type: ignore[override]
+        return await self.get_by_id(entity_id)
+
 
 class _FakeEpisodeRepository(EpisodeRepository):
     async def add(self, episode) -> None:  # type: ignore[override]
@@ -123,6 +127,22 @@ class _FakeEpisodeRepository(EpisodeRepository):
 
     async def get_by_project_ref(self, project_id: str, episode_ref: str):  # type: ignore[override]
         return object()  # 非 None，视为归属合法
+
+    async def get_by_project_ref_for_child_write(  # type: ignore[override]
+        self, project_id: str, episode_ref: str
+    ):
+        # 必须返回**带 status 的真实聚合**，不能沿用上面的 object()：
+        # 创建路径会对父状态做冻结判定，object() 没有 status 属性，
+        # 会抛 AttributeError —— 那会让用例红在错误的位置上，
+        # 看起来像「冻结检查写坏了」，实际是夹具缺字段。
+        return Episode(
+            entity_id="ep-child-write",
+            project_id=project_id,
+            episode_ref=episode_ref,
+            title="e",
+            created_by="u",
+            tenant_id=uuid.uuid4(),
+        )
 
 
 def _make_service(repo: ScriptRepository) -> ScriptService:

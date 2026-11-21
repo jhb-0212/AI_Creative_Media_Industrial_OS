@@ -493,6 +493,7 @@ objects:
 - object: ReworkTask
   authoritative_source: 7.6 精准返工
   allowed_states: [CLOSED, DONE, IN_PROGRESS, OPEN, REJECTED, VERIFYING]
+  initial_state: OPEN
   transitions:
   - {from: DONE, to: VERIFYING}
   - {from: IN_PROGRESS, to: DONE}
@@ -720,6 +721,7 @@ objects:
 - object: Scene
   authoritative_source: 8.1 核心实体（项目层级 Project→Episode→Scene→Shot，主链实现补登）
   allowed_states: [ACTIVE, ARCHIVED, DRAFT]
+  initial_state: DRAFT
   transitions:
   - {from: ACTIVE, to: ARCHIVED}
   - {from: DRAFT, to: ACTIVE}
@@ -740,6 +742,7 @@ objects:
 - object: Shot
   authoritative_source: 项目所有者《Shot 独立建模裁定》（2026-11-18，非基线正文原文，属所有者口径）
   allowed_states: [BLOCKED, CANCELLED, IN_PRODUCTION, NOT_STARTED, PRODUCTION_COMPLETE]
+  initial_state: NOT_STARTED
   transitions:
   - {from: BLOCKED, to: CANCELLED}
   - {from: BLOCKED, to: IN_PRODUCTION}
@@ -790,6 +793,7 @@ objects:
 - object: ShotBreakdownDraft
   authoritative_source: 项目所有者《拆镜草案字段设计》（2026-11-18，非基线正文原文，属所有者口径）
   allowed_states: [CONFIRMED, DISCARDED, IN_REVIEW, PENDING_CONFIRM, RETURNED]
+  initial_state: PENDING_CONFIRM
   transitions:
   - {from: IN_REVIEW, to: CONFIRMED}
   - {from: IN_REVIEW, to: DISCARDED}
@@ -813,6 +817,7 @@ objects:
 - object: ShotRevision
   authoritative_source: 8.2 标识与版本规则（Shot 是稳定逻辑镜头，ShotRevision 保存每次内容修订）
   allowed_states: [ACTIVE, SUPERSEDED]
+  initial_state: ACTIVE
   transitions:
   - {from: ACTIVE, to: SUPERSEDED}
   note: >-

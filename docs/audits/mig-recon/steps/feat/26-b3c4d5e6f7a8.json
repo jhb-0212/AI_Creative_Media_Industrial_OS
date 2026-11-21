@@ -1,0 +1,150 @@
+{
+  "schemas": [
+    "asset_service",
+    "auth",
+    "outbox",
+    "project_planning",
+    "public"
+  ],
+  "table_count": 13,
+  "tables": {
+    "asset_service.asset_status_transitions": 2,
+    "asset_service.asset_versions": 22,
+    "asset_service.qc_reports": 16,
+    "auth.revoked_tokens": 7,
+    "outbox.maintenance_runs": 9,
+    "outbox.outbox_events": 11,
+    "outbox.outbox_events_default": 11,
+    "outbox.outbox_events_y202611": 11,
+    "outbox.outbox_events_y202612": 11,
+    "project_planning.episodes": 15,
+    "project_planning.projects": 14,
+    "project_planning.script_revisions": 16,
+    "public.alembic_version": 1
+  },
+  "constraints": [
+    "asset_service.asset_status_transitions.asset_status_transitions_pkey",
+    "asset_service.asset_versions.asset_versions_pkey",
+    "asset_service.asset_versions.ck_asset_versions_status_registered",
+    "asset_service.qc_reports.qc_reports_asset_version_id_fkey",
+    "asset_service.qc_reports.qc_reports_pkey",
+    "auth.revoked_tokens.revoked_tokens_pkey",
+    "outbox.maintenance_runs.maintenance_runs_pkey",
+    "outbox.outbox_events.outbox_events_pkey",
+    "outbox.outbox_events_default.outbox_events_default_pkey",
+    "outbox.outbox_events_y202611.outbox_events_y202611_pkey",
+    "outbox.outbox_events_y202612.outbox_events_y202612_pkey",
+    "project_planning.episodes.episodes_pkey",
+    "project_planning.episodes.ux_episode_ref_per_project",
+    "project_planning.projects.projects_pkey",
+    "project_planning.script_revisions.fk_script_revisions_episode",
+    "project_planning.script_revisions.script_revisions_pkey",
+    "public.alembic_version.alembic_version_pkc"
+  ],
+  "roles": {
+    "postgres": {
+      "login": "t",
+      "super": "t",
+      "bypassrls": "t",
+      "createdb": "t",
+      "createrole": "t"
+    },
+    "svc_asset": {
+      "login": "t",
+      "super": "f",
+      "bypassrls": "f",
+      "createdb": "f",
+      "createrole": "f"
+    },
+    "svc_generation_execution": {
+      "login": "t",
+      "super": "f",
+      "bypassrls": "f",
+      "createdb": "f",
+      "createrole": "f"
+    },
+    "svc_identity": {
+      "login": "t",
+      "super": "f",
+      "bypassrls": "f",
+      "createdb": "f",
+      "createrole": "f"
+    },
+    "svc_outbox_relay": {
+      "login": "t",
+      "super": "f",
+      "bypassrls": "f",
+      "createdb": "f",
+      "createrole": "f"
+    },
+    "svc_project_planning": {
+      "login": "t",
+      "super": "f",
+      "bypassrls": "f",
+      "createdb": "f",
+      "createrole": "f"
+    },
+    "svc_qc_governance": {
+      "login": "t",
+      "super": "f",
+      "bypassrls": "f",
+      "createdb": "f",
+      "createrole": "f"
+    },
+    "svc_shot_planning": {
+      "login": "t",
+      "super": "f",
+      "bypassrls": "f",
+      "createdb": "f",
+      "createrole": "f"
+    },
+    "svc_workflow": {
+      "login": "t",
+      "super": "f",
+      "bypassrls": "f",
+      "createdb": "f",
+      "createrole": "f"
+    }
+  },
+  "grants": {
+    "svc_asset": {
+      "objs": 9,
+      "privs": "INSERT+SELECT+UPDATE"
+    },
+    "svc_generation_execution": {
+      "objs": 2,
+      "privs": "SELECT"
+    },
+    "svc_identity": {
+      "objs": 4,
+      "privs": "INSERT+SELECT"
+    },
+    "svc_outbox_relay": {
+      "objs": 3,
+      "privs": "SELECT"
+    },
+    "svc_project_planning": {
+      "objs": 16,
+      "privs": "DELETE+INSERT+SELECT+UPDATE"
+    },
+    "svc_qc_governance": {
+      "objs": 2,
+      "privs": "SELECT"
+    },
+    "svc_shot_planning": {
+      "objs": 2,
+      "privs": "SELECT"
+    },
+    "svc_workflow": {
+      "objs": 2,
+      "privs": "SELECT"
+    }
+  },
+  "memberships": [
+    "pg_read_all_settings->pg_monitor",
+    "pg_read_all_stats->pg_monitor",
+    "pg_stat_scan_tables->pg_monitor"
+  ],
+  "_revision": "b3c4d5e6f7a8",
+  "_step": 26
+}

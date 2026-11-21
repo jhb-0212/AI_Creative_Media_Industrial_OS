@@ -15,16 +15,21 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     ForeignKeyConstraint,
     Index,
+    Integer,
     String,
+    Text,
     UniqueConstraint,
     Uuid,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from packages.shared.database import Base
@@ -33,7 +38,12 @@ from packages.shared.status_constraint import status_check
 from services.project_planning.domain.enums import (
     EpisodeStatus,
     ProjectStatus,
+    ReworkTaskStatus,
+    SceneStatus,
     ScriptStatus,
+    ShotDraftStatus,
+    ShotRevisionStatus,
+    ShotStatus,
 )
 
 # 独立 schema 名称（数据所有权边界）。
@@ -164,6 +174,275 @@ class ScriptModel(EntityMixin, Base):
     )
 
 
+class SceneModel(EntityMixin, Base):
+    """scenes 表模型（场次，归属 Episode）。
+
+    归属完整性（A13 / ADR-R40 §6）：
+    - 复合外键 (project_id, episode_id) → episodes(project_id, entity_id)：单列外键
+      只能证明集数存在，无法阻止「场次属项目 A、集数属项目 B」的跨项目错配。
+    - (project_id, scene_code) 唯一：契约 SC-3 要求「scene_code 在项目内唯一」，
+      因此唯一域是**项目**而不是集数。早先实现成 (project_id, episode_id,
+      scene_code) 是弱于契约的口径（跨集可重名），已按契约收敛。编号语义虽是
+      按集编排，但唯一性必须按契约的项目口径裁决——否则「项目内引用某个
+      scene_code」会有多个解。
+    - CHECK (scene_id = entity_id)：契约 SC-1「身份单一」。领域层已强校验，
+      但那只能挡住经过 Service 的写入；CHECK 让绕过服务直连 DB 的写入也失败。
+    """
+
+    __tablename__ = "scenes"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "entity_id",
+            name="uq_scenes_entity_project",
+        ),
+        UniqueConstraint(
+            "project_id",
+            "scene_code",
+            name="uq_scene_code_per_project",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "episode_id"],
+            [
+                f"{SCHEMA_NAME}.episodes.project_id",
+                f"{SCHEMA_NAME}.episodes.entity_id",
+            ],
+            name="fk_scenes_episode",
+        ),
+        CheckConstraint("scene_id = entity_id", name="ck_scenes_identity_single"),
+        status_check((s.value for s in SceneStatus), table="scenes"),
+        {"schema": SCHEMA_NAME},
+    )
+
+    scene_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    scene_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    episode_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+
+
+class ShotModel(EntityMixin, Base):
+    """shots 表模型（镜头，归属 Scene）。
+
+    四个证据列不是可选项：Shot 的 10 条边里 6 条带守卫，没有它们守卫无处落地。
+    库层 CHECK 与 ``object_schemas`` 里 Shot 的 statement 逐字对应；领域层仍校验，
+    两层分别负责「错误可读」与「绕过服务也写不进去」。
+
+    三条与契约逐字对应的库层约束：
+    - ``uq_shot_code_per_project``：SH-3 要求「shot_code 在项目内唯一」，唯一域是
+      项目而非场次（早先实现成 (project_id, scene_id, shot_code) 弱于契约）。
+    - ``ck_shots_identity_single``：SH-1 身份单一，挡住绕过服务直连 DB 的写入。
+    - ``ck_shots_evidence_consistency``：SH-5 状态证据自洽。
+    """
+
+    __tablename__ = "shots"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "entity_id",
+            name="uq_shots_entity_project",
+        ),
+        UniqueConstraint(
+            "project_id",
+            "shot_code",
+            name="uq_shot_code_per_project",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "scene_id"],
+            [f"{SCHEMA_NAME}.scenes.project_id", f"{SCHEMA_NAME}.scenes.entity_id"],
+            name="fk_shots_scene",
+        ),
+        ForeignKeyConstraint(
+            ["rework_basis_ref"],
+            [f"{SCHEMA_NAME}.rework_tasks.entity_id"],
+            name="fk_shots_rework_basis",
+        ),
+        CheckConstraint("shot_id = entity_id", name="ck_shots_identity_single"),
+        CheckConstraint(
+            "(status = 'BLOCKED' AND blocked_reason IS NOT NULL) "
+            "OR (status = 'CANCELLED' AND cancellation_ref IS NOT NULL "
+            "AND cancelled_at IS NOT NULL) "
+            "OR (status NOT IN ('BLOCKED', 'CANCELLED') "
+            "AND blocked_reason IS NULL AND cancellation_ref IS NULL "
+            "AND cancelled_at IS NULL)",
+            name="ck_shots_evidence_consistency",
+        ),
+        status_check((s.value for s in ShotStatus), table="shots"),
+        {"schema": SCHEMA_NAME},
+    )
+
+    shot_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    shot_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    scene_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    shot_revision_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    blocked_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rework_basis_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    cancellation_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    source_draft_ref: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )
+
+
+class ShotRevisionModel(EntityMixin, Base):
+    """shot_revisions 表模型（镜头内容修订）。
+
+    - (shot_id, revision_no) 唯一：修订号在同一镜头内单调且不重复。
+    - CHECK (shot_revision_id = entity_id)：契约 SR-1「身份单一」。与 SC-1 / SH-1
+      同批下沉，避免「同类不变量只修两条」的口径不一致。
+    - 部分唯一索引：每个 Shot 恰有一个 ACTIVE 修订（ADR-R17）。
+      并发确认时第二个请求撞唯一索引并抛 409——这正是需要的行为。
+    """
+
+    __tablename__ = "shot_revisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "shot_id", "revision_no", name="uq_shot_revision_no"
+        ),
+        Index(
+            "ux_shot_active_revision",
+            "shot_id",
+            unique=True,
+            postgresql_where="status = 'ACTIVE'",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "shot_id"],
+            [f"{SCHEMA_NAME}.shots.project_id", f"{SCHEMA_NAME}.shots.entity_id"],
+            name="fk_shot_revisions_shot",
+        ),
+        CheckConstraint(
+            "shot_revision_id = entity_id", name="ck_shot_revisions_identity_single"
+        ),
+        status_check((s.value for s in ShotRevisionStatus), table="shot_revisions"),
+        {"schema": SCHEMA_NAME},
+    )
+
+    shot_revision_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    shot_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    episode_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    scene_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    revision_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    narrative_intent: Mapped[str] = mapped_column(Text, nullable=False)
+    character_refs: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
+    location_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    prop_refs: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
+    constraint_pack_applicability: Mapped[str] = mapped_column(
+        String(64), nullable=False
+    )
+    constraint_pack_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    creative_autonomy: Mapped[str] = mapped_column(String(64), nullable=False)
+    risk: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    quality_profile: Mapped[str] = mapped_column(String(64), nullable=False)
+    intent_ref: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    basis_script_revision_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    script_anchors: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
+    source_draft_ref: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )
+    source_candidate_refs: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
+    change_origin: Mapped[str] = mapped_column(String(64), nullable=False)
+    supersedes_shot_revision_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    change_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    changed_fields: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
+    provenance: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    confirmed_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    confirmed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class ShotBreakdownDraftModel(EntityMixin, Base):
+    """shot_breakdown_drafts 表模型（AI 拆镜草案）。
+
+    CONFIRMED / RETURNED / DISCARDED 均为版本终态；修改走新 draft_version，
+    由 root_draft_ref 与 supersedes_draft_ref 串成版本链。历史版本不覆盖、不删除。
+    """
+
+    __tablename__ = "shot_breakdown_drafts"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id"],
+            [f"{SCHEMA_NAME}.projects.entity_id"],
+            name="fk_shot_draft_project",
+        ),
+        status_check((s.value for s in ShotDraftStatus), table="shot_breakdown_drafts"),
+        {"schema": SCHEMA_NAME},
+    )
+
+    shot_breakdown_draft_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    episode_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    basis_script_revision_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    breakdown_scope: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    plan_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    generation_method: Mapped[str] = mapped_column(String(64), nullable=False)
+    draft_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    root_draft_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    supersedes_draft_ref: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    change_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+    open_questions: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
+    potential_issues: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
+    scene_breakdowns: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
+    review_records: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
+    confirmed_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    confirmed_shot_revision_refs: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False
+    )
+    returned_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    returned_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    return_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    discarded_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ReworkTaskModel(EntityMixin, Base):
+    """rework_tasks 表模型（返工任务）。
+
+    归属 project_planning 而非资产域，是为了让 Shot.rework_basis_ref 的守卫
+    能在同 schema 内用外键锁死（ADR-R40 §3.3）。affected_asset_version_ids 是
+    跨域值引用，只能不加外键——这是已登记债务，不是疏漏。
+    """
+
+    __tablename__ = "rework_tasks"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id"],
+            [f"{SCHEMA_NAME}.projects.entity_id"],
+            name="fk_rework_tasks_project",
+        ),
+        status_check((s.value for s in ReworkTaskStatus), table="rework_tasks"),
+        {"schema": SCHEMA_NAME},
+    )
+
+    rework_task_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    issue_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    defect_category: Mapped[str] = mapped_column(String(64), nullable=False)
+    severity: Mapped[str] = mapped_column(String(32), nullable=False)
+    root_cause: Mapped[str] = mapped_column(Text, nullable=False)
+    owner: Mapped[str] = mapped_column(String(64), nullable=False)
+    return_node: Mapped[str] = mapped_column(String(64), nullable=False)
+    affected_asset_version_ids: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False
+    )
+    downstream_task_ids: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
+    constraint_pack_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
 class EpisodeModel(EntityMixin, Base):
     """episodes 表模型（集数，归属 Project）。
 
@@ -181,6 +460,13 @@ class EpisodeModel(EntityMixin, Base):
             "project_id",
             "episode_ref",
             name="ux_episode_ref_per_project",
+        ),
+        # 复合外键的引用目标（A13）：scenes(project_id, episode_id) 指向它，
+        # 使「场次所属项目必须与集数所属项目一致」在数据库层成立。
+        UniqueConstraint(
+            "project_id",
+            "entity_id",
+            name="uq_episodes_entity_project",
         ),
         # 归属外键：episodes.project_id -> projects.entity_id。
         ForeignKeyConstraint(

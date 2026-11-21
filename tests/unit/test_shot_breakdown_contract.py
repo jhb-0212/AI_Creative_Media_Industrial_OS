@@ -191,7 +191,7 @@ def test_invariants_are_declared_and_scoped() -> None:
 
     for item in invariants:
         assert item["statement"].strip()
-        assert item["enforced_by"] in {"SCHEMA", "RUNTIME_PENDING"}
+        assert item["enforced_by"] in cc.INVARIANT_LEVELS
 
     assert any(item["enforced_by"] == "SCHEMA" for item in invariants)
     assert any(item["enforced_by"] == "RUNTIME_PENDING" for item in invariants), (

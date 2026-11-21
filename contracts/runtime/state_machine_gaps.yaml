@@ -14,6 +14,14 @@
 # - 解开后要立刻删条目，否则闸门会以「陈旧债务」报红。
 
 gaps:
+  ReworkTask:
+    REJECTED:
+      reason: 7.6 正文只给出 status 枚举（OPEN / IN_PROGRESS / DONE / VERIFYING / CLOSED / REJECTED），
+        未绘制进入 REJECTED 的授权边；「谁有权驳回返工」没有口径。该状态合法但当前无授权入口，
+        按 31.5 未登记转移一律拒绝——指向它的请求必须被拒绝，不能当作「未实现」放行。
+      contract_ref: contracts/state_machines/state_machines.yaml → objects.ReworkTask
+      unblocks_when: 所有者补登进入 REJECTED 的授权边（预期来自 VERIFYING，携带 reject_reason
+        与驳回人），并给出 owner_action 与前置条件；补齐后写入 transitions 并删除本条目
   AssetVersion:
     REJECTED:
       reason: "契约只写「可进入 REJECTED」，未给来源边与触发前置条件（拒绝需理由与证据）"

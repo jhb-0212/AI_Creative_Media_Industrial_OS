@@ -139,6 +139,14 @@ DOMAIN_GRANTS: dict[str, tuple[TableGrant, ...]] = {
         ),
         _grant(
             PROJECT_PLANNING,
+            "scenes",
+            "SELECT INSERT UPDATE",
+            "SELECT：读取场次 + 归属解析 _RESOLVE_SQL['Scene']；INSERT：SCENE.CREATE；"
+            "UPDATE：SCENE.STATUS.CHANGE 的乐观锁条件更新。无 DELETE：场次的终结语义是 "
+            "ARCHIVED，契约里没有 SCENE.DELETE；物理删除会打断 shots 的归属链。",
+        ),
+        _grant(
+            PROJECT_PLANNING,
             "script_revisions",
             "SELECT INSERT UPDATE",
             "SELECT：读取剧本版本；INSERT：提交新修订；UPDATE：锁定审批（request_lock/approve_lock）"
@@ -151,6 +159,36 @@ DOMAIN_GRANTS: dict[str, tuple[TableGrant, ...]] = {
             "SELECT：归属解析 _RESOLVE_SQL['Organization'] 读组织是否存在及其 tenant。"
             "只读是刻意的：契约里没有任何 ORGANIZATION.* 动作，组织是平台级归属根，"
             "由管理面/运维创建（ORGANIZATION.CREATE 落地前不授予写入）。",
+        ),
+        _grant(
+            PROJECT_PLANNING,
+            "shots",
+            "SELECT INSERT UPDATE",
+            "SELECT：按场次列举/读取 + rework_basis_ref 守卫校验；"
+            "INSERT：首次确认原子创建（SHOT.REVISION.CONFIRM）；"
+            "UPDATE：状态推进 + shot_revision_id 指针前移 + 版本递增。"
+            "无 DELETE：删除语义是 CANCELLED，恢复必须新建 Shot。",
+        ),
+        _grant(
+            PROJECT_PLANNING,
+            "shot_revisions",
+            "SELECT INSERT UPDATE",
+            "SELECT：读取修订与 revision_no 分配（取最大号）；INSERT：确认新修订；"
+            "UPDATE：旧修订转 SUPERSEDED。无 DELETE：修订历史不可物理删除。",
+        ),
+        _grant(
+            PROJECT_PLANNING,
+            "shot_breakdown_drafts",
+            "SELECT INSERT UPDATE",
+            "SELECT：按项目读取草案与版本链；INSERT：AI 拆镜产出草案；"
+            "UPDATE：认领/确认/退回/废弃。无 DELETE：终态版本必须保留可追溯。",
+        ),
+        _grant(
+            PROJECT_PLANNING,
+            "rework_tasks",
+            "SELECT INSERT UPDATE",
+            "SELECT：返工依据校验 + 任务查询；INSERT：登记返工任务；"
+            "UPDATE：状态推进。无 DELETE：CLOSED 是终态，任务不可物理删除。",
         ),
         _grant(
             "audit",

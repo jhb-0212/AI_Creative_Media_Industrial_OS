@@ -112,3 +112,22 @@ class SqlAlchemyProjectRepository(ProjectRepository):
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
         return _to_domain(model) if model is not None else None
+
+    async def get_by_id_for_child_write(self, entity_id: str) -> Project | None:
+        """``FOR SHARE`` 读取父行（创建子对象前用）。
+
+        ``with_for_update(read=True)`` 生成 ``FOR SHARE``，不是 ``FOR KEY SHARE``
+        （后者用 ``key_share=True``）——差别见端口文档：``FOR KEY SHARE`` 挡不住
+        ``UPDATE ... SET status``，而归档正是这种更新。
+
+        调用方必须已处于事务中；``FOR SHARE`` 在自动提交模式下不持有到语句之外，
+        会退化成无锁读。事务边界由应用层（请求作用域）保证。
+        """
+        stmt = (
+            select(ProjectModel)
+            .where(ProjectModel.entity_id == entity_id)
+            .with_for_update(read=True)
+        )
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        return _to_domain(model) if model is not None else None

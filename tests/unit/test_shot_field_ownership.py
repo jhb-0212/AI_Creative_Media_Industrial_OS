@@ -19,12 +19,17 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+import contract_check as cc  # noqa: E402
+
 SCHEMA_PATH = "contracts/schemas/object_schemas.schema.json"
 SCHEMA = json.loads((ROOT / SCHEMA_PATH).read_text(encoding="utf-8"))
 DEFS = SCHEMA["definitions"]
@@ -256,7 +261,7 @@ def test_invariant_ids_are_unique_and_scoped() -> None:
         assert all(item_id.startswith(expected) for item_id in ids), f"{name} 的 id 前缀不统一"
         for item in items:
             assert item["statement"].strip()
-            assert item["enforced_by"] in {"SCHEMA", "RUNTIME_PENDING"}
+            assert item["enforced_by"] in cc.INVARIANT_LEVELS
 
     spec_schema = {i["id"] for i in SPEC["x-afs-invariants"] if i["enforced_by"] == "SCHEMA"}
     assert spec_schema == {"SS-1", "SS-2", "SS-4"}, (

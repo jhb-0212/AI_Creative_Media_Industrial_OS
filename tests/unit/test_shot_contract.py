@@ -498,7 +498,7 @@ def test_invariants_are_registered() -> None:
     invariants = {i["id"]: i for i in DEF["x-afs-invariants"]}
     assert set(invariants) == {f"SH-{n}" for n in range(1, 9)}, sorted(invariants)
     for inv in invariants.values():
-        assert inv["enforced_by"] in {"SCHEMA", "RUNTIME_PENDING"}
+        assert inv["enforced_by"] in cc.INVARIANT_LEVELS
         assert inv["statement"].strip()
 
     # 这两条能被 schema 表达，标成 RUNTIME_PENDING 就是自降标准
@@ -507,11 +507,19 @@ def test_invariants_are_registered() -> None:
 
 
 def test_runtime_only_invariants_are_declared_pending() -> None:
-    """跨 Scene 归属、重复编号、指针有效性、无依据返工、终态复活都还没有运行时。"""
+    """仍未落地的两条必须留在 PENDING，不许被"顺手标成已落地"。
+
+    A13 之前这里有 6 条（SH-1/2/3/4/6/7）。落地 4 条后只剩两条真实缺口：
+    - SH-2 的后半句「Shot 与同一 shot_id 的所有修订父级（project/episode/scene）
+      必须完全一致」没有复合外键承载——修订表只有 (project_id, shot_id) 一条外键；
+    - SH-4「版本指针必须指向存在且 ACTIVE 的修订」在库层没有约束
+      （shot_revision_id 不是外键），只由服务写入时保证。
+    把这两条也标成 ENFORCED 就是把"服务写对了"当成"不变量被强制了"。
+    """
     pending = {
         i["id"] for i in DEF["x-afs-invariants"] if i["enforced_by"] == "RUNTIME_PENDING"
     }
-    assert {"SH-1", "SH-2", "SH-3", "SH-4", "SH-6", "SH-7"} <= pending
+    assert pending == {"SH-2", "SH-4"}, f"缺口集合变了，请逐条复核而不是改断言：{pending}"
 
 
 def test_confirm_action_covers_both_objects() -> None:

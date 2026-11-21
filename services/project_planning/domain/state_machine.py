@@ -33,11 +33,21 @@
 
 from __future__ import annotations
 
-from packages.shared.lifecycle import Lifecycle, Transition
+from packages.shared.lifecycle import (
+    ChildPrecondition,
+    Lifecycle,
+    ParentPrecondition,
+    Transition,
+)
 from services.project_planning.domain.enums import (
     EpisodeStatus,
     ProjectStatus,
+    ReworkTaskStatus,
+    SceneStatus,
     ScriptStatus,
+    ShotDraftStatus,
+    ShotRevisionStatus,
+    ShotStatus,
 )
 
 # --------------------------------------------------------------------------- #
@@ -71,6 +81,10 @@ PROJECT_LIFECYCLE = Lifecycle(
     object_name="Project",
     states=tuple(ProjectStatus),
     edges=PROJECT_TRANSITIONS,
+    # 冻结子集合（子对象 Episode）：COMPLETED/ARCHIVED 均无回到 ACTIVE 的路，
+    # 此后登记的子对象会合法落库却永远推不动。逐条显式声明，不用终态推导
+    # （COMPLETED 有出边却是冻结态，两者是交叉关系）。迁移自本地归属治理线。
+    frozen_states=(ProjectStatus.COMPLETED, ProjectStatus.ARCHIVED),
 )
 
 # --------------------------------------------------------------------------- #
@@ -87,6 +101,8 @@ EPISODE_LIFECYCLE = Lifecycle(
     object_name="Episode",
     states=tuple(EpisodeStatus),
     edges=EPISODE_TRANSITIONS,
+    # 冻结子集合（子对象 Scene / ScriptRevision）：归档后不得再登记场次或导入剧本。
+    frozen_states=(EpisodeStatus.ARCHIVED,),
 )
 
 # --------------------------------------------------------------------------- #
@@ -125,6 +141,193 @@ SCRIPT_ALLOWED_TRANSITIONS: dict[ScriptStatus, frozenset[ScriptStatus]] = (
 EPISODE_ALLOWED_TRANSITIONS: dict[EpisodeStatus, frozenset[EpisodeStatus]] = (
     EPISODE_LIFECYCLE.allowed_transitions()
 )
+
+# --------------------------------------------------------------------------- #
+# A13（ADR-R40）：Scene / Shot / ShotRevision / ShotBreakdownDraft / ReworkTask
+#
+# 五个对象一次性接通，因为它们是同一条事务链：
+#   Shot.required 含 shot_revision_id → 需要 ShotRevision
+#   → 唯一入口 SHOT.REVISION.CONFIRM → 输入是 ShotBreakdownDraft
+#   → 唯一入口 SHOT.DRAFT.CREATE
+# 单独实现任何一环，都会立刻撞上下一环（详见 ADR-R40 §1）。
+# --------------------------------------------------------------------------- #
+SCENE_STATUS_CHANGE_ACTION = "SCENE.STATUS.CHANGE"
+SHOT_STATUS_CHANGE_ACTION = "SHOT.STATUS.CHANGE"
+SHOT_REVISION_CONFIRM_ACTION = "SHOT.REVISION.CONFIRM"
+SHOT_DRAFT_CONFIRM_ACTION = "SHOT.DRAFT.CONFIRM"
+SHOT_DRAFT_RETURN_ACTION = "SHOT.DRAFT.RETURN"
+SHOT_DRAFT_DISCARD_ACTION = "SHOT.DRAFT.DISCARD"
+REWORK_TASK_STATUS_CHANGE_ACTION = "REWORK.TASK.STATUS.CHANGE"
+
+# Scene：3 条边，全部归 SCENE.STATUS.CHANGE（与 Episode 同构）。
+#
+# SC-5 的跨聚合前置条件在这里声明（ADR-R40 §6.3），两侧成对：
+# - 父侧（归档）：其下不得存在 IN_PRODUCTION 的镜头；
+# - 子侧（Shot 进入在产）：父场次不得已归档。
+#
+# 为什么声明成边属性而不是写进服务层的 if：手写分支只覆盖当时想到的边，
+# 而进入 IN_PRODUCTION 的边有三条（NOT_STARTED / BLOCKED / PRODUCTION_COMPLETE）。
+# 只要其中一条漏了屏障，不变量就被静默绕过，且没有任何闸门会红。挂在边上之后，
+# 「要不要屏障」是每条边的显式决定，服务层按边表派生触发条件。
+SCENE_ARCHIVE_CHILD_PRECONDITION = ChildPrecondition(
+    object_name="Shot",
+    forbidden_status=ShotStatus.IN_PRODUCTION.value,
+    message="场次下仍有 IN_PRODUCTION 的镜头，拒绝归档（SC-5）",
+)
+SHOT_IN_PRODUCTION_PARENT_PRECONDITION = ParentPrecondition(
+    object_name="Scene",
+    forbidden_status=SceneStatus.ARCHIVED.value,
+    message="父场次已归档，镜头不可进入 IN_PRODUCTION（SC-5 的并发侧）",
+)
+
+SCENE_TRANSITIONS: tuple[Transition[SceneStatus], ...] = (
+    Transition(SceneStatus.DRAFT, SceneStatus.ACTIVE, SCENE_STATUS_CHANGE_ACTION),
+    Transition(
+        SceneStatus.DRAFT,
+        SceneStatus.ARCHIVED,
+        SCENE_STATUS_CHANGE_ACTION,
+        child_precondition=SCENE_ARCHIVE_CHILD_PRECONDITION,
+    ),
+    Transition(
+        SceneStatus.ACTIVE,
+        SceneStatus.ARCHIVED,
+        SCENE_STATUS_CHANGE_ACTION,
+        child_precondition=SCENE_ARCHIVE_CHILD_PRECONDITION,
+    ),
+)
+
+SCENE_LIFECYCLE = Lifecycle(
+    object_name="Scene",
+    states=tuple(SceneStatus),
+    edges=SCENE_TRANSITIONS,
+    # 冻结子集合（子对象 Shot）：归档后不得再挂新镜头。与 SC-5 的 A 侧守卫
+    # （归档时不得有在制镜头）方向相反、互不替代。迁移自本地归属治理线。
+    frozen_states=(SceneStatus.ARCHIVED,),
+)
+
+# Shot：10 条边，全部归 SHOT.STATUS.CHANGE。
+# 这里只有一个动作，但所有权判定照常执行——它的价值在「未来新增专属动作
+# （如 SHOT.CANCEL）时必须显式改边表」，而不是让新动作悄悄共享入口。
+# BLOCKED→NOT_STARTED 是合法回退：阻塞解除后可能整体重排而未启动。
+#
+# 三条进入 IN_PRODUCTION 的边全部带父场次屏障（SC-5 的并发侧）。三条都要：
+# 屏障的语义是「进入在产」，与从哪个状态进来无关；只给其中一条加，等于允许
+# 从另外两条绕过归档判定。
+SHOT_TRANSITIONS: tuple[Transition[ShotStatus], ...] = (
+    Transition(
+        ShotStatus.NOT_STARTED,
+        ShotStatus.IN_PRODUCTION,
+        SHOT_STATUS_CHANGE_ACTION,
+        parent_precondition=SHOT_IN_PRODUCTION_PARENT_PRECONDITION,
+    ),
+    Transition(ShotStatus.NOT_STARTED, ShotStatus.BLOCKED, SHOT_STATUS_CHANGE_ACTION),
+    Transition(ShotStatus.NOT_STARTED, ShotStatus.CANCELLED, SHOT_STATUS_CHANGE_ACTION),
+    Transition(ShotStatus.IN_PRODUCTION, ShotStatus.PRODUCTION_COMPLETE, SHOT_STATUS_CHANGE_ACTION),
+    Transition(ShotStatus.IN_PRODUCTION, ShotStatus.BLOCKED, SHOT_STATUS_CHANGE_ACTION),
+    Transition(ShotStatus.IN_PRODUCTION, ShotStatus.CANCELLED, SHOT_STATUS_CHANGE_ACTION),
+    Transition(ShotStatus.BLOCKED, ShotStatus.NOT_STARTED, SHOT_STATUS_CHANGE_ACTION),
+    Transition(
+        ShotStatus.BLOCKED,
+        ShotStatus.IN_PRODUCTION,
+        SHOT_STATUS_CHANGE_ACTION,
+        parent_precondition=SHOT_IN_PRODUCTION_PARENT_PRECONDITION,
+    ),
+    Transition(ShotStatus.BLOCKED, ShotStatus.CANCELLED, SHOT_STATUS_CHANGE_ACTION),
+    Transition(
+        ShotStatus.PRODUCTION_COMPLETE,
+        ShotStatus.IN_PRODUCTION,
+        SHOT_STATUS_CHANGE_ACTION,
+        parent_precondition=SHOT_IN_PRODUCTION_PARENT_PRECONDITION,
+    ),
+)
+
+SHOT_LIFECYCLE = Lifecycle(
+    object_name="Shot",
+    states=tuple(ShotStatus),
+    edges=SHOT_TRANSITIONS,
+    # 有回边（BLOCKED↔NOT_STARTED、PRODUCTION_COMPLETE→IN_PRODUCTION），无入边
+    # 推导会得到空集。正式镜头只由 SHOT.REVISION.CONFIRM 创建，那一刻固定在
+    # NOT_STARTED——领域事实，不是从图上猜的。迁移自本地归属治理线。
+    initial_states=(ShotStatus.NOT_STARTED,),
+)
+
+# ShotRevision：1 条边。新修订使旧修订 SUPERSEDED，旧版本不可原地覆盖。
+SHOT_REVISION_TRANSITIONS: tuple[Transition[ShotRevisionStatus], ...] = (
+    Transition(
+        ShotRevisionStatus.ACTIVE,
+        ShotRevisionStatus.SUPERSEDED,
+        SHOT_REVISION_CONFIRM_ACTION,
+    ),
+)
+
+SHOT_REVISION_LIFECYCLE = Lifecycle(
+    object_name="ShotRevision",
+    states=tuple(ShotRevisionStatus),
+    edges=SHOT_REVISION_TRANSITIONS,
+    # ACTIVE 有入边（返工取代）但确是首版初始态，不能按无入边推导。
+    initial_states=(ShotRevisionStatus.ACTIVE,),
+)
+
+# ShotBreakdownDraft：5 条边，三个动作分领。
+# CONFIRM 拥有两条边（认领导致 IN_REVIEW，再确认到 CONFIRMED）：认领与确认是
+# 同一用例的两阶段，一次调用在同一事务内连走两跳，两条事实共用同一个
+# owner_action。「认领」单独占一个动作位没有业务语义，它只是并发锁。
+SHOT_DRAFT_TRANSITIONS: tuple[Transition[ShotDraftStatus], ...] = (
+    Transition(
+        ShotDraftStatus.PENDING_CONFIRM, ShotDraftStatus.IN_REVIEW, SHOT_DRAFT_CONFIRM_ACTION
+    ),
+    Transition(
+        ShotDraftStatus.IN_REVIEW, ShotDraftStatus.CONFIRMED, SHOT_DRAFT_CONFIRM_ACTION
+    ),
+    Transition(
+        ShotDraftStatus.IN_REVIEW, ShotDraftStatus.RETURNED, SHOT_DRAFT_RETURN_ACTION
+    ),
+    Transition(
+        ShotDraftStatus.PENDING_CONFIRM, ShotDraftStatus.DISCARDED, SHOT_DRAFT_DISCARD_ACTION
+    ),
+    Transition(
+        ShotDraftStatus.IN_REVIEW, ShotDraftStatus.DISCARDED, SHOT_DRAFT_DISCARD_ACTION
+    ),
+)
+
+SHOT_DRAFT_LIFECYCLE = Lifecycle(
+    object_name="ShotBreakdownDraft",
+    states=tuple(ShotDraftStatus),
+    edges=SHOT_DRAFT_TRANSITIONS,
+)
+
+# ReworkTask：4 条边。REJECTED 无入边——它是合法状态值，但当前没有任何
+# 授权转移，按 31.5 未登记转移一律拒绝（不是「未实现所以放行」）。
+REWORK_TASK_TRANSITIONS: tuple[Transition[ReworkTaskStatus], ...] = (
+    Transition(ReworkTaskStatus.OPEN, ReworkTaskStatus.IN_PROGRESS, REWORK_TASK_STATUS_CHANGE_ACTION),
+    Transition(ReworkTaskStatus.IN_PROGRESS, ReworkTaskStatus.DONE, REWORK_TASK_STATUS_CHANGE_ACTION),
+    Transition(ReworkTaskStatus.DONE, ReworkTaskStatus.VERIFYING, REWORK_TASK_STATUS_CHANGE_ACTION),
+    Transition(ReworkTaskStatus.VERIFYING, ReworkTaskStatus.CLOSED, REWORK_TASK_STATUS_CHANGE_ACTION),
+)
+
+REWORK_TASK_LIFECYCLE = Lifecycle(
+    object_name="ReworkTask",
+    states=tuple(ReworkTaskStatus),
+    edges=REWORK_TASK_TRANSITIONS,
+)
+
+# 结构投影（契约闸门按邻接集比对 YAML），派生自边表，方向唯一。
+SCENE_ALLOWED_TRANSITIONS: dict[SceneStatus, frozenset[SceneStatus]] = (
+    SCENE_LIFECYCLE.allowed_transitions()
+)
+SHOT_ALLOWED_TRANSITIONS: dict[ShotStatus, frozenset[ShotStatus]] = (
+    SHOT_LIFECYCLE.allowed_transitions()
+)
+SHOT_REVISION_ALLOWED_TRANSITIONS: dict[ShotRevisionStatus, frozenset[ShotRevisionStatus]] = (
+    SHOT_REVISION_LIFECYCLE.allowed_transitions()
+)
+SHOT_DRAFT_ALLOWED_TRANSITIONS: dict[ShotDraftStatus, frozenset[ShotDraftStatus]] = (
+    SHOT_DRAFT_LIFECYCLE.allowed_transitions()
+)
+REWORK_TASK_ALLOWED_TRANSITIONS: dict[ReworkTaskStatus, frozenset[ReworkTaskStatus]] = (
+    REWORK_TASK_LIFECYCLE.allowed_transitions()
+)
+
 
 # --------------------------------------------------------------------------- #
 # 兼容入口：既有调用方与测试使用「按对象命名」的函数。
@@ -181,12 +384,34 @@ __all__ = [
     "PROJECT_LIFECYCLE",
     "PROJECT_STATUS_CHANGE_ACTION",
     "PROJECT_TRANSITIONS",
+    "REWORK_TASK_ALLOWED_TRANSITIONS",
+    "REWORK_TASK_LIFECYCLE",
+    "REWORK_TASK_STATUS_CHANGE_ACTION",
+    "REWORK_TASK_TRANSITIONS",
+    "SCENE_ALLOWED_TRANSITIONS",
+    "SCENE_LIFECYCLE",
+    "SCENE_STATUS_CHANGE_ACTION",
+    "SCENE_TRANSITIONS",
     "SCRIPT_ALLOWED_TRANSITIONS",
     "SCRIPT_IMPORT_ACTION",
     "SCRIPT_LIFECYCLE",
     "SCRIPT_LOCK_APPROVE_ACTION",
     "SCRIPT_LOCK_REQUEST_ACTION",
     "SCRIPT_TRANSITIONS",
+    "SHOT_ALLOWED_TRANSITIONS",
+    "SHOT_DRAFT_ALLOWED_TRANSITIONS",
+    "SHOT_DRAFT_CONFIRM_ACTION",
+    "SHOT_DRAFT_DISCARD_ACTION",
+    "SHOT_DRAFT_LIFECYCLE",
+    "SHOT_DRAFT_RETURN_ACTION",
+    "SHOT_DRAFT_TRANSITIONS",
+    "SHOT_LIFECYCLE",
+    "SHOT_REVISION_ALLOWED_TRANSITIONS",
+    "SHOT_REVISION_CONFIRM_ACTION",
+    "SHOT_REVISION_LIFECYCLE",
+    "SHOT_REVISION_TRANSITIONS",
+    "SHOT_STATUS_CHANGE_ACTION",
+    "SHOT_TRANSITIONS",
     "assert_transition",
     "assert_transition_episode",
     "assert_transition_script",

@@ -240,7 +240,7 @@ def test_invariants_are_declared_and_scoped() -> None:
     assert len(ids) == len(set(ids)), "不变量 id 重复"
     for item in invariants:
         assert item["statement"].strip()
-        assert item["enforced_by"] in {"SCHEMA", "RUNTIME_PENDING"}
+        assert item["enforced_by"] in cc.INVARIANT_LEVELS
 
     schema_enforced = {item["id"] for item in invariants if item["enforced_by"] == "SCHEMA"}
     assert schema_enforced == {"SR-4", "SR-6", "SR-11"}, (

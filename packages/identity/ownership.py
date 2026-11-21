@@ -142,6 +142,39 @@ _RESOLVE_SQL: dict[str, str] = {
           ON p.entity_id = a.project_id AND p.tenant_id = a.tenant_id
         WHERE q.qc_report_id = :rid
     """,
+    # A13（ADR-R40）：四个新资源都直接持有 project_id，归属链一跳到底。
+    # Scene 经自带的 project_id 收敛，不经 episode 两跳：三列外键
+    # fk_scenes_episode_project 保证它与集同项目，归属不被改写（I-2）由守卫保证。
+    "Scene": """
+        SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
+        FROM project_planning.scenes AS s
+        JOIN project_planning.projects AS p
+          ON p.entity_id = s.project_id AND p.tenant_id = s.tenant_id
+        WHERE s.entity_id = :rid
+    """,
+    # Shot 经 scene_id/project_id 收敛到项目，采用 shots 自带三列归属键，与
+    # (project_id, scene_id) 复合外键一致，不绕两层父表制造可漂移的第二路径。
+    "Shot": """
+        SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
+        FROM project_planning.shots AS s
+        JOIN project_planning.projects AS p
+          ON p.entity_id = s.project_id AND p.tenant_id = s.tenant_id
+        WHERE s.entity_id = :rid
+    """,
+    "ShotBreakdownDraft": """
+        SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
+        FROM project_planning.shot_breakdown_drafts AS d
+        JOIN project_planning.projects AS p
+          ON p.entity_id = d.project_id AND p.tenant_id = d.tenant_id
+        WHERE d.entity_id = :rid
+    """,
+    "ReworkTask": """
+        SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
+        FROM project_planning.rework_tasks AS t
+        JOIN project_planning.projects AS p
+          ON p.entity_id = t.project_id AND p.tenant_id = t.tenant_id
+        WHERE t.entity_id = :rid
+    """,
 }
 
 

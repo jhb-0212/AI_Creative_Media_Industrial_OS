@@ -7471,17 +7471,17 @@
         {
           "id": "SC-1",
           "statement": "身份单一：entity_id 必须等于 scene_id，不得各自生成两套标识。",
-          "enforced_by": "RUNTIME_PENDING"
+          "enforced_by": "RUNTIME_ENFORCED"
         },
         {
           "id": "SC-2",
           "statement": "归属不漂移：episode_id 必须属于同一 project_id，由复合外键 (project_id, episode_id) → episodes(project_id, entity_id) 保证；scene_id 全局唯一不复用；任何镜头不得跨场次改挂（复合外键 (project_id, scene_id) 是唯一裁决点）。",
-          "enforced_by": "RUNTIME_PENDING"
+          "enforced_by": "RUNTIME_ENFORCED"
         },
         {
           "id": "SC-3",
           "statement": "业务编号唯一：scene_code 在项目内唯一且非空，不得作为关联主键；改编号属展示层变更，不产生新对象、不重建其下镜头。",
-          "enforced_by": "RUNTIME_PENDING"
+          "enforced_by": "RUNTIME_ENFORCED"
         },
         {
           "id": "SC-4",
@@ -7491,7 +7491,7 @@
         {
           "id": "SC-5",
           "statement": "终态不复活：ARCHIVED 无出边，恢复场次必须新建对象并重新授权；归档前必须确认其下不存在 IN_PRODUCTION 的 Shot。",
-          "enforced_by": "RUNTIME_PENDING"
+          "enforced_by": "RUNTIME_ENFORCED"
         },
         {
           "id": "SC-6",
@@ -7907,7 +7907,7 @@
         {
           "id": "SH-1",
           "statement": "身份单一：entity_id 必须等于 shot_id，不得各自生成两套标识。",
-          "enforced_by": "RUNTIME_PENDING"
+          "enforced_by": "RUNTIME_ENFORCED"
         },
         {
           "id": "SH-2",
@@ -7917,7 +7917,7 @@
         {
           "id": "SH-3",
           "statement": "业务编号唯一：shot_code 在项目内唯一，且不得作为关联主键；改编号不产生新修订、不重建 Shot。",
-          "enforced_by": "RUNTIME_PENDING"
+          "enforced_by": "RUNTIME_ENFORCED"
         },
         {
           "id": "SH-4",
@@ -7932,12 +7932,12 @@
         {
           "id": "SH-6",
           "statement": "返工有依据：PRODUCTION_COMPLETE→IN_PRODUCTION 必须携带 rework_basis_ref；schema 只能保证「非生产状态下该字段为空」，正向必填由转移守卫执行。",
-          "enforced_by": "RUNTIME_PENDING"
+          "enforced_by": "RUNTIME_ENFORCED"
         },
         {
           "id": "SH-7",
           "statement": "终态不复活：CANCELLED 无出边，任何恢复都必须新建 Shot 并记录新的授权；不得原地改回 NOT_STARTED。",
-          "enforced_by": "RUNTIME_PENDING"
+          "enforced_by": "RUNTIME_ENFORCED"
         },
         {
           "id": "SH-8",
@@ -9300,7 +9300,7 @@
         {
           "id": "SR-1",
           "statement": "身份单一：entity_id 必须等于 shot_revision_id，不得各自生成两套标识。",
-          "enforced_by": "RUNTIME_PENDING"
+          "enforced_by": "RUNTIME_ENFORCED"
         },
         {
           "id": "SR-2",
@@ -9345,7 +9345,7 @@
         {
           "id": "SR-10",
           "statement": "终态不复活：SUPERSEDED 不得回到 ACTIVE；恢复旧内容只能作为新修订重新确认，历史版本保留可查。",
-          "enforced_by": "RUNTIME_PENDING"
+          "enforced_by": "RUNTIME_ENFORCED"
         },
         {
           "id": "SR-11",

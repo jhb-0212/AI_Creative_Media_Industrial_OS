@@ -34,6 +34,21 @@
   共享层只保证「守卫挂在边上」这一形态——任何推进路径都必须带着这条边的守卫走。
 - 本模块不引入 Manager / Registry 单例：``Lifecycle`` 是无状态值对象，
   每个域在自己的 ``state_machine.py`` 里构造一个模块级常量。
+
+为什么「冻结子集合」是状态的属性，而不是动作的属性
+------------------------------------------------
+「这一支不再长了」是关于**父对象处于某状态时的性质**，不是关于「某个动作是否
+允许」的性质。把它记在动作上，就得在每一条「在父对象下创建子对象」的路径上各写
+一次判断——而路径数量会增长，漏掉的那一条不会报错，它只是不在那里（本项目在
+``qc_reports``/``episodes``/``OWNERSHIP_STACK`` 上已三次栽在同一形态上）。
+
+记在状态上则相反：四条创建路径从同一个 ``is_frozen()`` 派生，第五张子表接入时
+不需要改判断，只需要闸门校验「有子表引用的父对象必须声明 ``frozen_states``」。
+
+**刻意不自动推导为 ``terminal_states()``**：终态与冻结态不等价。
+``Project.COMPLETED`` 不是终态（仍有 ``COMPLETED -> ARCHIVED`` 边），但「项目已完成」
+同样意味着不该再长出新集数。若默认取终态集合，新增一个状态时就会静默继承一个
+没人想过的语义——那正是「清单不会自己举手」的翻版。故默认为空元组，必须显式声明。
 """
 
 from __future__ import annotations
@@ -43,6 +58,48 @@ from dataclasses import dataclass
 from typing import Any
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+
+
+@dataclass(frozen=True)
+class ParentPrecondition:
+    """子对象走这条边时，**父对象**必须不处于某状态。
+
+    为什么这条约束声明在边上，而不是写成服务层的一个 ``if target is ...``
+    ----------------------------------------------------------------
+    两个理由，都不是风格问题：
+
+    1. **漏写的方向是不安全的一侧**。手写分支只覆盖作者当时想到的那条边；此后
+       新增一条进入同一目标的边（例如 ``BLOCKED -> IN_PRODUCTION``）不会有任何
+       东西提示要同步加屏障，不变量就被静默绕过。声明在边上，触发条件由边表
+       派生，新增边必须显式回答「要不要屏障」——不回答就查不到。
+    2. **代价只由需要它的边承担**。多数边与父对象无关，把它们也拖进一次跨聚合
+       查询 + 一次行锁，是把正确性成本摊到所有写路径上。
+
+    并发语义（这是它与普通守卫的区别）
+    ----------------------------------------------------------------
+    普通守卫只看**本次请求带来的值**，一次查询即可判定；本约束看的是**另一张表
+    里的行**，而那个行会被并发事务改写。「先查后写」在并发下必然被穿透：查的
+    瞬间还成立，写的瞬间已不成立，且数据库没有任何约束会拒绝。所以两侧必须在
+    同一行上串行化——父侧持排他行锁后重判，子侧持共享行锁后确认。声明与执行
+    分居两层：边表回答「需不需要」，服务层回答「怎么加锁」。
+    """
+
+    object_name: str
+    forbidden_status: str
+    message: str
+
+
+@dataclass(frozen=True)
+class ChildPrecondition:
+    """父对象走这条边时，**其下子对象**必须不处于某状态（``ParentPrecondition`` 的另一侧）。
+
+    两侧成对存在才构成一条完整的并发约束：只声明父侧，子对象仍可能在归档之后
+    被推入该状态；只声明子侧，归档仍可能在子对象已处于该状态时通过。
+    """
+
+    object_name: str
+    forbidden_status: str
+    message: str
 
 
 @dataclass(frozen=True)
@@ -57,12 +114,19 @@ class Transition[StatusT]:
     边上」这一形态。资产域的守卫依赖 ``AssetVersion`` 与一次 QC 计数查询，项目域
     当前无边级守卫；为它们编一个只覆盖共同字段的 Protocol，会让共享层假装理解
     它并不理解的东西，也会让真正的守卫类型在调用点被擦除。不透明比假装更诚实。
+
+    ``parent_precondition`` / ``child_precondition`` 与 ``guards`` 的区别是刻意的：
+    前者是**共享层按名字解释**的结构化声明（父对象名 + 禁止状态 + 说明），因为它
+    跨聚合、且需要调用方在写之前做一次加锁读取——这是一条完整协议，不该由每个
+    域各写一份；后者是不透明构件，因为它的判定依赖各域自己的实体形状与查询。
     """
 
     source: StatusT
     target: StatusT
     owner_action: str
     guards: tuple[Any, ...] = ()
+    parent_precondition: ParentPrecondition | None = None
+    child_precondition: ChildPrecondition | None = None
 
     @property
     def label(self) -> str:
@@ -87,9 +151,29 @@ class Lifecycle[StatusT]:
     object_name: str
     states: tuple[StatusT, ...]
     edges: tuple[Transition[StatusT], ...]
+    #: 处于这些状态时，**不得再新增子对象**。默认空表示「本对象不冻结子集合」。
+    #:
+    #: 注意这不是 ``terminal_states()`` 的便捷别名：终态必然不该长子对象，但
+    #: 「不该长子对象」的状态未必是终态（``Project.COMPLETED`` 仍有出边）。
+    #: 两者是交叉关系，不能互相推导。
+    frozen_states: tuple[StatusT, ...] = ()
+    #: 初始状态集合。默认空表示「由无入边节点推导」，适用于 DAG；
+    #: 有回边的状态机（如 Shot 的 BLOCKED↔NOT_STARTED）必须显式声明，
+    #: 否则可达性闸门会把所有状态都误判成不可达。
+    initial_states: tuple[StatusT, ...] = ()
 
     def __post_init__(self) -> None:
-        problems = validate_lifecycle(self.object_name, self.states, self.edges)
+        problems = validate_lifecycle(
+            self.object_name, self.states, self.edges, self.frozen_states
+        )
+        initial_list = list(self.initial_states)
+        if _duplicates(initial_list):
+            problems.append("initial_states 有重复项")
+        for state in initial_list:
+            if state not in set(self.states):
+                problems.append(
+                    f"initial_states 含未声明状态 {_status_value(state)!r}"
+                )
         if problems:
             raise ValueError(
                 f"{self.object_name} 状态机边表非法：" + "；".join(problems)
@@ -134,6 +218,42 @@ class Lifecycle[StatusT]:
     def terminal_states(self) -> tuple[StatusT, ...]:
         """全部终态，按 ``states`` 声明序。"""
         return tuple(state for state in self.states if self.is_terminal(state))
+
+    # ------------------------------------------------------------------ #
+    # 子集合冻结：父对象处于某状态时，是否允许新增子对象
+    # ------------------------------------------------------------------ #
+    def is_frozen(self, status: StatusT) -> bool:
+        """该状态下是否禁止新增子对象。
+
+        所有「在父对象下创建子对象」的路径都从这里派生，而不是各自写 if——
+        这是本模块存在 ``frozen_states`` 的唯一理由。
+        """
+        return status in self.frozen_states
+
+    def assert_child_creation_allowed(
+        self, status: StatusT, *, child_object: str
+    ) -> None:
+        """父对象冻结时拒绝新增子对象。
+
+        **调用方必须在持有父行锁之后调用**：本函数只回答「此刻读到的状态是否冻结」，
+        它无法阻止「读的时候还没归档」。并发正确性由锁保证（见 ADR-R27），
+        不由本函数保证——把这两件事混在一起，就会得到一个「看起来有检查、
+        实际上有窗口」的实现。
+        """
+        if not self.is_frozen(status):
+            return
+        frozen = "、".join(_status_value(state) for state in self.frozen_states)
+        raise DomainError(
+            ErrorRegistry.PARENT_LIFECYCLE_FROZEN,
+            detail=(
+                f"{self.object_name} 当前状态 {_status_value(status)} 属冻结态"
+                f"（{frozen}），不得新增 {child_object}"
+            ),
+        )
+
+    def frozen_labels(self) -> tuple[str, ...]:
+        """冻结态的可读标签（报告与错误信息用）。"""
+        return tuple(_status_value(state) for state in self.frozen_states)
 
     # ------------------------------------------------------------------ #
     # 判定（结构 + 所有权）
@@ -197,20 +317,52 @@ class Lifecycle[StatusT]:
                 return edge
         return None
 
+    # ------------------------------------------------------------------ #
+    # 跨聚合前置条件（并发约束的声明侧）
+    # ------------------------------------------------------------------ #
+    def parent_precondition(
+        self, source: StatusT, target: StatusT
+    ) -> ParentPrecondition | None:
+        """该边是否要求父对象不处于某状态；未登记边返回 None。
+
+        为什么「未登记边」返回 None 而不是抛错：调用方拿到 None 后照常走
+        ``transition_to``，未登记的边会在那里被拒（顺序不变）。若这里先抛，
+        「非法转移」与「父对象不满足条件」两种失败会挤在同一个位置上，
+        调用方就无法给出正确的错误码。
+        """
+        edge = self.edge_for(source, target)
+        return edge.parent_precondition if edge is not None else None
+
+    def child_precondition(
+        self, source: StatusT, target: StatusT
+    ) -> ChildPrecondition | None:
+        """该边是否要求其下子对象不处于某状态（``parent_precondition`` 的另一侧）。"""
+        edge = self.edge_for(source, target)
+        return edge.child_precondition if edge is not None else None
+
 
 def validate_lifecycle[StatusT](
     object_name: str,
     states: Iterable[StatusT],
     edges: Iterable[Transition[StatusT]],
+    frozen_states: Iterable[StatusT] = (),
 ) -> list[str]:
-    """边表结构自洽校验（纯函数，供负向测试喂构造数据）。
+    """边表与冻结态的结构自洽校验（纯函数，供负向测试喂构造数据）。
 
     返回问题列表，空表示合法。``Lifecycle.__post_init__`` 在非空时抛错——
     把判定与「抛不抛」分开，才能测「重复边真的会被拒」，而不是只能测
     「合法边表能构造成功」（后者对错误实现同样成立）。
+
+    ``frozen_states`` 的两条校验不是形式主义：
+    - **必须 ⊆ states**：写了一个不存在的状态（例如把枚举误写成同名字符串）时，
+      ``status in frozen_states`` 永远为假，冻结**静默失效**，且没有任何运行期
+      报错会提醒。这是本项目最忌讳的失败形态，必须在 import 期炸。
+    - **不得重复**：重复项不影响 ``in`` 判定，但会让错误信息与报告里的冻结态清单
+      出现重复字面量，掩盖「到底声明了几条」。
     """
     state_list = list(states)
     edge_list = list(edges)
+    frozen_list = list(frozen_states)
     problems: list[str] = []
 
     if not state_list:
@@ -237,6 +389,17 @@ def validate_lifecycle[StatusT](
             )
         if not edge.owner_action.strip():
             problems.append(f"边 {edge.label} 的 owner_action 为空")
+        problems.extend(_precondition_problems(edge))
+
+    frozen_duplicates = _duplicates(frozen_list)
+    if frozen_duplicates:
+        problems.append(f"frozen_states 有重复项：{frozen_duplicates}")
+    for state in frozen_list:
+        if state not in known:
+            problems.append(
+                f"frozen_states 含未声明状态 {_status_value(state)!r}"
+                "：in 判定将永远为假，冻结会静默失效"
+            )
 
     seen: dict[tuple[object, object], str] = {}
     for edge in edge_list:
@@ -250,6 +413,27 @@ def validate_lifecycle[StatusT](
             continue
         seen[key] = edge.owner_action
 
+    return problems
+
+
+def _precondition_problems(edge: Transition[object]) -> list[str]:
+    """跨聚合前置条件的结构自检。
+
+    只查「声明是否完整」，不查「声明是否真实」：父对象名与禁止状态是否存在，
+    属于契约闸门（``contract_check``）与跨对象引用的职责。这里能拦住的是
+    空声明——一个 ``object_name=""`` 的屏障会让服务层去锁一张不存在的表。
+    """
+    problems: list[str] = []
+    for label, precondition in (
+        ("parent_precondition", edge.parent_precondition),
+        ("child_precondition", edge.child_precondition),
+    ):
+        if precondition is None:
+            continue
+        for field in ("object_name", "forbidden_status", "message"):
+            value = getattr(precondition, field)
+            if not isinstance(value, str) or not value.strip():
+                problems.append(f"边 {edge.label} 的 {label}.{field} 为空")
     return problems
 
 
@@ -275,7 +459,9 @@ def _status_value(status: object) -> str:
 
 
 __all__ = [
+    "ChildPrecondition",
     "Lifecycle",
+    "ParentPrecondition",
     "Transition",
     "validate_lifecycle",
 ]

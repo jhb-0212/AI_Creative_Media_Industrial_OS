@@ -112,6 +112,32 @@ def require_resource_role(
     return _dep
 
 
+async def authorize_on_resource(
+    action_key: str,
+    principal: Principal,
+    session: AsyncSession,
+    *,
+    resource_type: str,
+    resource_id: str,
+) -> Principal:
+    """对已存在资源做动作级 + 资源级授权（请求体里的 id 也走同一入口）。
+
+    ``require_resource_role`` 只能读路径参数；镜头修订确认的 shot_id 在请求体
+    里。让路由自己解析/判定会把 AUTH-1 的资源输入散到调用点，因此提供这个函数，
+    判定仍统一落在 ``authorize``，解析仍统一落在 ``SqlOwnershipResolver``。
+    """
+    from packages.identity.ownership import ResourceRef, SqlOwnershipResolver
+    from services.identity_access.rbac import authorize
+
+    ownership = await SqlOwnershipResolver(session).resolve(resource_type, resource_id)
+    return authorize(
+        action_key,
+        principal,
+        ResourceRef(resource_type, resource_id),
+        ownership,
+    )
+
+
 async def authorize_on_parent(
     action_key: str,
     principal: Principal,
@@ -136,6 +162,7 @@ async def authorize_on_parent(
 __all__ = [
     "Principal",
     "authorize_on_parent",
+    "authorize_on_resource",
     "get_asset_tenant_uow",
     "get_principal",
     "get_project_tenant_uow",

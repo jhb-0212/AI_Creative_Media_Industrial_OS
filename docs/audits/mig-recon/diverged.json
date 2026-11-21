@@ -1,0 +1,110 @@
+[
+  {
+    "name": "9e3b4c5d6e7f_create_app_role_and_grants.py",
+    "path_m": "data/migrations/versions/9e3b4c5d6e7f_create_app_role_and_grants.py",
+    "path_f": "data/migrations/versions/9e3b4c5d6e7f_create_app_role_and_grants.py",
+    "revision": "9e3b4c5d6e7f",
+    "revision_f": "9e3b4c5d6e7f",
+    "sha_m": "76e330519a95d2981b1b3b414294d3c207d62ace3406bb529ba63f2b31af3418",
+    "sha_f": "57c3d775ac07e90a8ecce53e39449f226c3cd68d38f9c984f2d474130ad81497",
+    "same_path": true,
+    "la": 115,
+    "lb": 102
+  },
+  {
+    "name": "a1b2c3d4e5f6_fix_outbox_backlog_exclude_dead.py",
+    "path_m": "data/migrations/versions/a1b2c3d4e5f6_fix_outbox_backlog_exclude_dead.py",
+    "path_f": "data/migrations/versions/a1b2c3d4e5f6_fix_outbox_backlog_exclude_dead.py",
+    "revision": "a1b2c3d4e5f6",
+    "revision_f": "a1b2c3d4e5f6",
+    "sha_m": "5945a047a92e6061ec46c8eda891ac30cd588bf83104a1db5326e959dd6fdd48",
+    "sha_f": "a3913fcb5fabfebfa3c24837f84258f6f367723bcfec0a843a08171fe4733a99",
+    "same_path": true,
+    "la": 126,
+    "lb": 126
+  },
+  {
+    "name": "b5c6d7e8f9a0_revoke_maintenance_runs_from_app_role.py",
+    "path_m": "data/migrations/versions/b5c6d7e8f9a0_revoke_maintenance_runs_from_app_role.py",
+    "path_f": "data/migrations/versions/b5c6d7e8f9a0_revoke_maintenance_runs_from_app_role.py",
+    "revision": "b5c6d7e8f9a0",
+    "revision_f": "b5c6d7e8f9a0",
+    "sha_m": "2231518088b96bbac71a20d0bf40ff7b13dc421fef801c01dbd289e5cf4f9b25",
+    "sha_f": "f686de889d1e84b46825e0d5003ef674018b4137d8fbb5e7a5e99d1290efcf07",
+    "same_path": true,
+    "la": 45,
+    "lb": 44
+  },
+  {
+    "name": "b7c8d9e0f1a2_partition_protection_and_grant_baseline.py",
+    "path_m": "data/migrations/versions/b7c8d9e0f1a2_partition_protection_and_grant_baseline.py",
+    "path_f": "data/migrations/versions/b7c8d9e0f1a2_partition_protection_and_grant_baseline.py",
+    "revision": "b7c8d9e0f1a2",
+    "revision_f": "b7c8d9e0f1a2",
+    "sha_m": "0caf8be5f0bd19c10d7c8349c24be9532547e1925c1a55df99951a5a9317630c",
+    "sha_f": "2a8d7d2395c5d936b6e6be2be393c437a781f664c68d0f26773d7fe210f27c8f",
+    "same_path": true,
+    "la": 130,
+    "lb": 132
+  },
+  {
+    "name": "c1d2e3f4a5b6_create_asset_service_tables.py",
+    "path_m": "data/migrations/versions/c1d2e3f4a5b6_create_asset_service_tables.py",
+    "path_f": "data/migrations/versions/c1d2e3f4a5b6_create_asset_service_tables.py",
+    "revision": "c1d2e3f4a5b6",
+    "revision_f": "c1d2e3f4a5b6",
+    "sha_m": "4e3e9dbfaf58622a69297ce703b73b51ecedfc8716e829e5864c6c5dd2f921c3",
+    "sha_f": "525a23270fd78c89e6e8ee8bfc0946e93fdcc0ab6730e675299c99adf2c45809",
+    "same_path": true,
+    "la": 153,
+    "lb": 152
+  },
+  {
+    "name": "c6d7e8f9a0b1_create_auth_revoked_tokens.py",
+    "path_m": "data/migrations/versions/c6d7e8f9a0b1_create_auth_revoked_tokens.py",
+    "path_f": "data/migrations/versions/c6d7e8f9a0b1_create_auth_revoked_tokens.py",
+    "revision": "c6d7e8f9a0b1",
+    "revision_f": "c6d7e8f9a0b1",
+    "sha_m": "ad6705cb7a04520a178161d9ff3db54d1d1e29c5c5cbb81359dfeab40720d29f",
+    "sha_f": "bd40ef42796117989f8d388b57ca4784ec68f1a7707de44a7a21b0b480345645",
+    "same_path": true,
+    "la": 65,
+    "lb": 64
+  },
+  {
+    "name": "d4e5f6a7b8c9_restrict_outbox_grants.py",
+    "path_m": "data/migrations/versions/d4e5f6a7b8c9_restrict_outbox_grants.py",
+    "path_f": "data/migrations/versions/d4e5f6a7b8c9_restrict_outbox_grants.py",
+    "revision": "d4e5f6a7b8c9",
+    "revision_f": "d4e5f6a7b8c9",
+    "sha_m": "4c468f56490c1691cabfb37a3f9acbbaed2cc54ffde982c59e9228ad89c399b9",
+    "sha_f": "239b00967fa9d0ab2e53e3edb4cc44d4bf8270602f1ae4916666367649488fe0",
+    "same_path": true,
+    "la": 48,
+    "lb": 48
+  },
+  {
+    "name": "e5f6a7b8c9d0_add_outbox_tenant_enumeration_function.py",
+    "path_m": "data/migrations/versions/e5f6a7b8c9d0_add_outbox_tenant_enumeration_function.py",
+    "path_f": "data/migrations/versions/e5f6a7b8c9d0_add_outbox_tenant_enumeration_function.py",
+    "revision": "e5f6a7b8c9d0",
+    "revision_f": "e5f6a7b8c9d0",
+    "sha_m": "e6a1ae52d9ae43e4213cbdef2720ac11cb740f5c4a1310931d0e3ccc23e4fe0a",
+    "sha_f": "3a17dbac31b58117a95a2a03d1e0fcd1b79b8b8fc5fd0ea1ebc67f3a18cafc4c",
+    "same_path": true,
+    "la": 71,
+    "lb": 71
+  },
+  {
+    "name": "f6a7b8c9d1e2_partition_outbox_events.py",
+    "path_m": "data/migrations/versions/f6a7b8c9d1e2_partition_outbox_events.py",
+    "path_f": "data/migrations/versions/f6a7b8c9d1e2_partition_outbox_events.py",
+    "revision": "f6a7b8c9d1e2",
+    "revision_f": "f6a7b8c9d1e2",
+    "sha_m": "4cc9a1291d964240876fc8c360e8988574987b01aaeb6ddb76b3922482ec1950",
+    "sha_f": "e01331efb969f66490f738d17349c4286890d5f78ad3095bb893486613490145",
+    "same_path": true,
+    "la": 206,
+    "lb": 205
+  }
+]

@@ -544,6 +544,47 @@ _LIFECYCLE_SOURCES: tuple[tuple[str, str, str, str, str, str], ...] = (
         "services/asset_service/domain/asset_version.py",
         "AssetVersion",
     ),
+    # A13（ADR-R40）：同一条事务链上的五个对象，所有权判定逐个执行。
+    (
+        "Scene",
+        "services.project_planning.domain.state_machine",
+        "SCENE_LIFECYCLE",
+        "SCENE_ALLOWED_TRANSITIONS",
+        "services/project_planning/domain/scene.py",
+        "Scene",
+    ),
+    (
+        "Shot",
+        "services.project_planning.domain.state_machine",
+        "SHOT_LIFECYCLE",
+        "SHOT_ALLOWED_TRANSITIONS",
+        "services/project_planning/domain/shot.py",
+        "Shot",
+    ),
+    (
+        "ShotRevision",
+        "services.project_planning.domain.state_machine",
+        "SHOT_REVISION_LIFECYCLE",
+        "SHOT_REVISION_ALLOWED_TRANSITIONS",
+        "services/project_planning/domain/shot_revision.py",
+        "ShotRevision",
+    ),
+    (
+        "ShotBreakdownDraft",
+        "services.project_planning.domain.state_machine",
+        "SHOT_DRAFT_LIFECYCLE",
+        "SHOT_DRAFT_ALLOWED_TRANSITIONS",
+        "services/project_planning/domain/shot_draft.py",
+        "ShotBreakdownDraft",
+    ),
+    (
+        "ReworkTask",
+        "services.project_planning.domain.state_machine",
+        "REWORK_TASK_LIFECYCLE",
+        "REWORK_TASK_ALLOWED_TRANSITIONS",
+        "services/project_planning/domain/rework_task.py",
+        "ReworkTask",
+    ),
 )
 
 
@@ -950,9 +991,6 @@ def scope_asset_ownership_chain() -> AssertionResult:
 # "column"：表自身带组织列，谓词必须**等于**单一事实源生成的那一段；
 # "parent"：子表无组织列（组织归属从项目派生，冗余存储会产生第二事实源），
 #           必须用父项目存在性表达，让组织规则经父表策略传递。
-_ORG_RLS_MIGRATION = (
-    "data/migrations/versions/e9f0a1b2c3d4_organization_scope_rls.py"
-)
 _ORG_RLS_TABLES: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
     ("project_planning", "projects", "column", ()),
     ("project_planning", "organizations", "column", ()),
@@ -996,7 +1034,52 @@ _ORG_RLS_TABLES: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
             "p.tenant_id = a.tenant_id",
         ),
     ),
+    # A13 的五个对象（迁移 a13b0c1d2e3f）。它们都有 project_id，所以组织归属走
+    # 父项目存在性，与 episodes / script_revisions 同一形态——不冗余存
+    # organization_id，项目换组织时不会留下第二事实源。
+    #
+    # 这五行是补漏，不是新增能力：A13 建表时没加任何策略，五张表在库层是完全敞开的
+    # （业务角色可跨租户、跨组织读全部场次与镜头）。此前本元组是手写的，判据只对它
+    # 列出的表求值，于是「加表」等于「漏检」——现在由 _tenant_scoped_business_tables()
+    # 与真实矩阵比对，未登记的表会让本断言报红。
+    *(
+        (
+            "project_planning",
+            table,
+            "parent",
+            (
+                f"p.entity_id = project_planning.{table}.project_id",
+                f"p.tenant_id = project_planning.{table}.tenant_id",
+            ),
+        )
+        for table in (
+            "scenes",
+            "shots",
+            "shot_revisions",
+            "shot_breakdown_drafts",
+            "rework_tasks",
+        )
+    ),
 )
+
+
+def _tenant_scoped_business_tables() -> frozenset[tuple[str, str]]:
+    """真实矩阵里声明的全部业务表——本判据的**应检集合**。
+
+    为什么不再维护一份手写表名：手写清单与真实 schema 是两个事实源，加了表而
+    没加清单时，判据对那张表根本不求值，于是「漏加策略」表现为绿色。同一批改动
+    里 ``test_boundary_role_grants`` 的手写快照已经因为加表而陈旧过，这里重犯了
+    一次，代价是五张表的跨租户读在库层敞开。
+
+    ``DOMAIN_GRANTS`` 本身已被 ``data.role_grants_least_privilege`` 比对过
+    「ORM 有新表而矩阵没声明」，所以它到 ORM 元数据是一条被验证的链，不是又一份
+    自由心证的副本。
+    """
+    from packages.shared.db_grants import DOMAINS, business_tables
+
+    return frozenset(pair for domain in DOMAINS for pair in business_tables(domain))
+
+
 _ORG_RLS_FORCED: tuple[tuple[str, str], ...] = (
     *((schema, table) for schema, table, _, _ in _ORG_RLS_TABLES),
     ("audit", "status_transitions"),
@@ -1009,12 +1092,18 @@ def evaluate_org_rls(
     database_text: str,
     injects_organization: bool,
     self_injected_paths: list[str],
+    tenant_tables: frozenset[tuple[str, str]] | None = None,
 ) -> list[str]:
     """纯判定：返回组织维度 RLS 未落地的位置（空列表 = 成立）。
 
     入参是**数据**而不是仓库根目录：断言的价值全在「判据能不能识别坏样本」，
     而坏样本不可能长在真实仓库里。把判定与取数分开，测试才能喂构造语句证明
     它真的会报红（与 ``evaluate_role_name_literals`` 同一手法）。
+
+    ``statements`` 必须是**整条迁移链**的回放结果（按 upgrade 顺序），
+    ``tenant_tables`` 是应检的业务表集合。两者都不再是手写清单：
+    前者写死一个迁移文件时，后续迁移里的策略判定不进去；后者写死表名时，
+    新增的表根本不参与求值。两种写死都会让「漏加策略」表现为绿色。
     """
     from packages.shared.rls import (
         RLS_ORGANIZATION_SETTING,
@@ -1023,20 +1112,54 @@ def evaluate_org_rls(
     )
 
     def _policy_statement(schema: str, table: str) -> str | None:
-        """取某张表上的 ``CREATE POLICY`` 语句（按语句判定，不按整段文本搜索）。
+        """取某张表上策略的**最终**形态（后写覆盖先写，DROP 视为没有）。
 
-        匹配键是 ``ON <schema>.<table> ``（DDL 里的定位点）而不是 ``.<table> ``：
+        为什么必须是最终形态而不是第一条：``8f2a1b3c4d5e`` 先建租户单维策略，
+        ``e9f0a1b2c3d4`` 再升级为「租户 + 组织」并 DROP→CREATE。取第一条会把
+        已经升级过的表报成「缺组织谓词」——判据问的必须是「数据库最后是什么样」，
+        否则每加一次策略修订都要回来改判据。
+
+        匹配键是 ``ON <schema>.<table>``（DDL 里的定位点）而不是 ``.<table>``：
         子表的 EXISTS 子句里也写着 ``project_planning.projects``，只按表名找会把
-        子表的策略当成 projects 的——判据仍会报红（策略名对不上），但报的是错的原因。
+        子表的策略当成 projects 的。
         """
+        marker = f" ON {schema}.{table}"
+        final: str | None = None
         for statement in statements:
-            if not statement.startswith("CREATE POLICY "):
+            index = statement.find(marker)
+            if index < 0:
                 continue
-            if f" ON {schema}.{table} " in statement:
-                return statement
-        return None
+            # 定位点后面必须紧跟空白或语句结束，否则 ``scenes_archive`` 会被
+            # 当成 ``scenes``（前缀命中的老问题）。
+            trailing = statement[index + len(marker) : index + len(marker) + 1]
+            if trailing not in ("", " "):
+                continue
+            if statement.startswith("CREATE POLICY "):
+                final = statement
+            elif statement.startswith("DROP POLICY "):
+                final = None
+        return final
 
     problems: list[str] = []
+
+    # 判据 0：应检集合本身必须完整。
+    # 这一段是全文件最重要的五行：此前 _ORG_RLS_TABLES 是手写清单，A13 加了五张
+    # 表却没加清单，判据对它们根本不求值，于是「五张表零策略」报的是 PASS。表清单
+    # 与真实 schema 一旦是两个事实源，「加表」就等于「漏检」——而漏检的方向恰好是
+    # 不安全的一侧。
+    declared = {(schema, table) for schema, table, _, _ in _ORG_RLS_TABLES}
+    if tenant_tables is not None:
+        for schema, table in sorted(tenant_tables - declared):
+            problems.append(
+                f"{schema}.{table} 是业务表但未登记组织 RLS 规则形态"
+                "（未登记即漏检：它的策略不会被求值）"
+            )
+        for schema, table in sorted(declared - tenant_tables):
+            problems.append(
+                f"{schema}.{table} 登记了组织 RLS 规则形态但矩阵里没有这张表"
+                "（陈旧登记：表已删或改名，判据在验一个不存在的东西）"
+            )
+
     for schema, table, form, correlations in _ORG_RLS_TABLES:
         policy = _policy_statement(schema, table)
         if policy is None:
@@ -1133,6 +1256,50 @@ def find_self_injected_scope_paths(
     ]
 
 
+_POLICY_MARKERS: tuple[str, ...] = ("CREATE POLICY", "FORCE ROW LEVEL SECURITY")
+
+
+def _policy_statements() -> list[str]:
+    """整条迁移链上所有策略相关语句，按 upgrade 顺序回放。
+
+    候选文件由**内容**派生（含 ``CREATE POLICY`` / ``ROW LEVEL SECURITY``），
+    而不是写死一个路径。写死路径时，后续迁移新建的策略永远不会进入本判据——
+    A13 的五张表就是这样在「零策略」状态下通过了组织边界校验。
+
+    顺序取自 ``_ordered_migrations()``（alembic 版本链），不是文件名序：策略会被
+    后续迁移 DROP→CREATE 覆盖（``8f2a1b3c4d5e`` 建单维，``e9f0a1b2c3d4`` 升级
+    为双维），顺序错了会把旧形态当成终态。
+
+    派生是启发式的，但方向安全：若某个迁移用拼接手法造出策略语句而躲过关键词，
+    结果是「找不到该表的策略」→ 报红（假阴性），而不是假通过。
+    """
+    collected: list[str] = []
+    business_schemas = {schema for schema, _ in _tenant_scoped_business_tables()}
+    for _, rel in _ordered_migrations():
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        if not any(marker in text for marker in _POLICY_MARKERS):
+            continue
+        try:
+            statements = _rendered_migration_statements(rel)
+        except Exception as exc:
+            # 只容忍「与本判据无关」的迁移。典型例子是 outbox 分区迁移 f6a7b8c9d1e2：
+            # 它按库里实际的 occurred_at 范围算月份，回放时没有数据可读。
+            #
+            # 判据是「这份迁移涉不涉及业务 schema」——不涉及就不可能定义业务表的
+            # 策略，跳过它不会漏掉任何应检项。反之，涉及业务 schema 却回放不了，
+            # 说明本判据的 op 替身缺 API，必须当场报错：把「回放不了」静默降级成
+            # 「没有策略」，正是上一次让五张表零策略通过的那类失真。
+            if any(f"{schema}." in text for schema in business_schemas):
+                raise AssertionError(
+                    f"涉及业务 schema 的迁移无法回放：{rel}（{type(exc).__name__}: {exc}）"
+                ) from exc
+            continue
+        for statement in statements:
+            if statement.startswith(("CREATE POLICY ", "DROP POLICY ", "ALTER TABLE ")):
+                collected.append(statement)
+    return collected
+
+
 @assertion("scope.org_rls_enforced")
 def scope_org_rls_enforced() -> AssertionResult:
     """组织边界必须在数据库层强制，且与应用层同源、有启动期生效验证（SCOPE-4）。
@@ -1148,12 +1315,13 @@ def scope_org_rls_enforced() -> AssertionResult:
     4. 启动期验证真的被调用（每个业务域引擎一次），而不是只定义不接线。
     """
     problems = evaluate_org_rls(
-        _rendered_migration_statements(_ORG_RLS_MIGRATION),
+        _policy_statements(),
         database_text=_read("packages/shared/database.py"),
         injects_organization=_injects_organization_from_principal(
             "packages/shared/rls.py"
         ),
         self_injected_paths=find_self_injected_scope_paths(),
+        tenant_tables=_tenant_scoped_business_tables(),
     )
     return _require(not problems, "；".join(problems))
 
@@ -1261,27 +1429,58 @@ def _unfrozen_converge_calls(rel_paths: list[str]) -> list[str]:
     return found
 
 
-def _migration_chain(revision: str) -> tuple[str, list[str]]:
-    """按 alembic 版本链返回 ``(该迁移的相对路径, 它之后的迁移相对路径列表)``。
+def _ordered_migrations() -> list[tuple[str, str]]:
+    """``[(revision, 相对路径)]``，按 alembic 版本链的 upgrade 顺序。
 
-    用版本链而不是文件名排序：迁移 id 是随机前缀，字典序与执行序无关。判据
-    「此后的迁移不得手写 GRANT」必须按**执行顺序**划界，否则换成随机 id 就失效。
-    用 revision id 而不是文件路径定位，则让「迁移文件被改名」不再让断言失明。
+    用版本链而不是文件名排序：迁移 id 是随机前缀，字典序与执行序无关。
+    所有需要「按执行顺序遍历迁移」的判据都必须经这里取序，否则会出现
+    「同一个链、两种顺序」——那是两个事实源，只是看起来都像对的。
     """
     from alembic.config import Config
     from alembic.script import ScriptDirectory
 
     directory = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
     ordered = [script.revision for script in directory.walk_revisions("base", "heads")][::-1]
-    if revision not in ordered:
-        raise AssertionError(f"版本链里找不到 {revision}（断言目标被删除或改名）")
 
     def _relative(rev: str) -> str:
         script = directory.get_revision(rev)
         return Path(str(script.path)).resolve().relative_to(ROOT).as_posix()
 
-    index = ordered.index(revision)
-    return _relative(revision), [_relative(rev) for rev in ordered[index + 1 :]]
+    return [(rev, _relative(rev)) for rev in ordered]
+
+
+def _migration_chain(revision: str) -> tuple[str, list[str]]:
+    """按 alembic 版本链返回 ``(该迁移的相对路径, 它之后的迁移相对路径列表)``。
+
+    判据「此后的迁移不得手写 GRANT」必须按**执行顺序**划界，否则换成随机 id 就失效。
+    用 revision id 而不是文件路径定位，则让「迁移文件被改名」不再让断言失明。
+    """
+    ordered = _ordered_migrations()
+    revisions = [rev for rev, _ in ordered]
+    if revision not in revisions:
+        raise AssertionError(f"版本链里找不到 {revision}（断言目标被删除或改名）")
+    index = revisions.index(revision)
+    return ordered[index][1], [path for _, path in ordered[index + 1 :]]
+
+
+_AUTHORIZATION_STATEMENT_PREFIXES: tuple[str, ...] = (
+    "GRANT ",
+    "REVOKE ",
+    "ALTER DEFAULT PRIVILEGES",
+)
+
+
+def _is_authorization_statement(statement: str) -> bool:
+    """该语句是否属于「授权面」（GRANT / REVOKE / ALTER DEFAULT PRIVILEGES）。
+
+    授权断言只对授权面负责。建表、建索引、建 RLS 策略同样由迁移执行，但它们
+    分别有 schema 对齐与 ``scope.org_rls_enforced`` 两类判据；把它们算进「授权
+    语句集合」会让每一次新增 DDL 都误报「迁移多执行」。
+    """
+    normalized = statement.strip().upper()
+    return any(
+        normalized.startswith(prefix) for prefix in _AUTHORIZATION_STATEMENT_PREFIXES
+    )
 
 
 def evaluate_least_privilege(
@@ -1332,10 +1531,33 @@ def evaluate_least_privilege(
             )
 
     # 2. 迁移语句 == 矩阵生成。
-    expected = [statement for domain in sorted(converge) for statement in converge[domain]]
-    if sorted(rendered) != sorted(expected):
-        missing = [s for s in expected if s not in rendered]
-        unexpected = [s for s in rendered if s not in expected]
+    #
+    # 比较的是**授权语句的集合**，不是迁移里出现的全部 DDL。授权迁移同时还会建表、
+    # 建索引、建 RLS 策略——它们不属于「授权面」，各有专门的断言（schema 对齐、
+    # scope.org_rls_enforced）。不过滤的话，任何新增 DDL 的迁移都会被报成
+    # 「迁移多执行 N 条」，而那个报错的修法只能是放宽判据或删断言——方向反了。
+    #
+    # 之所以是**集合**而不是列表：授权收敛天然可重入（REVOKE ALL 后 GRANT，
+    # 重复执行结果相同），且迁移是时间胶囊——每张新表由它自己的迁移收敛一次，
+    # 同一域的 ``ALTER DEFAULT PRIVILEGES ... REVOKE`` 会在多条迁移里各出现一次。
+    # 按列表比较会把「幂等语句出现了两次」误判成「迁移多执行了语句」，
+    # 而真正的失效模式（少一条 GRANT、多一条矩阵没声明的 GRANT）在集合语义下
+    # 一个都不会漏。
+    rendered_set = {
+        statement.strip()
+        for statement in rendered
+        if _is_authorization_statement(statement)
+    }
+    expected_set = {
+        statement.strip()
+        for statement in (
+            statement for domain in sorted(converge) for statement in converge[domain]
+        )
+        if _is_authorization_statement(statement)
+    }
+    if rendered_set != expected_set:
+        missing = sorted(expected_set - rendered_set)
+        unexpected = sorted(rendered_set - expected_set)
         detail: list[str] = []
         if missing:
             detail.append(f"迁移少执行 {len(missing)} 条（首条：{missing[0]}）")
@@ -1835,7 +2057,14 @@ def _all_migrations_text() -> str:
 # 只有这两个函数能推进状态；新增第三个即报红（ADR-R23 §D2-b）。
 _TRANSITION_ENTRY_WHITELIST: dict[tuple[str, str], str] = {
     ("services/asset_service/service/asset_service.py", "_advance"): "资产域唯一推进点",
-    ("services/project_planning/service/transition.py", "advance_status"): "项目域唯一推进点",
+    ("services/project_planning/service/transition.py", "advance_status"): "项目域状态推进点",
+    # 合并自分叉归属链：Shot 修订确认时状态不变、但版本指针前移，事实表有
+    # from_status <> to_status 约束，只能写事件不能伪造迁移事实，故与
+    # advance_status 分列。落库仍走同一审计入口，不是绕过白名单的新写法。
+    (
+        "services/project_planning/service/transition.py",
+        "save_versioned_entity",
+    ): "项目域非状态版本变更唯一落库点",
 }
 
 # 状态字段名。改状态有两种写法（调用领域方法 / 直接赋值 self.status），
@@ -1969,11 +2198,30 @@ def _is_self_status_setattr(call: ast.Call) -> bool:
     )
 
 
+class _EmptyScalarResult:
+    """忠实模拟 SQLAlchemy ``Result.scalars()`` 的返回：支持 .all()/.first()/迭代。
+
+    迁移里的幂等守卫会用 ``bind.execute(...).scalars().all()`` 判断约束是否存在；
+    真实 SQLAlchemy 的 ``scalars()`` 返回 ScalarResult 而非 list。此前 mock 返回裸
+    list，导致任何写法正确的迁移在回放时崩在 ``'list' object has no attribute
+    'all'``——闸门把 mock 的 API 失真报成「迁移无法回放」，指向错误的方向。
+    """
+
+    def all(self) -> list[object]:
+        return []
+
+    def first(self) -> None:
+        return None
+
+    def __iter__(self):
+        return iter(())
+
+
 class _EmptyResult:
     """空查询结果：迁移里的「先查后判」在回放时一律得到空集。"""
 
-    def scalars(self) -> list[object]:
-        return []
+    def scalars(self) -> _EmptyScalarResult:
+        return _EmptyScalarResult()
 
     def all(self) -> list[object]:
         return []
@@ -2005,6 +2253,60 @@ class _SqlCollector:
 
     def get_bind(self) -> _EmptyBind:
         return _EmptyBind()
+
+    # 结构类 DDL 在本断言里不需要 SQL 文本：这里判定的是权限/安全语句，
+    # 建表语句由另一条判据（schema 对齐）负责。显式实现而不是 __getattr__ 兜底，
+    # 是为了让「迁移调用了没被支持的 op」仍然是一个错误，而不是静默跳过。
+    def f(self, name: str) -> str:
+        """alembic 的 ``op.f()``：标记「该名字已按约定定型，不再套用命名约定」。
+
+        回放时按原样返回——我们要的正是迁移真正传给数据库的那个名字。
+        缺这个方法时，任何正确使用了 ``op.f`` 的迁移都会让回放崩在 AttributeError，
+        而闸门把「崩了」报成「无法加载迁移」，指向错误的方向（查文件路径而不是查 API）。
+        Alembic 的 16 处 ``index=True`` 生成索引名都带 schema 前缀，``op.f`` 是标准写法。
+        """
+        return name
+
+    def create_table(self, *args: object, **kwargs: object) -> None:
+        return None
+
+    def create_index(self, *args: object, **kwargs: object) -> None:
+        return None
+
+    def create_unique_constraint(self, *args: object, **kwargs: object) -> None:
+        return None
+
+    def drop_table(self, *args: object, **kwargs: object) -> None:
+        return None
+
+    def drop_index(self, *args: object, **kwargs: object) -> None:
+        return None
+
+    def drop_constraint(self, *args: object, **kwargs: object) -> None:
+        return None
+
+    # 下列结构类 op 同样不需要 SQL 文本，但它们**必须**被显式支持：组织 RLS 判据
+    # 要回放整条迁移链，而链上任何一份迁移用到未实现的 op 都会让回放崩在
+    # AttributeError——闸门把崩溃报成「无法加载迁移」，把排查方向指向文件路径。
+    # 只支持「当前链上出现过」的 op 是不够的（加一份迁移就要改这里），所以按
+    # alembic 的结构类 DDL 接口补齐：它们都不产生需要判定的权限/安全语句。
+    def add_column(self, *args: object, **kwargs: object) -> None:
+        return None
+
+    def drop_column(self, *args: object, **kwargs: object) -> None:
+        return None
+
+    def alter_column(self, *args: object, **kwargs: object) -> None:
+        return None
+
+    def create_foreign_key(self, *args: object, **kwargs: object) -> None:
+        return None
+
+    def create_check_constraint(self, *args: object, **kwargs: object) -> None:
+        return None
+
+    def create_primary_key(self, *args: object, **kwargs: object) -> None:
+        return None
 
 
 def _rendered_migration_statements(

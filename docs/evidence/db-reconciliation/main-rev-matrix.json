@@ -1,0 +1,317 @@
+{
+  "chain_length": 34,
+  "revisions": [
+    {
+      "revision": "8d8d59a91012",
+      "down_revision": null,
+      "file": "8d8d59a91012_create_project_planning_projects_table.py",
+      "summary": "create project_planning.projects table",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "e22d6fd3e8d3",
+      "down_revision": "8d8d59a91012",
+      "file": "e22d6fd3e8d3_create_script_revisions_table.py",
+      "summary": "create script_revisions table",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "facd8d42d07f",
+      "down_revision": "e22d6fd3e8d3",
+      "file": "facd8d42d07f_add_script_active_version_unique_index.py",
+      "summary": "add script active version unique index",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "0fcaf4db4573",
+      "down_revision": "facd8d42d07f",
+      "file": "0fcaf4db4573_create_episodes_table.py",
+      "summary": "create episodes table",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "6a7b8c9d0e1f",
+      "down_revision": "0fcaf4db4573",
+      "file": "6a7b8c9d0e1f_add_script_episode_composite_fk.py",
+      "summary": "add composite foreign key script_revisions -> episodes",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "7c8d9e0f1a2b",
+      "down_revision": "6a7b8c9d0e1f",
+      "file": "7c8d9e0f1a2b_create_outbox_events_table.py",
+      "summary": "create outbox_events table",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "8f2a1b3c4d5e",
+      "down_revision": "7c8d9e0f1a2b",
+      "file": "8f2a1b3c4d5e_add_tenant_id_and_rls.py",
+      "summary": "add tenant_id + requested_by columns and enable RLS",
+      "checks": [
+        {
+          "kind": "column",
+          "object": "script_revisions.requested_by",
+          "present": true
+        }
+      ],
+      "missing": []
+    },
+    {
+      "revision": "9e3b4c5d6e7f",
+      "down_revision": "8f2a1b3c4d5e",
+      "file": "9e3b4c5d6e7f_create_app_role_and_grants.py",
+      "summary": "create application role and grant schema access (RLS enforcement)",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "b2c3d4e5f6a7",
+      "down_revision": "9e3b4c5d6e7f",
+      "file": "b2c3d4e5f6a7_add_tenant_id_to_outbox_events.py",
+      "summary": "add tenant_id + RLS to outbox_events",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "d4e5f6a7b8c9",
+      "down_revision": "b2c3d4e5f6a7",
+      "file": "d4e5f6a7b8c9_restrict_outbox_grants.py",
+      "summary": "restrict outbox grants: 审计事件 append-only，撤销应用角色的 DELETE",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "e5f6a7b8c9d0",
+      "down_revision": "d4e5f6a7b8c9",
+      "file": "e5f6a7b8c9d0_add_outbox_tenant_enumeration_function.py",
+      "summary": "add outbox tenant enumeration function: relay 的窄跨租户通道",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "f6a7b8c9d1e2",
+      "down_revision": "e5f6a7b8c9d0",
+      "file": "f6a7b8c9d1e2_partition_outbox_events.py",
+      "summary": "partition outbox_events by occurred_at (monthly range partitions)",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "b8c9d1e2f3a4",
+      "down_revision": "f6a7b8c9d1e2",
+      "file": "b8c9d1e2f3a4_create_maintenance_runs.py",
+      "summary": "create outbox.maintenance_runs (保留期维护的审计与新鲜度表)",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "c1d2e3f4a5b6",
+      "down_revision": "b8c9d1e2f3a4",
+      "file": "c1d2e3f4a5b6_create_asset_service_tables.py",
+      "summary": "create asset_service schema: asset_versions + qc_reports (+RLS/grants)",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "b7c8d9e0f1a2",
+      "down_revision": "c1d2e3f4a5b6",
+      "file": "b7c8d9e0f1a2_partition_protection_and_grant_baseline.py",
+      "summary": "outbox 分区保护 + 权限基线反转（默认零授权）",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "d1e2f3a4b5c6",
+      "down_revision": "b7c8d9e0f1a2",
+      "file": "d1e2f3a4b5c6_asset_immutability_triggers.py",
+      "summary": "资产内容列不可变：用数据库触发器兜底（ADR-R11）",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "e2f3a4b5c6d7",
+      "down_revision": "d1e2f3a4b5c6",
+      "file": "e2f3a4b5c6d7_qc_report_deviation_intent_ref.py",
+      "summary": "qc_reports 增加 deviation_intent_ref（对齐 QCReport 契约的既有字段）",
+      "checks": [
+        {
+          "kind": "column",
+          "object": "qc_reports.deviation_intent_ref",
+          "present": true
+        }
+      ],
+      "missing": []
+    },
+    {
+      "revision": "f3a4b5c6d7e8",
+      "down_revision": "e2f3a4b5c6d7",
+      "file": "f3a4b5c6d7e8_outbox_relay_retry_columns.py",
+      "summary": "Outbox relay 重试与死信字段（P2-2）",
+      "checks": [
+        {
+          "kind": "column",
+          "object": "outbox_events.attempts",
+          "present": true
+        },
+        {
+          "kind": "column",
+          "object": "outbox_events.next_attempt_at",
+          "present": true
+        },
+        {
+          "kind": "column",
+          "object": "outbox_events.dead_lettered_at",
+          "present": true
+        }
+      ],
+      "missing": []
+    },
+    {
+      "revision": "a4b5c6d7e8f9",
+      "down_revision": "f3a4b5c6d7e8",
+      "file": "a4b5c6d7e8f9_cleanup_uow_test_events.py",
+      "summary": "清理 outbox 中的测试残留事件（P3-3）",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "b5c6d7e8f9a0",
+      "down_revision": "a4b5c6d7e8f9",
+      "file": "b5c6d7e8f9a0_revoke_maintenance_runs_from_app_role.py",
+      "summary": "收回 app_role 对 outbox.maintenance_runs 的数据权限（P3-5）",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "c6d7e8f9a0b1",
+      "down_revision": "b5c6d7e8f9a0",
+      "file": "c6d7e8f9a0b1_create_auth_revoked_tokens.py",
+      "summary": "创建 auth.revoked_tokens（JWT jti 吊销表，P3-2）",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "a1b2c3d4e5f6",
+      "down_revision": "c6d7e8f9a0b1",
+      "file": "a1b2c3d4e5f6_fix_outbox_backlog_exclude_dead.py",
+      "summary": "fix outbox tenant enumeration: 死信不再计入 backlog（审计复核 R2）",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "9f1a2b3c4d5e6",
+      "down_revision": "a1b2c3d4e5f6",
+      "file": "9f1a2b3c4d5e6_create_organizations_and_ownership_fk.py",
+      "summary": "create organizations + project/episode ownership foreign keys",
+      "checks": [
+        {
+          "kind": "column",
+          "object": "projects.organization_id",
+          "present": true
+        }
+      ],
+      "missing": []
+    },
+    {
+      "revision": "7a8b9c0d1e2f",
+      "down_revision": "9f1a2b3c4d5e6",
+      "file": "7a8b9c0d1e2f_create_outbox_relay_role.py",
+      "summary": "create outbox_relay_role and grant outbox minimal access (F03)",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "8f3b2c1d4e5a",
+      "down_revision": "7a8b9c0d1e2f",
+      "file": "8f3b2c1d4e5a_split_domain_roles.py",
+      "summary": "按业务域拆分数据库角色：project_planning_role / asset_service_role（DATA-1）",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "ae8724980e0b",
+      "down_revision": "8f3b2c1d4e5a",
+      "file": "ae8724980e0b_grant_outbox_partitions_to_domain_roles.py",
+      "summary": "grant outbox partitions to domain roles（修复 DATA-1/F03 拆角色后的分区授权缺口）",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "b9e1c2d3f4a5",
+      "down_revision": "ae8724980e0b",
+      "file": "b9e1c2d3f4a5_relay_column_level_update.py",
+      "summary": "relay 列级 UPDATE 授权收口（审查 P1-01：事件业务内容不可篡改）",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "c1f2e3d4a5b6",
+      "down_revision": "b9e1c2d3f4a5",
+      "file": "c1f2e3d4a5b6_revoke_app_role_outbox_write.py",
+      "summary": "回收 app_role 对 outbox 的写权限（审查 P1-02 / Review Thread R9）",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "d2e3f4a5b6c7",
+      "down_revision": "c1f2e3d4a5b6",
+      "file": "d2e3f4a5b6c7_organization_tenant_ownership_fk.py",
+      "summary": "组织归属租户复合约束 + organizations RLS（审查 P1-03 / Review Thread R8）",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "b3c4d5e6f7a8",
+      "down_revision": "d2e3f4a5b6c7",
+      "file": "b3c4d5e6f7a8_asset_project_ownership.py",
+      "summary": "资产归属项目：asset_versions.project_id + 跨 schema 复合外键（SCOPE-3）",
+      "checks": [
+        {
+          "kind": "column",
+          "object": "asset_versions.project_id",
+          "present": true
+        }
+      ],
+      "missing": []
+    },
+    {
+      "revision": "c7d8e9f0a1b2",
+      "down_revision": "b3c4d5e6f7a8",
+      "file": "c7d8e9f0a1b2_add_status_check_constraints.py",
+      "summary": "add status check constraints",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "d8e9f0a1b2c3",
+      "down_revision": "c7d8e9f0a1b2",
+      "file": "d8e9f0a1b2c3_audit_status_transitions.py",
+      "summary": "新增审计 schema 与状态迁移事实表（ADR-R23 D2-a）",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "e9f0a1b2c3d4",
+      "down_revision": "d8e9f0a1b2c3",
+      "file": "e9f0a1b2c3d4_organization_scope_rls.py",
+      "summary": "组织维度 RLS + FORCE（ADR-R24 D3a，核验报告 N-03）",
+      "checks": [],
+      "missing": []
+    },
+    {
+      "revision": "c1a2b3d4e5f6",
+      "down_revision": "e9f0a1b2c3d4",
+      "file": "c1a2b3d4e5f6_least_privilege_business_schema.py",
+      "summary": "业务域角色的表级最小权限（DATA-6 / N-06 根治）",
+      "checks": [],
+      "missing": []
+    }
+  ]
+}
