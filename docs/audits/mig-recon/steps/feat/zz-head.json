@@ -1,0 +1,219 @@
+{
+  "schemas": [
+    "asset_service",
+    "auth",
+    "generation_execution",
+    "outbox",
+    "project_planning",
+    "public",
+    "qc_governance",
+    "shot_planning",
+    "workflow"
+  ],
+  "table_count": 33,
+  "tables": {
+    "asset_service.asset_status_transitions": 2,
+    "asset_service.asset_versions": 22,
+    "asset_service.delivery_manifest_status_transitions": 2,
+    "asset_service.delivery_manifests": 20,
+    "asset_service.qc_reports": 16,
+    "auth.revoked_tokens": 7,
+    "generation_execution.generation_task_status_transitions": 2,
+    "generation_execution.generation_tasks": 29,
+    "generation_execution.production_route_status_transitions": 2,
+    "generation_execution.production_routes": 19,
+    "generation_execution.shot_route_selections": 15,
+    "outbox.maintenance_runs": 9,
+    "outbox.outbox_events": 11,
+    "outbox.outbox_events_default": 11,
+    "outbox.outbox_events_y202611": 11,
+    "outbox.outbox_events_y202612": 11,
+    "project_planning.episodes": 15,
+    "project_planning.projects": 14,
+    "project_planning.script_revisions": 16,
+    "public.alembic_version": 1,
+    "qc_governance.gate_decisions": 28,
+    "qc_governance.qc_review_session_status_transitions": 2,
+    "qc_governance.qc_review_sessions": 19,
+    "shot_planning.constraint_pack_status_transitions": 2,
+    "shot_planning.constraint_packs": 23,
+    "shot_planning.shot_drafts": 19,
+    "shot_planning.shot_revisions": 19,
+    "shot_planning.shot_specs": 29,
+    "shot_planning.shot_visual_plan_status_transitions": 2,
+    "shot_planning.shot_visual_plans": 23,
+    "workflow.approval_flows": 19,
+    "workflow.approval_steps": 20,
+    "workflow.approval_tickets": 16
+  },
+  "constraints": [
+    "asset_service.asset_status_transitions.asset_status_transitions_pkey",
+    "asset_service.asset_versions.asset_versions_pkey",
+    "asset_service.asset_versions.ck_asset_versions_status_registered",
+    "asset_service.delivery_manifest_status_transitions.delivery_manifest_status_transitions_pkey",
+    "asset_service.delivery_manifests.ck_delivery_manifests_status_registered",
+    "asset_service.delivery_manifests.delivery_manifests_pkey",
+    "asset_service.qc_reports.qc_reports_asset_version_id_fkey",
+    "asset_service.qc_reports.qc_reports_pkey",
+    "auth.revoked_tokens.revoked_tokens_pkey",
+    "generation_execution.generation_task_status_transitions.generation_task_status_transitions_pkey",
+    "generation_execution.generation_tasks.ck_generation_execution_generation_tasks_status_registered",
+    "generation_execution.generation_tasks.generation_tasks_pkey",
+    "generation_execution.production_route_status_transitions.production_route_status_transitions_pkey",
+    "generation_execution.production_routes.ck_generation_execution_production_routes_status_registered",
+    "generation_execution.production_routes.ck_generation_route_verified_requires_evidence",
+    "generation_execution.production_routes.production_routes_pkey",
+    "generation_execution.shot_route_selections.ck_generation_execution_shot_route_selections_status_registered",
+    "generation_execution.shot_route_selections.fk_generation_execution_shot_route_selections_route_id",
+    "generation_execution.shot_route_selections.shot_route_selections_pkey",
+    "generation_execution.shot_route_selections.ux_shot_route_selection_effective",
+    "outbox.maintenance_runs.maintenance_runs_pkey",
+    "outbox.outbox_events.outbox_events_pkey",
+    "outbox.outbox_events_default.outbox_events_default_pkey",
+    "outbox.outbox_events_y202611.outbox_events_y202611_pkey",
+    "outbox.outbox_events_y202612.outbox_events_y202612_pkey",
+    "project_planning.episodes.episodes_pkey",
+    "project_planning.episodes.ux_episode_ref_per_project",
+    "project_planning.projects.projects_pkey",
+    "project_planning.script_revisions.fk_script_revisions_episode",
+    "project_planning.script_revisions.script_revisions_pkey",
+    "public.alembic_version.alembic_version_pkc",
+    "qc_governance.gate_decisions.ck_qc_governance_gate_decisions_approved_needs_evidence",
+    "qc_governance.gate_decisions.ck_qc_governance_gate_decisions_decision_registered",
+    "qc_governance.gate_decisions.ck_qc_governance_gate_decisions_no_agent_decider",
+    "qc_governance.gate_decisions.gate_decisions_pkey",
+    "qc_governance.qc_review_session_status_transitions.qc_review_session_status_transitions_pkey",
+    "qc_governance.qc_review_sessions.ck_qc_governance_qc_review_sessions_findings_not_empty",
+    "qc_governance.qc_review_sessions.ck_qc_governance_qc_review_sessions_reviewers_not_empty",
+    "qc_governance.qc_review_sessions.ck_qc_governance_qc_review_sessions_status_registered",
+    "qc_governance.qc_review_sessions.qc_review_sessions_pkey",
+    "shot_planning.constraint_pack_status_transitions.constraint_pack_status_transitions_pkey",
+    "shot_planning.constraint_packs.ck_shot_planning_constraint_packs_applicability_registered",
+    "shot_planning.constraint_packs.ck_shot_planning_constraint_packs_status_registered",
+    "shot_planning.constraint_packs.constraint_packs_pkey",
+    "shot_planning.shot_drafts.ck_shot_planning_shot_drafts_source_registered",
+    "shot_planning.shot_drafts.ck_shot_planning_shot_drafts_status_registered",
+    "shot_planning.shot_drafts.shot_drafts_pkey",
+    "shot_planning.shot_revisions.shot_revisions_pkey",
+    "shot_planning.shot_specs.ck_shot_planning_shot_specs_status_registered",
+    "shot_planning.shot_specs.shot_specs_pkey",
+    "shot_planning.shot_visual_plan_status_transitions.shot_visual_plan_status_transitions_pkey",
+    "shot_planning.shot_visual_plans.ck_shot_planning_shot_visual_plans_status_registered",
+    "shot_planning.shot_visual_plans.shot_visual_plans_pkey",
+    "workflow.approval_flows.approval_flows_pkey",
+    "workflow.approval_flows.ck_workflow_approval_flows_mode_registered",
+    "workflow.approval_steps.approval_steps_pkey",
+    "workflow.approval_steps.ck_workflow_approval_steps_decision_registered",
+    "workflow.approval_steps.ck_workflow_approval_steps_no_agent_voter",
+    "workflow.approval_steps.ck_workflow_approval_steps_reject_needs_reason",
+    "workflow.approval_steps.uq_workflow_approval_steps_one_vote_per_group",
+    "workflow.approval_tickets.approval_tickets_pkey",
+    "workflow.approval_tickets.ck_workflow_approval_tickets_status_registered",
+    "workflow.approval_tickets.ck_workflow_approval_tickets_terminal_has_time"
+  ],
+  "roles": {
+    "postgres": {
+      "login": "t",
+      "super": "t",
+      "bypassrls": "t",
+      "createdb": "t",
+      "createrole": "t"
+    },
+    "svc_asset": {
+      "login": "t",
+      "super": "f",
+      "bypassrls": "f",
+      "createdb": "f",
+      "createrole": "f"
+    },
+    "svc_generation_execution": {
+      "login": "t",
+      "super": "f",
+      "bypassrls": "f",
+      "createdb": "f",
+      "createrole": "f"
+    },
+    "svc_identity": {
+      "login": "t",
+      "super": "f",
+      "bypassrls": "f",
+      "createdb": "f",
+      "createrole": "f"
+    },
+    "svc_outbox_relay": {
+      "login": "t",
+      "super": "f",
+      "bypassrls": "f",
+      "createdb": "f",
+      "createrole": "f"
+    },
+    "svc_project_planning": {
+      "login": "t",
+      "super": "f",
+      "bypassrls": "f",
+      "createdb": "f",
+      "createrole": "f"
+    },
+    "svc_qc_governance": {
+      "login": "t",
+      "super": "f",
+      "bypassrls": "f",
+      "createdb": "f",
+      "createrole": "f"
+    },
+    "svc_shot_planning": {
+      "login": "t",
+      "super": "f",
+      "bypassrls": "f",
+      "createdb": "f",
+      "createrole": "f"
+    },
+    "svc_workflow": {
+      "login": "t",
+      "super": "f",
+      "bypassrls": "f",
+      "createdb": "f",
+      "createrole": "f"
+    }
+  },
+  "grants": {
+    "svc_asset": {
+      "objs": 12,
+      "privs": "INSERT+SELECT+UPDATE"
+    },
+    "svc_generation_execution": {
+      "objs": 15,
+      "privs": "INSERT+SELECT+UPDATE"
+    },
+    "svc_identity": {
+      "objs": 5,
+      "privs": "INSERT+SELECT"
+    },
+    "svc_outbox_relay": {
+      "objs": 4,
+      "privs": "SELECT"
+    },
+    "svc_project_planning": {
+      "objs": 17,
+      "privs": "DELETE+INSERT+SELECT+UPDATE"
+    },
+    "svc_qc_governance": {
+      "objs": 11,
+      "privs": "INSERT+SELECT+UPDATE"
+    },
+    "svc_shot_planning": {
+      "objs": 21,
+      "privs": "INSERT+SELECT+UPDATE"
+    },
+    "svc_workflow": {
+      "objs": 11,
+      "privs": "INSERT+SELECT"
+    }
+  },
+  "memberships": [
+    "pg_read_all_settings->pg_monitor",
+    "pg_read_all_stats->pg_monitor",
+    "pg_stat_scan_tables->pg_monitor"
+  ],
+  "_revision": "c4e5f6a7b8d9"
+}

@@ -1,0 +1,25 @@
+{
+  "generated_at": "2026-11-21T01:22:53.723782+00:00",
+  "lab": "lab_parent_freeze_e2e",
+  "verdict": "PASS",
+  "cases": [
+    {
+      "id": "R1",
+      "status": "PASS",
+      "expect": "读到父行且 status=ACTIVE，且会话处于事务中",
+      "observed": "project=proj-alpha status=ACTIVE in_transaction=True"
+    },
+    {
+      "id": "R2",
+      "status": "PASS",
+      "expect": "被阻塞（LockNotAvailable，400ms 超时）",
+      "observed": "被阻塞：canceling statement due to lock timeout"
+    },
+    {
+      "id": "R3",
+      "status": "PASS",
+      "expect": "锁释放后归档成功；新带锁读读到 ARCHIVED",
+      "observed": "归档成功（未被阻塞）；新读 status=ARCHIVED"
+    }
+  ]
+}

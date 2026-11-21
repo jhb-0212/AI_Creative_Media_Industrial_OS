@@ -1,0 +1,110 @@
+{
+  "schemas": [
+    "asset_service",
+    "auth",
+    "outbox",
+    "project_planning",
+    "public"
+  ],
+  "table_count": 13,
+  "tables": {
+    "asset_service.asset_versions": 21,
+    "asset_service.qc_reports": 14,
+    "auth.revoked_tokens": 7,
+    "outbox.maintenance_runs": 9,
+    "outbox.outbox_events": 11,
+    "outbox.outbox_events_default": 11,
+    "outbox.outbox_events_y202611": 11,
+    "outbox.outbox_events_y202612": 11,
+    "project_planning.episodes": 14,
+    "project_planning.organizations": 6,
+    "project_planning.projects": 14,
+    "project_planning.script_revisions": 15,
+    "public.alembic_version": 1
+  },
+  "constraints": [
+    "asset_service.asset_versions.asset_versions_pkey",
+    "asset_service.asset_versions.fk_asset_versions_project_tenant",
+    "asset_service.qc_reports.qc_reports_asset_version_id_fkey",
+    "asset_service.qc_reports.qc_reports_pkey",
+    "auth.revoked_tokens.revoked_tokens_pkey",
+    "outbox.maintenance_runs.maintenance_runs_pkey",
+    "outbox.outbox_events.outbox_events_pkey",
+    "outbox.outbox_events_default.outbox_events_default_pkey",
+    "outbox.outbox_events_y202611.outbox_events_y202611_pkey",
+    "outbox.outbox_events_y202612.outbox_events_y202612_pkey",
+    "project_planning.episodes.episodes_pkey",
+    "project_planning.episodes.fk_episodes_project",
+    "project_planning.episodes.ux_episode_ref_per_project",
+    "project_planning.organizations.organizations_pkey",
+    "project_planning.organizations.uq_organizations_owner_tenant",
+    "project_planning.projects.fk_projects_organization_tenant",
+    "project_planning.projects.projects_pkey",
+    "project_planning.projects.uq_projects_entity_tenant",
+    "project_planning.script_revisions.fk_script_revisions_episode",
+    "project_planning.script_revisions.script_revisions_pkey",
+    "public.alembic_version.alembic_version_pkc"
+  ],
+  "roles": {
+    "app_role": {
+      "login": "t",
+      "super": "f",
+      "bypassrls": "f",
+      "createdb": "f",
+      "createrole": "f"
+    },
+    "asset_service_role": {
+      "login": "t",
+      "super": "f",
+      "bypassrls": "f",
+      "createdb": "f",
+      "createrole": "f"
+    },
+    "outbox_relay_role": {
+      "login": "t",
+      "super": "f",
+      "bypassrls": "f",
+      "createdb": "f",
+      "createrole": "f"
+    },
+    "postgres": {
+      "login": "t",
+      "super": "t",
+      "bypassrls": "t",
+      "createdb": "t",
+      "createrole": "t"
+    },
+    "project_planning_role": {
+      "login": "t",
+      "super": "f",
+      "bypassrls": "f",
+      "createdb": "f",
+      "createrole": "f"
+    }
+  },
+  "grants": {
+    "app_role": {
+      "objs": 3,
+      "privs": "SELECT+USAGE"
+    },
+    "asset_service_role": {
+      "objs": 16,
+      "privs": "INSERT+SELECT+UPDATE+USAGE"
+    },
+    "outbox_relay_role": {
+      "objs": 5,
+      "privs": "SELECT+USAGE"
+    },
+    "project_planning_role": {
+      "objs": 27,
+      "privs": "DELETE+INSERT+SELECT+UPDATE+USAGE"
+    }
+  },
+  "memberships": [
+    "pg_read_all_settings->pg_monitor",
+    "pg_read_all_stats->pg_monitor",
+    "pg_stat_scan_tables->pg_monitor"
+  ],
+  "_revision": "b3c4d5e6f7a8",
+  "_step": 30
+}

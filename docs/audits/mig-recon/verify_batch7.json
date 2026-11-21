@@ -1,0 +1,68 @@
+{
+  "generated_at": "2026-11-21T04:39:24.409060+00:00",
+  "revision": "k1f2a3b4c5d6",
+  "lab": "lab_shot_archive_blocking",
+  "verdict": "PASS",
+  "cases": [
+    {
+      "id": "S1",
+      "status": "PASS",
+      "expect": "数据库函数返回值 == 迁移常量 == 契约划分中的阻断集合",
+      "observed": "db=['IN_PRODUCTION'] 迁移=['IN_PRODUCTION'] 契约划分=['IN_PRODUCTION']"
+    },
+    {
+      "id": "S2",
+      "status": "PASS",
+      "expect": "四处都不再出现 'IN_PRODUCTION'，判定只走函数",
+      "observed": "A 侧守卫=无；B 侧守卫=无；A 侧触发器=无；B 侧触发器=无"
+    },
+    {
+      "id": "S4",
+      "status": "PASS",
+      "expect": "P0001，消息含『1 个镜头处于在制状态』",
+      "observed": "sqlstate=P0001；project_planning.scenes b7-sc-prod 仍有 1 个镜头处于在制状态，禁止归档（ADR-R27/Q3）\nHINT:  先把这些镜头推进到 PRODUCTION_COMPLETE 或 CANC"
+    },
+    {
+      "id": "S3",
+      "status": "PASS",
+      "expect": "归档成功；随后该 BLOCKED 镜头推进 IN_PRODUCTION 被拒（B 侧兜底），状态仍为 BLOCKED",
+      "observed": "归档 sqlstate=00000 行数=1 回读=ARCHIVED；复活 sqlstate=P0001 回读=BLOCKED"
+    },
+    {
+      "id": "S9",
+      "status": "PASS",
+      "expect": "阻断 ∪ 非阻断 == 契约全部 Shot 状态，且两者不交",
+      "observed": "契约=['BLOCKED', 'CANCELLED', 'IN_PRODUCTION', 'NOT_STARTED', 'PRODUCTION_COMPLETE'] 阻断=['IN_PRODUCTION'] 非阻断=['BLOCKED', 'CANCELLED', 'NOT_STARTED', 'PRODUCTION_COMPLETE']"
+    },
+    {
+      "id": "S8",
+      "status": "PASS",
+      "expect": "违例行数=0 且守卫函数齐全",
+      "observed": "归档场次残留 IN_PRODUCTION 镜头（违例行数）=PASS/0；归档守卫函数缺失数=PASS/0"
+    },
+    {
+      "id": "S5",
+      "status": "PASS",
+      "expect": "P0001 —— 把 BLOCKED 写进函数后，含 BLOCKED 镜头的场次立即被拦",
+      "observed": "sqlstate=P0001；project_planning.scenes b7-sc-mut-blocked 仍有 1 个镜头处于在制状态，禁止归档（ADR-R27/Q3）\nHINT:  先把这些镜头推进到 PRODUCTION_COMPLETE"
+    },
+    {
+      "id": "S6",
+      "status": "PASS",
+      "expect": "归档成功且回读 ARCHIVED —— 守卫确实从函数取值，没有第二处硬编码",
+      "observed": "sqlstate=00000 影响行数=1 回读=ARCHIVED"
+    },
+    {
+      "id": "S10",
+      "status": "PASS",
+      "expect": "违例行数=1 ⇒ FAIL（S6 变异留下的存量违例被台账抓到）",
+      "observed": "违例行数=1 判定=FAIL"
+    },
+    {
+      "id": "S7",
+      "status": "PASS",
+      "expect": "函数已撤、两个守卫恢复字面量、触发器 WHEN 回来、IN_PRODUCTION 仍被拦",
+      "observed": "函数已撤=True A侧字面量=True B侧字面量=True 触发器WHEN=True 归档=P0001"
+    }
+  ]
+}

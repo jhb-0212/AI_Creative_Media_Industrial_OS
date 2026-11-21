@@ -1,0 +1,86 @@
+{
+  "generated_at": "2026-11-21T04:38:25.785213+00:00",
+  "revision": "j0e1f2a3b4c5",
+  "lab": "lab_scene_archive_invariant",
+  "verdict": "PASS",
+  "cases": [
+    {
+      "id": "G1",
+      "status": "PASS",
+      "expect": "归档成功且回读为 ARCHIVED —— 缺口真实存在（装触发器前必须复现）",
+      "observed": "sqlstate=00000 影响行数=1 回读=ARCHIVED"
+    },
+    {
+      "id": "N1",
+      "status": "PASS",
+      "expect": "P0001，消息含『1 个镜头处于 IN_PRODUCTION』",
+      "observed": "sqlstate=P0001；project_planning.scenes b6-sc-A 仍有 1 个镜头处于 IN_PRODUCTION，禁止归档（ADR-R27/Q3）\nHINT:  先把这些镜头推进到 PRODUCTION_COMPLETE 或 CANCELL"
+    },
+    {
+      "id": "N2",
+      "status": "PASS",
+      "expect": "P0001，消息说明父场次已归档",
+      "observed": "sqlstate=P0001；project_planning.scenes b6-sc-D 已归档，不得在其中把镜头 b6-sh-D 推进到 IN_PRODUCTION（ADR-R27/Q3）\nHINT:  场次归档意味着这一场不再生产；如确需继续，先把场次恢复为 A"
+    },
+    {
+      "id": "N3",
+      "status": "PASS",
+      "expect": "P0001 —— 直接 INSERT 成 IN_PRODUCTION 同样被挡",
+      "observed": "sqlstate=P0001；project_planning.scenes b6-sc-D 已归档，不得在其中把镜头 b6-sh-D2 推进到 IN_PRODUCTION（ADR-R27/Q3）\nHINT:  场次归档意味着这一"
+    },
+    {
+      "id": "F1",
+      "status": "PASS",
+      "expect": "归档成功（子镜头 NOT_STARTED）",
+      "observed": "sqlstate=00000 UPDATE 1"
+    },
+    {
+      "id": "F2",
+      "status": "PASS",
+      "expect": "归档成功（无子镜头）",
+      "observed": "sqlstate=00000 UPDATE 1"
+    },
+    {
+      "id": "F3",
+      "status": "PASS",
+      "expect": "改非状态列成功，且父场次仍为 ACTIVE",
+      "observed": "sqlstate=00000；父场次=ACTIVE"
+    },
+    {
+      "id": "F4",
+      "status": "PASS",
+      "expect": "成功 —— 父行此刻尚未可见，应由外键兜底而非本触发器判",
+      "observed": "sqlstate=00000；行数=1；"
+    },
+    {
+      "id": "F5",
+      "status": "PASS",
+      "expect": "归档成功（BLOCKED 不计在制 —— 2026-11-21 裁定，见批次七；复活路径由 B 侧守卫关闭）",
+      "observed": "sqlstate=00000 UPDATE 1"
+    },
+    {
+      "id": "I1",
+      "status": "PASS",
+      "expect": "违例行数=0 且守卫函数齐全（两条独立检查都是 PASS）",
+      "observed": "归档场次残留 IN_PRODUCTION 镜头（违例行数）=PASS/0；归档守卫函数缺失数=PASS/0"
+    },
+    {
+      "id": "I2",
+      "status": "PASS",
+      "expect": "违例行数=1 ⇒ FAIL（台账抓到存量违例）",
+      "observed": "违例行数=1 判定=FAIL"
+    },
+    {
+      "id": "P1",
+      "status": "PASS",
+      "expect": "P0001（业务拒绝），**不是** 42501（权限不足）",
+      "observed": "sqlstate=P0001；project_planning.scenes b6-sc-A 仍有 1 个镜头处于 IN_PRODUCTION，禁止归档（ADR-R27/Q3）\nHINT:  先把这些镜头推进到 PRODUCTION_COMPLETE 或 CANCELL"
+    },
+    {
+      "id": "D1",
+      "status": "PASS",
+      "expect": "降级后归档成功且回读为 ARCHIVED（约束确实已撤）",
+      "observed": "sqlstate=00000 影响行数=1 回读=ARCHIVED"
+    }
+  ]
+}

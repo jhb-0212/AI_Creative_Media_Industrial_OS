@@ -81,6 +81,10 @@ PROJECT_LIFECYCLE = Lifecycle(
     object_name="Project",
     states=tuple(ProjectStatus),
     edges=PROJECT_TRANSITIONS,
+    # 冻结子集合（子对象 Episode）：COMPLETED/ARCHIVED 均无回到 ACTIVE 的路，
+    # 此后登记的子对象会合法落库却永远推不动。逐条显式声明，不用终态推导
+    # （COMPLETED 有出边却是冻结态，两者是交叉关系）。迁移自本地归属治理线。
+    frozen_states=(ProjectStatus.COMPLETED, ProjectStatus.ARCHIVED),
 )
 
 # --------------------------------------------------------------------------- #
@@ -97,6 +101,8 @@ EPISODE_LIFECYCLE = Lifecycle(
     object_name="Episode",
     states=tuple(EpisodeStatus),
     edges=EPISODE_TRANSITIONS,
+    # 冻结子集合（子对象 Scene / ScriptRevision）：归档后不得再登记场次或导入剧本。
+    frozen_states=(EpisodeStatus.ARCHIVED,),
 )
 
 # --------------------------------------------------------------------------- #
@@ -194,6 +200,9 @@ SCENE_LIFECYCLE = Lifecycle(
     object_name="Scene",
     states=tuple(SceneStatus),
     edges=SCENE_TRANSITIONS,
+    # 冻结子集合（子对象 Shot）：归档后不得再挂新镜头。与 SC-5 的 A 侧守卫
+    # （归档时不得有在制镜头）方向相反、互不替代。迁移自本地归属治理线。
+    frozen_states=(SceneStatus.ARCHIVED,),
 )
 
 # Shot：10 条边，全部归 SHOT.STATUS.CHANGE。
@@ -236,6 +245,10 @@ SHOT_LIFECYCLE = Lifecycle(
     object_name="Shot",
     states=tuple(ShotStatus),
     edges=SHOT_TRANSITIONS,
+    # 有回边（BLOCKED↔NOT_STARTED、PRODUCTION_COMPLETE→IN_PRODUCTION），无入边
+    # 推导会得到空集。正式镜头只由 SHOT.REVISION.CONFIRM 创建，那一刻固定在
+    # NOT_STARTED——领域事实，不是从图上猜的。迁移自本地归属治理线。
+    initial_states=(ShotStatus.NOT_STARTED,),
 )
 
 # ShotRevision：1 条边。新修订使旧修订 SUPERSEDED，旧版本不可原地覆盖。
@@ -251,6 +264,8 @@ SHOT_REVISION_LIFECYCLE = Lifecycle(
     object_name="ShotRevision",
     states=tuple(ShotRevisionStatus),
     edges=SHOT_REVISION_TRANSITIONS,
+    # ACTIVE 有入边（返工取代）但确是首版初始态，不能按无入边推导。
+    initial_states=(ShotRevisionStatus.ACTIVE,),
 )
 
 # ShotBreakdownDraft：5 条边，三个动作分领。

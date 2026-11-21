@@ -139,6 +139,14 @@ DOMAIN_GRANTS: dict[str, tuple[TableGrant, ...]] = {
         ),
         _grant(
             PROJECT_PLANNING,
+            "scenes",
+            "SELECT INSERT UPDATE",
+            "SELECT：读取场次 + 归属解析 _RESOLVE_SQL['Scene']；INSERT：SCENE.CREATE；"
+            "UPDATE：SCENE.STATUS.CHANGE 的乐观锁条件更新。无 DELETE：场次的终结语义是 "
+            "ARCHIVED，契约里没有 SCENE.DELETE；物理删除会打断 shots 的归属链。",
+        ),
+        _grant(
+            PROJECT_PLANNING,
             "script_revisions",
             "SELECT INSERT UPDATE",
             "SELECT：读取剧本版本；INSERT：提交新修订；UPDATE：锁定审批（request_lock/approve_lock）"
@@ -151,13 +159,6 @@ DOMAIN_GRANTS: dict[str, tuple[TableGrant, ...]] = {
             "SELECT：归属解析 _RESOLVE_SQL['Organization'] 读组织是否存在及其 tenant。"
             "只读是刻意的：契约里没有任何 ORGANIZATION.* 动作，组织是平台级归属根，"
             "由管理面/运维创建（ORGANIZATION.CREATE 落地前不授予写入）。",
-        ),
-        _grant(
-            PROJECT_PLANNING,
-            "scenes",
-            "SELECT INSERT UPDATE",
-            "SELECT：按集数列举/读取 + 归属解析；INSERT：登记场次（SCENE.CREATE）；"
-            "UPDATE：状态推进 + 乐观锁版本递增。无 DELETE：删除语义是 ARCHIVED。",
         ),
         _grant(
             PROJECT_PLANNING,

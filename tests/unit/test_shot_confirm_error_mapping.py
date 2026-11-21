@@ -171,6 +171,10 @@ class _Projects(ProjectRepository):
     async def get_by_id(self, entity_id: str) -> Project | None:
         return self.rows.get(entity_id)
 
+    async def get_by_id_for_child_write(self, entity_id: str) -> Project | None:
+        # 内存夹具无行锁语义，等同普通读（真实 SQLAlchemy 仓储实现为 FOR SHARE）。
+        return self.rows.get(entity_id)
+
 
 @dataclass
 class _Outbox:

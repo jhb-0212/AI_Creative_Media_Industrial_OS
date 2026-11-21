@@ -2057,7 +2057,14 @@ def _all_migrations_text() -> str:
 # 只有这两个函数能推进状态；新增第三个即报红（ADR-R23 §D2-b）。
 _TRANSITION_ENTRY_WHITELIST: dict[tuple[str, str], str] = {
     ("services/asset_service/service/asset_service.py", "_advance"): "资产域唯一推进点",
-    ("services/project_planning/service/transition.py", "advance_status"): "项目域唯一推进点",
+    ("services/project_planning/service/transition.py", "advance_status"): "项目域状态推进点",
+    # 合并自分叉归属链：Shot 修订确认时状态不变、但版本指针前移，事实表有
+    # from_status <> to_status 约束，只能写事件不能伪造迁移事实，故与
+    # advance_status 分列。落库仍走同一审计入口，不是绕过白名单的新写法。
+    (
+        "services/project_planning/service/transition.py",
+        "save_versioned_entity",
+    ): "项目域非状态版本变更唯一落库点",
 }
 
 # 状态字段名。改状态有两种写法（调用领域方法 / 直接赋值 self.status），

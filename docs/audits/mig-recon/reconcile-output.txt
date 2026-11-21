@@ -1,0 +1,60 @@
+## 主支链逐 revision 结构核对
+
+| # | revision | 文件名 | 静态标记 | ai_film_industrial | ai_film_verify |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `8d8d59a91012` | 8d8d59a91012_create_project_planning_projects_table.py | 1 | 命中 1/1 | 命中 1/1 |
+| 2 | `e22d6fd3e8d3` | e22d6fd3e8d3_create_script_revisions_table.py | 0 | 无静态标记 | 无静态标记 |
+| 3 | `facd8d42d07f` | facd8d42d07f_add_script_active_version_unique_index.py | 0 | 无静态标记 | 无静态标记 |
+| 4 | `0fcaf4db4573` | 0fcaf4db4573_create_episodes_table.py | 1 | 命中 1/1 | 命中 1/1 |
+| 5 | `6a7b8c9d0e1f` | 6a7b8c9d0e1f_add_script_episode_composite_fk.py | 1 | 命中 1/1 | 命中 1/1 |
+| 6 | `7c8d9e0f1a2b` | 7c8d9e0f1a2b_create_outbox_events_table.py | 3 | 命中 3/3 | 命中 3/3 |
+| 7 | `8f2a1b3c4d5e` | 8f2a1b3c4d5e_add_tenant_id_and_rls.py | 1 | 命中 1/1 | 命中 1/1 |
+| 8 | `9e3b4c5d6e7f` | 9e3b4c5d6e7f_create_app_role_and_grants.py | 0 | 无静态标记 | 无静态标记 |
+| 9 | `b2c3d4e5f6a7` | b2c3d4e5f6a7_add_tenant_id_to_outbox_events.py | 0 | 无静态标记 | 无静态标记 |
+| 10 | `d4e5f6a7b8c9` | d4e5f6a7b8c9_restrict_outbox_grants.py | 0 | 无静态标记 | 无静态标记 |
+| 11 | `e5f6a7b8c9d0` | e5f6a7b8c9d0_add_outbox_tenant_enumeration_function.py | 0 | 无静态标记 | 无静态标记 |
+| 12 | `f6a7b8c9d1e2` | f6a7b8c9d1e2_partition_outbox_events.py | 0 | 无静态标记 | 无静态标记 |
+| 13 | `b8c9d1e2f3a4` | b8c9d1e2f3a4_create_maintenance_runs.py | 1 | 命中 1/1 | 命中 1/1 |
+| 14 | `c1d2e3f4a5b6` | c1d2e3f4a5b6_create_asset_service_tables.py | 5 | 命中 5/5 | 命中 5/5 |
+| 15 | `b7c8d9e0f1a2` | b7c8d9e0f1a2_partition_protection_and_grant_baseline.py | 0 | 无静态标记 | 无静态标记 |
+| 16 | `d1e2f3a4b5c6` | d1e2f3a4b5c6_asset_immutability_triggers.py | 0 | 无静态标记 | 无静态标记 |
+| 17 | `e2f3a4b5c6d7` | e2f3a4b5c6d7_qc_report_deviation_intent_ref.py | 1 | 命中 1/1 | 命中 1/1 |
+| 18 | `f3a4b5c6d7e8` | f3a4b5c6d7e8_outbox_relay_retry_columns.py | 3 | 命中 3/3 | 命中 3/3 |
+| 19 | `a4b5c6d7e8f9` | a4b5c6d7e8f9_cleanup_uow_test_events.py | 0 | 无静态标记 | 无静态标记 |
+| 20 | `b5c6d7e8f9a0` | b5c6d7e8f9a0_revoke_maintenance_runs_from_app_role.py | 0 | 无静态标记 | 无静态标记 |
+| 21 | `c6d7e8f9a0b1` | c6d7e8f9a0b1_create_auth_revoked_tokens.py | 1 | 命中 1/1 | 命中 1/1 |
+| 22 | `a1b2c3d4e5f6` | a1b2c3d4e5f6_fix_outbox_backlog_exclude_dead.py | 0 | 无静态标记 | 无静态标记 |
+| 23 | `9f1a2b3c4d5e6` | 9f1a2b3c4d5e6_create_organizations_and_ownership_fk.py | 1 | 命中 1/1 | 命中 1/1 |
+| 24 | `7a8b9c0d1e2f` | 7a8b9c0d1e2f_create_outbox_relay_role.py | 0 | 无静态标记 | 无静态标记 |
+| 25 | `8f3b2c1d4e5a` | 8f3b2c1d4e5a_split_domain_roles.py | 0 | 无静态标记 | 无静态标记 |
+| 26 | `ae8724980e0b` | ae8724980e0b_grant_outbox_partitions_to_domain_roles.py | 0 | 无静态标记 | 无静态标记 |
+| 27 | `b9e1c2d3f4a5` | b9e1c2d3f4a5_relay_column_level_update.py | 0 | 无静态标记 | 无静态标记 |
+| 28 | `c1f2e3d4a5b6` | c1f2e3d4a5b6_revoke_app_role_outbox_write.py | 0 | 无静态标记 | 无静态标记 |
+| 29 | `d2e3f4a5b6c7` | d2e3f4a5b6c7_organization_tenant_ownership_fk.py | 1 | 命中 1/1 | 命中 1/1 |
+| 30 | `b3c4d5e6f7a8` | b3c4d5e6f7a8_asset_project_ownership.py | 1 | 命中 1/1 | 命中 1/1 |
+| 31 | `c7d8e9f0a1b2` | c7d8e9f0a1b2_add_status_check_constraints.py | 0 | 无静态标记 | 无静态标记 |
+| 32 | `d8e9f0a1b2c3` | d8e9f0a1b2c3_audit_status_transitions.py | 4 | 命中 4/4 | **0/4** |
+| 33 | `e9f0a1b2c3d4` | e9f0a1b2c3d4_organization_scope_rls.py | 0 | 无静态标记 | 无静态标记 |
+| 34 | `c1a2b3d4e5f6` | c1a2b3d4e5f6_least_privilege_business_schema.py | 0 | 无静态标记 | 无静态标记 |
+
+## 功能分支独有 revision（主支链中不存在）
+
+| # | revision | 文件名 | 静态标记 | ai_film_industrial | ai_film_verify |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `c2d3e4f5a6b7` | c2d3e4f5a6b7_split_database_roles.py | 0 | 无静态标记 | 无静态标记 |
+| 2 | `d3e4f5a6b7c8` | d3e4f5a6b7c8_add_organization_and_project_ownership.py | 0 | 无静态标记 | 无静态标记 |
+| 3 | `e7f8a9b0c1d2` | e7f8a9b0c1d2_add_project_scope_rls.py | 0 | 无静态标记 | 无静态标记 |
+| 4 | `d6e7f8a9b0c1` | d6e7f8a9b0c1_delivery_manifests.py | 8 | 0/8 | 0/8 |
+| 5 | `e8f9a0b1c2d3` | e8f9a0b1c2d3_create_qc_governance_gate_decisions.py | 11 | 0/11 | 0/11 |
+| 6 | `f0a1b2c3d4e5` | f0a1b2c3d4e5_create_workflow_approval_engine.py | 9 | 0/9 | 0/9 |
+| 7 | `a2b3c4d5e6f7` | a2b3c4d5e6f7_delivery_manifest_status_transitions.py | 2 | 0/2 | 0/2 |
+| 8 | `b1a2c3d4e5f6` | b1a2c3d4e5f6_create_shot_planning_tables.py | 11 | 0/11 | 0/11 |
+| 9 | `d5e6f7a8b9c0` | d5e6f7a8b9c0_create_shot_planning_spec_pack_tables.py | 6 | 0/6 | 0/6 |
+| 10 | `a5b6c7d8e9f0` | a5b6c7d8e9f0_create_generation_execution_route_table.py | 6 | 0/6 | 0/6 |
+| 11 | `b8c9d0e1f2a3` | b8c9d0e1f2a3_create_generation_task_table.py | 5 | 0/5 | 0/5 |
+| 12 | `c9d0e1f2a3b4` | c9d0e1f2a3b4_add_generation_task_rights_ref.py | 0 | 无静态标记 | 无静态标记 |
+| 13 | `d0e1f2a3b4c5` | d0e1f2a3b4c5_add_generation_task_lease.py | 1 | 0/1 | 0/1 |
+| 14 | `e1f2a3b4c5d6` | e1f2a3b4c5d6_create_shot_route_selection.py | 4 | 0/4 | 0/4 |
+| 15 | `f1a2b3c4d5e6` | f1a2b3c4d5e6_create_qc_review_sessions.py | 4 | 0/4 | 0/4 |
+| 16 | `a9f1c2e3d4b5` | a9f1c2e3d4b5_shot_route_selection_route_fk.py | 0 | 无静态标记 | 无静态标记 |
+| 17 | `c4e5f6a7b8d9` | c4e5f6a7b8d9_state_constraints.py | 1 | 0/1 | 0/1 |

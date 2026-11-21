@@ -1,0 +1,13 @@
+{
+ "时间": "2026-11-20T17:12:12+08:00",
+ "对象": "generation_execution.generation_tasks / entity_id='gt-mismatch'",
+ "做法": "补齐其引用的父行链（episode → scene → shot → ShotRevision），不改动该行本身",
+ "为什么不删": "① 守卫 `generation_execution.generation_tasks 业务对象不可物理删除` 直接拒绝 DELETE，这是 ADR-R11 不可变守卫在正常工作，不绕过；② 该行的 shot_id 不在受控例外允许修改的归属三列内，改它同样会被守卫拒绝。故唯一不破坏不变量的做法是让父行真实存在。",
+ "新建行": [
+  "project_planning.episodes ep-alpha-001",
+  "project_planning.scenes scene-alpha-001",
+  "shot_planning.shots shot-gt-mismatch",
+  "shot_planning.shot_revisions rev-gt-mismatch"
+ ],
+ "待办": "这 4 行是补齐引用所必需的最小占位，非真实业务内容；镜头域创建入口（SHOT.REVISION.CONFIRM）落地时应由正式流程替换。"
+}

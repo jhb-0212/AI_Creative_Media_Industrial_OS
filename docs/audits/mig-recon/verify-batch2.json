@@ -1,0 +1,121 @@
+{
+  "at": "2026-11-21T12:10:32+08:00",
+  "passed": 16,
+  "failed": 0,
+  "not_applicable": 0,
+  "open_findings": [],
+  "results": [
+    {
+      "id": "P0",
+      "phase": "基线",
+      "desc": "回退到 e3f4a5b6c7d8 已应用的状态（撤掉 8 层）",
+      "ok": true,
+      "detail": "m3b4c5d6e7f8/l2a3b4c5d6e7/k1f2a3b4c5d6/j0e1f2a3b4c5/i9d0e1f2a3b4/h8c9d0e1f2a3/g7b8c9d0e1f2/f8a9b0c1d2e3"
+    },
+    {
+      "id": "P1",
+      "phase": "前提",
+      "desc": "基线里批次二的三条外键尚不存在（否则测的不是本迁移）",
+      "ok": true,
+      "detail": "asset_service.qc_reports=False; shot_planning.shot_specs=False; workflow.approval_steps=False"
+    },
+    {
+      "id": "P2",
+      "phase": "前提",
+      "desc": "夹具组织存在（外键目标真实，否则 23503 会被误读为拦截）",
+      "ok": true,
+      "detail": "organizations=1"
+    },
+    {
+      "id": "C1",
+      "phase": "缺口",
+      "desc": "建约束前：qc_reports 可指向不存在的项目",
+      "ok": true,
+      "detail": "INSERT 0 1"
+    },
+    {
+      "id": "C1ss",
+      "phase": "缺口",
+      "desc": "建约束前：shot_planning.shot_specs 可指向不存在的项目",
+      "ok": true,
+      "detail": "INSERT 0 1"
+    },
+    {
+      "id": "C1as",
+      "phase": "缺口",
+      "desc": "建约束前：workflow.approval_steps 可指向不存在的项目",
+      "ok": true,
+      "detail": "INSERT 0 1"
+    },
+    {
+      "id": "U1",
+      "phase": "升级",
+      "desc": "执行 upgrade_steps()（7 步）",
+      "ok": true,
+      "detail": "无异常"
+    },
+    {
+      "id": "S1",
+      "phase": "结构",
+      "desc": "三条三列外键已建且均为 NOT VALID（存量未扫）",
+      "ok": true,
+      "detail": "count=3/3 convalidated=[False]"
+    },
+    {
+      "id": "N1",
+      "phase": "拦截",
+      "desc": "约束建立后：三表新写入不存在的项目一律 23503",
+      "ok": true,
+      "detail": "qc_reports=23503: insert or update on table \"qc_rep; shot_specs=23503: insert or update on table \"shot_s; approval_steps=23503: insert or update on table \"approv"
+    },
+    {
+      "id": "V1",
+      "phase": "验证",
+      "desc": "有存量脏行时 VALIDATE 必须 23503（证明它会真扫数据）",
+      "ok": true,
+      "detail": "23503: insert or update on table \"qc_reports\" violates foreign key constraint \"fk_qc_reports_project_tenant_org\""
+    },
+    {
+      "id": "V2",
+      "phase": "验证",
+      "desc": "另两表的脏行同样让 VALIDATE 失败（三表都真扫）",
+      "ok": true,
+      "detail": "shot_specs=23503: insert or update on table \"shot_s; approval_steps=23503: insert or update on table \"approv"
+    },
+    {
+      "id": "V3",
+      "phase": "验证",
+      "desc": "清掉脏行后三表 VALIDATE 全部通过（成功路径可达）",
+      "ok": true,
+      "detail": "qc_reports=VALIDATE OK; shot_specs=VALIDATE OK; approval_steps=VALIDATE OK"
+    },
+    {
+      "id": "I1",
+      "phase": "幂等",
+      "desc": "重复 upgrade 不重复建约束",
+      "ok": true,
+      "detail": "3→3"
+    },
+    {
+      "id": "D1",
+      "phase": "降级",
+      "desc": "执行 downgrade_steps()（3 步）",
+      "ok": true,
+      "detail": "无异常"
+    },
+    {
+      "id": "D2",
+      "phase": "降级",
+      "desc": "三条外键已删净",
+      "ok": true,
+      "detail": "asset_service.qc_reports=False; shot_planning.shot_specs=False; workflow.approval_steps=False"
+    },
+    {
+      "id": "D3",
+      "phase": "降级",
+      "desc": "降级后同一脏写入恢复为可成功（语义可逆）",
+      "ok": true,
+      "detail": "INSERT 0 1"
+    }
+  ]
+}

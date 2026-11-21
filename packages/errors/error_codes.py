@@ -87,6 +87,15 @@ class ErrorRegistry:
         http_status=409,
         message="非法状态转移，已拒绝",
     )
+    # 与 STATE_TRANSITION_DENIED 刻意分开：后者是「这条边走不通」（主体是状态机），
+    # 本码是「父对象已封存，其下不该再出现新对象」（主体是父子关系）。
+    # 合成一个码会让调用方无法区分「重试换条边」与「不该重试，父已归档」。
+    PARENT_LIFECYCLE_FROZEN = ErrorCode(
+        code="PARENT_LIFECYCLE_FROZEN",
+        category=ErrorCategory.STATE,
+        http_status=409,
+        message="父对象处于冻结状态，不得新增子对象",
+    )
     IDEMPOTENCY_CONFLICT = ErrorCode(
         code="IDEMPOTENCY_CONFLICT",
         category=ErrorCategory.CONFLICT,

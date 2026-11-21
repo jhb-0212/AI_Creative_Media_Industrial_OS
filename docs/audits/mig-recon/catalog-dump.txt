@@ -1,0 +1,647 @@
+########## DATABASE ai_film_industrial ##########
+Pager usage is off.
+Output format is unaligned.
+Field separator is "|".
+=== 1 身份与迁移版本
+identity|ai_film_industrial|16.15 (Debian 16.15-1.pgdg13+2)|postgres
+alembic_version|c1a2b3d4e5f6
+=== 2 schema
+schema|asset_service
+schema|audit
+schema|auth
+schema|outbox
+schema|project_planning
+schema|public
+=== 3 表与分区（含 RLS 状态与 owner）
+table|asset_service|asset_versions|r|postgres|t|t
+table|asset_service|qc_reports|r|postgres|t|t
+table|audit|status_transitions|r|postgres|t|t
+table|auth|revoked_tokens|r|postgres|f|f
+table|outbox|maintenance_runs|r|postgres|f|f
+table|outbox|outbox_events|p|postgres|t|f
+table|outbox|outbox_events_default|r|postgres|t|f
+table|outbox|outbox_events_y202611|r|postgres|t|f
+table|outbox|outbox_events_y202612|r|postgres|t|f
+table|project_planning|episodes|r|postgres|t|t
+table|project_planning|organizations|r|postgres|t|t
+table|project_planning|projects|r|postgres|t|t
+table|project_planning|script_revisions|r|postgres|t|t
+table|public|alembic_version|r|postgres|f|f
+=== 4 列
+column|asset_service|asset_versions|entity_id|character varying|NO
+column|asset_service|asset_versions|entity_type|character varying|NO
+column|asset_service|asset_versions|schema_version|integer|NO
+column|asset_service|asset_versions|entity_version|integer|NO
+column|asset_service|asset_versions|status|character varying|NO
+column|asset_service|asset_versions|owner_module|character varying|NO
+column|asset_service|asset_versions|tenant_id|uuid|NO
+column|asset_service|asset_versions|created_at|timestamp with time zone|NO
+column|asset_service|asset_versions|created_by|character varying|NO
+column|asset_service|asset_versions|updated_at|timestamp with time zone|NO
+column|asset_service|asset_versions|audit_ref|character varying|YES
+column|asset_service|asset_versions|asset_type|character varying|NO
+column|asset_service|asset_versions|sha256|character varying|NO
+column|asset_service|asset_versions|storage_ref|jsonb|NO
+column|asset_service|asset_versions|source_asset_version_ids|jsonb|NO
+column|asset_service|asset_versions|rights_manifest_ref|character varying|YES
+column|asset_service|asset_versions|adapter_id|character varying|YES
+column|asset_service|asset_versions|tool_product|character varying|YES
+column|asset_service|asset_versions|operator_ref|character varying|YES
+column|asset_service|asset_versions|version|character varying|YES
+column|asset_service|asset_versions|project_id|character varying|NO
+column|asset_service|qc_reports|qc_report_id|character varying|NO
+column|asset_service|qc_reports|asset_version_id|character varying|NO
+column|asset_service|qc_reports|tenant_id|uuid|NO
+column|asset_service|qc_reports|quality_profile_version|character varying|NO
+column|asset_service|qc_reports|benchmark_version|character varying|YES
+column|asset_service|qc_reports|detector_versions|jsonb|NO
+column|asset_service|qc_reports|findings|jsonb|NO
+column|asset_service|qc_reports|deviation_class|character varying|YES
+column|asset_service|qc_reports|intent_match_status|character varying|YES
+column|asset_service|qc_reports|human_decision|character varying|YES
+column|asset_service|qc_reports|created_by|character varying|NO
+column|asset_service|qc_reports|created_at|timestamp with time zone|NO
+column|asset_service|qc_reports|updated_at|timestamp with time zone|NO
+column|asset_service|qc_reports|deviation_intent_ref|character varying|YES
+column|audit|status_transitions|transition_id|uuid|NO
+column|audit|status_transitions|tenant_id|uuid|NO
+column|audit|status_transitions|organization_id|uuid|YES
+column|audit|status_transitions|resource_type|character varying|NO
+column|audit|status_transitions|resource_id|character varying|NO
+column|audit|status_transitions|entity_version|integer|NO
+column|audit|status_transitions|from_status|character varying|NO
+column|audit|status_transitions|to_status|character varying|NO
+column|audit|status_transitions|owner_action|character varying|NO
+column|audit|status_transitions|actor_subject|character varying|NO
+column|audit|status_transitions|authority_ref|character varying|YES
+column|audit|status_transitions|evidence_refs|ARRAY|NO
+column|audit|status_transitions|occurred_at|timestamp with time zone|NO
+column|audit|status_transitions|event_id|uuid|NO
+column|auth|revoked_tokens|jti|character varying|NO
+column|auth|revoked_tokens|tenant_id|uuid|NO
+column|auth|revoked_tokens|subject_id|character varying|NO
+column|auth|revoked_tokens|revoked_at|timestamp with time zone|NO
+column|auth|revoked_tokens|expires_at|timestamp with time zone|NO
+column|auth|revoked_tokens|reason|character varying|YES
+column|auth|revoked_tokens|revoked_by|character varying|NO
+column|outbox|maintenance_runs|id|bigint|NO
+column|outbox|maintenance_runs|started_at|timestamp with time zone|NO
+column|outbox|maintenance_runs|finished_at|timestamp with time zone|NO
+column|outbox|maintenance_runs|applied|boolean|NO
+column|outbox|maintenance_runs|created|integer|NO
+column|outbox|maintenance_runs|detached|integer|NO
+column|outbox|maintenance_runs|refused|integer|NO
+column|outbox|maintenance_runs|status|character varying|NO
+column|outbox|maintenance_runs|error|text|YES
+column|outbox|outbox_events|event_id|uuid|NO
+column|outbox|outbox_events|aggregate_type|character varying|NO
+column|outbox|outbox_events|aggregate_id|character varying|NO
+column|outbox|outbox_events|tenant_id|uuid|NO
+column|outbox|outbox_events|event_type|character varying|NO
+column|outbox|outbox_events|payload|jsonb|NO
+column|outbox|outbox_events|occurred_at|timestamp with time zone|NO
+column|outbox|outbox_events|published_at|timestamp with time zone|YES
+column|outbox|outbox_events|attempts|integer|NO
+column|outbox|outbox_events|next_attempt_at|timestamp with time zone|NO
+column|outbox|outbox_events|dead_lettered_at|timestamp with time zone|YES
+column|outbox|outbox_events_default|event_id|uuid|NO
+column|outbox|outbox_events_default|aggregate_type|character varying|NO
+column|outbox|outbox_events_default|aggregate_id|character varying|NO
+column|outbox|outbox_events_default|tenant_id|uuid|NO
+column|outbox|outbox_events_default|event_type|character varying|NO
+column|outbox|outbox_events_default|payload|jsonb|NO
+column|outbox|outbox_events_default|occurred_at|timestamp with time zone|NO
+column|outbox|outbox_events_default|published_at|timestamp with time zone|YES
+column|outbox|outbox_events_default|attempts|integer|NO
+column|outbox|outbox_events_default|next_attempt_at|timestamp with time zone|NO
+column|outbox|outbox_events_default|dead_lettered_at|timestamp with time zone|YES
+column|outbox|outbox_events_y202611|event_id|uuid|NO
+column|outbox|outbox_events_y202611|aggregate_type|character varying|NO
+column|outbox|outbox_events_y202611|aggregate_id|character varying|NO
+column|outbox|outbox_events_y202611|tenant_id|uuid|NO
+column|outbox|outbox_events_y202611|event_type|character varying|NO
+column|outbox|outbox_events_y202611|payload|jsonb|NO
+column|outbox|outbox_events_y202611|occurred_at|timestamp with time zone|NO
+column|outbox|outbox_events_y202611|published_at|timestamp with time zone|YES
+column|outbox|outbox_events_y202611|attempts|integer|NO
+column|outbox|outbox_events_y202611|next_attempt_at|timestamp with time zone|NO
+column|outbox|outbox_events_y202611|dead_lettered_at|timestamp with time zone|YES
+column|outbox|outbox_events_y202612|event_id|uuid|NO
+column|outbox|outbox_events_y202612|aggregate_type|character varying|NO
+column|outbox|outbox_events_y202612|aggregate_id|character varying|NO
+column|outbox|outbox_events_y202612|tenant_id|uuid|NO
+column|outbox|outbox_events_y202612|event_type|character varying|NO
+column|outbox|outbox_events_y202612|payload|jsonb|NO
+column|outbox|outbox_events_y202612|occurred_at|timestamp with time zone|NO
+column|outbox|outbox_events_y202612|published_at|timestamp with time zone|YES
+column|outbox|outbox_events_y202612|attempts|integer|NO
+column|outbox|outbox_events_y202612|next_attempt_at|timestamp with time zone|NO
+column|outbox|outbox_events_y202612|dead_lettered_at|timestamp with time zone|YES
+column|project_planning|episodes|entity_id|character varying|NO
+column|project_planning|episodes|entity_type|character varying|NO
+column|project_planning|episodes|schema_version|integer|NO
+column|project_planning|episodes|entity_version|integer|NO
+column|project_planning|episodes|status|character varying|NO
+column|project_planning|episodes|owner_module|character varying|NO
+column|project_planning|episodes|created_at|timestamp with time zone|NO
+column|project_planning|episodes|created_by|character varying|NO
+column|project_planning|episodes|updated_at|timestamp with time zone|NO
+column|project_planning|episodes|audit_ref|character varying|YES
+column|project_planning|episodes|project_id|character varying|NO
+column|project_planning|episodes|episode_ref|character varying|NO
+column|project_planning|episodes|title|character varying|NO
+column|project_planning|episodes|tenant_id|uuid|NO
+column|project_planning|organizations|organization_id|uuid|NO
+column|project_planning|organizations|tenant_id|uuid|NO
+column|project_planning|organizations|name|character varying|NO
+column|project_planning|organizations|created_at|timestamp with time zone|NO
+column|project_planning|organizations|created_by|character varying|NO
+column|project_planning|organizations|updated_at|timestamp with time zone|NO
+column|project_planning|projects|entity_id|character varying|NO
+column|project_planning|projects|entity_type|character varying|NO
+column|project_planning|projects|schema_version|integer|NO
+column|project_planning|projects|entity_version|integer|NO
+column|project_planning|projects|status|character varying|NO
+column|project_planning|projects|owner_module|character varying|NO
+column|project_planning|projects|created_at|timestamp with time zone|NO
+column|project_planning|projects|created_by|character varying|NO
+column|project_planning|projects|updated_at|timestamp with time zone|NO
+column|project_planning|projects|audit_ref|character varying|YES
+column|project_planning|projects|project_name|character varying|NO
+column|project_planning|projects|project_tier|character varying|NO
+column|project_planning|projects|tenant_id|uuid|NO
+column|project_planning|projects|organization_id|uuid|YES
+column|project_planning|script_revisions|entity_id|character varying|NO
+column|project_planning|script_revisions|entity_type|character varying|NO
+column|project_planning|script_revisions|schema_version|integer|NO
+column|project_planning|script_revisions|entity_version|integer|NO
+column|project_planning|script_revisions|status|character varying|NO
+column|project_planning|script_revisions|owner_module|character varying|NO
+column|project_planning|script_revisions|created_at|timestamp with time zone|NO
+column|project_planning|script_revisions|created_by|character varying|NO
+column|project_planning|script_revisions|updated_at|timestamp with time zone|NO
+column|project_planning|script_revisions|audit_ref|character varying|YES
+column|project_planning|script_revisions|project_id|character varying|NO
+column|project_planning|script_revisions|episode_ref|character varying|NO
+column|project_planning|script_revisions|title|character varying|NO
+column|project_planning|script_revisions|tenant_id|uuid|NO
+column|project_planning|script_revisions|requested_by|character varying|YES
+column|public|alembic_version|version_num|character varying|NO
+=== 5 约束
+constraint|asset_service|asset_versions|asset_versions_pkey|p|PRIMARY KEY (entity_id)
+constraint|asset_service|asset_versions|ck_asset_versions_status|c|CHECK (((status)::text = ANY ((ARRAY['APPROVED'::character varying, 'ARCHIVED'::character varying, 'GENERATED'::character varying, 'GOLD'::character varying, 'HUMAN_REVIEW'::character varying, 'QUARANTINED'::character varying, 'REJECTED'::character varying, 'REWORK'::character varying, 'SUPERSEDED'::character varying, 'TECHNICAL_QC'::character varying])::text[])))
+constraint|asset_service|asset_versions|fk_asset_versions_project_tenant|f|FOREIGN KEY (project_id, tenant_id) REFERENCES project_planning.projects(entity_id, tenant_id)
+constraint|asset_service|qc_reports|qc_reports_asset_version_id_fkey|f|FOREIGN KEY (asset_version_id) REFERENCES asset_service.asset_versions(entity_id)
+constraint|asset_service|qc_reports|qc_reports_pkey|p|PRIMARY KEY (qc_report_id)
+constraint|audit|status_transitions|ck_status_transition_advances|c|CHECK (((from_status)::text <> (to_status)::text))
+constraint|audit|status_transitions|ck_status_transition_version_positive|c|CHECK ((entity_version >= 1))
+constraint|audit|status_transitions|status_transitions_pkey|p|PRIMARY KEY (transition_id)
+constraint|audit|status_transitions|trg_status_transitions_event_exists|t|TRIGGER DEFERRABLE INITIALLY DEFERRED
+constraint|audit|status_transitions|uq_status_transition_version|u|UNIQUE (tenant_id, resource_type, resource_id, entity_version)
+constraint|auth|revoked_tokens|revoked_tokens_pkey|p|PRIMARY KEY (jti)
+constraint|outbox|maintenance_runs|maintenance_runs_pkey|p|PRIMARY KEY (id)
+constraint|outbox|outbox_events|outbox_events_pkey|p|PRIMARY KEY (event_id, occurred_at)
+constraint|outbox|outbox_events_default|outbox_events_default_pkey|p|PRIMARY KEY (event_id, occurred_at)
+constraint|outbox|outbox_events_y202611|outbox_events_y202611_pkey|p|PRIMARY KEY (event_id, occurred_at)
+constraint|outbox|outbox_events_y202612|outbox_events_y202612_pkey|p|PRIMARY KEY (event_id, occurred_at)
+constraint|project_planning|episodes|ck_episodes_status|c|CHECK (((status)::text = ANY ((ARRAY['ACTIVE'::character varying, 'ARCHIVED'::character varying, 'DRAFT'::character varying])::text[])))
+constraint|project_planning|episodes|episodes_pkey|p|PRIMARY KEY (entity_id)
+constraint|project_planning|episodes|fk_episodes_project|f|FOREIGN KEY (project_id) REFERENCES project_planning.projects(entity_id)
+constraint|project_planning|episodes|ux_episode_ref_per_project|u|UNIQUE (project_id, episode_ref)
+constraint|project_planning|organizations|organizations_pkey|p|PRIMARY KEY (organization_id)
+constraint|project_planning|organizations|uq_organizations_owner_tenant|u|UNIQUE (organization_id, tenant_id)
+constraint|project_planning|projects|ck_projects_status|c|CHECK (((status)::text = ANY ((ARRAY['ACTIVE'::character varying, 'ARCHIVED'::character varying, 'COMPLETED'::character varying, 'DRAFT'::character varying, 'ON_HOLD'::character varying])::text[])))
+constraint|project_planning|projects|fk_projects_organization_tenant|f|FOREIGN KEY (organization_id, tenant_id) REFERENCES project_planning.organizations(organization_id, tenant_id)
+constraint|project_planning|projects|projects_pkey|p|PRIMARY KEY (entity_id)
+constraint|project_planning|projects|uq_projects_entity_tenant|u|UNIQUE (entity_id, tenant_id)
+constraint|project_planning|script_revisions|ck_script_revisions_status|c|CHECK (((status)::text = ANY ((ARRAY['DRAFT'::character varying, 'LOCKED'::character varying, 'LOCK_PENDING'::character varying, 'SUPERSEDED'::character varying])::text[])))
+constraint|project_planning|script_revisions|fk_script_revisions_episode|f|FOREIGN KEY (project_id, episode_ref) REFERENCES project_planning.episodes(project_id, episode_ref)
+constraint|project_planning|script_revisions|script_revisions_pkey|p|PRIMARY KEY (entity_id)
+constraint|public|alembic_version|alembic_version_pkc|p|PRIMARY KEY (version_num)
+=== 6 索引
+index|asset_service|asset_versions|asset_versions_pkey
+index|asset_service|asset_versions|ix_asset_service_asset_versions_project
+index|asset_service|asset_versions|ix_asset_service_asset_versions_tenant_id
+index|asset_service|asset_versions|ix_asset_service_asset_versions_type_sha256
+index|asset_service|qc_reports|ix_asset_service_qc_reports_asset_version_id
+index|asset_service|qc_reports|ix_asset_service_qc_reports_tenant_id
+index|asset_service|qc_reports|qc_reports_pkey
+index|audit|status_transitions|ix_status_transitions_resource_history
+index|audit|status_transitions|status_transitions_pkey
+index|audit|status_transitions|uq_status_transition_version
+index|auth|revoked_tokens|ix_auth_revoked_tokens_expires_at
+index|auth|revoked_tokens|revoked_tokens_pkey
+index|outbox|maintenance_runs|ix_outbox_maintenance_runs_started
+index|outbox|maintenance_runs|maintenance_runs_pkey
+index|outbox|outbox_events|ix_outbox_aggregate
+index|outbox|outbox_events|ix_outbox_published
+index|outbox|outbox_events|ix_outbox_tenant
+index|outbox|outbox_events|outbox_events_pkey
+index|outbox|outbox_events_default|outbox_events_default_aggregate_id_idx
+index|outbox|outbox_events_default|outbox_events_default_pkey
+index|outbox|outbox_events_default|outbox_events_default_published_at_idx
+index|outbox|outbox_events_default|outbox_events_default_tenant_id_idx
+index|outbox|outbox_events_y202611|outbox_events_y202611_aggregate_id_idx
+index|outbox|outbox_events_y202611|outbox_events_y202611_pkey
+index|outbox|outbox_events_y202611|outbox_events_y202611_published_at_idx
+index|outbox|outbox_events_y202611|outbox_events_y202611_tenant_id_idx
+index|outbox|outbox_events_y202612|outbox_events_y202612_aggregate_id_idx
+index|outbox|outbox_events_y202612|outbox_events_y202612_pkey
+index|outbox|outbox_events_y202612|outbox_events_y202612_published_at_idx
+index|outbox|outbox_events_y202612|outbox_events_y202612_tenant_id_idx
+index|project_planning|episodes|episodes_pkey
+index|project_planning|episodes|ix_project_planning_episodes_project_id
+index|project_planning|episodes|ix_project_planning_episodes_tenant_id
+index|project_planning|episodes|ux_episode_ref_per_project
+index|project_planning|organizations|ix_project_planning_organizations_tenant_id
+index|project_planning|organizations|organizations_pkey
+index|project_planning|organizations|uq_organizations_owner_tenant
+index|project_planning|projects|ix_project_planning_projects_tenant_id
+index|project_planning|projects|projects_pkey
+index|project_planning|projects|uq_projects_entity_tenant
+index|project_planning|script_revisions|ix_project_planning_script_revisions_project_id
+index|project_planning|script_revisions|ix_project_planning_script_revisions_tenant_id
+index|project_planning|script_revisions|script_revisions_pkey
+index|project_planning|script_revisions|ux_script_active_version
+index|public|alembic_version|alembic_version_pkc
+=== 7 触发器
+trigger|asset_service|asset_versions|trg_asset_versions_guard|CREATE TRIGGER trg_asset_versions_guard BEFORE DELETE OR UPDATE ON asset_service.asset_versions FOR EACH ROW EXECUTE FUNCTION asset_service.asset_versions_guard()
+trigger|asset_service|asset_versions|trg_asset_versions_no_truncate|CREATE TRIGGER trg_asset_versions_no_truncate BEFORE TRUNCATE ON asset_service.asset_versions FOR EACH STATEMENT EXECUTE FUNCTION audit.reject_truncate()
+trigger|asset_service|qc_reports|trg_qc_reports_guard|CREATE TRIGGER trg_qc_reports_guard BEFORE DELETE OR UPDATE ON asset_service.qc_reports FOR EACH ROW EXECUTE FUNCTION asset_service.qc_reports_guard()
+trigger|asset_service|qc_reports|trg_qc_reports_no_truncate|CREATE TRIGGER trg_qc_reports_no_truncate BEFORE TRUNCATE ON asset_service.qc_reports FOR EACH STATEMENT EXECUTE FUNCTION audit.reject_truncate()
+trigger|audit|status_transitions|trg_status_transitions_event_exists|CREATE CONSTRAINT TRIGGER trg_status_transitions_event_exists AFTER INSERT ON audit.status_transitions DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION audit.assert_transition_event_exists()
+trigger|audit|status_transitions|trg_status_transitions_guard|CREATE TRIGGER trg_status_transitions_guard BEFORE DELETE OR UPDATE ON audit.status_transitions FOR EACH ROW EXECUTE FUNCTION audit.reject_mutation()
+trigger|audit|status_transitions|trg_status_transitions_no_truncate|CREATE TRIGGER trg_status_transitions_no_truncate BEFORE TRUNCATE ON audit.status_transitions FOR EACH STATEMENT EXECUTE FUNCTION audit.reject_truncate()
+=== 8 函数（含 SECDEF / owner / search_path / ACL）
+function|asset_service|asset_versions_guard||f|postgres||NULL(=默认 PUBLIC EXECUTE)
+function|asset_service|qc_reports_guard||f|postgres||NULL(=默认 PUBLIC EXECUTE)
+function|audit|assert_transition_event_exists||t|postgres|search_path=pg_catalog, outbox|NULL(=默认 PUBLIC EXECUTE)
+function|audit|reject_mutation||f|postgres||NULL(=默认 PUBLIC EXECUTE)
+function|audit|reject_truncate||f|postgres||NULL(=默认 PUBLIC EXECUTE)
+function|outbox|list_active_tenants||t|postgres|search_path=outbox, pg_catalog|{postgres=X/postgres,app_role=X/postgres,outbox_relay_role=X/postgres}
+=== 9 RLS 策略
+policy|asset_service|asset_versions|tenant_isolation_asset_versions|PERMISSIVE|{public}|ALL|((tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid) AND (EXISTS ( SELECT 1
+   FROM project_planning.projects p
+  WHERE (((p.entity_id)::text = (asset_versions.project_id)::text) AND (p.tenant_id = asset_versions.tenant_id)))))|
+policy|asset_service|qc_reports|tenant_isolation_qc_reports|PERMISSIVE|{public}|ALL|((tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid) AND (EXISTS ( SELECT 1
+   FROM (asset_service.asset_versions a
+     JOIN project_planning.projects p ON ((((p.entity_id)::text = (a.project_id)::text) AND (p.tenant_id = a.tenant_id))))
+  WHERE (((a.entity_id)::text = (qc_reports.asset_version_id)::text) AND (a.tenant_id = qc_reports.tenant_id)))))|
+policy|audit|status_transitions|tenant_isolation_status_transitions|PERMISSIVE|{public}|ALL|(tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid)|
+policy|outbox|outbox_events|tenant_isolation_outbox_events|PERMISSIVE|{public}|ALL|(tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid)|
+policy|outbox|outbox_events_default|tenant_isolation_outbox_events|PERMISSIVE|{public}|ALL|(tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid)|
+policy|outbox|outbox_events_y202611|tenant_isolation_outbox_events|PERMISSIVE|{public}|ALL|(tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid)|
+policy|outbox|outbox_events_y202612|tenant_isolation_outbox_events|PERMISSIVE|{public}|ALL|(tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid)|
+policy|project_planning|episodes|tenant_isolation_episodes|PERMISSIVE|{public}|ALL|((tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid) AND (EXISTS ( SELECT 1
+   FROM project_planning.projects p
+  WHERE (((p.entity_id)::text = (episodes.project_id)::text) AND (p.tenant_id = episodes.tenant_id)))))|
+policy|project_planning|organizations|tenant_isolation_organizations|PERMISSIVE|{public}|ALL|((tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid) AND ((organization_id IS NULL) OR (organization_id = (NULLIF(current_setting('app.current_organization_id'::text, true), ''::text))::uuid)))|
+policy|project_planning|projects|tenant_isolation_projects|PERMISSIVE|{public}|ALL|((tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid) AND ((organization_id IS NULL) OR (organization_id = (NULLIF(current_setting('app.current_organization_id'::text, true), ''::text))::uuid)))|
+policy|project_planning|script_revisions|tenant_isolation_script_revisions|PERMISSIVE|{public}|ALL|((tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid) AND (EXISTS ( SELECT 1
+   FROM project_planning.projects p
+  WHERE (((p.entity_id)::text = (script_revisions.project_id)::text) AND (p.tenant_id = script_revisions.tenant_id)))))|
+=== 10 序列
+sequence|outbox|maintenance_runs_id_seq
+=== 11 默认权限
+default_acl|postgres|outbox|r|{outbox_relay_role=r/postgres,project_planning_role=ar/postgres,asset_service_role=ar/postgres}
+=== 12 表级授权（实际 ACL，按角色展开）
+table_grant|asset_service|asset_versions|asset_service_role|INSERT,SELECT,UPDATE
+table_grant|asset_service|asset_versions|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|asset_service|qc_reports|asset_service_role|INSERT,SELECT
+table_grant|asset_service|qc_reports|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|audit|status_transitions|asset_service_role|INSERT,SELECT
+table_grant|audit|status_transitions|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|audit|status_transitions|project_planning_role|INSERT,SELECT
+table_grant|auth|revoked_tokens|asset_service_role|SELECT
+table_grant|auth|revoked_tokens|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|auth|revoked_tokens|project_planning_role|SELECT
+table_grant|outbox|maintenance_runs|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|outbox|outbox_events|app_role|SELECT
+table_grant|outbox|outbox_events|asset_service_role|INSERT,SELECT
+table_grant|outbox|outbox_events|outbox_relay_role|SELECT
+table_grant|outbox|outbox_events|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|outbox|outbox_events|project_planning_role|INSERT,SELECT
+table_grant|outbox|outbox_events_default|asset_service_role|INSERT,SELECT
+table_grant|outbox|outbox_events_default|outbox_relay_role|SELECT
+table_grant|outbox|outbox_events_default|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|outbox|outbox_events_default|project_planning_role|INSERT,SELECT
+table_grant|outbox|outbox_events_y202611|asset_service_role|INSERT,SELECT
+table_grant|outbox|outbox_events_y202611|outbox_relay_role|SELECT
+table_grant|outbox|outbox_events_y202611|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|outbox|outbox_events_y202611|project_planning_role|INSERT,SELECT
+table_grant|outbox|outbox_events_y202612|asset_service_role|INSERT,SELECT
+table_grant|outbox|outbox_events_y202612|outbox_relay_role|SELECT
+table_grant|outbox|outbox_events_y202612|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|outbox|outbox_events_y202612|project_planning_role|INSERT,SELECT
+table_grant|project_planning|episodes|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|project_planning|episodes|project_planning_role|INSERT,SELECT,UPDATE
+table_grant|project_planning|organizations|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|project_planning|organizations|project_planning_role|SELECT
+table_grant|project_planning|projects|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|project_planning|projects|project_planning_role|INSERT,SELECT,UPDATE
+table_grant|project_planning|script_revisions|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|project_planning|script_revisions|project_planning_role|INSERT,SELECT,UPDATE
+table_grant|public|alembic_version|asset_service_role|SELECT
+table_grant|public|alembic_version|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|public|alembic_version|project_planning_role|SELECT
+########## DATABASE ai_film_verify ##########
+Pager usage is off.
+Output format is unaligned.
+Field separator is "|".
+=== 1 身份与迁移版本
+identity|ai_film_verify|16.15 (Debian 16.15-1.pgdg13+2)|postgres
+alembic_version|b3c4d5e6f7a8
+=== 2 schema
+schema|asset_service
+schema|auth
+schema|outbox
+schema|project_planning
+schema|public
+=== 3 表与分区（含 RLS 状态与 owner）
+table|asset_service|asset_versions|r|postgres|t|f
+table|asset_service|qc_reports|r|postgres|t|f
+table|auth|revoked_tokens|r|postgres|f|f
+table|outbox|maintenance_runs|r|postgres|f|f
+table|outbox|outbox_events|p|postgres|t|f
+table|outbox|outbox_events_default|r|postgres|t|f
+table|outbox|outbox_events_y202611|r|postgres|t|f
+table|outbox|outbox_events_y202612|r|postgres|t|f
+table|project_planning|episodes|r|postgres|t|f
+table|project_planning|organizations|r|postgres|t|f
+table|project_planning|projects|r|postgres|t|f
+table|project_planning|script_revisions|r|postgres|t|f
+table|public|alembic_version|r|postgres|f|f
+=== 4 列
+column|asset_service|asset_versions|entity_id|character varying|NO
+column|asset_service|asset_versions|entity_type|character varying|NO
+column|asset_service|asset_versions|schema_version|integer|NO
+column|asset_service|asset_versions|entity_version|integer|NO
+column|asset_service|asset_versions|status|character varying|NO
+column|asset_service|asset_versions|owner_module|character varying|NO
+column|asset_service|asset_versions|tenant_id|uuid|NO
+column|asset_service|asset_versions|created_at|timestamp with time zone|NO
+column|asset_service|asset_versions|created_by|character varying|NO
+column|asset_service|asset_versions|updated_at|timestamp with time zone|NO
+column|asset_service|asset_versions|audit_ref|character varying|YES
+column|asset_service|asset_versions|asset_type|character varying|NO
+column|asset_service|asset_versions|sha256|character varying|NO
+column|asset_service|asset_versions|storage_ref|jsonb|NO
+column|asset_service|asset_versions|source_asset_version_ids|jsonb|NO
+column|asset_service|asset_versions|rights_manifest_ref|character varying|YES
+column|asset_service|asset_versions|adapter_id|character varying|YES
+column|asset_service|asset_versions|tool_product|character varying|YES
+column|asset_service|asset_versions|operator_ref|character varying|YES
+column|asset_service|asset_versions|version|character varying|YES
+column|asset_service|asset_versions|project_id|character varying|NO
+column|asset_service|qc_reports|qc_report_id|character varying|NO
+column|asset_service|qc_reports|asset_version_id|character varying|NO
+column|asset_service|qc_reports|tenant_id|uuid|NO
+column|asset_service|qc_reports|quality_profile_version|character varying|NO
+column|asset_service|qc_reports|benchmark_version|character varying|YES
+column|asset_service|qc_reports|detector_versions|jsonb|NO
+column|asset_service|qc_reports|findings|jsonb|NO
+column|asset_service|qc_reports|deviation_class|character varying|YES
+column|asset_service|qc_reports|intent_match_status|character varying|YES
+column|asset_service|qc_reports|human_decision|character varying|YES
+column|asset_service|qc_reports|created_by|character varying|NO
+column|asset_service|qc_reports|created_at|timestamp with time zone|NO
+column|asset_service|qc_reports|updated_at|timestamp with time zone|NO
+column|asset_service|qc_reports|deviation_intent_ref|character varying|YES
+column|auth|revoked_tokens|jti|character varying|NO
+column|auth|revoked_tokens|tenant_id|uuid|NO
+column|auth|revoked_tokens|subject_id|character varying|NO
+column|auth|revoked_tokens|revoked_at|timestamp with time zone|NO
+column|auth|revoked_tokens|expires_at|timestamp with time zone|NO
+column|auth|revoked_tokens|reason|character varying|YES
+column|auth|revoked_tokens|revoked_by|character varying|NO
+column|outbox|maintenance_runs|id|bigint|NO
+column|outbox|maintenance_runs|started_at|timestamp with time zone|NO
+column|outbox|maintenance_runs|finished_at|timestamp with time zone|NO
+column|outbox|maintenance_runs|applied|boolean|NO
+column|outbox|maintenance_runs|created|integer|NO
+column|outbox|maintenance_runs|detached|integer|NO
+column|outbox|maintenance_runs|refused|integer|NO
+column|outbox|maintenance_runs|status|character varying|NO
+column|outbox|maintenance_runs|error|text|YES
+column|outbox|outbox_events|event_id|uuid|NO
+column|outbox|outbox_events|aggregate_type|character varying|NO
+column|outbox|outbox_events|aggregate_id|character varying|NO
+column|outbox|outbox_events|tenant_id|uuid|NO
+column|outbox|outbox_events|event_type|character varying|NO
+column|outbox|outbox_events|payload|jsonb|NO
+column|outbox|outbox_events|occurred_at|timestamp with time zone|NO
+column|outbox|outbox_events|published_at|timestamp with time zone|YES
+column|outbox|outbox_events|attempts|integer|NO
+column|outbox|outbox_events|next_attempt_at|timestamp with time zone|NO
+column|outbox|outbox_events|dead_lettered_at|timestamp with time zone|YES
+column|outbox|outbox_events_default|event_id|uuid|NO
+column|outbox|outbox_events_default|aggregate_type|character varying|NO
+column|outbox|outbox_events_default|aggregate_id|character varying|NO
+column|outbox|outbox_events_default|tenant_id|uuid|NO
+column|outbox|outbox_events_default|event_type|character varying|NO
+column|outbox|outbox_events_default|payload|jsonb|NO
+column|outbox|outbox_events_default|occurred_at|timestamp with time zone|NO
+column|outbox|outbox_events_default|published_at|timestamp with time zone|YES
+column|outbox|outbox_events_default|attempts|integer|NO
+column|outbox|outbox_events_default|next_attempt_at|timestamp with time zone|NO
+column|outbox|outbox_events_default|dead_lettered_at|timestamp with time zone|YES
+column|outbox|outbox_events_y202611|event_id|uuid|NO
+column|outbox|outbox_events_y202611|aggregate_type|character varying|NO
+column|outbox|outbox_events_y202611|aggregate_id|character varying|NO
+column|outbox|outbox_events_y202611|tenant_id|uuid|NO
+column|outbox|outbox_events_y202611|event_type|character varying|NO
+column|outbox|outbox_events_y202611|payload|jsonb|NO
+column|outbox|outbox_events_y202611|occurred_at|timestamp with time zone|NO
+column|outbox|outbox_events_y202611|published_at|timestamp with time zone|YES
+column|outbox|outbox_events_y202611|attempts|integer|NO
+column|outbox|outbox_events_y202611|next_attempt_at|timestamp with time zone|NO
+column|outbox|outbox_events_y202611|dead_lettered_at|timestamp with time zone|YES
+column|outbox|outbox_events_y202612|event_id|uuid|NO
+column|outbox|outbox_events_y202612|aggregate_type|character varying|NO
+column|outbox|outbox_events_y202612|aggregate_id|character varying|NO
+column|outbox|outbox_events_y202612|tenant_id|uuid|NO
+column|outbox|outbox_events_y202612|event_type|character varying|NO
+column|outbox|outbox_events_y202612|payload|jsonb|NO
+column|outbox|outbox_events_y202612|occurred_at|timestamp with time zone|NO
+column|outbox|outbox_events_y202612|published_at|timestamp with time zone|YES
+column|outbox|outbox_events_y202612|attempts|integer|NO
+column|outbox|outbox_events_y202612|next_attempt_at|timestamp with time zone|NO
+column|outbox|outbox_events_y202612|dead_lettered_at|timestamp with time zone|YES
+column|project_planning|episodes|entity_id|character varying|NO
+column|project_planning|episodes|entity_type|character varying|NO
+column|project_planning|episodes|schema_version|integer|NO
+column|project_planning|episodes|entity_version|integer|NO
+column|project_planning|episodes|status|character varying|NO
+column|project_planning|episodes|owner_module|character varying|NO
+column|project_planning|episodes|created_at|timestamp with time zone|NO
+column|project_planning|episodes|created_by|character varying|NO
+column|project_planning|episodes|updated_at|timestamp with time zone|NO
+column|project_planning|episodes|audit_ref|character varying|YES
+column|project_planning|episodes|project_id|character varying|NO
+column|project_planning|episodes|episode_ref|character varying|NO
+column|project_planning|episodes|title|character varying|NO
+column|project_planning|episodes|tenant_id|uuid|NO
+column|project_planning|organizations|organization_id|uuid|NO
+column|project_planning|organizations|tenant_id|uuid|NO
+column|project_planning|organizations|name|character varying|NO
+column|project_planning|organizations|created_at|timestamp with time zone|NO
+column|project_planning|organizations|created_by|character varying|NO
+column|project_planning|organizations|updated_at|timestamp with time zone|NO
+column|project_planning|projects|entity_id|character varying|NO
+column|project_planning|projects|entity_type|character varying|NO
+column|project_planning|projects|schema_version|integer|NO
+column|project_planning|projects|entity_version|integer|NO
+column|project_planning|projects|status|character varying|NO
+column|project_planning|projects|owner_module|character varying|NO
+column|project_planning|projects|created_at|timestamp with time zone|NO
+column|project_planning|projects|created_by|character varying|NO
+column|project_planning|projects|updated_at|timestamp with time zone|NO
+column|project_planning|projects|audit_ref|character varying|YES
+column|project_planning|projects|project_name|character varying|NO
+column|project_planning|projects|project_tier|character varying|NO
+column|project_planning|projects|tenant_id|uuid|NO
+column|project_planning|projects|organization_id|uuid|YES
+column|project_planning|script_revisions|entity_id|character varying|NO
+column|project_planning|script_revisions|entity_type|character varying|NO
+column|project_planning|script_revisions|schema_version|integer|NO
+column|project_planning|script_revisions|entity_version|integer|NO
+column|project_planning|script_revisions|status|character varying|NO
+column|project_planning|script_revisions|owner_module|character varying|NO
+column|project_planning|script_revisions|created_at|timestamp with time zone|NO
+column|project_planning|script_revisions|created_by|character varying|NO
+column|project_planning|script_revisions|updated_at|timestamp with time zone|NO
+column|project_planning|script_revisions|audit_ref|character varying|YES
+column|project_planning|script_revisions|project_id|character varying|NO
+column|project_planning|script_revisions|episode_ref|character varying|NO
+column|project_planning|script_revisions|title|character varying|NO
+column|project_planning|script_revisions|tenant_id|uuid|NO
+column|project_planning|script_revisions|requested_by|character varying|YES
+column|public|alembic_version|version_num|character varying|NO
+=== 5 约束
+constraint|asset_service|asset_versions|asset_versions_pkey|p|PRIMARY KEY (entity_id)
+constraint|asset_service|asset_versions|fk_asset_versions_project_tenant|f|FOREIGN KEY (project_id, tenant_id) REFERENCES project_planning.projects(entity_id, tenant_id)
+constraint|asset_service|qc_reports|qc_reports_asset_version_id_fkey|f|FOREIGN KEY (asset_version_id) REFERENCES asset_service.asset_versions(entity_id)
+constraint|asset_service|qc_reports|qc_reports_pkey|p|PRIMARY KEY (qc_report_id)
+constraint|auth|revoked_tokens|revoked_tokens_pkey|p|PRIMARY KEY (jti)
+constraint|outbox|maintenance_runs|maintenance_runs_pkey|p|PRIMARY KEY (id)
+constraint|outbox|outbox_events|outbox_events_pkey|p|PRIMARY KEY (event_id, occurred_at)
+constraint|outbox|outbox_events_default|outbox_events_default_pkey|p|PRIMARY KEY (event_id, occurred_at)
+constraint|outbox|outbox_events_y202611|outbox_events_y202611_pkey|p|PRIMARY KEY (event_id, occurred_at)
+constraint|outbox|outbox_events_y202612|outbox_events_y202612_pkey|p|PRIMARY KEY (event_id, occurred_at)
+constraint|project_planning|episodes|episodes_pkey|p|PRIMARY KEY (entity_id)
+constraint|project_planning|episodes|fk_episodes_project|f|FOREIGN KEY (project_id) REFERENCES project_planning.projects(entity_id)
+constraint|project_planning|episodes|ux_episode_ref_per_project|u|UNIQUE (project_id, episode_ref)
+constraint|project_planning|organizations|organizations_pkey|p|PRIMARY KEY (organization_id)
+constraint|project_planning|organizations|uq_organizations_owner_tenant|u|UNIQUE (organization_id, tenant_id)
+constraint|project_planning|projects|fk_projects_organization_tenant|f|FOREIGN KEY (organization_id, tenant_id) REFERENCES project_planning.organizations(organization_id, tenant_id)
+constraint|project_planning|projects|projects_pkey|p|PRIMARY KEY (entity_id)
+constraint|project_planning|projects|uq_projects_entity_tenant|u|UNIQUE (entity_id, tenant_id)
+constraint|project_planning|script_revisions|fk_script_revisions_episode|f|FOREIGN KEY (project_id, episode_ref) REFERENCES project_planning.episodes(project_id, episode_ref)
+constraint|project_planning|script_revisions|script_revisions_pkey|p|PRIMARY KEY (entity_id)
+constraint|public|alembic_version|alembic_version_pkc|p|PRIMARY KEY (version_num)
+=== 6 索引
+index|asset_service|asset_versions|asset_versions_pkey
+index|asset_service|asset_versions|ix_asset_service_asset_versions_project
+index|asset_service|asset_versions|ix_asset_service_asset_versions_tenant_id
+index|asset_service|asset_versions|ix_asset_service_asset_versions_type_sha256
+index|asset_service|qc_reports|ix_asset_service_qc_reports_asset_version_id
+index|asset_service|qc_reports|ix_asset_service_qc_reports_tenant_id
+index|asset_service|qc_reports|qc_reports_pkey
+index|auth|revoked_tokens|ix_auth_revoked_tokens_expires_at
+index|auth|revoked_tokens|revoked_tokens_pkey
+index|outbox|maintenance_runs|ix_outbox_maintenance_runs_started
+index|outbox|maintenance_runs|maintenance_runs_pkey
+index|outbox|outbox_events|ix_outbox_aggregate
+index|outbox|outbox_events|ix_outbox_published
+index|outbox|outbox_events|ix_outbox_tenant
+index|outbox|outbox_events|outbox_events_pkey
+index|outbox|outbox_events_default|outbox_events_default_aggregate_id_idx
+index|outbox|outbox_events_default|outbox_events_default_pkey
+index|outbox|outbox_events_default|outbox_events_default_published_at_idx
+index|outbox|outbox_events_default|outbox_events_default_tenant_id_idx
+index|outbox|outbox_events_y202611|outbox_events_y202611_aggregate_id_idx
+index|outbox|outbox_events_y202611|outbox_events_y202611_pkey
+index|outbox|outbox_events_y202611|outbox_events_y202611_published_at_idx
+index|outbox|outbox_events_y202611|outbox_events_y202611_tenant_id_idx
+index|outbox|outbox_events_y202612|outbox_events_y202612_aggregate_id_idx
+index|outbox|outbox_events_y202612|outbox_events_y202612_pkey
+index|outbox|outbox_events_y202612|outbox_events_y202612_published_at_idx
+index|outbox|outbox_events_y202612|outbox_events_y202612_tenant_id_idx
+index|project_planning|episodes|episodes_pkey
+index|project_planning|episodes|ix_project_planning_episodes_project_id
+index|project_planning|episodes|ix_project_planning_episodes_tenant_id
+index|project_planning|episodes|ux_episode_ref_per_project
+index|project_planning|organizations|ix_project_planning_organizations_tenant_id
+index|project_planning|organizations|organizations_pkey
+index|project_planning|organizations|uq_organizations_owner_tenant
+index|project_planning|projects|ix_project_planning_projects_tenant_id
+index|project_planning|projects|projects_pkey
+index|project_planning|projects|uq_projects_entity_tenant
+index|project_planning|script_revisions|ix_project_planning_script_revisions_project_id
+index|project_planning|script_revisions|ix_project_planning_script_revisions_tenant_id
+index|project_planning|script_revisions|script_revisions_pkey
+index|project_planning|script_revisions|ux_script_active_version
+index|public|alembic_version|alembic_version_pkc
+=== 7 触发器
+trigger|asset_service|asset_versions|trg_asset_versions_guard|CREATE TRIGGER trg_asset_versions_guard BEFORE DELETE OR UPDATE ON asset_service.asset_versions FOR EACH ROW EXECUTE FUNCTION asset_service.asset_versions_guard()
+trigger|asset_service|qc_reports|trg_qc_reports_guard|CREATE TRIGGER trg_qc_reports_guard BEFORE DELETE OR UPDATE ON asset_service.qc_reports FOR EACH ROW EXECUTE FUNCTION asset_service.qc_reports_guard()
+=== 8 函数（含 SECDEF / owner / search_path / ACL）
+function|asset_service|asset_versions_guard||f|postgres||NULL(=默认 PUBLIC EXECUTE)
+function|asset_service|qc_reports_guard||f|postgres||NULL(=默认 PUBLIC EXECUTE)
+function|outbox|list_active_tenants||t|postgres|search_path=outbox, pg_catalog|{postgres=X/postgres,app_role=X/postgres,outbox_relay_role=X/postgres}
+=== 9 RLS 策略
+policy|asset_service|asset_versions|tenant_isolation_asset_versions|PERMISSIVE|{public}|ALL|(tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid)|
+policy|asset_service|qc_reports|tenant_isolation_qc_reports|PERMISSIVE|{public}|ALL|(tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid)|
+policy|outbox|outbox_events|tenant_isolation_outbox_events|PERMISSIVE|{public}|ALL|(tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid)|
+policy|outbox|outbox_events_default|tenant_isolation_outbox_events|PERMISSIVE|{public}|ALL|(tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid)|
+policy|outbox|outbox_events_y202611|tenant_isolation_outbox_events|PERMISSIVE|{public}|ALL|(tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid)|
+policy|outbox|outbox_events_y202612|tenant_isolation_outbox_events|PERMISSIVE|{public}|ALL|(tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid)|
+policy|project_planning|episodes|tenant_isolation_episodes|PERMISSIVE|{public}|ALL|(tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid)|
+policy|project_planning|organizations|tenant_isolation_organizations|PERMISSIVE|{public}|ALL|(tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid)|
+policy|project_planning|projects|tenant_isolation_projects|PERMISSIVE|{public}|ALL|(tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid)|
+policy|project_planning|script_revisions|tenant_isolation_script_revisions|PERMISSIVE|{public}|ALL|(tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid)|
+=== 10 序列
+sequence|outbox|maintenance_runs_id_seq
+=== 11 默认权限
+default_acl|postgres|asset_service|S|{asset_service_role=rU/postgres}
+default_acl|postgres|asset_service|r|{asset_service_role=arwd/postgres}
+default_acl|postgres|outbox|r|{outbox_relay_role=r/postgres,project_planning_role=ar/postgres,asset_service_role=ar/postgres}
+default_acl|postgres|project_planning|S|{project_planning_role=rU/postgres}
+default_acl|postgres|project_planning|r|{project_planning_role=arwd/postgres}
+=== 12 表级授权（实际 ACL，按角色展开）
+table_grant|asset_service|asset_versions|asset_service_role|INSERT,SELECT,UPDATE
+table_grant|asset_service|asset_versions|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|asset_service|qc_reports|asset_service_role|INSERT,SELECT
+table_grant|asset_service|qc_reports|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|auth|revoked_tokens|asset_service_role|SELECT
+table_grant|auth|revoked_tokens|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|auth|revoked_tokens|project_planning_role|SELECT
+table_grant|outbox|maintenance_runs|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|outbox|outbox_events|app_role|SELECT
+table_grant|outbox|outbox_events|asset_service_role|INSERT,SELECT
+table_grant|outbox|outbox_events|outbox_relay_role|SELECT
+table_grant|outbox|outbox_events|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|outbox|outbox_events|project_planning_role|INSERT,SELECT
+table_grant|outbox|outbox_events_default|asset_service_role|INSERT,SELECT
+table_grant|outbox|outbox_events_default|outbox_relay_role|SELECT
+table_grant|outbox|outbox_events_default|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|outbox|outbox_events_default|project_planning_role|INSERT,SELECT
+table_grant|outbox|outbox_events_y202611|asset_service_role|INSERT,SELECT
+table_grant|outbox|outbox_events_y202611|outbox_relay_role|SELECT
+table_grant|outbox|outbox_events_y202611|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|outbox|outbox_events_y202611|project_planning_role|INSERT,SELECT
+table_grant|outbox|outbox_events_y202612|asset_service_role|INSERT,SELECT
+table_grant|outbox|outbox_events_y202612|outbox_relay_role|SELECT
+table_grant|outbox|outbox_events_y202612|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|outbox|outbox_events_y202612|project_planning_role|INSERT,SELECT
+table_grant|project_planning|episodes|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|project_planning|episodes|project_planning_role|DELETE,INSERT,SELECT,UPDATE
+table_grant|project_planning|organizations|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|project_planning|organizations|project_planning_role|DELETE,INSERT,SELECT,UPDATE
+table_grant|project_planning|projects|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|project_planning|projects|project_planning_role|DELETE,INSERT,SELECT,UPDATE
+table_grant|project_planning|script_revisions|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|project_planning|script_revisions|project_planning_role|DELETE,INSERT,SELECT,UPDATE
+table_grant|public|alembic_version|asset_service_role|SELECT
+table_grant|public|alembic_version|postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+table_grant|public|alembic_version|project_planning_role|SELECT

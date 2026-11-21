@@ -1,0 +1,92 @@
+{
+  "at": "2026-11-21T12:10:31+08:00",
+  "passed": 11,
+  "failed": 0,
+  "not_applicable": 0,
+  "open_findings": [
+    {
+      "id": "G9",
+      "desc": "E6 是升级时的一次性收敛，不是持续授权",
+      "gap": "升级后新建的写角色需重跑收敛语句才能获得 EXECUTE，否则其写入得到 42501。本脚本 G7 已实证该缺口存在；G8 证明修复语句有效。这属「授权随权限变化」的固有代价，名单式授权无法消除（它只是把缺口换成了静默跳过）。 当前库内无累积漂移。"
+    }
+  ],
+  "results": [
+    {
+      "id": "G0",
+      "phase": "基线",
+      "desc": "回退归属栈至激活前基线（13 层）",
+      "ok": true,
+      "detail": "projects 3→0，asset_versions 3→0；归属三列外键=0; 两列组织外键=0; 例外映射表=0; 例外判定函数=0; RLS 表达式备份表=0; 批次二归属外键=0; 批次三归属外键=0; 批次五新表=0; 批次五收敛边=0; 批次六归档守卫=0; 批次七阻断集合函数=0; 批次九返工表=0; 批次九返工引用外键=0; 批次四父表唯一键=0; 批次四复合外键=0"
+    },
+    {
+      "id": "G1",
+      "phase": "中间态",
+      "desc": "两个判定函数已创建（b0c9 之后）",
+      "ok": true,
+      "detail": "allows=62772 map=62771"
+    },
+    {
+      "id": "G2",
+      "phase": "中间态",
+      "desc": "此刻的写者均已持有函数 EXECUTE",
+      "ok": true,
+      "detail": "无漂移"
+    },
+    {
+      "id": "G3",
+      "phase": "终态",
+      "desc": "归属栈全部应用（13 层，末层 m3b4c5d6e7f8）",
+      "ok": true,
+      "detail": "13 层"
+    },
+    {
+      "id": "G4",
+      "phase": "终态",
+      "desc": "不变量：对受守卫表有写权限者必持两函数 EXECUTE（37 个 角色×表）",
+      "ok": true,
+      "detail": "零漂移"
+    },
+    {
+      "id": "G4b",
+      "phase": "终态",
+      "desc": "写者矩阵非空",
+      "ok": true,
+      "detail": "7 个角色：afs_data_repair, postgres, svc_asset, svc_generation_execution, svc_qc_governance, svc_shot_planning…"
+    },
+    {
+      "id": "G5",
+      "phase": "终态",
+      "desc": "`afs_data_repair` 对两函数均有 EXECUTE（11 张表）",
+      "ok": true,
+      "detail": "全部具备（历史坑：曾只授 allows 不授 map_match）"
+    },
+    {
+      "id": "G6",
+      "phase": "终态",
+      "desc": "PUBLIC 无两函数 EXECUTE（撤 PUBLIC 生效）",
+      "ok": true,
+      "detail": "allows=False map_match=False"
+    },
+    {
+      "id": "G7",
+      "phase": "非恒真",
+      "desc": "只授表权限的新角色**不会**自动获得函数 EXECUTE",
+      "ok": true,
+      "detail": "allows=False map_match=False → E6 的绿不是 PG 默认行为"
+    },
+    {
+      "id": "G8",
+      "phase": "非恒真",
+      "desc": "执行 E6 同款语句后该角色获得两函数 EXECUTE",
+      "ok": true,
+      "detail": "allows=True map_match=True"
+    },
+    {
+      "id": "G10",
+      "phase": "降级",
+      "desc": "归属栈逆序降级后判定函数已移除（无悬空 ACL）",
+      "ok": true,
+      "detail": "allows_oid=None"
+    }
+  ]
+}

@@ -126,6 +126,25 @@ _RESOLVE_SQL: dict[str, str] = {
           ON p.entity_id = e.project_id AND p.tenant_id = e.tenant_id
         WHERE s.entity_id = :rid
     """,
+    # 场次的归属经 project_id 收敛到项目，不经 episode 两跳：scenes 自带
+    # project_id，且三列外键保证它与集同项目（fk_scenes_episode_project）。
+    # 多绕一跳会多一个「集被改挂」的窗口，而归属不会被改写（I-2）由守卫保证。
+    "Scene": """
+        SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
+        FROM project_planning.scenes AS s
+        JOIN project_planning.projects AS p
+          ON p.entity_id = s.project_id AND p.tenant_id = s.tenant_id
+        WHERE s.entity_id = :rid
+    """,
+    # Shot 的归属经 scene_id/project_id 收敛到项目；采用 shots 自带的三列归属键，
+    # 与 (project_id, scene_id) 复合外键一致，不再绕两层父表制造可漂移的第二路径。
+    "Shot": """
+        SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
+        FROM shot_planning.shots AS s
+        JOIN project_planning.projects AS p
+          ON p.entity_id = s.project_id AND p.tenant_id = s.tenant_id
+        WHERE s.entity_id = :rid
+    """,
     "AssetVersion": """
         SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
         FROM asset_service.asset_versions AS a

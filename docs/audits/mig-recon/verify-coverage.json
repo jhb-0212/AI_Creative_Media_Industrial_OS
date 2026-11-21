@@ -1,0 +1,499 @@
+{
+  "at": "2026-11-21T12:10:26+08:00",
+  "passed": 70,
+  "failed": 0,
+  "not_applicable": 0,
+  "open_findings": [],
+  "results": [
+    {
+      "id": "B0",
+      "phase": "前置",
+      "desc": "回退归属栈至激活前基线（13 层）",
+      "ok": true,
+      "detail": "projects 3→0，asset_versions 3→0; 归属三列外键=0; 两列组织外键=0; 例外映射表=0; 例外判定函数=0; RLS 表达式备份表=0; 批次二归属外键=0; 批次三归属外键=0; 批次五新表=0; 批次五收敛边=0; 批次六归档守卫=0; 批次七阻断集合函数=0; 批次九返工表=0; 批次九返工引用外键=0; 批次四父表唯一键=0; 批次四复合外键=0"
+    },
+    {
+      "id": "U0",
+      "phase": "前置",
+      "desc": "执行归属外键迁移（21 步）",
+      "ok": true,
+      "detail": "projects 已 seed，O0 通过"
+    },
+    {
+      "id": "U0b",
+      "phase": "前置",
+      "desc": "归属外键已建（NOT VALID 亦对新写入生效）",
+      "ok": true,
+      "detail": "三列外键=12"
+    },
+    {
+      "id": "U0c",
+      "phase": "前置",
+      "desc": "批次二三条归属外键已建（7 步）",
+      "ok": true,
+      "detail": "命中=3/3"
+    },
+    {
+      "id": "U1",
+      "phase": "前置",
+      "desc": "执行受控例外迁移（23 条）",
+      "ok": true,
+      "detail": "无异常"
+    },
+    {
+      "id": "asset_versions.N1",
+      "phase": "无令牌",
+      "desc": "改归属列 → P0001（守卫仍在）",
+      "ok": true,
+      "detail": "P0001: asset_versions.project_id 为不可变内容列，禁止改写（ADR-R11）"
+    },
+    {
+      "id": "asset_versions.N2",
+      "phase": "例外放行",
+      "desc": "四条件齐备 → UPDATE 1 且 project_id 回读为新值",
+      "ok": true,
+      "detail": "UPDATE 1 now=proj-2"
+    },
+    {
+      "id": "asset_versions.N3",
+      "phase": "内容列",
+      "desc": "有令牌但改内容列 schema_version → P0001",
+      "ok": true,
+      "detail": "P0001: asset_versions.schema_version 为不可变内容列，禁止改写（ADR-R11）"
+    },
+    {
+      "id": "asset_versions.N4",
+      "phase": "非成员",
+      "desc": "非成员即使令牌+映射齐备 → P0001（不是 42501）",
+      "ok": true,
+      "detail": "P0001: asset_versions.project_id 为不可变内容列，禁止改写（ADR-R11）"
+    },
+    {
+      "id": "asset_versions.N5",
+      "phase": "外键",
+      "desc": "例外放行后仍受 fk_asset_versions_project_tenant_org 约束 → 23503（非 0 行静默）",
+      "ok": true,
+      "detail": "23503: insert or update on table \"asset_versions\" violates foreign key constraint \"fk_asset_versions_project_tenant_o"
+    },
+    {
+      "id": "delivery_manifests.N1",
+      "phase": "无令牌",
+      "desc": "改归属列 → P0001（守卫仍在）",
+      "ok": true,
+      "detail": "P0001: delivery_manifests.project_id 为不可变内容列，禁止改写（每个 Manifest 版本不可变）"
+    },
+    {
+      "id": "delivery_manifests.N2",
+      "phase": "例外放行",
+      "desc": "四条件齐备 → UPDATE 1 且 project_id 回读为新值",
+      "ok": true,
+      "detail": "UPDATE 1 now=proj-2"
+    },
+    {
+      "id": "delivery_manifests.N3",
+      "phase": "内容列",
+      "desc": "有令牌但改内容列 schema_version → P0001",
+      "ok": true,
+      "detail": "P0001: delivery_manifests.schema_version 为不可变内容列，禁止改写（每个 Manifest 版本不可变）"
+    },
+    {
+      "id": "delivery_manifests.N4",
+      "phase": "非成员",
+      "desc": "非成员即使令牌+映射齐备 → P0001（不是 42501）",
+      "ok": true,
+      "detail": "P0001: delivery_manifests.project_id 为不可变内容列，禁止改写（每个 Manifest 版本不可变）"
+    },
+    {
+      "id": "delivery_manifests.N5",
+      "phase": "外键",
+      "desc": "例外放行后仍受 fk_delivery_manifests_project_tenant_org 约束 → 23503（非 0 行静默）",
+      "ok": true,
+      "detail": "23503: insert or update on table \"delivery_manifests\" violates foreign key constraint \"fk_delivery_manifests_project_"
+    },
+    {
+      "id": "qc_reports.N1",
+      "phase": "无令牌",
+      "desc": "改归属列 → P0001（守卫仍在）",
+      "ok": true,
+      "detail": "P0001: qc_reports 是追加型检测证据，禁止 UPDATE（ADR-R11）"
+    },
+    {
+      "id": "qc_reports.N2",
+      "phase": "例外放行",
+      "desc": "四条件齐备 → UPDATE 1 且 project_id 回读为新值",
+      "ok": true,
+      "detail": "UPDATE 1 now=proj-2"
+    },
+    {
+      "id": "qc_reports.N3",
+      "phase": "内容列",
+      "desc": "有令牌但改内容列 detector_versions → P0001",
+      "ok": true,
+      "detail": "P0001: qc_reports 是追加型检测证据，禁止 UPDATE（ADR-R11）"
+    },
+    {
+      "id": "qc_reports.N4",
+      "phase": "非成员",
+      "desc": "非成员即使令牌+映射齐备 → P0001（不是 42501）",
+      "ok": true,
+      "detail": "P0001: qc_reports 是追加型检测证据，禁止 UPDATE（ADR-R11）"
+    },
+    {
+      "id": "qc_reports.N5",
+      "phase": "外键",
+      "desc": "例外放行后仍受 fk_qc_reports_project_tenant_org 约束 → 23503（非 0 行静默）",
+      "ok": true,
+      "detail": "23503: insert or update on table \"qc_reports\" violates foreign key constraint \"fk_qc_reports_project_tenant_org\""
+    },
+    {
+      "id": "generation_tasks.N1",
+      "phase": "无令牌",
+      "desc": "改归属列 → P0001（守卫仍在）",
+      "ok": true,
+      "detail": "P0001: generation_execution.generation_tasks.project_id 为不可变内容列，禁止改写"
+    },
+    {
+      "id": "generation_tasks.N2",
+      "phase": "例外放行",
+      "desc": "四条件齐备 → UPDATE 1 且 project_id 回读为新值",
+      "ok": true,
+      "detail": "UPDATE 1 now=proj-2"
+    },
+    {
+      "id": "generation_tasks.N3",
+      "phase": "内容列",
+      "desc": "有令牌但改内容列 schema_version → P0001",
+      "ok": true,
+      "detail": "P0001: generation_execution.generation_tasks.schema_version 为不可变内容列，禁止改写"
+    },
+    {
+      "id": "generation_tasks.N4",
+      "phase": "非成员",
+      "desc": "非成员即使令牌+映射齐备 → P0001（不是 42501）",
+      "ok": true,
+      "detail": "P0001: generation_execution.generation_tasks.project_id 为不可变内容列，禁止改写"
+    },
+    {
+      "id": "generation_tasks.N5",
+      "phase": "外键",
+      "desc": "例外放行后仍受 fk_generation_tasks_project_tenant_org 约束 → 23503（非 0 行静默）",
+      "ok": true,
+      "detail": "23503: insert or update on table \"generation_tasks\" violates foreign key constraint \"fk_generation_tasks_project_tena"
+    },
+    {
+      "id": "production_routes.N1",
+      "phase": "无令牌",
+      "desc": "改归属列 → P0001（守卫仍在）",
+      "ok": true,
+      "detail": "P0001: generation_execution.production_routes.organization_id 为不可变内容列，禁止改写"
+    },
+    {
+      "id": "production_routes.N2",
+      "phase": "例外放行",
+      "desc": "四条件齐备 → UPDATE 1 且 organization_id 回读为新值",
+      "ok": true,
+      "detail": "UPDATE 1 now=00000000-0000-0000-0000-000000000012"
+    },
+    {
+      "id": "production_routes.N3",
+      "phase": "内容列",
+      "desc": "有令牌但改内容列 schema_version → P0001",
+      "ok": true,
+      "detail": "P0001: generation_execution.production_routes.schema_version 为不可变内容列，禁止改写"
+    },
+    {
+      "id": "production_routes.N4",
+      "phase": "非成员",
+      "desc": "非成员即使令牌+映射齐备 → P0001（不是 42501）",
+      "ok": true,
+      "detail": "P0001: generation_execution.production_routes.organization_id 为不可变内容列，禁止改写"
+    },
+    {
+      "id": "production_routes.N5",
+      "phase": "外键",
+      "desc": "例外放行后仍受 fk_production_routes_organization_tenant 约束 → 23503（非 0 行静默）",
+      "ok": true,
+      "detail": "23503: insert or update on table \"production_routes\" violates foreign key constraint \"fk_production_routes_organizati"
+    },
+    {
+      "id": "shot_route_selections.N1",
+      "phase": "无令牌",
+      "desc": "改归属列 → P0001（守卫仍在）",
+      "ok": true,
+      "detail": "P0001: generation_execution.shot_route_selections 为受理事实（生效路线），禁止改写（单一路线生成，V205-R14-A9）"
+    },
+    {
+      "id": "shot_route_selections.N2",
+      "phase": "例外放行",
+      "desc": "四条件齐备 → UPDATE 1 且 project_id 回读为新值",
+      "ok": true,
+      "detail": "UPDATE 1 now=proj-2"
+    },
+    {
+      "id": "shot_route_selections.N3",
+      "phase": "内容列",
+      "desc": "有令牌但改内容列 schema_version → P0001",
+      "ok": true,
+      "detail": "P0001: generation_execution.shot_route_selections 为受理事实（生效路线），禁止改写（单一路线生成，V205-R14-A9）"
+    },
+    {
+      "id": "shot_route_selections.N4",
+      "phase": "非成员",
+      "desc": "非成员即使令牌+映射齐备 → P0001（不是 42501）",
+      "ok": true,
+      "detail": "P0001: generation_execution.shot_route_selections 为受理事实（生效路线），禁止改写（单一路线生成，V205-R14-A9）"
+    },
+    {
+      "id": "shot_route_selections.N5",
+      "phase": "外键",
+      "desc": "例外放行后仍受 fk_shot_route_selections_project_tenant_org 约束 → 23503（非 0 行静默）",
+      "ok": true,
+      "detail": "23503: insert or update on table \"shot_route_selections\" violates foreign key constraint \"fk_shot_route_selections_pr"
+    },
+    {
+      "id": "gate_decisions.N1",
+      "phase": "无令牌",
+      "desc": "改归属列 → P0001（守卫仍在）",
+      "ok": true,
+      "detail": "P0001: gate_decisions 是 append-only Gate 裁决事实，禁止 UPDATE （裁决不可改写，修正须新建一条裁决并附新证据）"
+    },
+    {
+      "id": "gate_decisions.N2",
+      "phase": "例外放行",
+      "desc": "四条件齐备 → UPDATE 1 且 project_id 回读为新值",
+      "ok": true,
+      "detail": "UPDATE 1 now=proj-2"
+    },
+    {
+      "id": "gate_decisions.N3",
+      "phase": "内容列",
+      "desc": "有令牌但改内容列 schema_version → P0001",
+      "ok": true,
+      "detail": "P0001: gate_decisions 是 append-only Gate 裁决事实，禁止 UPDATE （裁决不可改写，修正须新建一条裁决并附新证据）"
+    },
+    {
+      "id": "gate_decisions.N4",
+      "phase": "非成员",
+      "desc": "非成员即使令牌+映射齐备 → P0001（不是 42501）",
+      "ok": true,
+      "detail": "P0001: gate_decisions 是 append-only Gate 裁决事实，禁止 UPDATE （裁决不可改写，修正须新建一条裁决并附新证据）"
+    },
+    {
+      "id": "gate_decisions.N5",
+      "phase": "外键",
+      "desc": "例外放行后仍受 fk_gate_decisions_project_tenant_org 约束 → 23503（非 0 行静默）",
+      "ok": true,
+      "detail": "23503: insert or update on table \"gate_decisions\" violates foreign key constraint \"fk_gate_decisions_project_tenant_o"
+    },
+    {
+      "id": "qc_review_sessions.N1",
+      "phase": "无令牌",
+      "desc": "改归属列 → P0001（守卫仍在）",
+      "ok": true,
+      "detail": "P0001: qc_governance.qc_review_sessions.project_id 为不可变内容列，禁止改写"
+    },
+    {
+      "id": "qc_review_sessions.N2",
+      "phase": "例外放行",
+      "desc": "四条件齐备 → UPDATE 1 且 project_id 回读为新值",
+      "ok": true,
+      "detail": "UPDATE 1 now=proj-2"
+    },
+    {
+      "id": "qc_review_sessions.N3",
+      "phase": "内容列",
+      "desc": "有令牌但改内容列 schema_version → P0001",
+      "ok": true,
+      "detail": "P0001: qc_governance.qc_review_sessions.schema_version 为不可变内容列，禁止改写"
+    },
+    {
+      "id": "qc_review_sessions.N4",
+      "phase": "非成员",
+      "desc": "非成员即使令牌+映射齐备 → P0001（不是 42501）",
+      "ok": true,
+      "detail": "P0001: qc_governance.qc_review_sessions.project_id 为不可变内容列，禁止改写"
+    },
+    {
+      "id": "qc_review_sessions.N5",
+      "phase": "外键",
+      "desc": "例外放行后仍受 fk_qc_review_sessions_project_tenant_org 约束 → 23503（非 0 行静默）",
+      "ok": true,
+      "detail": "23503: insert or update on table \"qc_review_sessions\" violates foreign key constraint \"fk_qc_review_sessions_project_"
+    },
+    {
+      "id": "constraint_packs.N1",
+      "phase": "无令牌",
+      "desc": "改归属列 → P0001（守卫仍在）",
+      "ok": true,
+      "detail": "P0001: shot_planning.constraint_packs.project_id 为不可变内容列，禁止改写（ADR-R27/C2）"
+    },
+    {
+      "id": "constraint_packs.N2",
+      "phase": "例外放行",
+      "desc": "四条件齐备 → UPDATE 1 且 project_id 回读为新值",
+      "ok": true,
+      "detail": "UPDATE 1 now=proj-2"
+    },
+    {
+      "id": "constraint_packs.N3",
+      "phase": "内容列",
+      "desc": "有令牌但改内容列 schema_version → P0001",
+      "ok": true,
+      "detail": "P0001: shot_planning.constraint_packs.schema_version 为不可变内容列，禁止改写（ADR-R27/C2）"
+    },
+    {
+      "id": "constraint_packs.N4",
+      "phase": "非成员",
+      "desc": "非成员即使令牌+映射齐备 → P0001（不是 42501）",
+      "ok": true,
+      "detail": "P0001: shot_planning.constraint_packs.project_id 为不可变内容列，禁止改写（ADR-R27/C2）"
+    },
+    {
+      "id": "constraint_packs.N5",
+      "phase": "外键",
+      "desc": "例外放行后仍受 fk_constraint_packs_project_tenant_org 约束 → 23503（非 0 行静默）",
+      "ok": true,
+      "detail": "23503: insert or update on table \"constraint_packs\" violates foreign key constraint \"fk_constraint_packs_project_tena"
+    },
+    {
+      "id": "shot_specs.N1",
+      "phase": "无令牌",
+      "desc": "改归属列 → P0001（守卫仍在）",
+      "ok": true,
+      "detail": "P0001: shot_planning.shot_specs.project_id 为不可变内容列，禁止改写（ADR-R27/C2）"
+    },
+    {
+      "id": "shot_specs.N2",
+      "phase": "例外放行",
+      "desc": "四条件齐备 → UPDATE 1 且 project_id 回读为新值",
+      "ok": true,
+      "detail": "UPDATE 1 now=proj-2"
+    },
+    {
+      "id": "shot_specs.N3",
+      "phase": "内容列",
+      "desc": "有令牌但改内容列 schema_version → P0001",
+      "ok": true,
+      "detail": "P0001: shot_planning.shot_specs.schema_version 为不可变内容列，禁止改写（ADR-R27/C2）"
+    },
+    {
+      "id": "shot_specs.N4",
+      "phase": "非成员",
+      "desc": "非成员即使令牌+映射齐备 → P0001（不是 42501）",
+      "ok": true,
+      "detail": "P0001: shot_planning.shot_specs.project_id 为不可变内容列，禁止改写（ADR-R27/C2）"
+    },
+    {
+      "id": "shot_specs.N5",
+      "phase": "外键",
+      "desc": "例外放行后仍受 fk_shot_specs_project_tenant_org 约束 → 23503（非 0 行静默）",
+      "ok": true,
+      "detail": "23503: insert or update on table \"shot_specs\" violates foreign key constraint \"fk_shot_specs_project_tenant_org\""
+    },
+    {
+      "id": "shot_visual_plans.N1",
+      "phase": "无令牌",
+      "desc": "改归属列 → P0001（守卫仍在）",
+      "ok": true,
+      "detail": "P0001: shot_planning.shot_visual_plans.project_id 为不可变内容列，禁止改写（ADR-R27/C2）"
+    },
+    {
+      "id": "shot_visual_plans.N2",
+      "phase": "例外放行",
+      "desc": "四条件齐备 → UPDATE 1 且 project_id 回读为新值",
+      "ok": true,
+      "detail": "UPDATE 1 now=proj-2"
+    },
+    {
+      "id": "shot_visual_plans.N3",
+      "phase": "内容列",
+      "desc": "有令牌但改内容列 schema_version → P0001",
+      "ok": true,
+      "detail": "P0001: shot_planning.shot_visual_plans.schema_version 为不可变内容列，禁止改写（ADR-R27/C2）"
+    },
+    {
+      "id": "shot_visual_plans.N4",
+      "phase": "非成员",
+      "desc": "非成员即使令牌+映射齐备 → P0001（不是 42501）",
+      "ok": true,
+      "detail": "P0001: shot_planning.shot_visual_plans.project_id 为不可变内容列，禁止改写（ADR-R27/C2）"
+    },
+    {
+      "id": "shot_visual_plans.N5",
+      "phase": "外键",
+      "desc": "例外放行后仍受 fk_shot_visual_plans_project_tenant_org 约束 → 23503（非 0 行静默）",
+      "ok": true,
+      "detail": "23503: insert or update on table \"shot_visual_plans\" violates foreign key constraint \"fk_shot_visual_plans_project_te"
+    },
+    {
+      "id": "approval_flows.N1",
+      "phase": "无令牌",
+      "desc": "改归属列 → P0001（守卫仍在）",
+      "ok": true,
+      "detail": "P0001: approval_flows 是 append-only 审批事实，禁止 UPDATE（修正须追加新事实）"
+    },
+    {
+      "id": "approval_flows.N2",
+      "phase": "例外放行",
+      "desc": "四条件齐备 → UPDATE 1 且 project_id 回读为新值",
+      "ok": true,
+      "detail": "UPDATE 1 now=proj-2"
+    },
+    {
+      "id": "approval_flows.N3",
+      "phase": "内容列",
+      "desc": "有令牌但改内容列 schema_version → P0001",
+      "ok": true,
+      "detail": "P0001: approval_flows 是 append-only 审批事实，禁止 UPDATE（修正须追加新事实）"
+    },
+    {
+      "id": "approval_flows.N4",
+      "phase": "非成员",
+      "desc": "非成员即使令牌+映射齐备 → P0001（不是 42501）",
+      "ok": true,
+      "detail": "P0001: approval_flows 是 append-only 审批事实，禁止 UPDATE（修正须追加新事实）"
+    },
+    {
+      "id": "approval_flows.N5",
+      "phase": "外键",
+      "desc": "例外放行后仍受 fk_approval_flows_project_tenant_org 约束 → 23503（非 0 行静默）",
+      "ok": true,
+      "detail": "23503: insert or update on table \"approval_flows\" violates foreign key constraint \"fk_approval_flows_project_tenant_o"
+    },
+    {
+      "id": "approval_steps.N1",
+      "phase": "无令牌",
+      "desc": "改归属列 → P0001（守卫仍在）",
+      "ok": true,
+      "detail": "P0001: approval_steps 是 append-only 审批事实，禁止 UPDATE（修正须追加新事实）"
+    },
+    {
+      "id": "approval_steps.N2",
+      "phase": "例外放行",
+      "desc": "四条件齐备 → UPDATE 1 且 project_id 回读为新值",
+      "ok": true,
+      "detail": "UPDATE 1 now=proj-2"
+    },
+    {
+      "id": "approval_steps.N3",
+      "phase": "内容列",
+      "desc": "有令牌但改内容列 schema_version → P0001",
+      "ok": true,
+      "detail": "P0001: approval_steps 是 append-only 审批事实，禁止 UPDATE（修正须追加新事实）"
+    },
+    {
+      "id": "approval_steps.N4",
+      "phase": "非成员",
+      "desc": "非成员即使令牌+映射齐备 → P0001（不是 42501）",
+      "ok": true,
+      "detail": "P0001: approval_steps 是 append-only 审批事实，禁止 UPDATE（修正须追加新事实）"
+    },
+    {
+      "id": "approval_steps.N5",
+      "phase": "外键",
+      "desc": "例外放行后仍受 fk_approval_steps_project_tenant_org 约束 → 23503（非 0 行静默）",
+      "ok": true,
+      "detail": "23503: insert or update on table \"approval_steps\" violates foreign key constraint \"fk_approval_steps_project_tenant_o"
+    }
+  ]
+}
