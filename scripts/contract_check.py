@@ -57,13 +57,18 @@ CONTRACTS = ROOT / "contracts"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# 治理 YAML 的统一严格载入入口：拒绝重复映射键（见 packages/shared/yaml_strict）。
+from packages.shared.yaml_strict import load_yaml, load_yaml_file  # noqa: E402
+
 
 # --------------------------------------------------------------------------- #
 # 通用契约文件语法校验
 # --------------------------------------------------------------------------- #
 def check_yaml(path: Path) -> bool:
+    # 统一走严格 loader：重复映射键必须报红，不能像 safe_load 那样静默覆盖后键
+    # （G5 / D1 记录的病根；contract_amendments 的重复 revocations 块曾真实发生）。
     try:
-        yaml.safe_load(path.read_text(encoding="utf-8"))
+        load_yaml_file(path)
         return True
     except Exception as exc:
         print(f"[FAIL] YAML 解析失败: {path} -> {exc}")
@@ -91,7 +96,7 @@ def load_yaml_mapping(path: Path) -> dict[str, Any]:
       2. 语法损坏：``yaml.YAMLError``（解析器抛错，不裸冒泡成 traceback）。
     """
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        data = load_yaml_file(path)
     except yaml.YAMLError as exc:
         raise ValueError(f"{path} YAML 解析失败: {exc}") from exc
     if not isinstance(data, dict):
@@ -2726,8 +2731,8 @@ def _read_front_matter(path: Path) -> dict[str, Any] | None:
     for index in range(1, len(lines)):
         if lines[index].strip() == "---":
             try:
-                data = yaml.safe_load("\n".join(lines[1:index]))
-            except yaml.YAMLError:
+                data = load_yaml("\n".join(lines[1:index]), source=str(path))
+            except (yaml.YAMLError, ValueError):
                 return None
             return data if isinstance(data, dict) else None
     return None

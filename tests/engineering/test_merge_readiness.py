@@ -225,3 +225,124 @@ def test_git_missing_remote_ref_fails_closed(tmp_path: Path) -> None:
     findings = _g2(mr.check_git(tmp_path))
     assert findings, "远端引用缺失时静默通过等于 fail-open"
     assert "不存在" in findings[0].message or "fetch" in findings[0].message
+
+
+# --------------------------------------------------------------------------- #
+# P2-02 / G5：远端基线新鲜度三态（BLOCKED-ENV / FAIL / PASS）
+# --------------------------------------------------------------------------- #
+def _g5(findings: list[object]) -> list[object]:
+    return [f for f in findings if getattr(f, "rule", "") == "G5 远端基线"]
+
+
+def test_g5_fetch_failure_is_blocked_env_not_pass(tmp_path: Path) -> None:
+    """fetch 失败必须标 BLOCKED-ENV（blocked=True），绝不能静默输出 PASS。"""
+    _make_git_repo(tmp_path)
+    findings = mr.check_remote_baseline(
+        tmp_path,
+        fetch_fn=lambda _r: (128, "CONNECT tunnel failed, response 502"),
+    )
+    g5 = _g5(findings)
+    assert g5, "fetch 失败必须有发现，不得 PASS"
+    assert g5[0].blocked is True, "环境阻塞必须标 blocked"
+    assert "BLOCKED-ENV" in g5[0].message
+    assert "fetch" in g5[0].message
+
+
+def test_g5_api_unreachable_is_blocked_env(tmp_path: Path) -> None:
+    """fetch 成功但 API 不可达，仍是环境阻塞（无法核对远端权威 SHA）。"""
+    _make_git_repo(tmp_path)
+    findings = mr.check_remote_baseline(
+        tmp_path,
+        fetch_fn=lambda _r: (0, "ok"),
+        api_sha_fn=lambda _r: (1, ""),
+    )
+    g5 = _g5(findings)
+    assert g5 and g5[0].blocked is True
+    assert "BLOCKED-ENV" in g5[0].message
+
+
+def test_g5_sha_mismatch_is_code_fault_not_blocked(tmp_path: Path) -> None:
+    """三方 SHA 不一致是证据明确的状态缺陷（FAIL），不是环境阻塞。"""
+    _make_git_repo(tmp_path)
+    findings = mr.check_remote_baseline(
+        tmp_path,
+        fetch_fn=lambda _r: (0, "ok"),
+        # API 返回一个与本地 HEAD 不同的假 SHA → 三方不一致
+        api_sha_fn=lambda _r: (0, "0" * 40),
+    )
+    g5 = _g5(findings)
+    assert g5, "SHA 不一致必须报红"
+    assert g5[0].blocked is False, "证据明确的不一致是代码/状态缺陷，不是 BLOCKED-ENV"
+    assert "不一致" in g5[0].message
+
+
+def test_g5_all_consistent_is_pass(tmp_path: Path) -> None:
+    """三方一致 + 对象可读 + 父关系存在时应无 G5 发现（PASS）。"""
+    _make_git_repo(tmp_path)
+    head = subprocess_run_stdout(tmp_path, "rev-parse", "HEAD")
+    # 让 origin/main 指向与 HEAD 一致（模拟 fetch 后三方对齐）
+    _git(tmp_path, "update-ref", "refs/remotes/origin/main", head)
+    raw_commit = subprocess_run_stdout(tmp_path, "cat-file", "-p", head)
+    findings = mr.check_remote_baseline(
+        tmp_path,
+        fetch_fn=lambda _r: (0, "ok"),
+        api_sha_fn=lambda _r: (0, head),
+        cat_file_fn=lambda _r, _sha: (0, raw_commit),
+    )
+    assert _g5(findings) == [], "三方一致且对象可读时不应有 G5 发现"
+
+
+def test_g5_unreadable_commit_object_is_fault(tmp_path: Path) -> None:
+    """目标提交对象不可读 = 证据不足 = FAIL（非阻塞）。"""
+    _make_git_repo(tmp_path)
+    head = subprocess_run_stdout(tmp_path, "rev-parse", "HEAD")
+    _git(tmp_path, "update-ref", "refs/remotes/origin/main", head)
+    findings = mr.check_remote_baseline(
+        tmp_path,
+        fetch_fn=lambda _r: (0, "ok"),
+        api_sha_fn=lambda _r: (0, head),
+        cat_file_fn=lambda _r, _sha: (1, ""),  # 对象读不到
+    )
+    g5 = _g5(findings)
+    assert g5 and g5[0].blocked is False
+    assert "不可读" in g5[0].message
+
+
+def subprocess_run_stdout(root: Path, *args: str) -> str:
+    import subprocess
+
+    return subprocess.run(
+        ("git", *args), cwd=root, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def test_main_exit_code_two_when_only_blocked(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    """只有 BLOCKED-ENV（无代码缺陷）时，main 必须返回 2，绝不返回 0/PASS。"""
+    monkeypatch.setattr(
+        mr, "run_all",
+        lambda *_a, **_k: [
+            mr.Finding("G5 远端基线", "fetch", "BLOCKED-ENV: no channel", blocked=True)
+        ],
+    )
+    monkeypatch.setattr("sys.argv", ["merge_readiness.py", "--git"])
+    rc = mr.main()
+    assert rc == 2, "纯环境阻塞必须退出 2，不能 PASS(0) 也不能代码 FAIL(1)"
+    out = capsys.readouterr().out
+    assert "[BLOCKED-ENV]" in out
+    assert "[PASS]" not in out
+
+
+def test_main_exit_code_one_when_code_fault_present(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    """代码缺陷 + 环境阻塞并存时，main 返回 1（代码缺陷优先）。"""
+    monkeypatch.setattr(
+        mr, "run_all",
+        lambda *_a, **_k: [
+            mr.Finding("D1 字典重复键", "x.py:1", "bug"),
+            mr.Finding("G5 远端基线", "fetch", "BLOCKED-ENV", blocked=True),
+        ],
+    )
+    monkeypatch.setattr("sys.argv", ["merge_readiness.py", "--git"])
+    assert mr.main() == 1
+    out = capsys.readouterr().out
+    assert "[FAIL]" in out and "[BLOCKED-ENV]" in out
+

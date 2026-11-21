@@ -21,8 +21,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from packages.shared.authorization.ast import (
     AllOf,
     AnyOf,
@@ -36,6 +34,7 @@ from packages.shared.authorization.ast import (
     compile_sql,
     parse,
 )
+from packages.shared.yaml_strict import load_yaml_file
 
 # D.3：object_type 枚举。policy 不是独立授权对象（由 resources[].rls 派生）。
 OBJECT_TYPES: frozenset[str] = frozenset(
@@ -184,7 +183,7 @@ class Registry:
 # 加载（形状层）
 # --------------------------------------------------------------------------- #
 def load_registry(path: Path | str) -> Registry:
-    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    raw = load_yaml_file(Path(path))
     root = _mapping(raw, "root")
     _reject_extra(
         root,

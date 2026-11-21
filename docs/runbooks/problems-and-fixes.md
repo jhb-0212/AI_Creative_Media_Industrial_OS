@@ -23,8 +23,8 @@
 | D. 迁移与数据落地 | 4 | 迁移在混合态中止、悬空引用、错基线跑绿 | a13b0 遇残留唯一键 42710 |
 | E. 验证装置与闸门 | 6 | 闸门给现状背书、清单漏项、mock 契约不符 | `CODE_DIRS` 自抄漏 4 目录 |
 | F. 代码质量的静默缺陷 | 6 | 不报错但行为错 / 负债累积 | 字典重复键静默覆盖、122 项 lint 债 |
-| G. 工程流程与环境 | 5 | 直推被拒、网络通道失败、基线游离副本、SHA 一致性未验收 | GH006 拒绝直推 / 游离副本红灯 / BLOCKED-ENV |
-| **合计** | **35** | | |
+| G. 工程流程与环境 | 6 | 直推被拒、网络通道失败、基线游离副本、SHA 一致性未验收、YAML 重复键 | GH006 / BLOCKED-ENV / safe_load 静默覆盖 |
+| **合计** | **36** | | |
 
 **出现频次最高的三类根因**（占绝大多数条目）：
 1. **判据/前提本身错了** —— 不是代码写错，是"用什么判断对错"错了（锁类型、DEFINER、语句多重集、错基线）。
@@ -277,6 +277,26 @@
   ③ 合并提交对象可读（`git cat-file -t`=commit，gpgsig 签名完整），两父 = `b870d3b` + `8dfe25c`，父关系正确；
   ④ 工作区用 `stash → merge --ff-only → stash pop` 保持干净，本地 `main` 快进到 `196a6e3`，G5 文档改动完整恢复、stash 清空。
   全程未重建对象、未 `update-ref`、未强推——一致性来自真实 fetch，不是人为制造。
+- **机器判定落地（第三轮审查 P2-02）**：G5 从人工 runbook 升级为可执行闸门。
+  `merge_readiness.py --git` 新增 `check_remote_baseline()`：真实 fetch（失败即
+  `BLOCKED-ENV`，绝不输出 PASS）、三方 SHA 核对（API 远端 / `origin/main` / HEAD）、
+  目标提交对象可读且结构合法。闸门引入三态退出码：`0=PASS / 1=代码缺陷 /
+  2=BLOCKED-ENV`；环境阻塞不记作代码 FAIL，但同样阻止合并决策。负向测试覆盖
+  5 个判据分支 + 2 个 main 三态退出码（`test_merge_readiness.py`）。
+
+#### G6 YAML 重复映射键静默覆盖（第三轮审查 P2-01）
+- **现象**：PR #24 删过 `contract_amendments.yaml` 末尾重复的 `revocations` 块，但
+  `contract_check.py` / `freeze_manifest.py` 都用 `yaml.safe_load`——重复键静默取后键，
+  同类问题会在下一份契约 YAML 重演。`merge_readiness.py` 的 D1 只查 Python 字典重复键，
+  不覆盖 YAML。
+- **根因**：`yaml.safe_load` 对重复映射键不报错、不警告（与 D1 的 Python 字典重复键同病）。
+- **解决办法**：新建 `packages/shared/yaml_strict.py` 作为治理 YAML 的**唯一严格载入事实源**
+  （拒绝顶层/嵌套/序列内显式重复键，保留合法 `<<` merge-key 语义），闸门与运行时共用：
+  `contract_check`（全部契约 YAML）、`freeze_manifest`、`action_registry`、授权 `registry`、
+  `boundary_assertions`、`gen_status_contracts`、两份审计取证脚本统一切换。
+- **证据**：8 项 loader 正负向测试（`test_yaml_strict.py`）；端到端负向——向
+  `budget_caliber.yaml` 注入重复 `source` 键，`contract_check` 报 FAIL 并点名文件+行号+键，
+  恢复后转绿、文件零 diff。
 
 ---
 
@@ -291,7 +311,8 @@
 7. **不接 CI 的分支是债务区**：长生命周期分支至少接 lint + 契约检查，否则债只在合并点还。
 8. **不绕过治理机制**：保护分支被拒就走 PR；质量负债真修或带理由豁免，不排除目录、不强推、不改保护规则。
 9. **验证装置改前提 = 换命题**：修装置还是修产品，看被测命题有没有被换掉；错基线上跑出的绿比红更危险。
-10. **无证据不宣称一致，无通道不伪造一致**：本地 SHA 三方一致性拿不到就标 `BLOCKED-ENV`，不标 PASS、不标代码 FAIL。tree sha 相等 ≠ commit 对象一致；API 的规范化 payload ≠ 原始 commit object；不重建对象、不强改引用。`BLOCKED-ENV` 只放行不依赖最新远程对象的只读审查，不放行需要最新 main 基线的合并/变基/发布（G5）。
+10. **无证据不宣称一致，无通道不伪造一致**：本地 SHA 三方一致性拿不到就标 `BLOCKED-ENV`，不标 PASS、不标代码 FAIL。tree sha 相等 ≠ commit 对象一致；API 的规范化 payload ≠ 原始 commit object；不重建对象、不强改引用。`BLOCKED-ENV` 只放行不依赖最新远程对象的只读审查，不放行需要最新 main 基线的合并/变基/发布（G5，已落地为 `merge_readiness --git` 机器判定）。
+11. **同语义的静默覆盖要有唯一载入入口**：Python 字典重复键（D1）与 YAML 重复映射键（G6）是同一种病——后者覆盖前者、不报错。凡是"多份声明合并成一份"的格式，必须有一个统一且 fail-closed 的解析入口（本仓为 `packages/shared/yaml_strict.py`），不能让 `safe_load` 散落各处；闸门要能注入反例真实报红点名。
 
 ---
 

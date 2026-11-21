@@ -52,6 +52,7 @@ from pathlib import Path
 from typing import Any
 
 from packages.shared.lifecycle import Lifecycle
+from packages.shared.yaml_strict import load_yaml, load_yaml_file
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACTS_PATH = ROOT / "contracts"
@@ -831,12 +832,10 @@ def _evaluate_aggregate_entry(
 
 def _action_registry_statuses() -> dict[str, str]:
     """读动作注册表：action_key -> status（所有者必须在这里且 ACTIVE）。"""
-    import yaml
-
     path = CONTRACTS_PATH / "action_registry" / "action_registry.yaml"
     if not path.exists():
         return {}
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    data = load_yaml_file(path) or {}
     result: dict[str, str] = {}
     for item in data.get("actions", []) or []:
         key = item.get("action_key")
@@ -847,12 +846,10 @@ def _action_registry_statuses() -> dict[str, str]:
 
 def _contract_state_machines() -> dict[str, frozenset[tuple[str, str]]]:
     """读契约状态机：object -> {(from, to)}。"""
-    import yaml
-
     path = CONTRACTS_PATH / "state_machines" / "state_machines.yaml"
     if not path.exists():
         return {}
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    data = load_yaml_file(path) or {}
     result: dict[str, frozenset[tuple[str, str]]] = {}
     for entry in data.get("objects", []) or []:
         name = entry.get("object")
@@ -2009,16 +2006,14 @@ def load_compose_services() -> dict[str, dict]:
     闸门与测试共用同一个解析入口：判定规则只写一份，测试才能证明「闸门看的
     就是真实编排文件」，而不是证明「闸门自己跟自己对得上」。
     """
-    import yaml
-
-    data = yaml.safe_load(_read("infra/compose/docker-compose.yml"))
+    data = load_yaml(_read("infra/compose/docker-compose.yml"), source="docker-compose.yml")
     if not isinstance(data, dict):
         raise AssertionError("docker-compose.yml 顶层不是映射")
     return data.get("services") or {}
 
 
 def resolve_service_env(spec: dict) -> dict[str, object]:
-    """解析服务的 environment（``<<: *anchor`` 已被 yaml.safe_load 合并）。"""
+    """解析服务的 environment（``<<: *anchor`` 已由严格 loader 的 merge 语义合并）。"""
     env = spec.get("environment") or {}
     if isinstance(env, list):  # "KEY=VALUE" 形式
         parsed = {}
