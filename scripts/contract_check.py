@@ -156,6 +156,11 @@ _STATE_MACHINE_SOURCES: dict[str, tuple[str, str]] = {
         "services.project_planning.domain.state_machine",
         "REWORK_TASK_ALLOWED_TRANSITIONS",
     ),
+    # A22：规格两态一条边（DRAFT → LOCKED），归 SHOTSPEC.LOCK。
+    "ShotSpec": (
+        "services.project_planning.domain.state_machine",
+        "SHOT_SPEC_ALLOWED_TRANSITIONS",
+    ),
 }
 
 
@@ -766,6 +771,9 @@ _RESOURCE_SERIALIZERS: dict[str, tuple[str, str]] = {
     "Project": ("services.project_planning.domain.project", "Project"),
     "Episode": ("services.project_planning.domain.episode", "Episode"),
     "ScriptRevision": ("services.project_planning.domain.script", "ScriptRevision"),
+    # A22：规格从第一天起纳入 to_dict ↔ 契约的双向比对。A13 的五个对象没进来，
+    # 它们的「响应字段是否等于契约字段」至今无人校验——本条不重复那个缺口。
+    "ShotSpec": ("services.project_planning.domain.shot_spec", "ShotSpec"),
 }
 
 
@@ -778,6 +786,7 @@ def _serializer_factories() -> dict[str, object]:
     from services.project_planning.domain.episode import Episode
     from services.project_planning.domain.project import Project
     from services.project_planning.domain.script import ScriptRevision
+    from services.project_planning.domain.shot_spec import ShotSpec
 
     tenant_id = uuid4()
     return {
@@ -820,6 +829,23 @@ def _serializer_factories() -> dict[str, object]:
             project_id="probe-project",
             episode_ref="EP001",
             title="probe-script-title",
+        ),
+        "ShotSpec": ShotSpec(
+            entity_id="probe-spec",
+            created_by="probe",
+            tenant_id=tenant_id,
+            project_id="probe-project",
+            shot_revision_id="probe-revision",
+            duration_ms=1000,
+            fps_num=25,
+            fps_den=1,
+            cut_points_frames=[0],
+            aspect_ratio="16:9",
+            coordinate_system="camera_local",
+            camera_path="dolly-in",
+            subject_paths="lead-center",
+            shot_size_changes="none",
+            previz_ref="previz-probe",
         ),
     }
 
@@ -1552,6 +1578,9 @@ _FROZEN_PARENT_TABLES: dict[str, str] = {
     "projects": "PROJECT_LIFECYCLE",
     "episodes": "EPISODE_LIFECYCLE",
     "scenes": "SCENE_LIFECYCLE",
+    # A22：规格挂在修订下。已 SUPERSEDED 的修订不再接受新规格——它是冻结态
+    # （规格只为可生产的修订存在），不是「暂时不可用」。
+    "shot_revisions": "SHOT_REVISION_LIFECYCLE",
 }
 
 # 被引用但**不需要**冻结的父表。每条都必须给出理由——空理由等同于没表态。
@@ -1990,6 +2019,19 @@ _STATUS_ENUM_SOURCES: dict[str, tuple[str, str]] = {
     "ScriptRevision": ("services.project_planning.domain.enums", "ScriptStatus"),
     "Episode": ("services.project_planning.domain.enums", "EpisodeStatus"),
     "AssetVersion": ("services.asset_service.domain.enums", "AssetStatus"),
+    # A22 回填：A13 交付的五个对象当时已有枚举与库层 CHECK，却没有进这两张表，
+    # 于是「契约收紧枚举、库里还接受任意字符串」对它们无从发现——应检集合缺行
+    # 的表现是绿色，方向和「漏加策略」一样。规格与本批一并补上，六个对象
+    # 从此都被逐值比对。
+    "Scene": ("services.project_planning.domain.enums", "SceneStatus"),
+    "Shot": ("services.project_planning.domain.enums", "ShotStatus"),
+    "ShotRevision": ("services.project_planning.domain.enums", "ShotRevisionStatus"),
+    "ShotBreakdownDraft": (
+        "services.project_planning.domain.enums",
+        "ShotDraftStatus",
+    ),
+    "ReworkTask": ("services.project_planning.domain.enums", "ReworkTaskStatus"),
+    "ShotSpec": ("services.project_planning.domain.enums", "ShotSpecStatus"),
 }
 
 # 已落库的表 → 契约对象名（表名与对象名不同名是常态，显式登记避免靠猜）。
@@ -1998,6 +2040,13 @@ _STATUS_TABLES: dict[str, str] = {
     "project_planning.episodes": "Episode",
     "project_planning.script_revisions": "ScriptRevision",
     "asset_service.asset_versions": "AssetVersion",
+    # A22 回填（同 _STATUS_ENUM_SOURCES 的理由）
+    "project_planning.scenes": "Scene",
+    "project_planning.shots": "Shot",
+    "project_planning.shot_revisions": "ShotRevision",
+    "project_planning.shot_breakdown_drafts": "ShotBreakdownDraft",
+    "project_planning.rework_tasks": "ReworkTask",
+    "project_planning.shot_specs": "ShotSpec",
 }
 
 

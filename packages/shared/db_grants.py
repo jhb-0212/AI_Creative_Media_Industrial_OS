@@ -191,6 +191,14 @@ DOMAIN_GRANTS: dict[str, tuple[TableGrant, ...]] = {
             "UPDATE：状态推进。无 DELETE：CLOSED 是终态，任务不可物理删除。",
         ),
         _grant(
+            PROJECT_PLANNING,
+            "shot_specs",
+            "SELECT INSERT UPDATE",
+            "SELECT：规格读取 + 幂等回读 + 修订占用回读；"
+            "INSERT：SHOTSPEC.CREATE；UPDATE：SHOTSPEC.LOCK 的状态推进与版本递增。"
+            "无 DELETE：LOCKED 是终态，改规格走新修订 + 新规格，历史不可物理删除。",
+        ),
+        _grant(
             "audit",
             "status_transitions",
             "SELECT INSERT",

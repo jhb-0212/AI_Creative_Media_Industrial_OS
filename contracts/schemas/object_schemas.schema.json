@@ -3437,7 +3437,7 @@
         {
           "id": "SS-3",
           "statement": "切点单调：cut_points_frames 严格递增、首点为 0、互不重复；末点不得超出按 fps 与 duration_ms 换算的帧数。",
-          "enforced_by": "RUNTIME_PENDING"
+          "enforced_by": "RUNTIME_ENFORCED"
         },
         {
           "id": "SS-4",

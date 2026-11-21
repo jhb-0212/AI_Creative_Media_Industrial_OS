@@ -29,7 +29,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from packages.shared.database import Base
@@ -43,6 +43,7 @@ from services.project_planning.domain.enums import (
     ScriptStatus,
     ShotDraftStatus,
     ShotRevisionStatus,
+    ShotSpecStatus,
     ShotStatus,
 )
 
@@ -300,12 +301,21 @@ class ShotRevisionModel(EntityMixin, Base):
       同批下沉，避免「同类不变量只修两条」的口径不一致。
     - 部分唯一索引：每个 Shot 恰有一个 ACTIVE 修订（ADR-R17）。
       并发确认时第二个请求撞唯一索引并抛 409——这正是需要的行为。
+    - (project_id, entity_id) 唯一（A22）：**不是**冗余索引，而是
+      ``shot_specs(project_id, shot_revision_id)`` 复合外键的引用目标。单列外键
+      只能证明修订存在，无法阻止「规格属项目 A、修订属项目 B」（与 A13 在
+      scenes/shots 上用的是同一手法）。
     """
 
     __tablename__ = "shot_revisions"
     __table_args__ = (
         UniqueConstraint(
             "shot_id", "revision_no", name="uq_shot_revision_no"
+        ),
+        UniqueConstraint(
+            "project_id",
+            "entity_id",
+            name="uq_shot_revisions_entity_project",
         ),
         Index(
             "ux_shot_active_revision",
@@ -360,6 +370,85 @@ class ShotRevisionModel(EntityMixin, Base):
     confirmed_by: Mapped[str] = mapped_column(String(64), nullable=False)
     confirmed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
+    )
+
+
+class ShotSpecModel(EntityMixin, Base):
+    """shot_specs 表模型（镜头结构化规格，绑定精确修订）。
+
+    为什么这张表的约束几乎全是「结构性的」（每条都想清楚放在哪一层）：
+
+    - ``uq_shot_spec_per_revision (shot_revision_id)``：契约 SHOTSPEC.CREATE 的
+      审批要求明文「同一修订至多一份规格」。用部分索引或服务层查重都不行——
+      并发两个请求都能「查到没有」再各自插入，唯一约束是唯一能真正拒绝的东西。
+    - ``fk_shot_specs_revision (project_id, shot_revision_id)``：**复合**而非单列。
+      单列外键只能证明修订存在，无法阻止「规格属项目 A、修订属项目 B」，负测
+      ACT-SPEC-NEG-002 正好打这条。
+    - ``ck_shot_specs_cut_points``：SS-3 下沉到库层。绕过服务直连 DB 的写入
+      （运维脚本、后续批处理）也必须被拒。递增性用 IMMUTABLE 函数表达——
+      CHECK 里不允许子查询，而「任意长度的数组严格递增」没有纯表达式写法。
+      末点上限直接在 CHECK 里算，与领域层 ``total_frames()`` 同一算式（整数
+      除法，正数截断），避免「库里合法、领域拒绝」的分歧。
+    - ``ck_shot_specs_identity_single``：与 SC-1 / SH-1 / SR-1 同形。``shot_spec_id``
+      在 schema 里是独立字段，但它一旦可以不等 ``entity_id``，库里就有两套 ID。
+
+    ``cut_points_frames`` 用 ``integer[]`` 而不是 JSONB：元素类型、非空数组、
+    「首点为 0」这些都可以由类型系统与 CHECK 直接表达，JSONB 只能靠应用层自觉。
+    ``control_signal_refs`` 用 JSONB 是因为契约只给了 ``type: array``，没有元素
+    结构——把它固定成 text[] 会让未来的结构化引用无处安放。
+    """
+
+    __tablename__ = "shot_specs"
+    __table_args__ = (
+        UniqueConstraint("shot_revision_id", name="uq_shot_spec_per_revision"),
+        UniqueConstraint(
+            "project_id",
+            "entity_id",
+            name="uq_shot_specs_entity_project",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "shot_revision_id"],
+            [
+                f"{SCHEMA_NAME}.shot_revisions.project_id",
+                f"{SCHEMA_NAME}.shot_revisions.entity_id",
+            ],
+            name="fk_shot_specs_revision",
+        ),
+        CheckConstraint(
+            "shot_spec_id = entity_id", name="ck_shot_specs_identity_single"
+        ),
+        CheckConstraint("duration_ms >= 1", name="ck_shot_specs_duration_positive"),
+        CheckConstraint(
+            "fps_num >= 1 AND fps_den >= 1", name="ck_shot_specs_fps_positive"
+        ),
+        CheckConstraint(
+            f"{SCHEMA_NAME}.cut_points_monotonic(cut_points_frames) "
+            "AND cut_points_frames[array_length(cut_points_frames, 1)] "
+            "< (duration_ms * fps_num) / (1000 * fps_den)",
+            name="ck_shot_specs_cut_points",
+        ),
+        status_check((s.value for s in ShotSpecStatus), table="shot_specs"),
+        {"schema": SCHEMA_NAME},
+    )
+
+    shot_spec_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    shot_revision_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    fps_num: Mapped[int] = mapped_column(Integer, nullable=False)
+    fps_den: Mapped[int] = mapped_column(Integer, nullable=False)
+    cut_points_frames: Mapped[list[int]] = mapped_column(
+        ARRAY(Integer), nullable=False
+    )
+    aspect_ratio: Mapped[str] = mapped_column(String(32), nullable=False)
+    coordinate_system: Mapped[str] = mapped_column(String(32), nullable=False)
+    camera_path: Mapped[str] = mapped_column(Text, nullable=False)
+    subject_paths: Mapped[str] = mapped_column(Text, nullable=False)
+    shot_size_changes: Mapped[str] = mapped_column(String(500), nullable=False)
+    previz_ref: Mapped[str] = mapped_column(String(200), nullable=False)
+    control_signal_refs: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
+    locked_dimensions: Mapped[str] = mapped_column(
+        String(512), nullable=False, default=""
     )
 
 

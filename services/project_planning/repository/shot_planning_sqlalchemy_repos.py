@@ -21,6 +21,7 @@ from services.project_planning.domain.enums import (
     SceneStatus,
     ShotDraftStatus,
     ShotRevisionStatus,
+    ShotSpecStatus,
     ShotStatus,
 )
 from services.project_planning.domain.rework_task import ReworkTask
@@ -28,6 +29,7 @@ from services.project_planning.domain.scene import Scene
 from services.project_planning.domain.shot import Shot
 from services.project_planning.domain.shot_draft import ShotBreakdownDraft
 from services.project_planning.domain.shot_revision import ShotRevision
+from services.project_planning.domain.shot_spec import ShotSpec
 from services.project_planning.repository._versioning import (
     _orm_update_values,
     conditional_update,
@@ -38,6 +40,7 @@ from services.project_planning.repository.orm import (
     ShotBreakdownDraftModel,
     ShotModel,
     ShotRevisionModel,
+    ShotSpecModel,
 )
 from services.project_planning.repository.shot_planning_repositories import (
     ReworkTaskRepository,
@@ -45,6 +48,7 @@ from services.project_planning.repository.shot_planning_repositories import (
     ShotDraftRepository,
     ShotRepository,
     ShotRevisionRepository,
+    ShotSpecRepository,
 )
 
 
@@ -81,6 +85,24 @@ def scene_lock_statement(
     if exclusive:
         return stmt.with_for_update()
     return stmt.with_for_update(read=True)
+
+
+def shot_revision_lock_statement(entity_id: str) -> Select[ShotRevisionModel]:
+    """修订的**共享行锁**读取语句（A22：规格写入前的确认侧）。
+
+    与 ``scene_lock_statement`` 的非排他分支同模式，理由也同源：子对象（ShotSpec）
+    要与之互斥的是「修订状态被改写」（``ACTIVE -> SUPERSEDED``），而
+    ``UPDATE ... SET status`` 取的是 ``NO KEY UPDATE``——``FOR KEY SHARE`` 与它
+    兼容，屏障会静默失效；``FOR SHARE`` 才冲突。
+
+    取代侧（``SHOT.REVISION.CONFIRM``）因此不需要为自己加排他锁：屏障由子侧
+    独立成立，不依赖父侧写对（防御纵深，见 ADR-R28 §6.3 的同一论证）。
+    """
+    return (
+        select(ShotRevisionModel)
+        .where(ShotRevisionModel.entity_id == entity_id)
+        .with_for_update(read=True)
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -427,6 +449,120 @@ class SqlAlchemyShotRevisionRepository(ShotRevisionRepository):
         )
         model = result.scalar_one_or_none()
         return _revision_to_domain(model) if model is not None else None
+
+    async def lock_for_child_write(self, entity_id: str) -> ShotRevision | None:
+        result = await self._session.execute(
+            shot_revision_lock_statement(entity_id)
+        )
+        model = result.scalar_one_or_none()
+        return _revision_to_domain(model) if model is not None else None
+
+
+# --------------------------------------------------------------------------- #
+# ShotSpec
+# --------------------------------------------------------------------------- #
+def _spec_to_domain(m: ShotSpecModel) -> ShotSpec:
+    try:
+        status = ShotSpecStatus(m.status)
+    except ValueError as exc:
+        raise _bad_status("shot_specs", m.status) from exc
+    return ShotSpec(
+        entity_id=m.entity_id,
+        shot_spec_id=m.shot_spec_id,
+        project_id=m.project_id,
+        shot_revision_id=m.shot_revision_id,
+        duration_ms=m.duration_ms,
+        fps_num=m.fps_num,
+        fps_den=m.fps_den,
+        # ARRAY 列读回来是可迭代的；转 list 是为了让领域对象拿到确定的 shape
+        # （驱动可能给 tuple，``==`` 比较与 JSON 序列化都会因此不一致）。
+        cut_points_frames=list(m.cut_points_frames),
+        aspect_ratio=m.aspect_ratio,
+        coordinate_system=m.coordinate_system,
+        camera_path=m.camera_path,
+        subject_paths=m.subject_paths,
+        shot_size_changes=m.shot_size_changes,
+        previz_ref=m.previz_ref,
+        control_signal_refs=m.control_signal_refs,
+        locked_dimensions=m.locked_dimensions,
+        created_by=m.created_by,
+        tenant_id=m.tenant_id,
+        status=status,
+        schema_version=m.schema_version,
+        entity_version=m.entity_version,
+        owner_module=m.owner_module,
+        created_at=m.created_at,
+        updated_at=m.updated_at,
+        audit_ref=m.audit_ref,
+    )
+
+
+def _spec_to_orm(s: ShotSpec) -> ShotSpecModel:
+    return ShotSpecModel(
+        entity_id=s.entity_id,
+        entity_type=s.ENTITY_TYPE,
+        schema_version=s.schema_version,
+        entity_version=s.entity_version,
+        status=s.status.value,
+        owner_module=s.owner_module,
+        tenant_id=s.tenant_id,
+        created_at=s.created_at,
+        created_by=s.created_by,
+        updated_at=s.updated_at,
+        audit_ref=s.audit_ref,
+        shot_spec_id=s.shot_spec_id,
+        project_id=s.project_id,
+        shot_revision_id=s.shot_revision_id,
+        duration_ms=s.duration_ms,
+        fps_num=s.fps_num,
+        fps_den=s.fps_den,
+        cut_points_frames=list(s.cut_points_frames),
+        aspect_ratio=s.aspect_ratio,
+        coordinate_system=s.coordinate_system,
+        camera_path=s.camera_path,
+        subject_paths=s.subject_paths,
+        shot_size_changes=s.shot_size_changes,
+        previz_ref=s.previz_ref,
+        control_signal_refs=list(s.control_signal_refs),
+        locked_dimensions=s.locked_dimensions,
+    )
+
+
+class SqlAlchemyShotSpecRepository(ShotSpecRepository):
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, spec: ShotSpec) -> None:
+        try:
+            async with self._session.begin_nested():
+                self._session.add(_spec_to_orm(spec))
+        except (IntegrityError, ProgrammingError) as exc:
+            translate_write_error(exc, entity_id=spec.entity_id)
+
+    async def save(self, spec: ShotSpec, expected_version: int) -> None:
+        await conditional_update(
+            self._session,
+            ShotSpecModel,
+            spec.entity_id,
+            expected_version,
+            _orm_update_values(_spec_to_orm(spec)),
+        )
+
+    async def get_by_id(self, entity_id: str) -> ShotSpec | None:
+        result = await self._session.execute(
+            select(ShotSpecModel).where(ShotSpecModel.entity_id == entity_id)
+        )
+        model = result.scalar_one_or_none()
+        return _spec_to_domain(model) if model is not None else None
+
+    async def get_by_revision(self, shot_revision_id: str) -> ShotSpec | None:
+        result = await self._session.execute(
+            select(ShotSpecModel).where(
+                ShotSpecModel.shot_revision_id == shot_revision_id
+            )
+        )
+        model = result.scalar_one_or_none()
+        return _spec_to_domain(model) if model is not None else None
 
 
 # --------------------------------------------------------------------------- #

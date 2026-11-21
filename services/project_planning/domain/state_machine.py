@@ -47,6 +47,7 @@ from services.project_planning.domain.enums import (
     ScriptStatus,
     ShotDraftStatus,
     ShotRevisionStatus,
+    ShotSpecStatus,
     ShotStatus,
 )
 
@@ -158,6 +159,9 @@ SHOT_DRAFT_CONFIRM_ACTION = "SHOT.DRAFT.CONFIRM"
 SHOT_DRAFT_RETURN_ACTION = "SHOT.DRAFT.RETURN"
 SHOT_DRAFT_DISCARD_ACTION = "SHOT.DRAFT.DISCARD"
 REWORK_TASK_STATUS_CHANGE_ACTION = "REWORK.TASK.STATUS.CHANGE"
+# A22：ShotSpec 的唯一转移边（DRAFT → LOCKED）由 HIGH 风险的锁定动作独占。
+# 创建动作不拥有任何边——它不改变状态，只决定出生点。
+SHOT_SPEC_LOCK_ACTION = "SHOTSPEC.LOCK"
 
 # Scene：3 条边，全部归 SCENE.STATUS.CHANGE（与 Episode 同构）。
 #
@@ -266,6 +270,13 @@ SHOT_REVISION_LIFECYCLE = Lifecycle(
     edges=SHOT_REVISION_TRANSITIONS,
     # ACTIVE 有入边（返工取代）但确是首版初始态，不能按无入边推导。
     initial_states=(ShotRevisionStatus.ACTIVE,),
+    # 冻结子集合（子对象 ShotSpec）：SUPERSEDED 之后不得再为它登记新规格。
+    #
+    # 为什么这条必须声明而不是留给服务层判断：规格是「为生产某条修订而定的拍摄
+    # 参数」。修订一旦被取代，其规格只作为历史证据保留；此后为它补登一份新规格，
+    # 会产生一个永远不会被生产使用、却与「有效规格集」难以区分的对象。闸门也正是
+    # 在这里要求表态——新增子表就必须回答「父对象什么状态下不再长」。
+    frozen_states=(ShotRevisionStatus.SUPERSEDED,),
 )
 
 # ShotBreakdownDraft：5 条边，三个动作分领。
@@ -326,6 +337,39 @@ SHOT_DRAFT_ALLOWED_TRANSITIONS: dict[ShotDraftStatus, frozenset[ShotDraftStatus]
 )
 REWORK_TASK_ALLOWED_TRANSITIONS: dict[ReworkTaskStatus, frozenset[ReworkTaskStatus]] = (
     REWORK_TASK_LIFECYCLE.allowed_transitions()
+)
+
+
+# ShotSpec（A21 契约 / A22 实现）：一条边，归 SHOTSPEC.LOCK。
+#
+# 为什么创建（SHOTSPEC.CREATE）不在边表里：创建不是转移，对象一诞生就是 DRAFT
+# （initial_states 显式声明）。把 CREATE 塞进边表会让「没有源状态的边」无法表达，
+# 也会让所有权判定同时回答两个问题（谁能建 / 谁能改），而它们本就是两个动作。
+#
+# LOCKED 在边表里没有出边 —— 终态不可原地复活由**结构**保证，不由 if 保证。
+SHOT_SPEC_TRANSITIONS: tuple[Transition[ShotSpecStatus], ...] = (
+    Transition(
+        ShotSpecStatus.DRAFT,
+        ShotSpecStatus.LOCKED,
+        SHOT_SPEC_LOCK_ACTION,
+    ),
+)
+
+SHOT_SPEC_LIFECYCLE = Lifecycle(
+    object_name="ShotSpec",
+    states=tuple(ShotSpecStatus),
+    edges=SHOT_SPEC_TRANSITIONS,
+    # DRAFT 无入边，本可从图上推导；显式声明是为了表达「创建即草稿」这个领域
+    # 事实——推导只回答「图上没有入边」，不回答「它是不是一个合法的出生点」。
+    initial_states=(ShotSpecStatus.DRAFT,),
+    # 叶子对象：没有子对象挂在规格下，故不冻结任何状态（契约 frozen_states: []）。
+    # 显式写成空元组而不是省略：省略与「声明为空」在契约比对里必须同形。
+    frozen_states=(),
+)
+
+# 结构投影（契约闸门按邻接集比对 YAML），派生自边表，方向唯一。
+SHOT_SPEC_ALLOWED_TRANSITIONS: dict[ShotSpecStatus, frozenset[ShotSpecStatus]] = (
+    SHOT_SPEC_LIFECYCLE.allowed_transitions()
 )
 
 
@@ -410,6 +454,10 @@ __all__ = [
     "SHOT_REVISION_CONFIRM_ACTION",
     "SHOT_REVISION_LIFECYCLE",
     "SHOT_REVISION_TRANSITIONS",
+    "SHOT_SPEC_ALLOWED_TRANSITIONS",
+    "SHOT_SPEC_LIFECYCLE",
+    "SHOT_SPEC_LOCK_ACTION",
+    "SHOT_SPEC_TRANSITIONS",
     "SHOT_STATUS_CHANGE_ACTION",
     "SHOT_TRANSITIONS",
     "assert_transition",

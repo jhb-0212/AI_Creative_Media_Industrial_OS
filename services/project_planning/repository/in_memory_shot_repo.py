@@ -97,6 +97,14 @@ class InMemoryShotRevisionRepository(ShotRevisionRepository):
                 return deepcopy(revision)
         return None
 
+    async def lock_for_child_write(self, entity_id: str) -> ShotRevision | None:
+        """内存实现没有行锁：语义等价于「读到一行的当前版本」。
+
+        真实库的共享锁在并发侧才有意义（与 ``UPDATE ... SET status`` 互斥）；
+        内存替身是单线程的，加锁无法被观测，因此只保留读语义——不假装有锁。
+        """
+        return await self.get_by_id(entity_id)
+
 
 class InMemoryReworkTaskVerifier(ReworkTaskVerifier):
     def __init__(self) -> None:

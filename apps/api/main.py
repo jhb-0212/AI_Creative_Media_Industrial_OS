@@ -63,6 +63,7 @@ from services.project_planning.api.shot_planning_routes import (  # noqa: E402
     rework_router,
     scene_router,
     shot_router,
+    shot_spec_router,
 )
 
 app.include_router(project_router)
@@ -72,6 +73,7 @@ app.include_router(scene_router)
 app.include_router(shot_router)
 app.include_router(draft_router)
 app.include_router(rework_router)
+app.include_router(shot_spec_router)
 app.include_router(asset_router)
 
 

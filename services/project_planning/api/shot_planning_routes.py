@@ -38,6 +38,7 @@ from services.project_planning.repository.shot_planning_sqlalchemy_repos import 
     SqlAlchemyShotDraftRepository,
     SqlAlchemyShotRepository,
     SqlAlchemyShotRevisionRepository,
+    SqlAlchemyShotSpecRepository,
 )
 from services.project_planning.repository.sqlalchemy_outbox_writer import (
     SqlAlchemyOutboxWriter,
@@ -49,16 +50,19 @@ from services.project_planning.service.rework_task_service import ReworkTaskServ
 from services.project_planning.service.scene_service import SceneService
 from services.project_planning.service.shot_draft_service import ShotDraftService
 from services.project_planning.service.shot_service import ShotService
+from services.project_planning.service.shot_spec_service import ShotSpecService
 
 scene_router = APIRouter(prefix="/scenes", tags=["scene-management"])
 shot_router = APIRouter(prefix="/shots", tags=["shot-management"])
 draft_router = APIRouter(prefix="/shot-drafts", tags=["shot-breakdown-draft"])
 rework_router = APIRouter(prefix="/rework-tasks", tags=["rework-task"])
+shot_spec_router = APIRouter(prefix="/shot-specs", tags=["shot-spec"])
 
 _SceneResponse = contract_model("Scene")
 _ShotResponse = contract_model("Shot")
 _DraftResponse = contract_model("ShotBreakdownDraft")
 _ReworkResponse = contract_model("ReworkTask")
+_ShotSpecResponse = contract_model("ShotSpec")
 
 
 # --------------------------------------------------------------------------- #
@@ -132,6 +136,40 @@ class ChangeReworkStatusRequest(BaseModel):
     target_status: ReworkTaskStatus
 
 
+class CreateShotSpecRequest(BaseModel):
+    """创建规格（8.12）：绑定精确修订，SS-3 由领域层与库层各判一次。
+
+    ``fps`` 在请求体里拆成 ``fps_num`` / ``fps_den`` 两个整数：契约的
+    ``{num, den}`` 是**表示**，浮点帧率（29.97）会被 30fps 与 30000/1001 同时
+    接受，而它们对应的帧数不同——把整数形态作为唯一入口，浮点根本没有机会进来。
+    """
+
+    project_id: str = Field(..., min_length=1, max_length=64)
+    shot_revision_id: str = Field(..., min_length=1, max_length=64)
+    duration_ms: int = Field(..., ge=1)
+    fps_num: int = Field(..., ge=1)
+    fps_den: int = Field(..., ge=1)
+    cut_points_frames: list[int] = Field(..., min_length=1)
+    # 描述性字段不设 min_length：契约只声明 ``type: string``，DRAFT 阶段
+    # 「尚未决定」与「无尺寸变化」都是空串。在这里要求非空，就是把一个契约
+    # 没有的格式变成 422——合法输入被拒，且调用方无法从契约里读到原因。
+    aspect_ratio: str = Field("", max_length=32)
+    coordinate_system: str = Field("", max_length=32)
+    camera_path: str = Field("", max_length=4000)
+    subject_paths: str = Field("", max_length=4000)
+    shot_size_changes: str = Field("", max_length=500)
+    previz_ref: str = Field("", max_length=200)
+    control_signal_refs: list[str] | None = None
+    entity_id: str | None = None
+
+
+class LockShotSpecRequest(BaseModel):
+    """锁定规格：维度与依据都是条件必填（缺一即拒，在服务层判定）。"""
+
+    locked_dimensions: str = Field(..., min_length=1, max_length=512)
+    lock_basis_ref: str = Field(..., min_length=1, max_length=128)
+
+
 # --------------------------------------------------------------------------- #
 # 服务装配
 # --------------------------------------------------------------------------- #
@@ -177,6 +215,16 @@ def _rework_service(session: AsyncSession) -> ReworkTaskService:
     )
 
 
+def _spec_service(session: AsyncSession) -> ShotSpecService:
+    return ShotSpecService(
+        SqlAlchemyShotSpecRepository(session),
+        # 规格绑定的修订必须真实存在且同项目：缺这个仓储，SS-2 就只剩一句注释。
+        SqlAlchemyShotRevisionRepository(session),
+        SqlAlchemyProjectRepository(session),
+        SqlAlchemyOutboxWriter(session),
+    )
+
+
 def _get_scene(uow: UnitOfWork = Depends(get_project_tenant_uow)) -> SceneService:
     return _scene_service(uow.session)
 
@@ -207,6 +255,16 @@ def _get_rework(uow: UnitOfWork = Depends(get_project_tenant_uow)) -> ReworkTask
 
 def _get_read_rework(uow: UnitOfWork = Depends(get_read_project_tenant_uow)) -> ReworkTaskService:
     return _rework_service(uow.session)
+
+
+def _get_spec(uow: UnitOfWork = Depends(get_project_tenant_uow)) -> ShotSpecService:
+    return _spec_service(uow.session)
+
+
+def _get_read_spec(
+    uow: UnitOfWork = Depends(get_read_project_tenant_uow),
+) -> ShotSpecService:
+    return _spec_service(uow.session)
 
 
 # --------------------------------------------------------------------------- #
@@ -548,3 +606,87 @@ async def change_rework_status(
     )
     await uow.commit()
     return task.to_dict()
+
+
+# --------------------------------------------------------------------------- #
+# ShotSpec
+# --------------------------------------------------------------------------- #
+@shot_spec_router.post("", status_code=201, response_model=_ShotSpecResponse)
+async def create_shot_spec(
+    body: CreateShotSpecRequest,
+    principal: Principal = Depends(require_role("SHOTSPEC.CREATE")),
+    uow: UnitOfWork = Depends(get_project_tenant_uow),
+    service: ShotSpecService = Depends(_get_spec),
+) -> dict[str, Any]:
+    """登记规格。归属判定对象是父项目（规格尚不存在）。"""
+    await authorize_on_parent(
+        "SHOTSPEC.CREATE",
+        principal,
+        uow.session,
+        parent_type="Project",
+        parent_id=body.project_id,
+    )
+    spec = await service.create_spec(
+        project_id=body.project_id,
+        shot_revision_id=body.shot_revision_id,
+        duration_ms=body.duration_ms,
+        fps_num=body.fps_num,
+        fps_den=body.fps_den,
+        cut_points_frames=body.cut_points_frames,
+        aspect_ratio=body.aspect_ratio,
+        coordinate_system=body.coordinate_system,
+        camera_path=body.camera_path,
+        subject_paths=body.subject_paths,
+        shot_size_changes=body.shot_size_changes,
+        previz_ref=body.previz_ref,
+        control_signal_refs=body.control_signal_refs,
+        created_by=principal.subject_id,
+        tenant_id=principal.tenant_id,
+        entity_id=body.entity_id,
+    )
+    await uow.commit()
+    return spec.to_dict()
+
+
+@shot_spec_router.get("/{entity_id}", response_model=_ShotSpecResponse)
+async def get_shot_spec(
+    entity_id: str,
+    _principal: Principal = Depends(
+        require_resource_role(
+            "SHOTSPEC.READ",
+            resource_type="ShotSpec",
+            param_name="entity_id",
+            uow_dep=get_read_project_tenant_uow,
+        )
+    ),
+    service: ShotSpecService = Depends(_get_read_spec),
+) -> dict[str, Any]:
+    spec = await service.get_spec(entity_id)
+    return spec.to_dict()
+
+
+@shot_spec_router.post("/{entity_id}/lock", response_model=_ShotSpecResponse)
+async def lock_shot_spec(
+    entity_id: str,
+    body: LockShotSpecRequest,
+    principal: Principal = Depends(
+        require_resource_role(
+            "SHOTSPEC.LOCK",
+            resource_type="ShotSpec",
+            param_name="entity_id",
+            uow_dep=get_project_tenant_uow,
+        )
+    ),
+    uow: UnitOfWork = Depends(get_project_tenant_uow),
+    service: ShotSpecService = Depends(_get_spec),
+) -> dict[str, Any]:
+    """锁定规格：维度 / 依据 / 版本 / 审批事件四要素齐备才落 LOCKED。"""
+    spec = await service.lock_spec(
+        entity_id=entity_id,
+        locked_dimensions=body.locked_dimensions,
+        lock_basis_ref=body.lock_basis_ref,
+        locked_by=principal.subject_id,
+        tenant_id=principal.tenant_id,
+    )
+    await uow.commit()
+    return spec.to_dict()
