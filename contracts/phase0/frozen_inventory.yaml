@@ -1,4 +1,4 @@
-# Phase 0 冻结基线清单（V205-R14）
+# Phase 0 冻结基线清单（V205-R15）
 #
 # 本文件是「冻结时刻的名称全集」，不是派生视图。
 # 作用：让 freeze_manifest.py 能判定「当前契约 == 基线 + 已批准修订」，
@@ -12,9 +12,9 @@
 
 baseline:
   document: docs/baseline/AI影视工业化生产平台V2.0.5.md
-  document_bytes: 489607
-  document_sha256: '9a9940c5523c2c9626a410fa82b0ccbc195d6fe1bf3e985395e35706101ee7f7'
-  revision: 'V205-R14'
+  document_bytes: 489580
+  document_sha256: 'b922a1e1c6e5c43b0c7e6ee30b5f036b7919fcc946935594f225b90bf441945e'
+  revision: 'V205-R15'
   frozen_at_source_commit: 'dfc5bd8'
   counts:
     actions: 75

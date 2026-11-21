@@ -44,7 +44,7 @@ schema_version: '1.0'
 baseline_ref:
   inventory: contracts/phase0/frozen_inventory.yaml
   document: docs/baseline/AI影视工业化生产平台V2.0.5.md
-  revision: 'V205-R14'
+  revision: 'V205-R15'
 
 amendments:
   - id: 'V205-R14-A1'
@@ -120,7 +120,7 @@ amendments:
     adr: 'docs/adr/ADR-R12-contract-gates-outbox-deadletter-and-token-revocation.md'
     approved_by: '项目所有者（本次 Phase 6 应答）'
     approved_at: '2026-11-17'
-    source_commits: []
+    source_commits: ['a262a45']
     additions:
       actions:
         - action_key: 'PROJECT.STATUS.CHANGE'
@@ -154,7 +154,7 @@ amendments:
     adr: 'docs/adr/ADR-R15-contract-freeze-lifecycle.md'
     approved_by: '项目所有者（本次 F06 应答）'
     approved_at: '2026-11-18'
-    source_commits: []
+    source_commits: ['8de1215']
     additions:
       actions:
         - action_key: 'ASSET.STATUS.CHANGE'
@@ -185,7 +185,7 @@ amendments:
     adr: 'docs/adr/ADR-R16-shot-breakdown-draft-contract.md'
     approved_by: '项目所有者（本次拆镜契约应答）'
     approved_at: '2026-11-18'
-    source_commits: []
+    source_commits: ['f79a40c']
     additions:
       schema_objects:
         - object: 'ShotBreakdownDraft'
@@ -220,7 +220,7 @@ amendments:
     recorded_at: '2026-11-18'
     discovered_by: 'docs/adr/ADR-R16-shot-breakdown-draft-contract.md 残余风险第 3 条；contracts/runtime/resource_schema_gaps.yaml 的 ShotRevision 条目'
     retroactive: false
-    source_commits: []
+    source_commits: ['2192af9']
     additions:
       schema_objects:
         - object: 'ShotRevision'
@@ -258,7 +258,7 @@ amendments:
     adr: 'docs/adr/ADR-R18-shot-entity-contract.md'
     approved_by: '项目所有者（会话内正式裁定「选方案 1：Shot 必须独立建模」）'
     approved_at: '2026-11-18'
-    source_commits: []
+    source_commits: ['07951cc']
     additions:
       schema_objects:
         - object: 'Shot'
@@ -297,7 +297,7 @@ amendments:
     adr: 'docs/adr/ADR-R18-shot-entity-contract.md'
     approved_by: '项目所有者（会话内正式裁决「duration_ms → ShotSpec，timecode → TimelineDraft」）'
     approved_at: '2026-11-18'
-    source_commits: []
+    source_commits: ['74a7497']
     additions: {}
     counts_after:
       actions: 84
@@ -335,7 +335,7 @@ amendments:
     adr: 'docs/adr/ADR-R19-scene-entity-contract.md'
     approved_by: '项目所有者（会话内指令「按你的来」，授权按上一轮建议顺序继续推进未闭合项，首项为 Scene 对象契约）'
     approved_at: '2026-11-18'
-    source_commits: []
+    source_commits: ['73ec613']
     additions:
       schema_objects:
         - object: 'Scene'
@@ -389,7 +389,7 @@ amendments:
     adr: 'docs/adr/ADR-R20-status-enum-single-source.md'
     approved_by: '项目所有者（会话内立项指令：「状态枚举统一迁移，批准立项。第一步不是直接修改 32 个对象，而是从当前 main 重新生成准确的状态枚举清单」）'
     approved_at: '2026-11-18'
-    source_commits: []
+    source_commits: ['f81850a']
     additions:
       state_machines:
         - object: 'BudgetTransferRequest'
@@ -435,7 +435,7 @@ amendments:
     adr: 'docs/adr/ADR-R21-status-field-authority.md'
     approved_by: '项目所有者（会话内评审指令：「允许债务存在，不允许债务隐形；允许暂时不定义状态，不允许多个事实源同时拥有状态」）'
     approved_at: '2026-11-18'
-    source_commits: []
+    source_commits: ['91215fd']
     additions:
       enums:
         - file: 'contracts/enums/field_authority.yaml'
@@ -490,7 +490,7 @@ amendments:
     adr: 'docs/adr/ADR-R20-status-enum-single-source.md'
     approved_by: '项目所有者（会话内裁定「修复后合并」：修复已证实缺陷、待正文的登记显式债务，再合并 PR #14）'
     approved_at: '2026-11-18'
-    source_commits: []
+    source_commits: ['0af85f7', '37aee5f']
     additions: {}
     removals: {}
     counts_after:
@@ -521,7 +521,7 @@ amendments:
     adr: 'docs/adr/ADR-R23-status-transition-fact-table.md'
     approved_by: '项目所有者（会话内「按你的节奏来」授权 D1 合并后开 D2）'
     approved_at: '2026-11-18'
-    source_commits: []
+    source_commits: ['db7038d']
     additions:
       schema_objects:
         - object: 'StatusTransition'
@@ -557,7 +557,7 @@ amendments:
     adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
     approved_by: '项目所有者（2026-11-20 会话内逐条裁定四项决定）'
     approved_at: '2026-11-20'
-    source_commits: []
+    source_commits: ['29b842a']
     additions:
       actions:
         - action_key: 'SCENE.CREATE'
@@ -621,7 +621,7 @@ amendments:
     adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
     approved_by: '项目所有者（2026-11-20 会话内三项逐条裁定：实现服从契约 / 本轮实现前置条件 / 加 DB CHECK）'
     approved_at: '2026-11-20'
-    source_commits: []
+    source_commits: ['29b842a']
     modifications:
       invariants:
         - object: 'Scene'
@@ -683,7 +683,7 @@ amendments:
     adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
     approved_by: '项目所有者（2026-11-21 会话内逐条指示：归档走行锁重查、异常映射逐路径核对）'
     approved_at: '2026-11-21'
-    source_commits: []
+    source_commits: ['460f1be']
     modifications:
       invariants:
         - object: 'Scene'
@@ -736,7 +736,7 @@ amendments:
     adr: 'docs/adr/ADR-R27-scene-shot-runtime-entry.md'
     approved_by: '项目所有者（会话内裁定「按工程铁律改就行」）'
     approved_at: '2026-11-21'
-    source_commits: []
+    source_commits: ['279fcf1']
     additions:
       actions:
         - action_key: 'SCENE.CREATE'
@@ -801,7 +801,7 @@ amendments:
     adr: 'docs/adr/ADR-R27-scene-shot-runtime-entry.md'
     approved_by: '项目所有者（会话内裁定「按工程铁律改就行」）'
     approved_at: '2026-11-21'
-    source_commits: []
+    source_commits: ['f7c0486']
     additions:
       actions:
         - action_key: 'SHOT.STATUS.CHANGE'
@@ -866,7 +866,7 @@ amendments:
     adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
     approved_by: '项目所有者（会话内逐条裁定四项整改方案）'
     approved_at: '2026-11-21'
-    source_commits: []
+    source_commits: ['8dfe25c']
     additions:
       actions: []
       openapi_operations: []
@@ -925,7 +925,7 @@ amendments:
     adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
     approved_by: '项目所有者（2026-11-21 会话内裁定「归档即冻结子集合写进契约」，并选择继续做完而非回滚）'
     approved_at: '2026-11-21'
-    source_commits: []
+    source_commits: ['07e304c']
     additions:
       actions: []
       openapi_operations: []
@@ -974,7 +974,7 @@ amendments:
     adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
     approved_by: '项目所有者（2026-11-21 会话内「按最优的来」授权按最优方案处置 A19 剩余语义裁定）'
     approved_at: '2026-11-21'
-    source_commits: []
+    source_commits: ['84940ef']
     additions:
       actions: []
       openapi_operations: []
@@ -1033,7 +1033,7 @@ amendments:
     adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
     approved_by: '项目所有者（2026-11-21 会话内选择「ShotSpec 契约+实现」，授权契约先行）'
     approved_at: '2026-11-21'
-    source_commits: []
+    source_commits: ['f064fb5']
     additions:
       actions:
         - action_key: 'SHOTSPEC.CREATE'
@@ -1074,7 +1074,7 @@ amendments:
     adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
     approved_by: '项目所有者（2026-11-21 会话内「开」：按主链顺序推进 ShotSpec 实现）'
     approved_at: '2026-11-21'
-    source_commits: []
+    source_commits: ['20be170']
     additions:
       actions:
         - action_key: SHOTSPEC.READ
@@ -1183,28 +1183,11 @@ amendments:
 #   缺了没登记 → FAIL（有人改了台账却没登记债务）；
 #   登记了却已补齐 → FAIL（陈旧债务会掩盖真实缺口，必须删条目）。
 # 新增修订不得再进本清单：必须自带 source_commits（A23 起已如此）。
-traceability_debt:
-  - 'V205-R14-A2'
-  - 'V205-R14-A3'
-  - 'V205-R14-A4'
-  - 'V205-R14-A5'
-  - 'V205-R14-A6'
-  - 'V205-R14-A7'
-  - 'V205-R14-A8'
-  - 'V205-R14-A9'
-  - 'V205-R14-A10'
-  - 'V205-R14-A11'
-  - 'V205-R14-A12'
-  - 'V205-R14-A13'
-  - 'V205-R14-A14'
-  - 'V205-R14-A15'
-  - 'V205-R14-A16'
-  - 'V205-R14-A17'
-  - 'V205-R14-A18'
-  - 'V205-R14-A19'
-  - 'V205-R14-A20'
-  - 'V205-R14-A21'
-  - 'V205-R14-A22'
+#
+# 状态（2026-11-22）：21 条历史追溯债务已通过 git 历史逐条定位真实落地提交并回填
+# source_commits（见 docs/audits/2026-11-22-amendment-traceability-matrix.md），
+# 本清单清零。回溯依据是提交消息明文 + diff 内容 + 时间线三重验证，非推断。
+traceability_debt: []
 
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []
