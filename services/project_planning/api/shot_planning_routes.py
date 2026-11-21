@@ -140,7 +140,10 @@ def _scene_service(session: AsyncSession) -> SceneService:
         SqlAlchemySceneRepository(session),
         SqlAlchemyEpisodeRepository(session),
         SqlAlchemyOutboxWriter(session),
+        # 两条守卫依赖都必须装配：镜头仓储承载 SC-5 归档前置条件，
+        # 父项目仓储承载父链冻结判定（两条寻址线都要用）。
         SqlAlchemyShotRepository(session),
+        SqlAlchemyProjectRepository(session),
     )
 
 

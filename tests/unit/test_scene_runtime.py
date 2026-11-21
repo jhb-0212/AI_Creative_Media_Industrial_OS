@@ -29,10 +29,12 @@ from services.project_planning.domain.enums import (
     EpisodeStatus,
     ProjectStatus,
     SceneStatus,
+    ShotStatus,
 )
 from services.project_planning.domain.episode import Episode
 from services.project_planning.domain.project import Project
 from services.project_planning.domain.scene import Scene
+from services.project_planning.domain.shot import Shot
 from services.project_planning.domain.state_machine import (
     EPISODE_LIFECYCLE,
     PROJECT_LIFECYCLE,
@@ -42,6 +44,9 @@ from services.project_planning.repository.episode_repo import EpisodeRepository
 from services.project_planning.repository.in_memory_repo import InMemorySceneRepository
 from services.project_planning.repository.project_repo import ProjectRepository
 from services.project_planning.repository.scene_repo import SceneRepository
+from services.project_planning.repository.shot_planning_repositories import (
+    ShotRepository,
+)
 from services.project_planning.service.scene_service import SceneService
 
 _TENANT = UUID("00000000-0000-0000-0000-0000000000aa")
@@ -67,6 +72,34 @@ class _ProjectRepo(ProjectRepository):
         self.child_write_reads += 1
         self._calls.append(f"Project:{entity_id}")
         return self._project
+
+
+class _ShotRepo(ShotRepository):
+    """内存镜头仓储：本文件不推进镜头状态，只承载 SC-5 的存在性查询。"""
+
+    def __init__(self, shots: list[Shot] | None = None) -> None:
+        self.rows: dict[str, Shot] = {s.entity_id: s for s in (shots or [])}
+
+    async def add(self, shot: Shot) -> None:
+        self.rows[shot.entity_id] = shot
+
+    async def save(self, shot: Shot, expected_version: int) -> None:
+        self.rows[shot.entity_id] = shot
+
+    async def get_by_id(self, entity_id: str) -> Shot | None:
+        return self.rows.get(entity_id)
+
+    async def get_by_project_code(self, project_id: str, shot_code: str) -> Shot | None:
+        for shot in self.rows.values():
+            if shot.project_id == project_id and shot.shot_code == shot_code:
+                return shot
+        return None
+
+    async def has_with_status(self, scene_id: str, status: ShotStatus) -> bool:
+        return any(
+            shot.scene_id == scene_id and shot.status is status
+            for shot in self.rows.values()
+        )
 
 
 class _EpisodeRepo(EpisodeRepository):
@@ -196,6 +229,7 @@ def _service(
         repository=scene_repo,
         episode_repository=episode_repo,
         project_repository=project_repo,
+        shot_repository=_ShotRepo(),
         outbox_writer=outbox,
     )
     return service, scene_repo, project_repo, episode_repo, outbox, calls
@@ -567,6 +601,7 @@ async def test_archived_scene_cannot_be_revived() -> None:
         repository=scenes,
         episode_repository=_EpisodeRepo([_episode(EpisodeStatus.ACTIVE)], []),
         project_repository=_ProjectRepo(_project(ProjectStatus.ACTIVE), []),
+        shot_repository=_ShotRepo(),
         outbox_writer=outbox,
     )
 
@@ -620,3 +655,80 @@ def test_wrong_action_cannot_own_scene_transition() -> None:
 
     assert exc.value.error_code.code == ErrorRegistry.STATE_TRANSITION_DENIED.code
     assert scene.status is SceneStatus.DRAFT
+
+
+# --------------------------------------------------------------------------- #
+# A13 正式链（episode_id 寻址）也必须判父链冻结
+# --------------------------------------------------------------------------- #
+async def _create_by_episode_id(
+    svc: SceneService, *, entity_id: str | None = "scene-fixed", scene_code: str = "S001"
+) -> Scene:
+    return await svc.create_scene(
+        project_id="p-1",
+        episode_id="ep-1",
+        scene_code=scene_code,
+        created_by="u",
+        tenant_id=_TENANT,
+        entity_id=entity_id,
+    )
+
+
+@pytest.mark.asyncio
+async def test_episode_id_addressing_rejects_archived_episode() -> None:
+    """这条寻址线此前完全不判冻结（注释声称「由数据库守卫承担」，而库里没有）。
+
+    缺口的形态是「文档说有、实际没有」，所以本用例只钉行为：归档集数下不得新增
+    场次，且拒绝发生在 INSERT 之前。
+    """
+    svc, scenes, _, _, outbox, _ = _service(
+        _project(ProjectStatus.ACTIVE), [_episode(EpisodeStatus.ARCHIVED)]
+    )
+
+    with pytest.raises(DomainError) as exc:
+        await _create_by_episode_id(svc)
+
+    assert exc.value.error_code is ErrorRegistry.PARENT_LIFECYCLE_FROZEN
+    assert scenes.added == []
+    assert outbox.events == []
+
+
+@pytest.mark.asyncio
+async def test_episode_id_addressing_rejects_archived_project() -> None:
+    """归档项目 + 仍 ACTIVE 的集数：只判直接父会漏掉上一层（对称路径绕过）。"""
+    svc, scenes, _, _, _, _ = _service(
+        _project(ProjectStatus.ARCHIVED), [_episode(EpisodeStatus.ACTIVE)]
+    )
+
+    with pytest.raises(DomainError) as exc:
+        await _create_by_episode_id(svc)
+
+    assert exc.value.error_code is ErrorRegistry.PARENT_LIFECYCLE_FROZEN
+    assert scenes.added == []
+
+
+@pytest.mark.asyncio
+async def test_episode_id_addressing_locks_the_whole_parent_chain() -> None:
+    """两条寻址线取锁顺序必须一致（Project → Episode），否则互相死锁。"""
+    svc, _, projects, episodes, _, calls = _service(
+        _project(ProjectStatus.ACTIVE), [_episode(EpisodeStatus.ACTIVE)]
+    )
+
+    await _create_by_episode_id(svc)
+
+    assert calls == ["Project:p-1", "Episode:EP001"]
+    assert projects.child_write_reads == 1
+    assert episodes.child_write_reads == 1
+
+
+@pytest.mark.asyncio
+async def test_episode_id_addressing_keeps_organization_null_for_personal_tenant() -> None:
+    """放行时组织键仍为 None：A13 链不要求组织归属，个人租户项目合法。"""
+    svc, scenes, _, _, _, _ = _service(
+        _project(ProjectStatus.ACTIVE, organization_id=None),
+        [_episode(EpisodeStatus.ACTIVE)],
+    )
+
+    scene = await _create_by_episode_id(svc)
+
+    assert scene.organization_id is None
+    assert scenes.added == [scene]

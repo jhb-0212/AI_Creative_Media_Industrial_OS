@@ -135,7 +135,7 @@ _STATE_MACHINE_SOURCES: dict[str, tuple[str, str]] = {
         "services.asset_service.domain.state_machine",
         "ASSET_ALLOWED_TRANSITIONS",
     ),
-    # A13（ADR-R40）
+    # A13（ADR-R28）
     "Scene": (
         "services.project_planning.domain.state_machine",
         "SCENE_ALLOWED_TRANSITIONS",
@@ -1543,6 +1543,134 @@ def check_state_machine_guards() -> bool:
 
 
 # --------------------------------------------------------------------------- #
+# 子集合冻结覆盖：有子表引用的生命周期容器必须声明 frozen_states
+# --------------------------------------------------------------------------- #
+# 表名 → 生命周期对象的变量名。显式声明：表名到对象名不是机械映射
+# （projects→Project 能猜，script_revisions→ScriptRevision 就会猜错复数规则）。
+# 完备性由下面的判据双向守住，不依赖这张表是否写全。
+_FROZEN_PARENT_TABLES: dict[str, str] = {
+    "projects": "PROJECT_LIFECYCLE",
+    "episodes": "EPISODE_LIFECYCLE",
+    "scenes": "SCENE_LIFECYCLE",
+}
+
+# 被引用但**不需要**冻结的父表。每条都必须给出理由——空理由等同于没表态。
+_FREEZE_EXEMPT_PARENTS: dict[str, str] = {
+    "organizations": "归属锚点，不是生命周期对象（没有状态机）",
+    "shots": "修订与返工必须在 PRODUCTION_COMPLETE 之后创建，冻结会挡住合法流程",
+    "rework_tasks": "被 shots 以值引用（rework_basis_ref），不是容器归属",
+}
+
+
+_PLANNING_SCHEMA = "project_planning"
+
+
+def _planning_tables() -> dict[str, Any]:
+    """规划域的表，按**不带 schema** 的表名索引。
+
+    两个细节都是必需的，不是风格问题：
+
+    - **按 schema 过滤**：ORM metadata 是全局共享的，测试环境一旦 import 了资产域，
+      metadata 里就多出 ``asset_versions`` / ``qc_reports``。不过滤的话，同一份判据
+      会随 import 顺序给出不同结果——判据不确定比判据覆盖不全更糟。过滤后本判据
+      的语义面明确是「规划域容器」；将来资产域接同一规则时，把 schema 显式加进来，
+      那是一次有意识的扩张，而不是被某次无关 import 悄悄改变判决。
+    - **键取 ``table.name``**：``metadata.tables`` 的键带 schema 前缀，而外键的
+      ``column.table.name`` 不带。混用会让存在性判断恒假，表现为「所有登记的表
+      都不存在」——一个方向错误的判据。
+    """
+    from services.project_planning.repository import orm
+
+    metadata = orm.ProjectModel.metadata
+    return {
+        table.name: table
+        for table in metadata.tables.values()
+        if table.schema == _PLANNING_SCHEMA
+    }
+
+
+def check_child_creation_freeze_coverage() -> bool:
+    """有子表引用的生命周期容器必须声明 ``frozen_states``。
+
+    为什么需要这条闸门（根因，不是加一道检查）
+    ---------------------------------------------
+    ``frozen_states`` 的默认值是空元组，于是「漏声明」与「确实不该冻结」在运行期
+    完全同形：四条创建路径都不会报错，只是照常把子对象写进去。没有判据时，
+    「归档即冻结」只是一份自觉遵守的约定——而这正是本项目反复栽的形态
+    （``qc_reports``/``episodes``/``OWNERSHIP_STACK`` 三次）。
+
+    集合一律**派生**：父表取自 ORM 外键，不手写。手写清单的陈旧方向恰好是不安全
+    的那一侧——新增一张子表就是漏检，而漏检表现为绿灯。三向判据：
+
+    1. 登记为冻结容器 → 必须有子表引用且 ``frozen_states`` 非空；
+    2. 登记为豁免 → 必须存在、仍有子表引用、且写了理由（防陈旧豁免）；
+    3. 有子表引用却两处都没登记 → 红（新增父表必须明确表态）。
+    """
+    from services.project_planning.domain import state_machine
+
+    tables = _planning_tables()
+    referenced: dict[str, set[str]] = {}
+    for table in tables.values():
+        for fk in table.foreign_keys:
+            parent = fk.column.table.name
+            if parent != table.name:
+                referenced.setdefault(parent, set()).add(table.name)
+
+    problems: list[str] = []
+
+    for table, reason in _FREEZE_EXEMPT_PARENTS.items():
+        if table not in tables:
+            problems.append(f"冻结豁免登记了不存在的表 {table!r}")
+            continue
+        if not reason.strip():
+            problems.append(f"冻结豁免表 {table!r} 未写明理由")
+        if table not in referenced:
+            problems.append(
+                f"冻结豁免登记了 {table!r}，但它已没有子表引用："
+                "陈旧豁免会让未来新增的子表绕过本判据"
+            )
+
+    for table, var_name in _FROZEN_PARENT_TABLES.items():
+        if table not in tables:
+            problems.append(f"冻结容器映射登记了不存在的表 {table!r}")
+            continue
+        lifecycle = getattr(state_machine, var_name, None)
+        if lifecycle is None:
+            problems.append(f"{table!r} 映射到不存在的生命周期对象 {var_name}")
+            continue
+        if table not in referenced:
+            problems.append(
+                f"{table!r} 被登记为冻结容器，但已没有子表引用它"
+                "（归属关系变了，映射需要同步）"
+            )
+            continue
+        if not lifecycle.frozen_states:
+            problems.append(
+                f"{table!r}（{lifecycle.object_name}）被 {sorted(referenced[table])} "
+                "引用，但未声明 frozen_states：父对象归档后仍能新增子对象"
+            )
+
+    for parent in sorted(referenced):
+        if parent in _FROZEN_PARENT_TABLES or parent in _FREEZE_EXEMPT_PARENTS:
+            continue
+        problems.append(
+            f"{parent!r} 被 {sorted(referenced[parent])} 引用，但既未登记为冻结容器，"
+            "也未登记为豁免：新增父表必须明确表态（ADR-R28 §6.5）"
+        )
+
+    for problem in problems:
+        print(f"[FAIL] {problem}")
+    if problems:
+        return False
+    print(
+        f"[PASS] 子集合冻结覆盖：{len(_FROZEN_PARENT_TABLES)} 个冻结容器 / "
+        f"{len(_FREEZE_EXEMPT_PARENTS)} 个已登记豁免 / "
+        f"{len(referenced)} 个被引用的父表全部表态"
+    )
+    return True
+
+
+# --------------------------------------------------------------------------- #
 # 事件契约校验（Event Catalog ↔ 代码 ↔ Action Registry）
 # --------------------------------------------------------------------------- #
 EVENT_CATALOG_PATH = CONTRACTS / "runtime" / "event_catalog.yaml"
@@ -2888,6 +3016,7 @@ def main() -> int:
         ok &= check_state_reachability()
         ok &= check_transition_entry_gaps()
         ok &= check_state_machine_guards()
+        ok &= check_child_creation_freeze_coverage()
         ok &= check_permission_matrix()
         ok &= check_schema_objects()
         ok &= check_schema_field_evolution()

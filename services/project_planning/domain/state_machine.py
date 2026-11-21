@@ -143,13 +143,13 @@ EPISODE_ALLOWED_TRANSITIONS: dict[EpisodeStatus, frozenset[EpisodeStatus]] = (
 )
 
 # --------------------------------------------------------------------------- #
-# A13（ADR-R40）：Scene / Shot / ShotRevision / ShotBreakdownDraft / ReworkTask
+# A13（ADR-R28）：Scene / Shot / ShotRevision / ShotBreakdownDraft / ReworkTask
 #
 # 五个对象一次性接通，因为它们是同一条事务链：
 #   Shot.required 含 shot_revision_id → 需要 ShotRevision
 #   → 唯一入口 SHOT.REVISION.CONFIRM → 输入是 ShotBreakdownDraft
 #   → 唯一入口 SHOT.DRAFT.CREATE
-# 单独实现任何一环，都会立刻撞上下一环（详见 ADR-R40 §1）。
+# 单独实现任何一环，都会立刻撞上下一环（详见 ADR-R28 §1）。
 # --------------------------------------------------------------------------- #
 SCENE_STATUS_CHANGE_ACTION = "SCENE.STATUS.CHANGE"
 SHOT_STATUS_CHANGE_ACTION = "SHOT.STATUS.CHANGE"
@@ -161,7 +161,7 @@ REWORK_TASK_STATUS_CHANGE_ACTION = "REWORK.TASK.STATUS.CHANGE"
 
 # Scene：3 条边，全部归 SCENE.STATUS.CHANGE（与 Episode 同构）。
 #
-# SC-5 的跨聚合前置条件在这里声明（ADR-R40 §6.3），两侧成对：
+# SC-5 的跨聚合前置条件在这里声明（ADR-R28 §6.3），两侧成对：
 # - 父侧（归档）：其下不得存在 IN_PRODUCTION 的镜头；
 # - 子侧（Shot 进入在产）：父场次不得已归档。
 #

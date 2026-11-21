@@ -1059,3 +1059,48 @@ open_items: []
     assert cc.check_proposal_status() is False
 
 
+
+
+# --------------------------------------------------------------------------- #
+# check_child_creation_freeze_coverage：有子表引用的容器必须声明冻结
+# --------------------------------------------------------------------------- #
+def test_freeze_coverage_passes_on_current_tree() -> None:
+    assert cc.check_child_creation_freeze_coverage() is True
+
+
+def test_freeze_coverage_detects_missing_frozen_states(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """把一个容器的冻结声明清空，判据必须变红。
+
+    ``frozen_states`` 默认空元组，「漏声明」与「确实不冻结」运行期同形；
+    这条负向用例证明判据真的在看声明，而不是恒真。
+    """
+    import dataclasses
+
+    from services.project_planning.domain import state_machine
+
+    stripped = dataclasses.replace(state_machine.SCENE_LIFECYCLE, frozen_states=())
+    monkeypatch.setattr(state_machine, "SCENE_LIFECYCLE", stripped)
+
+    assert cc.check_child_creation_freeze_coverage() is False
+
+
+def test_freeze_coverage_detects_stale_exemption(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """豁免清单登记一张不存在的表必须报红（陈旧豁免会放过未来的新子表）。"""
+    monkeypatch.setitem(
+        cc._FREEZE_EXEMPT_PARENTS, "legacy_table_removed_long_ago", "历史遗留"
+    )
+
+    assert cc.check_child_creation_freeze_coverage() is False
+
+
+def test_freeze_coverage_requires_decision_for_unlisted_parent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """有子表引用却两处都没登记 → 必须报红（新增父表得表态）。"""
+    monkeypatch.delitem(cc._FREEZE_EXEMPT_PARENTS, "organizations")
+
+    assert cc.check_child_creation_freeze_coverage() is False

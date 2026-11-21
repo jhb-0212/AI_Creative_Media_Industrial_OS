@@ -57,26 +57,30 @@ def _bad_status(table: str, value: str) -> DomainError:
 def scene_lock_statement(
     entity_id: str, *, exclusive: bool
 ) -> Select[SceneModel]:
-    """父行锁读取语句：SC-5 两个方向的唯一落点（ADR-R40 §6.3）。
+    """父行锁读取语句：SC-5 两个方向的唯一落点（ADR-R28 §6.3）。
 
     锁模式为什么是**这一对**，而不是随便选一个：
 
     - 归档侧 ``FOR UPDATE``（``exclusive=True``）：它建立前置条件（「其下无在产
       镜头」），因此必须把「锁 → 重判 → 写」这三步与任何想破坏前置条件的人隔开。
       排他锁与所有行锁冲突，做到这一点。
-    - 子对象侧 ``FOR KEY SHARE``（``exclusive=False``）：它只与 ``FOR UPDATE``
-      冲突，不挡父行的普通更新（``FOR NO KEY UPDATE``，例如 DRAFT→ACTIVE）。
-      父行的普通更新并不建立 SC-5 的前置条件，为它付串行化代价没有收益。
+    - 子对象侧 ``FOR SHARE``（``exclusive=False``）：**不是** ``FOR KEY SHARE``。
+      ``KEY SHARE`` 只与改键值/删除冲突，与 ``FOR NO KEY UPDATE`` 兼容——而
+      ``UPDATE ... SET status`` 取的正是 ``NO KEY UPDATE``。也就是说，只靠子侧
+      的 ``KEY SHARE``，父侧一次**没显式加 FOR UPDATE** 的归档就能穿过去，屏障
+      静默失效。``FOR SHARE`` 与 ``NO KEY UPDATE`` 冲突，因此它不依赖父侧一定
+      写了排他锁（防御纵深：两侧各自独立成立，而不是互为前提）。
+      同时 ``FOR SHARE`` 与子表 INSERT 的外键检查（取 ``KEY SHARE``）兼容，
+      不会让正常的镜头插入自我阻塞。
 
-    ``read=True`` 与 ``key_share=True`` **必须同时给**：SQLAlchemy 只给
-    ``key_share=True`` 时渲染成 ``FOR NO KEY UPDATE``——那与自身不冲突，屏障会
-    静默失效（写对的代码 + 写错的锁 = 一次什么都没挡住的检查）。渲染结果由
+    渲染口径：``read=True`` 单独给出 ``FOR SHARE``；再叠 ``key_share=True`` 会变成
+    ``FOR KEY SHARE``（即上面被否掉的那个）。渲染结果由
     ``tests/unit/test_row_lock_protocol.py`` 逐字钉住，避免方言升级后悄悄改语义。
     """
     stmt = select(SceneModel).where(SceneModel.entity_id == entity_id)
     if exclusive:
         return stmt.with_for_update()
-    return stmt.with_for_update(read=True, key_share=True)
+    return stmt.with_for_update(read=True)
 
 
 # --------------------------------------------------------------------------- #

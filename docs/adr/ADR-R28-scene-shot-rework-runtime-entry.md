@@ -231,13 +231,20 @@ A14 把「归档前确认其下无 IN_PRODUCTION 镜头」实现成「同事务�
 | 侧 | 操作 | 锁 | 语句 |
 |---|---|---|---|
 | 父 | 归档（`Scene → ARCHIVED`） | 排他 | `SELECT … FROM scenes WHERE entity_id = ? FOR UPDATE` → 锁内重判「其下无在产镜头」→ 写 |
-| 子 | 镜头进入 `IN_PRODUCTION` | 共享 | `SELECT … FROM scenes WHERE entity_id = ? FOR KEY SHARE` → 锁内确认父场次未归档 |
+| 子 | 镜头进入 `IN_PRODUCTION` | 共享 | `SELECT … FROM scenes WHERE entity_id = ? FOR SHARE` → 锁内确认父场次未归档 |
 
-**为什么子侧是 `FOR KEY SHARE` 而不是 `FOR SHARE`**：它只与 `FOR UPDATE` 冲突，
-不挡父行的普通更新（`DRAFT→ACTIVE` 之类，PG 取 `FOR NO KEY UPDATE`）。那些更新
-并不建立 SC-5 的前置条件，为它们付串行化代价没有收益。
+**为什么子侧是 `FOR SHARE` 而不是 `FOR KEY SHARE`**（2026-11-21 更正）：初版用的是
+`FOR KEY SHARE`，理由是「它只与 `FOR UPDATE` 冲突，不挡父行的普通更新，代价更小」。
+这个理由在本协议内部成立——归档侧确实持 `FOR UPDATE`——但它把屏障的正确性绑在了
+**另一侧的实现细节**上：只要有任何一条改父场次状态的路径没取 `FOR UPDATE`（普通
+`UPDATE ... SET status` 取的是 `FOR NO KEY UPDATE`），`FOR KEY SHARE` 就放它过去，
+屏障静默失效。同一项目里 Project / Episode 的父行锁都用 `FOR SHARE`，两种强度并存
+本身就是缺陷信号。
 
-**一个必须记住的坑**：SQLAlchemy 只给 `key_share=True` 时渲染成
+`FOR SHARE` 的代价是同场次的普通状态变更会与镜头进产串行。这个代价可以接受：
+它们本来就是同一场次内的写，且「屏障不依赖对方是否记得取排他锁」值得付。
+
+**一个仍然必须记住的坑**：SQLAlchemy 只给 `key_share=True` 时渲染成
 `FOR NO KEY UPDATE`——那与自身不冲突，屏障一次都没挡住，而代码读起来完全正确。
 必须 `read=True` 与 `key_share=True` 同时给。渲染结果由
 `tests/unit/test_row_lock_protocol.py` 逐字钉住，方言升级不会悄悄改语义。
@@ -321,6 +328,82 @@ A13 的债务第 7 条写着「应用层不会把 23505 翻译成统一的 409�
 `42501`。所以跨租户推进状态得到的是 409 并发冲突，而不是权限错误——fail-closed，
 且不泄漏对象是否存在。`42501` 只在 `INSERT` 的 `WITH CHECK` 与显式拒绝时出现。
 
+### 6.5 归档即冻结子集合（2026-11-21，V205-R14-A19）
+
+§6.3 关掉的是「归档**前**不得有在产镜头」，它的另一侧一直开着：**归档之后仍可在
+其下新增子对象**。这不是一处遗漏，而是三层同构的缺口——四条创建路径没有一条看
+父对象状态：
+
+| 创建路径 | 父对象 | 修正前校验 | 后果 |
+|---|---|---|---|
+| `EPISODE.CREATE` | Project | 只查存在 | 归档项目下可新增集数 |
+| `SCENE.CREATE`（治理线） | Episode | 存在 + 归属 + 冻结 | 已正确 |
+| `SCENE.CREATE`（A13 正式链） | Episode | 只查归属 | **归档项目/集数下可新增场次** |
+| `SCRIPT.IMPORT` | Episode | 归属 | 归档集数下可新增剧本修订 |
+| `SHOT.DRAFT.CONFIRM` | Scene | 存在 + 归属 | **归档场次下可新增镜头** |
+
+最后一行与倒数第二行的失效尤其值得记录：`create_scene` 的注释原文写着「父链冻结
+与组织隔离由数据库守卫/RLS 承担」，而核对结果是库中**既无触发器、也无带状态谓词
+的 RLS 策略**——全仓 `CREATE TRIGGER` 零命中，RLS 的 `EXISTS` 子句只做租户隔离。
+文档说有、实际没有，比根本没人写更危险：它会让复核者跳过这一段。
+
+### 为什么落点是状态而不是动作
+
+「归档意味着我这一支不再长了」说的是 Project / Episode / Scene 处于某状态时的
+**性质**，不是某个动作的属性。写成四个调用点 `if` 的问题是结构性的：漏掉的那条
+不会让任何闸门变红。第四张子表接入时同理。
+
+因此落点是 `Lifecycle.frozen_states`（A16 引入）加「判定从状态派生」：
+
+```
+Lifecycle.is_frozen(status) -> bool
+Lifecycle.assert_child_creation_allowed(status, child_object=...) -> None  # 命中抛 409
+```
+
+### 四条路径的共同前置
+
+每条都在**写入之前**持父行的共享锁（`FOR SHARE`）再判定：
+
+- 为什么必须持锁：与 §6.3 的父行锁是同一把。归档侧持 `FOR UPDATE`，创建侧持
+  `FOR SHARE`——两者相遇即把「判定归档」与「发生归档」串行化。只判定不持锁，
+  就是「查的瞬间成立、写的瞬间不成立」，与 §6.3 被否掉的做法完全相同。
+- 为什么是 `FOR SHARE` 而不是 `FOR KEY SHARE`：后者只与「改键值/删除」冲突，
+  `UPDATE ... SET status` 照样能穿过——屏障会静默失效。项目内锁模式必须统一，
+  否则同一份语义出现两种强度，其中一个是错的。
+- 加锁顺序固定为 **Project → Episode → Scene**。`SHOT.DRAFT.CONFIRM` 会引用多个
+  场次，必须按 `scene_id` 全序去重后逐个取锁：环只可能由顺序不一致产生，而草案
+  里的出现顺序由调用方决定。
+
+### 守卫依赖改为构造期必需
+
+原先 `SceneService` 的 `shot_repository` / `project_repository` 是可选的，靠调用点
+`if ... is None: raise INTERNAL_ERROR` 兜底。本轮改到一半时抓到了这种写法的真实
+失效：**生产装配 `_scene_service` 确实没传 `project_repository`**，改完后
+`create_scene` 全路径 500，而所有闸门依旧全绿（因为没有判据检查装配完整性）。
+
+可选的守卫依赖因此被取消：
+
+> 构造成功 ⇒ 两个不变量都有执行者
+
+装配漏传从「运行期 500」变成「类型错误」。这不是风格选择——守卫依赖的可用性不
+该由运行期检查表达，那等于承认它可能不可用。
+
+### 闸门判据
+
+新增 `check_child_creation_freeze_coverage()`，应检集合从 ORM metadata 的
+外键关系**派生**：
+
+- 有子表引用的父表，必须映射到声明了 `frozen_states` 的 Lifecycle，或在豁免表里
+  写明理由；
+- 三向完备性：未登记 → 红；登记了不存在的表 → 红；豁免登记了却已无子表引用 → 红
+  （陈旧豁免会放过未来新增的子表）；
+- 应检集合按 schema 过滤。此前一度按「当前 import 到的全部表」取集合，结果同一份
+  判据在不同入口下给出不同答案——那是最糟的判据形态，比没有判据更误导。
+
+三个豁免各有理由：`organizations`（不是业务容器）、`rework_tasks`（其父 Shot 在
+`PRODUCTION_COMPLETE` 之后仍要能建返工任务，`frozen_states` 为空是刻意的）、
+`shots`（同前）。
+
 ## 7. 已知债务（本批不解决，必须登记）
 
 1. **`affected_asset_version_ids` 无外键**：跨域 ID 数组，库层无法约束。
@@ -351,12 +434,18 @@ A13 的债务第 7 条写着「应用层不会把 23505 翻译成统一的 409�
    （A 未提交插入 → B 阻塞 → A 提交 → B 得 23505）。
    仍属债务的部分：`translate_write_error` 目前不透出约束名（`constraint` 参数
    恒为空），服务层只能靠回读数据来区分成因——这是可行但多一次往返的做法。
-8. **归档之后仍可在其下新增镜头**（`SHOT.DRAFT.CONFIRM` 只校验场次存在且属本项目，
-   不校验场次状态）。SC-5 只规定「归档前不得有在产镜头」，没有规定「归档后不得
-   新增子对象」；因此这不是实现偏离，而是**契约缺口**。后果有限：新镜头以
-   `NOT_STARTED` 出生，仍可走 `BLOCKED` / `CANCELLED`，只是无法进入在产（§6.3 的
-   子侧屏障会拒）。是否把「归档即冻结子对象集合」写进契约，需要所有者裁定
-   （要不要连带禁止在已归档场次下建草案/建镜头），本批不擅自扩张语义。
+8. ~~**归档之后仍可在其下新增镜头**~~ → **2026-11-21 已按所有者裁定扩张契约并补齐**
+   （A19，§6.5）。补齐范围不止确认路径：`EPISODE.CREATE` / `SCENE.CREATE` 两条
+   寻址线 / `SCRIPT.IMPORT` / `SHOT.DRAFT.CONFIRM` 四条创建路径全部接线，且判定
+   从 `Lifecycle.frozen_states` 派生、四条路径都在持父行锁后判定。
+   仍属债务的部分：
+   - **`Project.COMPLETED` 是否应冻结子集合**：当前实现（主线既有）把 `COMPLETED`
+     与 `ARCHIVED` 一并列入 `frozen_states`。这是语义裁定而非结构推论——若业务上
+     允许「交付完成后再补录集数」，需改元组并另立修订。闸门不会替你发现这个判断
+     变化，它只检查「有没有声明」。
+   - **加锁顺序**（Project → Episode → Scene）无自动判据，靠评审约束。
+   - **豁免表的理由正确性**需人工判断：闸门能发现「豁免了但不该豁免」只有一种
+     形态——该表已不存在或已无子表引用；理由本身是否成立不在机器判断范围内。
 
 ## 8. 被拒绝的替代方案
 
@@ -394,9 +483,21 @@ A13 的债务第 7 条写着「应用层不会把 23505 翻译成统一的 409�
     方向一），子侧持共享锁时归档被阻塞（方向二）。只验一个方向会漏掉另一侧的
     锁模式写错。
 12. 锁子句逐字固定：`scene_lock_statement` 的渲染结果必须是 `FOR UPDATE` /
-    `FOR KEY SHARE`，且不得出现 `FOR NO KEY UPDATE`（`test_row_lock_protocol.py`）。
+    `FOR SHARE`，且不得出现 `FOR NO KEY UPDATE`（`test_row_lock_protocol.py`）。
+    项目内父行锁只有这两种模式，不允许第三种强度混入。
 13. 屏障的声明完备性从边表派生：所有目标为 `IN_PRODUCTION` 的边、所有目标为
     `ARCHIVED` 的边必须分别带父/子前置条件；集合由边表计算，不手写。
 14. 唯一冲突不得冒成 500：§6.4 表中 1/4/5 三条路径各有负向用例，错误码为 409
     且详情能指出占用者或可重试（`test_scene_service.py`、
     `test_shot_confirm_error_mapping.py`）。
+15. 父链冻结（§6.5）：四条创建路径在冻结父对象下必须被拒，错误码
+    `PARENT_LIFECYCLE_FROZEN`，且**拒绝发生在 INSERT 之前**（断言仓储 `added`
+    为空、无事件）。`SCENE.CREATE` 两条寻址线各有用例，含「上层归档而下层仍
+    ACTIVE」的对称路径（只判直接父会漏）。
+16. 冻结判据完备性：`check_child_creation_freeze_coverage()` 必须能从 ORM metadata
+    派生「有子表引用的父表」全集，并对三向缺陷各有一条负向用例——容器未声明
+    `frozen_states`、豁免表登记了不存在的表、父表两处都未登记
+    （`test_contract_check.py`）。
+17. 守卫依赖不可缺省：`SceneService` 的镜头/父项目仓储是构造期必需参数，装配
+    漏传是类型错误而非运行期 500（`mypy` 覆盖；`shot_planning_routes._scene_service`
+    是唯一装配点）。

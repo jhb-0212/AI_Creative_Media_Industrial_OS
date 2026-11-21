@@ -45,7 +45,7 @@ from services.project_planning.repository.shot_planning_sqlalchemy_repos import 
     ("exclusive", "expected_clause"),
     [
         (True, "FOR UPDATE"),
-        (False, "FOR KEY SHARE"),
+        (False, "FOR SHARE"),
     ],
 )
 def test_lock_statement_renders_the_agreed_clause(
@@ -53,15 +53,20 @@ def test_lock_statement_renders_the_agreed_clause(
 ) -> None:
     """两侧锁模式逐字钉住。
 
-    ``key_share=True`` 单独使用会渲染成 ``FOR NO KEY UPDATE``——它与自身不冲突，
-    等于子对象侧根本没设屏障。方言升级、参数写漏、或有人「简化」这个调用，都必须
-    在这里变红，而不是在生产里表现为「偶发的归档失效」。
+    子对象侧必须是 ``FOR SHARE`` 而非 ``FOR KEY SHARE``：后者与 ``FOR NO KEY
+    UPDATE`` 兼容，而 ``UPDATE ... SET status`` 取的正是 ``NO KEY UPDATE``——
+    只靠它会漏掉「父侧没显式加排他锁的归档」。方言升级、参数写漏、或有人
+    「简化」这个调用，都必须在这里变红，而不是在生产里表现为「偶发的归档失效」。
     """
     sql = str(scene_lock_statement("scene-1", exclusive=exclusive).compile(
         dialect=postgresql.dialect()
     ))
     assert sql.rstrip().endswith(expected_clause), sql
     assert "FOR NO KEY UPDATE" not in sql
+    if not exclusive:
+        assert "FOR KEY SHARE" not in sql, (
+            "FOR KEY SHARE 与 NO KEY UPDATE 兼容，挡不住父行的普通状态更新"
+        )
 
 
 # --------------------------------------------------------------------------- #

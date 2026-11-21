@@ -1,4 +1,4 @@
-"""拆镜确认路径的唯一冲突映射（ADR-R40 §6.4）。
+"""拆镜确认路径的唯一冲突映射（ADR-R28 §6.4）。
 
 为什么这条路径需要专门的用例
 ------------------------------------------------------------
@@ -24,10 +24,10 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from packages.errors.error_codes import DomainError
+from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.port_errors import DuplicateEntityError
 from packages.shared.status_transition import TransitionEvent, TransitionFact
-from services.project_planning.domain.enums import ShotDraftStatus
+from services.project_planning.domain.enums import SceneStatus, ShotDraftStatus
 from services.project_planning.domain.project import Project
 from services.project_planning.domain.scene import Scene
 from services.project_planning.domain.shot import Shot
@@ -135,6 +135,8 @@ class _Revisions(ShotRevisionRepository):
 class _Scenes(SceneRepository):
     def __init__(self, scenes: list[Scene]) -> None:
         self.rows: dict[str, Scene] = {s.entity_id: s for s in scenes}
+        # 记录取锁顺序：「多场次按全序加锁」是防死锁的唯一依据，必须可断言。
+        self.lock_order: list[str] = []
 
     async def add(self, scene: Scene) -> None:
         self.rows[scene.entity_id] = scene
@@ -155,7 +157,9 @@ class _Scenes(SceneRepository):
         raise AssertionError("确认路径不归档场次")
 
     async def lock_for_child_write(self, entity_id: str) -> Scene | None:
-        raise AssertionError("确认路径不推进镜头状态（新建的镜头是 NOT_STARTED）")
+        # 内存夹具无行锁语义，只记录调用顺序；真实仓储实现为 FOR SHARE。
+        self.lock_order.append(entity_id)
+        return self.rows.get(entity_id)
 
 
 class _Projects(ProjectRepository):
@@ -213,14 +217,17 @@ def _draft(*shot_specs: dict[str, object]) -> ShotBreakdownDraft:
     )
 
 
-def _scene() -> Scene:
+def _scene(
+    *, status: SceneStatus = SceneStatus.DRAFT, entity_id: str = "scene-1"
+) -> Scene:
     return Scene(
-        entity_id="scene-1",
+        entity_id=entity_id,
         project_id="proj-1",
         episode_id="ep-1",
         scene_code="S01",
         created_by="user-1",
         tenant_id=_TENANT,
+        status=status,
     )
 
 
@@ -229,6 +236,7 @@ def _service(
     *,
     shots: _Shots | None = None,
     revisions: _Revisions | None = None,
+    scenes: _Scenes | None = None,
 ) -> tuple[ShotDraftService, _Shots, _Revisions, _Outbox]:
     shot_store = shots or _Shots()
     revision_store = revisions or _Revisions()
@@ -237,7 +245,7 @@ def _service(
         _Drafts(draft),
         shot_store,
         revision_store,
-        _Scenes([_scene()]),
+        scenes if scenes is not None else _Scenes([_scene()]),
         _Projects(),
         outbox,
     )
@@ -316,3 +324,52 @@ async def test_happy_path_still_confirms_with_two_transition_facts() -> None:
     assert len(shots.rows) == 1
     assert len(revisions.rows) == 1
     assert [f.to_status for f in outbox.transitions] == ["IN_REVIEW", "CONFIRMED"]
+
+
+# --------------------------------------------------------------------------- #
+# 父场次冻结：确认拆镜不得在归档场次下新增镜头
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+async def test_confirm_rejects_archived_parent_scene() -> None:
+    """归档场次下不得新增镜头（与「归档前不得有在产镜头」是同一规则的两侧）。
+
+    漏掉这一侧的后果不是报错，而是**静默长出僵尸镜头**：新镜头以 NOT_STARTED
+    出生、永远进不了在产（父场次屏障挡住），但会被进度与预算统计当成真实对象。
+    """
+    scenes = _Scenes([_scene(status=SceneStatus.ARCHIVED)])
+    service, shots, _, outbox = _service(_draft(), scenes=scenes)
+
+    with pytest.raises(DomainError) as exc:
+        await service.confirm_draft(
+            entity_id="draft-1", confirmed_by="user-1", tenant_id=_TENANT
+        )
+
+    assert exc.value.error_code is ErrorRegistry.PARENT_LIFECYCLE_FROZEN
+    assert shots.rows == {}, "拒绝必须发生在 INSERT 之前"
+    assert outbox.events == []
+
+
+@pytest.mark.asyncio
+async def test_confirm_locks_all_parent_scenes_in_sorted_order() -> None:
+    """多场次草案按 scene_id 全序取锁——环只可能由顺序不一致产生。"""
+    draft = _draft()
+    draft.scene_breakdowns = [
+        {"scene_id": "scene-b", "shots": [{**_SPEC, "shot_code": "S02-01"}]},
+        {"scene_id": "scene-a", "shots": [{**_SPEC, "shot_code": "S01-01"}]},
+    ]
+    scenes = _Scenes(
+        [
+            _scene(entity_id="scene-a"),
+            _scene(entity_id="scene-b"),
+        ]
+    )
+    service, _, _, _ = _service(draft, scenes=scenes)
+
+    await service.confirm_draft(
+        entity_id="draft-1", confirmed_by="user-1", tenant_id=_TENANT
+    )
+
+    assert scenes.lock_order == ["scene-a", "scene-b"], (
+        "取锁顺序必须与草案里的出现顺序无关：跟随调用方顺序会让两个确认事务"
+        "以相反次序取锁而死锁"
+    )

@@ -701,7 +701,6 @@ amendments:
       - '「加锁顺序必须父→子」成为跨聚合写入的前提：新增涉及父子两行的前置条件时必须遵守同一顺序，否则引入死锁。当前无自动判据，靠评审与本 ADR 约束'
       - 'translate_write_error 不透出约束名（constraint 参数恒为空），服务层区分 23505 成因靠回读数据，多一次往返；约束名可由驱动异常直接取得，属可做未做'
       - 'SC-5 的并发用例需真实 PostgreSQL：本机无容器环境，仅在 CI 上执行（test_scene_archive_concurrency.py）'
-      - '归档之后仍可在其下新增镜头（SHOT.DRAFT.CONFIRM 只校验场次存在且属本项目）：SC-5 只规定「归档前不得有在产镜头」，未规定「归档后不得新增子对象」，属契约缺口而非实现偏离。新镜头以 NOT_STARTED 出生，无法进入在产，但仍可 BLOCKED / CANCELLED；是否把「归档即冻结子对象集合」写进契约需所有者裁定'
 
   - id: 'V205-R14-A16'
     title: 'Scene 运行时入口——创建、读取与状态推进三个动作'
@@ -880,6 +879,67 @@ amendments:
       - '正式链 project_planning 与 pending 归属链 shot_planning/workflow 两套 schema 并存；本修订只统一正式链的返工引用归属，未合并两套结构'
       - 'ADR-R28 为 scene-shot 运行时入口的唯一标识；R40 专属统一授权模型（仍为 PROPOSED 目标架构）'
 
+  - id: 'V205-R14-A19'
+    title: '归档即冻结子集合——四条创建路径接线、两条寻址线合一、闸门完备性判据'
+    retroactive: false
+    recorded_at: '2026-11-21'
+    discovered_by: >-
+      A15 residual_risks 的最后一条（「归档之后仍可在其下新增镜头」）经所有者裁定
+      「写进契约」后，核对全部创建路径发现这是三层同构的缺口而非一处：EPISODE.CREATE
+      （父 Project）、SCENE.CREATE（父 Episode）、SCRIPT.IMPORT（父 Episode）、
+      SHOT.DRAFT.CONFIRM（父 Scene）四条路径没有一条看父对象状态。进一步核对发现
+      SCENE.CREATE 的 A13 正式链（episode_id 寻址）注释声称「父链冻结与组织隔离由
+      数据库守卫/RLS 承担」，而库中既无触发器也无带状态谓词的 RLS 策略——那句话
+      没有对应物，是文档说有、实际没有的缺口形态。
+    reason: >-
+      「归档即冻结子集合」不是四条 if，而是状态语义：它说的是 Project / Episode /
+      Scene 处于某状态时的性质。因此落点是 Lifecycle.frozen_states（A16 已引入）
+      加上「判定从状态派生」，而不是在调用点写四个 if——手写分支只覆盖作者当时
+      想到的那条路径，第五张子表接入时不会让任何闸门变红。
+
+      本次补齐三件事：
+      ① SCENE.CREATE 的两条寻址线合一：A13 正式链此前只校验集数归属、把冻结
+      推给不存在的库层守卫。现在两条线都走 Project → Episode 带锁读 + 逐级
+      assert_child_creation_allowed。固定锁序与归属治理线一致，否则两条线互相
+      死锁。正式链需两跳读（先按 entity_id 探业务键、再按 (project_id, episode_ref)
+      带锁读），前提是 ux_episode_ref_per_project 保证业务键项目内唯一，已核实。
+      ② SHOT.DRAFT.CONFIRM 在**建行之前**一次性按 scene_id 全序锁定全部父场次并
+      判冻结。排序是为了消除等待环（环只可能由顺序不一致产生）；一次性是为了
+      避免「锁了 A、去锁 B 时 A 已变」的窗口——那种半串行化比不加锁更危险。
+      ③ 守卫依赖从「可选 + 运行期 fail-closed」改为构造期必需。原先 shot_repository
+      / project_repository 可缺省，靠调用点 if None: raise 兜底；这种写法防不住真正
+      的失效模式——生产装配漏传时构造照常成功，直到某次归档或登记才在运行期 500。
+      本轮就抓到了这个实例：装配点确实没传 project_repository，改完即刻全路径失败。
+      改为必需后「构造成功 ⇒ 两个不变量都有执行者」成为类型系统前提。
+      ④ 闸门新增 check_child_creation_freeze_coverage()：从 ORM metadata 派生
+      「有子表引用的父表」全集，要求每张父表要么映射到声明了 frozen_states 的
+      Lifecycle，要么在豁免表里写明理由；三向完备性（未登记→红、登记不存在→红、
+      豁免已无子表引用→红）。应检集合按 schema 过滤，不随 import 顺序变化——
+      同一判据在不同入口下给出不同结果是最糟的判据形态。
+
+      未新增动作/对象/状态机，计数不变。SC-5 的定级（RUNTIME_ENFORCED）不变，
+      本次补的是它另一侧的强制。
+    adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
+    approved_by: '项目所有者（2026-11-21 会话内裁定「归档即冻结子集合写进契约」，并选择继续做完而非回滚）'
+    approved_at: '2026-11-21'
+    source_commits: []
+    additions:
+      actions: []
+      openapi_operations: []
+      schema_objects: []
+      state_machines: []
+    counts_after:
+      actions: 96
+      openapi_operations: 96
+      schema_objects: 84
+      state_machines: 43
+    resolved_residual_risks:
+      - 'A15 的「归档之后仍可在其下新增镜头」：已由 Lifecycle.frozen_states + 四条创建路径接线关闭，对应条目自 A15 residual_risks 删除'
+    residual_risks:
+      - 'Project 的 frozen_states 含 COMPLETED 与 ARCHIVED：COMPLETED 是否应冻结属语义裁定，当前按主线实现保留；若业务上允许「交付后再补录集数」，需改 frozen_states 元组并另立修订'
+      - '冻结判定依赖父行锁（FOR SHARE）才能并发正确：四条创建路径都先取父行锁再判定，加锁顺序固定为 Project → Episode → Scene。该顺序当前无自动判据，靠评审与本 ADR 约束'
+      - '闸门的冻结豁免表（organizations / rework_tasks / shots）目前是显式登记而非派生：新增父表时必须表态，但豁免理由的正确性仍需人工判断'
+      - 'Shot 的 frozen_states 为空是刻意的：ReworkTask 要在 PRODUCTION_COMPLETE 之后创建，Shot 不是「建完就封存」的容器。这个判断若变化，闸门不会自动发现，需人工复核'
+
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []
-
