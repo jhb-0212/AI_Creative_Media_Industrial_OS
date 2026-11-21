@@ -105,7 +105,12 @@ main 链测试库曾尝试补分叉链的 `scenes`，但会牵出 `repair_row_al
 ## 九、可复现命令
 
 ```bash
-# 全量单测（.env 已指向 15444/ai_film_api_tests）
+# 一次性重建 main 链测试库（15444 实例，绝不指向 15432）
+# CREATE DATABASE ai_film_api_tests;
+POSTGRES_PORT=15444 POSTGRES_PASSWORD=replay_super_pw POSTGRES_DB=ai_film_api_tests \
+  ./.venv/Scripts/python.exe -m alembic upgrade head
+
+# 全量单测（.env / .env.example 已指向 15444/ai_film_api_tests）
 ./.venv/Scripts/python.exe -m pytest tests/unit -o addopts="" -q
 
 # 归属链闸门
