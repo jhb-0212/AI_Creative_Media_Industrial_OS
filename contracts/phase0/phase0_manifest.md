@@ -26,7 +26,7 @@
 | ⑧ 冻结包清单 | `contracts/phase0/phase0_manifest.md` | — | 自指不登记，见 `phase0_manifest.md.sha256` | 31.11 契约证据清单 |
 | ⑨ 枚举注册表 | `contracts/enums/enum_registry.yaml` | 5476 | `d4a75f09067895dc54bd217b54761df1dc32642ebd6910bdf8f34f44723c2a18` | 31.5 / C.7 |
 | ⑩ ADR 主索引 | `docs/adr/adr_index.yaml` | 33011 | `24cca2103e93296eae56d8118b15d0eeb5eb6a52a9f2ec44ff50d1f49d7c27ff` | 31.12 / 32.13 / 33.15 |
-| ⑪ 阶段表 | `contracts/phases/phase_map.yaml` | 4158 | `77e88f57afd82eaa5caf9c4f73f485c33bfe8b125ca94529c05eb90c1788eeb3` | 31.2 唯一阶段总表 |
+| ⑪ 阶段表 | `contracts/phases/phase_map.yaml` | 4221 | `ee03d60c4008aff193cc19c06f96fbe96f9976d9bb7c4a1b6af7f80c6199528e` | 31.2 唯一阶段总表 |
 
 ## 已批准修订
 

@@ -1242,3 +1242,82 @@ def test_frozen_state_contract_detects_unregistered_lifecycle(
     monkeypatch.setattr(cc, "_implemented_lifecycles", lambda: (extra, []))
 
     assert cc.check_frozen_state_contract() is False
+# --------------------------------------------------------------------------- #
+# Gate C：阶段表派生一致性（phase_map 不得成为第二份权威）
+# --------------------------------------------------------------------------- #
+def _phase_fixture(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """复制契约与基线到临时目录，避免测试改动真实冻结产物。"""
+    import shutil
+
+    contracts = tmp_path / "contracts"
+    shutil.copytree(cc.CONTRACTS, contracts)
+    baseline = tmp_path / "baseline.md"
+    shutil.copyfile(cc.BASELINE_DOC, baseline)
+    monkeypatch.setattr(cc, "CONTRACTS", contracts)
+    monkeypatch.setattr(cc, "BASELINE_DOC", baseline)
+    return contracts / "phases" / "phase_map.yaml"
+
+
+def test_phase_map_matches_authoritative_baseline() -> None:
+    """当前派生文件必须与 §31.2 权威表逐字一致，非权威表登记完备。"""
+    assert cc.check_phase_map_against_baseline() is True
+
+
+def test_phase_map_detects_authoritative_text_drift(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Phase 2 曾被改成「允许 CreatorRelease」，与基线相反却全绿——必须报红。"""
+    import yaml
+
+    path = _phase_fixture(monkeypatch, tmp_path)
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    phase2 = next(p for p in data["phases"] if p["id"] == "Phase 2")
+    phase2["community"] = "组织内社区 MVP；Phase 2 允许 Creator Release 组织内发布。"
+    path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+
+    assert cc.check_phase_map_against_baseline() is False
+
+
+def test_phase_map_detects_missing_non_authoritative_registration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """基线里真实存在的非权威阶段表未登记 → 报红（手写清单的腐烂方向是漏检）。"""
+    import yaml
+
+    path = _phase_fixture(monkeypatch, tmp_path)
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert len(data["non_authoritative_phase_tables"]) == 2
+    data["non_authoritative_phase_tables"].pop()
+    path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+
+    assert cc.check_phase_map_against_baseline() is False
+
+
+def test_phase_map_detects_stale_registry_line(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """章节还在、行号陈旧也必须报红：登记项不再是「指向证据的指针」。"""
+    import yaml
+
+    path = _phase_fixture(monkeypatch, tmp_path)
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data["non_authoritative_phase_tables"][0]["line"] = 2719
+    path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+
+    assert cc.check_phase_map_against_baseline() is False
+
+
+def test_phase_map_detects_phantom_registry_entry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """登记了基线中不存在的章节也要报红，否则陈旧登记可以永久滞留。"""
+    import yaml
+
+    path = _phase_fixture(monkeypatch, tmp_path)
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data["non_authoritative_phase_tables"].append(
+        {"line": 9999, "section": "99.9 不存在的阶段表", "note": "测试"}
+    )
+    path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+
+    assert cc.check_phase_map_against_baseline() is False
