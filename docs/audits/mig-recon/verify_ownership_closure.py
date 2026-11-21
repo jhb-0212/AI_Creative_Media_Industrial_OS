@@ -67,9 +67,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-import asyncpg
-
 import acceptance_ledger as ledger
+import asyncpg
 import lab
 
 OUT_MD = Path(__file__).resolve().parent / "verify-ownership-closure.md"
@@ -383,7 +382,7 @@ async def selftest(port: int, template: str) -> int:
     )
     try:
         _purge, _order, checks = await lab.prepare_pre_activation_baseline(
-            conn, Path(__file__).resolve().parents[3] / "data/migrations/pending/feat-ownership"
+            conn, Path(__file__).resolve().parents[3] / "data/migrations/pending/feat-ownership"  # noqa: ASYNC240 — CLI 启动期一次性路径解析，非并发热路径
         )
         baseline_ok = all(v.endswith("=0") for v in checks)
         print(f"[{'PASS' if baseline_ok else 'FAIL'}] S0  基线回退生效：{'; '.join(checks)}")

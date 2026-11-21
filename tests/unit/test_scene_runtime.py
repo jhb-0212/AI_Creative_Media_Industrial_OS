@@ -538,13 +538,13 @@ async def test_change_status_uses_scene_action_and_writes_transition_fact() -> N
     assert scenes.saved[0].entity_version == 2
     assert len(outbox.transitions) == 1
     fact, event = outbox.transitions[0]
-    assert getattr(fact, "owner_action") == SCENE_STATUS_CHANGE_ACTION
-    assert getattr(fact, "resource_type") == "Scene"
-    assert getattr(fact, "from_status") == "DRAFT"
-    assert getattr(fact, "to_status") == "ACTIVE"
-    assert getattr(fact, "actor_subject") == "director"
-    assert getattr(fact, "organization_id") == _ORG
-    assert getattr(event, "event_type") == "SCENE_STATUS_CHANGED"
+    assert fact.owner_action == SCENE_STATUS_CHANGE_ACTION
+    assert fact.resource_type == "Scene"
+    assert fact.from_status == "DRAFT"
+    assert fact.to_status == "ACTIVE"
+    assert fact.actor_subject == "director"
+    assert fact.organization_id == _ORG
+    assert event.event_type == "SCENE_STATUS_CHANGED"
 
 
 @pytest.mark.asyncio

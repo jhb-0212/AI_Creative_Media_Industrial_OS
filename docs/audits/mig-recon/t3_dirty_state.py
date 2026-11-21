@@ -683,7 +683,7 @@ async def main() -> int:
     lines.append(f"- 状态：`{final_constraints}`")
     lines.append(f"- 资产表最终行数：{final_rows}")
 
-    out = Path(__file__).resolve().parent
+    out = Path(__file__).resolve().parent  # noqa: ASYNC240 — CLI 启动期一次性路径解析，非并发热路径
     (out / "t3-dirty-state.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     (out / "t3-dirty-state.json").write_text(
         json.dumps(

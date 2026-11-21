@@ -32,7 +32,6 @@ import asyncio
 from pathlib import Path
 
 import asyncpg
-
 import guard_fixtures as fx
 import lab
 
@@ -194,7 +193,7 @@ async def main() -> int:
         # 另两张表的脏行也在，故同样应失败；随后逐表清干净再验，证明成功路径可达。
         cleanable = {TABLE_SS: "b2-ghost-ss", TABLE_AS: "b2-ghost-as"}
         cleaned = []
-        for tbl, key in cleanable.items():
+        for tbl, _key in cleanable.items():
             ok_v2, d_v2 = await lab.case(
                 conn,
                 [],
@@ -275,7 +274,7 @@ async def main() -> int:
 
     total, passed = REC.total, REC.passed
     print(f"\n批次二验证：{passed}/{total} 通过")
-    out_dir = Path(args.out_dir) if args.out_dir else Path(__file__).resolve().parent
+    out_dir = Path(args.out_dir) if args.out_dir else Path(__file__).resolve().parent  # noqa: ASYNC240 — CLI 启动期一次性路径解析，非并发热路径
     ts = REC.write_report(
         out_dir / "verify-batch2.md",
         out_dir / "verify-batch2.json",

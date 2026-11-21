@@ -44,7 +44,7 @@ import asyncpg
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import guard_fixtures as fx  # noqa: E402
+import guard_fixtures as fx
 
 TENANT = "00000000-0000-0000-0000-000000000001"
 ORG1 = "00000000-0000-0000-0000-000000000011"

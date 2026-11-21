@@ -27,28 +27,24 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import asyncpg
 import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
-import acceptance_ledger as L  # noqa: E402
-import lab  # noqa: E402
-from verify_batch6 import (  # noqa: E402
-    ORG,
-    PROJECT,
-    SVC,
+import acceptance_ledger as ledger
+import lab
+from verify_batch6 import (
+    HOST,
+    PORT,
+    PWD,
     TEMPLATE,
-    TENANT,
+    USER,
     seed_scene,
     seed_shot,
     sqlstate_of,
-    HOST,
-    PORT,
-    USER,
-    PWD,
 )
 
 LAB = "lab_shot_archive_blocking"
@@ -181,7 +177,7 @@ async def main() -> int:
             )
             archived_ok = st == "00000" and n == 1 and back == "ARCHIVED"
 
-            st2, msg2, _ = await sqlstate_of(
+            st2, _msg2, _ = await sqlstate_of(
                 c,
                 "UPDATE shot_planning.shots SET status='IN_PRODUCTION'"
                 " WHERE shot_id='b7-sh-blocked'",
@@ -211,7 +207,7 @@ async def main() -> int:
             # ---- S8 台账不变量：本批次产出状态下必须全 PASS ----
             # 刻意排在任何变异之前：变异会故意制造存量违例（S6 把「有在制镜头的
             # 场次」归档掉），那之后的 FAIL 是装置的产物，不是产品的缺陷。
-            inv = await L.collect_invariants(c)
+            inv = await ledger.collect_invariants(c)
             record(
                 "S8",
                 all(i["status"] == "PASS" for i in inv),
@@ -257,7 +253,7 @@ async def main() -> int:
             # ---- S10 台账不是恒真：变异留下的违例必须被抓到 ----
             # S6 之后库里确实存在「已归档场次 + 在制镜头」。若台账此时仍 PASS，
             # 它就是在给现状背书——这正是 S8 单独存在无法证明的那一半。
-            inv_bad = await L.collect_invariants(c)
+            inv_bad = await ledger.collect_invariants(c)
             record(
                 "S10",
                 inv_bad[0]["status"] == "FAIL" and inv_bad[0]["actual"] == 1,
@@ -311,7 +307,7 @@ async def main() -> int:
     out.write_text(
         json.dumps(
             {
-                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "generated_at": datetime.now(UTC).isoformat(),
                 "revision": mod.revision,
                 "lab": LAB,
                 "verdict": "PASS" if not failed else "FAIL",

@@ -28,11 +28,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from dataclasses import dataclass, field
-
-import asyncpg
+from dataclasses import dataclass
 
 import acceptance_ledger as ledger
+import asyncpg
 
 #: 工单默认值。**可由 `--ticket` 覆盖**——工单是「一次授权一次订正」的凭据，
 #: 不是环境常量。写死它会让同一行的第二次订正必然撞
@@ -109,7 +108,7 @@ async def single_pk(conn: asyncpg.Connection, table: str) -> str:
     return pk[0]["attname"]
 
 
-async def discover_inconsistent(conn: asyncpg.Connection) -> list["Finding"]:
+async def discover_inconsistent(conn: asyncpg.Connection) -> list[Finding]:
     """找出「归属真实、但与父行不一致」的行（I-1 的一致半边）。
 
     边清单从 ``verify_ownership_consistency.CLASSIFICATION`` 取，**不另写一份**：

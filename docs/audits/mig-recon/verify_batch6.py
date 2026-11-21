@@ -28,14 +28,14 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import asyncpg
 
 sys.path.insert(0, str(Path(__file__).parent))
-import acceptance_ledger as L  # noqa: E402
-import lab  # noqa: E402
+import acceptance_ledger as ledger
+import lab
 
 HOST, PORT, USER, PWD, TEMPLATE = (
     lab.DEFAULT_HOST,
@@ -100,7 +100,7 @@ async def sqlstate_of(c: asyncpg.Connection, sql: str) -> tuple[str, str, int]:
         if own:
             await c.execute("ROLLBACK")
         return getattr(exc, "sqlstate", "?????"), str(exc), 0
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         await c.execute(f"ROLLBACK TO SAVEPOINT {sp}")
         if own:
             await c.execute("ROLLBACK")
@@ -140,7 +140,7 @@ async def seed_shot(
         shot_extra["blocked_reason"] = "验收用例：阻塞中"
     if status == "CANCELLED":
         shot_extra["cancellation_ref"] = "approval-b6-cancel"
-        shot_extra["cancelled_at"] = datetime(2026, 1, 2, tzinfo=timezone.utc)
+        shot_extra["cancelled_at"] = datetime(2026, 1, 2, tzinfo=UTC)
     async with c.transaction():
         await lab.insert_minimal_row(
             c,
@@ -178,7 +178,7 @@ async def seed_shot(
             changed_fields=json.dumps([]),
             provenance=json.dumps({"legacy_backfill": True}),
             confirmed_by="LEGACY_BACKFILL",
-            confirmed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            confirmed_at=datetime(2026, 1, 1, tzinfo=UTC),
             revision_no=1,
         )
         await lab.insert_minimal_row(
@@ -333,7 +333,7 @@ async def main() -> int:
                 async with c.transaction():
                     await seed_scene(c, "b6-sc-NEW")
                     await seed_shot(c, "b6-sh-NEW", "b6-sc-NEW", status="IN_PRODUCTION")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 st, msg = getattr(exc, "sqlstate", "?????"), str(exc)
             cnt = await c.fetchval(
                 "SELECT count(*) FROM shot_planning.shots WHERE shot_id='b6-sh-NEW'"
@@ -358,7 +358,7 @@ async def main() -> int:
             )
 
             # ---- I1 台账复算：无存量违例时应全 PASS ----
-            inv = await L.collect_invariants(c)
+            inv = await ledger.collect_invariants(c)
             record(
                 "I1",
                 all(i["status"] == "PASS" for i in inv),
@@ -381,7 +381,7 @@ async def main() -> int:
             assert st_m == "00000" and n_m == 1, f"造违例失败：{st_m} {msg_m}"
             for s in mod.upgrade_steps():
                 await c.execute(s.sql)
-            inv2 = await L.collect_invariants(c)
+            inv2 = await ledger.collect_invariants(c)
             record(
                 "I2",
                 inv2[0]["status"] == "FAIL" and inv2[0]["actual"] == 1,
@@ -437,7 +437,7 @@ async def main() -> int:
     out.write_text(
         json.dumps(
             {
-                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "generated_at": datetime.now(UTC).isoformat(),
                 "revision": mod.revision,
                 "lab": LAB,
                 "verdict": "PASS" if not failed else "FAIL",

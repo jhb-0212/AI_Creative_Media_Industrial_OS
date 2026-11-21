@@ -60,7 +60,8 @@
 
 from __future__ import annotations
 
-from typing import NamedTuple, Sequence
+from collections.abc import Sequence
+from typing import NamedTuple
 
 from alembic import op
 
@@ -266,9 +267,9 @@ def downgrade_steps() -> list[Step]:
     steps: list[Step] = []
     for table, name, *_ in reversed(COMPOSITE_FK):
         steps.append(Step(f"ALTER TABLE {table} DROP CONSTRAINT IF EXISTS {name}"))
-    for table, name, key in reversed(PARENT_UNIQUE_2):
+    for table, name, _key in reversed(PARENT_UNIQUE_2):
         steps.append(Step(f"ALTER TABLE {table} DROP CONSTRAINT IF EXISTS {name}"))
-    for table, name, key in reversed(PARENT_UNIQUE_4):
+    for table, name, _key in reversed(PARENT_UNIQUE_4):
         steps.append(Step(f"ALTER TABLE {table} DROP CONSTRAINT IF EXISTS {name}"))
 
     steps.append(Step(

@@ -407,9 +407,11 @@ def downgrade_steps() -> list[Step]:
 
 #: 由本迁移创建、需在 VALIDATE 阶段逐一核验的外键（供 runbook 与验证脚本共用）。
 OWNERSHIP_FKS: tuple[tuple[str, str], ...] = (
-    ((PROJECTS, "fk_projects_organization_tenant"),)
-    + tuple((f"{s}.{t}", _fk_project(t)) for s, t in PROJECT_LEVEL)
-    + tuple((f"{s}.{t}", _fk_org(t)) for s, t in ORG_LEVEL)
+    (
+        (PROJECTS, "fk_projects_organization_tenant"),
+        *tuple((f"{s}.{t}", _fk_project(t)) for s, t in PROJECT_LEVEL),
+        *tuple((f"{s}.{t}", _fk_org(t)) for s, t in ORG_LEVEL),
+    )
 )
 
 

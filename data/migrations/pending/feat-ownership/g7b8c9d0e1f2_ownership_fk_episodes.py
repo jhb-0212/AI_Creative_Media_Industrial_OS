@@ -51,7 +51,8 @@ I-1 的「一致」半边仍需复合外键指向父行或触发器，属下一�
 
 from __future__ import annotations
 
-from typing import NamedTuple, Sequence
+from collections.abc import Sequence
+from typing import NamedTuple
 
 from alembic import op
 

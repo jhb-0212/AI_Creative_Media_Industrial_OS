@@ -35,7 +35,6 @@ import asyncio
 from pathlib import Path
 
 import asyncpg
-
 import lab
 import verify_ownership_consistency as consistency
 
@@ -450,7 +449,7 @@ async def main() -> int:
     finally:
         await conn.close()
 
-    out_dir = Path(args.out_dir) if args.out_dir else Path(__file__).resolve().parent
+    out_dir = Path(args.out_dir) if args.out_dir else Path(__file__).resolve().parent  # noqa: ASYNC240 — CLI 启动期一次性路径解析，非并发热路径
     ts = REC.write_report(
         out_dir / "verify-batch5.md",
         out_dir / "verify-batch5.json",

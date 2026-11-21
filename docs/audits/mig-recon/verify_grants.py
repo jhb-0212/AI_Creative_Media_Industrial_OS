@@ -51,12 +51,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
-from datetime import datetime, timezone
 from pathlib import Path
 
 import asyncpg
-
 import lab
 
 ALLOWS = "project_planning.ownership_repair_allows(regclass,jsonb,jsonb,text)"
@@ -333,7 +330,7 @@ async def run(args: argparse.Namespace) -> int:
             await admin.close()
 
     # ---------- 报告 ----------
-    out_dir = Path(args.out_dir) if args.out_dir else Path(__file__).resolve().parent
+    out_dir = Path(args.out_dir) if args.out_dir else Path(__file__).resolve().parent  # noqa: ASYNC240 — CLI 启动期一次性路径解析，非并发热路径
     meta = [
         f"- 目标：`{args.host}:{args.port}` 克隆库 `{args.lab}`（模板 `{args.template}`），用完即删",
         f"- 迁移源：`{vd}`",
@@ -351,7 +348,7 @@ async def run(args: argparse.Namespace) -> int:
         "- 角色名一律从 `pg_roles` / `information_schema` 实读，脚本内不出现默认角色名字面量"
         "（`app_role` 那段被删正是因为这一点，判据见 `tests/unit/test_db_role_names.py`）。",
     ]
-    ts = REC.write_report(
+    REC.write_report(
         out_dir / "verify-grants.md",
         out_dir / "verify-grants.json",
         title="归属栈角色授权完整性验证（名单式授权删除后）",

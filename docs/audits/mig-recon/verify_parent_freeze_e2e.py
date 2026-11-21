@@ -24,21 +24,20 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-import lab  # noqa: E402
-
-from sqlalchemy import text  # noqa: E402
-from sqlalchemy.exc import DBAPIError  # noqa: E402
-from sqlalchemy.ext.asyncio import (  # noqa: E402
+import lab
+from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
 
-from services.project_planning.domain.enums import ProjectStatus  # noqa: E402
-from services.project_planning.repository.sqlalchemy_repo import (  # noqa: E402
+from services.project_planning.domain.enums import ProjectStatus
+from services.project_planning.repository.sqlalchemy_repo import (
     SqlAlchemyProjectRepository,
 )
 
@@ -150,7 +149,7 @@ async def main() -> int:
                     if is_lock_timeout(exc):
                         return True, f"被阻塞：{exc.orig}"
                     return False, f"其他数据库错误：{exc.orig}"
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     await archiver.rollback()
                     return False, f"{type(exc).__name__}: {exc}"
 
@@ -194,7 +193,7 @@ async def main() -> int:
     out.write_text(
         json.dumps(
             {
-                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "generated_at": datetime.now(UTC).isoformat(),
                 "lab": LAB,
                 "verdict": "PASS" if not failed else "FAIL",
                 "cases": results,

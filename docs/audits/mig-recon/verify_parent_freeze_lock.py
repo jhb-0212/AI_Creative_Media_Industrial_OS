@@ -30,13 +30,13 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import asyncpg
 
 sys.path.insert(0, str(Path(__file__).parent))
-import lab  # noqa: E402
+import lab
 
 HOST = lab.DEFAULT_HOST
 PORT = lab.DEFAULT_PORT
@@ -87,7 +87,7 @@ async def probe(c: asyncpg.Connection, sql: str, timeout_ms: int = LOCK_TIMEOUT_
     except asyncpg.exceptions.LockNotAvailableError as exc:
         await c.execute("ROLLBACK TO SAVEPOINT probe")
         return "blocked", f"LockNotAvailable: {exc}"
-    except Exception as exc:  # noqa: BLE001 - 任何其他错误都必须原样暴露
+    except Exception as exc:
         await c.execute("ROLLBACK TO SAVEPOINT probe")
         return "error", f"{type(exc).__name__}: {exc}"
 
@@ -225,7 +225,7 @@ async def case_wait_then_read(isolation: str, cid: str, title: str) -> None:
             outcome = f"读到 {seen}"
             ok = seen == "ARCHIVED" and hung
             expect = "挂起后读到 ARCHIVED（新版本）"
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             name = type(exc).__name__
             outcome = f"{name}: {exc}"
             # 40001 = 序列化失败，方向是 fail-closed，可接受
@@ -343,7 +343,7 @@ async def main() -> int:
         out.write_text(
             json.dumps(
                 {
-                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                    "generated_at": datetime.now(UTC).isoformat(),
                     "lab": LAB,
                     "template": TEMPLATE,
                     "verdict": "PASS" if not failed else "FAIL",

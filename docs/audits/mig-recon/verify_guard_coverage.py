@@ -32,7 +32,6 @@ import re
 from pathlib import Path
 
 import asyncpg
-
 import guard_fixtures as fx
 import lab
 
@@ -367,7 +366,7 @@ async def main() -> int:
         # 授权必须在受控例外迁移**之前**：迁移按真实表权限动态补 EXECUTE，
         # 反序会让探针只拿到 42501，N4 就从「守卫拒绝」漂移成「权限拒绝」。
         for fqn in fx.FIXTURES:
-            schema, table = fqn.split(".")
+            schema, _table = fqn.split(".")
             await conn.execute(f'GRANT USAGE ON SCHEMA "{schema}" TO {PROBE_ROLE}')
             await conn.execute(f'GRANT SELECT, UPDATE ON {fqn} TO {PROBE_ROLE}')
 
@@ -392,7 +391,7 @@ async def main() -> int:
             await admin.close()
 
     print(f"\n逐表覆盖矩阵：{REC.passed}/{REC.total} 通过（N/A {REC.skipped}，待裁决缺口 {len(REC.open_findings)}）")
-    out_dir = Path(args.out_dir) if args.out_dir else Path(__file__).resolve().parent
+    out_dir = Path(args.out_dir) if args.out_dir else Path(__file__).resolve().parent  # noqa: ASYNC240 — CLI 启动期一次性路径解析，非并发热路径
     ts = REC.write_report(
         out_dir / "verify-coverage.md",
         out_dir / "verify-coverage.json",

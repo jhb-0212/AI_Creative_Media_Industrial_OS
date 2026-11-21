@@ -35,7 +35,6 @@ import asyncio
 from pathlib import Path
 
 import asyncpg
-
 import lab
 import verify_ownership_consistency as consistency
 
@@ -135,24 +134,24 @@ async def main() -> int:
             raise RuntimeError("前提不成立：基线已含批次四约束")
 
         pa, pb = await two_projects(conn)
-        A, B = pa["entity_id"], pb["entity_id"]
-        T, O = pa["tenant"], pa["org"]
-        rec("P2", "前提", "取到同组织下两个真实项目", True, f"A={A} B={B} org={O[-4:]}")
+        pa_id, pb_id = pa["entity_id"], pb["entity_id"]
+        tenant, org = pa["tenant"], pa["org"]
+        rec("P2", "前提", "取到同组织下两个真实项目", True, f"A={pa_id} B={pb_id} org={org[-4:]}")
 
-        # 资产版本归属 A —— 现有弱单列外键只要求「父行存在」，不管 project
-        ok_a, d_a = await lab.case(conn, [], av_insert("b4-av", A, T, O), expect_changed=1)
-        rec("P3", "前提", "插入一行属于 A 的资产版本", ok_a, d_a)
+        # 资产版本归属 pa_id —— 现有弱单列外键只要求「父行存在」，不管 project
+        ok_a, d_a = await lab.case(conn, [], av_insert("b4-av", pa_id, tenant, org), expect_changed=1)
+        rec("P3", "前提", "插入一行属于 pa_id 的资产版本", ok_a, d_a)
 
         # ---------- 对照 + 缺口可复现 ----------
         ok_g, d_g = await lab.case(
-            conn, [], qc_insert("b4-consistent", "b4-av", A, T, O), expect_changed=1
+            conn, [], qc_insert("b4-consistent", "b4-av", pa_id, tenant, org), expect_changed=1
         )
         rec("G1", "对照", "项目一致时可正常插入（约束未建前）", ok_g, d_g)
 
         ok_c, d_c = await lab.case(
-            conn, [], qc_insert("b4-cross", "b4-av", B, T, O), expect_changed=1
+            conn, [], qc_insert("b4-cross", "b4-av", pb_id, tenant, org), expect_changed=1
         )
-        rec("C1", "缺口", "建约束前：报告挂在 A 的资产上、项目写成 B，依然插入成功",
+        rec("C1", "缺口", "建约束前：报告挂在 pa_id 的资产上、项目写成 pb_id，依然插入成功",
             ok_c, d_c)
 
         # ---------- 升级 ----------
@@ -181,12 +180,12 @@ async def main() -> int:
 
         # ---------- 新写入被拦，且不误伤 ----------
         ok_n, d_n = await lab.case(
-            conn, [], qc_insert("b4-new-cross", "b4-av", B, T, O), expect_state="23503"
+            conn, [], qc_insert("b4-new-cross", "b4-av", pb_id, tenant, org), expect_state="23503"
         )
         rec("N1", "拦截", "约束建立后：跨项目挂载一律 23503", ok_n, d_n)
 
         ok_n2, d_n2 = await lab.case(
-            conn, [], qc_insert("b4-new-ok", "b4-av", A, T, O), expect_changed=1
+            conn, [], qc_insert("b4-new-ok", "b4-av", pa_id, tenant, org), expect_changed=1
         )
         rec("N2", "拦截", "同一约束不误伤项目一致的写入（否则 N1 是别的原因）",
             ok_n2, d_n2)
@@ -286,7 +285,7 @@ async def main() -> int:
             restored == 1, f"count={restored}")
 
         ok_r, d_r = await lab.case(
-            conn, [], qc_insert("b4-after-down", "b4-av", B, T, O), expect_changed=1
+            conn, [], qc_insert("b4-after-down", "b4-av", pb_id, tenant, org), expect_changed=1
         )
         rec("D4", "降级", "降级后同一跨项目写入恢复成功（语义可逆）", ok_r, d_r)
 
@@ -298,7 +297,7 @@ async def main() -> int:
         finally:
             await admin.close()
 
-    out_dir = Path(args.out_dir) if args.out_dir else Path(__file__).resolve().parent
+    out_dir = Path(args.out_dir) if args.out_dir else Path(__file__).resolve().parent  # noqa: ASYNC240 — CLI 启动期一次性路径解析，非并发热路径
     ts = REC.write_report(
         out_dir / "verify-batch4.md",
         out_dir / "verify-batch4.json",

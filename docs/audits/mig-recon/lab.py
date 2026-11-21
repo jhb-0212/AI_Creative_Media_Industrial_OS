@@ -19,11 +19,12 @@ import importlib.util
 import json
 import sys
 import uuid as _uuid
+from collections.abc import Iterable
+from datetime import UTC, datetime
 from datetime import date as _date
-from datetime import datetime, timezone
 from decimal import Decimal as _Decimal
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import asyncpg
 
@@ -457,7 +458,7 @@ _FALLBACK_BY_TYPE = {
     "json": lambda name: "{}",
     "jsonb": lambda name: "{}",
     "timestamp": lambda name: datetime(2026, 1, 1),
-    "timestamptz": lambda name: datetime(2026, 1, 1, tzinfo=timezone.utc),
+    "timestamptz": lambda name: datetime(2026, 1, 1, tzinfo=UTC),
     "date": lambda name: _date(2026, 1, 1),
 }
 
@@ -543,7 +544,7 @@ async def case(
         if state != expect_state:
             return False, f"SQLSTATE 不符：期望 {expect_state} 实得 {state}: {msg}"
         return True, f"{state}: {msg}"
-    except Exception as exc:  # noqa: BLE001 - 非 PostgresError 也必须暴露为失败
+    except Exception as exc:
         return False, f"脚本异常 {type(exc).__name__}: {exc}"
 
     if expect_state is not None:
@@ -615,7 +616,7 @@ class Recorder:
         meta: list[str],
         footer: list[str] | None = None,
     ) -> str:
-        ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+        ts = datetime.now(UTC).astimezone().isoformat(timespec="seconds")
         lines = [f"# {title}", "", f"- 执行时间：{ts}"]
         lines += [f"- {m}" for m in meta]
         summary = f"- 结果：**{self.passed}/{self.total}**"

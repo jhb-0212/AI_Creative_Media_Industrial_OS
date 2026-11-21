@@ -17,9 +17,9 @@ from pathlib import Path
 import asyncpg
 
 sys.path.insert(0, str(Path(__file__).parent))
-import lab  # noqa: E402
-from verify_batch6 import HOST, PORT, PWD, TEMPLATE, USER  # noqa: E402
-from verify_batch9 import record, results  # noqa: E402
+import lab
+from verify_batch6 import HOST, PORT, PWD, TEMPLATE, USER
+from verify_batch9 import record, results
 
 LAB = "lab_shot_revision_edges"
 SR = "shot_planning.shot_revisions"

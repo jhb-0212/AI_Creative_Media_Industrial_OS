@@ -294,8 +294,8 @@ def downgrade_steps() -> list[Step]:
     steps.append(
         Step(
             "D",
-            f"断言：不应残留任何含旁路分支的策略",
-            f"""
+            "断言：不应残留任何含旁路分支的策略",
+            """
             DO $do$ DECLARE n integer; BEGIN
                 SELECT count(*) INTO n FROM pg_policies
                  WHERE qual LIKE '%repair_row_allowed%'

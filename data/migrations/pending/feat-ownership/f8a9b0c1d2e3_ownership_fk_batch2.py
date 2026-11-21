@@ -47,7 +47,8 @@ organization_id)` 只保证「目标项目真实存在，且租户与组织跟�
 
 from __future__ import annotations
 
-from typing import NamedTuple, Sequence
+from collections.abc import Sequence
+from typing import NamedTuple
 
 from alembic import op
 

@@ -78,7 +78,8 @@ ADR-R19（`contract_amendments.yaml` V205-R14-A8）已记录所有者裁定：
 
 from __future__ import annotations
 
-from typing import NamedTuple, Sequence
+from collections.abc import Sequence
+from typing import NamedTuple
 
 from alembic import op
 
@@ -133,12 +134,14 @@ OWNERSHIP_COLS = (
 
 
 def _create_scenes_sql() -> str:
-    cols = list(ENVELOPE_COLS) + [
+    cols = [
+        *ENVELOPE_COLS,
         "scene_id         varchar      NOT NULL",
         "scene_code       varchar      NOT NULL",
         "episode_id       varchar      NOT NULL",
         "project_id       varchar      NOT NULL",
-    ] + list(OWNERSHIP_COLS)
+        *OWNERSHIP_COLS,
+    ]
     return (
         f"CREATE TABLE {PLANNING}.scenes (\n  "
         + ",\n  ".join(cols)
@@ -163,7 +166,8 @@ def _create_scenes_sql() -> str:
 
 
 def _create_shots_sql() -> str:
-    cols = list(ENVELOPE_COLS) + [
+    cols = [
+        *ENVELOPE_COLS,
         "shot_id          varchar      NOT NULL",
         "shot_code        varchar      NOT NULL",
         "scene_id         varchar      NOT NULL",
@@ -174,7 +178,8 @@ def _create_shots_sql() -> str:
         "cancellation_ref varchar",
         "cancelled_at     timestamptz",
         "source_draft_ref jsonb",
-    ] + list(OWNERSHIP_COLS)
+        *OWNERSHIP_COLS,
+    ]
     return (
         f"CREATE TABLE {SHOT}.shots (\n  "
         + ",\n  ".join(cols)
@@ -233,10 +238,10 @@ def _rls_statements(table: str, schema: str, name: str, key_col: str) -> list[st
     不成立——而 RLS 的失败方式是**静默返回 0 行**，没有任何报错会提醒。
     """
     org_and_project = (
-        f"(organization_id = (NULLIF(current_setting('app.current_org_id', true), ''))::uuid "
-        f"AND (current_setting('app.current_projects', true) = '*' "
-        f"OR project_id::text = ANY (string_to_array("
-        f"NULLIF(current_setting('app.current_projects', true), ''), ','))))"
+        "(organization_id = (NULLIF(current_setting('app.current_org_id', true), ''))::uuid "
+        "AND (current_setting('app.current_projects', true) = '*' "
+        "OR project_id::text = ANY (string_to_array("
+        "NULLIF(current_setting('app.current_projects', true), ''), ','))))"
     )
     quarantine_using = (
         "(project_id IS NULL) OR (NOT project_planning.is_quarantine_project(project_id::text)) "

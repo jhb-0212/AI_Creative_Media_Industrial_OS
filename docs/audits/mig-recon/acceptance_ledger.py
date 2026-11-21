@@ -26,7 +26,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import asyncpg
-
 import lab
 
 REPO = Path(__file__).resolve().parents[3]
@@ -706,29 +705,29 @@ async def _structural_constraints(conn: asyncpg.Connection) -> set[str]:
 
 SELFTEST_SCENARIOS = (
     # db              migrate  validate          dirty           passed pending  fail_rows
-    dict(db="ledger_nomig", migrate=False, validate="none", dirty_mode="none",
-         passed=0, pending=0, fail_rows=None),
+    {"db": "ledger_nomig", "migrate": False, "validate": "none", "dirty_mode": "none",
+         "passed": 0, "pending": 0, "fail_rows": None},
     # pending：约束全建、一条都没 VALIDATE。所有行（含「一致」半边）都必须
     # 落在「待验证」而不是 PASS——这是「存在 ≠ 闭环」最容易翻车的那一态。
     # pending 态：约束全建、一条都没 VALIDATE。但**新建表**的归属外键写在
     # `CREATE TABLE` 里，DDL 不允许建表时声明 NOT VALID（没有历史行可豁免），
     # 故它们必然已是 valid。把它们算成「待验证」是伪造状态，故如实计为结构通过。
-    dict(db="ledger_pending", migrate=True, validate="none", dirty_mode="none",
-         passed="structural", pending="all_minus_structural", fail_rows=None),
-    dict(db="ledger_clean", migrate=True, validate="all", dirty_mode="none",
-         passed="all", pending=0, fail_rows=None),
+    {"db": "ledger_pending", "migrate": True, "validate": "none", "dirty_mode": "none",
+         "passed": "structural", "pending": "all_minus_structural", "fail_rows": None},
+    {"db": "ledger_clean", "migrate": True, "validate": "all", "dirty_mode": "none",
+         "passed": "all", "pending": 0, "fail_rows": None},
     # 只让 asset_versions 一张脏：验证台账能精确到「这一张」，而不是红灯一片。
-    dict(db="ledger_dirty", migrate=True, validate="all_but_av", dirty_mode="av",
-         passed="all_minus_1", pending=0,
-         fail_rows=(("asset_service.asset_versions",
-                     "fk_asset_versions_project_tenant_org"),)),
+    {"db": "ledger_dirty", "migrate": True, "validate": "all_but_av", "dirty_mode": "av",
+         "passed": "all_minus_1", "pending": 0,
+         "fail_rows": (("asset_service.asset_versions",
+                     "fk_asset_versions_project_tenant_org"),)},
     # 「真实」半边完全成立、只有「一致」半边被破坏。这一态是旧版自检完全没有的：
     # 没有它，「一致 10 行」既没有被证明能通过，也没有被证明能失败——
     # 而一个永远不 FAIL 的检查等于不存在。
-    dict(db="ledger_inconsistent", migrate=True, validate="all_tolerant",
-         dirty_mode="inconsistent", passed="all_minus_1", pending=0,
-         fail_rows=(("asset_service.qc_reports",
-                     "fk_qc_reports_asset_version_project"),)),
+    {"db": "ledger_inconsistent", "migrate": True, "validate": "all_tolerant",
+         "dirty_mode": "inconsistent", "passed": "all_minus_1", "pending": 0,
+         "fail_rows": (("asset_service.qc_reports",
+                     "fk_qc_reports_asset_version_project"),)},
 )
 
 

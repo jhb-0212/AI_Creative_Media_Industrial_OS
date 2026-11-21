@@ -56,12 +56,12 @@ import argparse
 import asyncio
 import json
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Literal
+from typing import Literal
 
 import asyncpg
-
 import lab
 
 OUT_MD = Path(__file__).resolve().parent / "verify-ownership-consistency.md"
@@ -93,7 +93,7 @@ ENVELOPE_COLUMNS = frozenset(
 
 #: 派生 SQL。`NOT IN (主键列)` 是关键：`qc_reports.qc_report_id` 既是主键又匹配
 #: `_id$`，把它当「父引用」会要求它指向某个父行，属于把身份误判为引用。
-DERIVE_SQL = f"""
+DERIVE_SQL = """
 WITH owned AS (
     SELECT c.oid AS relid,
            n.nspname || '.' || c.relname AS tbl
@@ -700,7 +700,7 @@ def render_md(report: Report, *, db: str, port: int, note: str) -> str:
         "",
         f"- 目标库：`{db}` @ `localhost:{port}`",
         f"- 派生候选列：**{report.derived}** 条（`pg_attribute` 实读）",
-        f"- 判定：`PASS ⇔ 存在含 project_id 的复合外键 ∧ 指向父表 ∧ convalidated`",
+        "- 判定：`PASS ⇔ 存在含 project_id 的复合外键 ∧ 指向父表 ∧ convalidated`",
         "",
     ]
     if note:

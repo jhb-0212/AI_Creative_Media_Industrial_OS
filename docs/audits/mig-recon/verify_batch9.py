@@ -28,13 +28,13 @@ import asyncpg
 import yaml
 
 sys.path.insert(0, str(Path(__file__).parent))
-import lab  # noqa: E402
-from verify_batch6 import (  # noqa: E402
+import lab
+from verify_batch6 import (
     HOST,
     ORG,
     PORT,
-    PWD,
     PROJECT,
+    PWD,
     TEMPLATE,
     TENANT,
     USER,

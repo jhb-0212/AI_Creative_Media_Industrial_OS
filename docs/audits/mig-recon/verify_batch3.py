@@ -32,8 +32,6 @@ import asyncio
 from pathlib import Path
 
 import asyncpg
-
-import guard_fixtures as fx
 import lab
 
 PROBE_DB = "t3b3_lab"
@@ -117,16 +115,16 @@ async def main() -> int:
         if proj is None:
             raise RuntimeError("没有 ACTIVE 项目，无法构造对照行")
 
-        P, T, O = proj["entity_id"], proj["tenant"], proj["org"]
+        pid, tenant, org = proj["entity_id"], proj["tenant"], proj["org"]
 
         # ---------- 对照 + 缺口可复现 ----------
         ok_g, d_g = await lab.case(
-            conn, [], ep_insert("b3-ok", "ep-ok", P, T, O), expect_changed=1
+            conn, [], ep_insert("b3-ok", "ep-ok", pid, tenant, org), expect_changed=1
         )
         rec("G1", "对照", "真实项目 + 同租户组织可正常插入（约束未建立前）", ok_g, d_g)
 
         ok_c, d_c = await lab.case(
-            conn, [], ep_insert("b3-ghost", "ep-ghost", "ghost-project", T, O), expect_changed=1
+            conn, [], ep_insert("b3-ghost", "ep-ghost", "ghost-project", tenant, org), expect_changed=1
         )
         rec("C1", "缺口", "建约束前：episodes 可指向不存在的项目", ok_c, d_c)
 
@@ -143,12 +141,12 @@ async def main() -> int:
 
         # ---------- 新写入被拦，且不误伤 ----------
         ok_n, d_n = await lab.case(
-            conn, [], ep_insert("b3-new", "ep-new", "ghost-project", T, O), expect_state="23503"
+            conn, [], ep_insert("b3-new", "ep-new", "ghost-project", tenant, org), expect_state="23503"
         )
         rec("N1", "拦截", "约束建立后：指向不存在的项目一律 23503", ok_n, d_n)
 
         ok_n2, d_n2 = await lab.case(
-            conn, [], ep_insert("b3-ok2", "ep-ok2", P, T, O), expect_changed=1
+            conn, [], ep_insert("b3-ok2", "ep-ok2", pid, tenant, org), expect_changed=1
         )
         rec("N2", "拦截", "同一约束不误伤真实项目（否则 N1 的 23503 是别的原因）",
             ok_n2, d_n2)
@@ -189,7 +187,7 @@ async def main() -> int:
         rec("D2", "降级", "外键已删净", not gone, f"exists={gone}")
 
         ok_r, d_r = await lab.case(
-            conn, [], ep_insert("b3-after-down", "ep-ad", "ghost-project", T, O),
+            conn, [], ep_insert("b3-after-down", "ep-ad", "ghost-project", tenant, org),
             expect_changed=1,
         )
         rec("D3", "降级", "降级后同一脏写入恢复为可成功（语义可逆）", ok_r, d_r)
@@ -202,7 +200,7 @@ async def main() -> int:
         finally:
             await admin.close()
 
-    out_dir = Path(args.out_dir) if args.out_dir else Path(__file__).resolve().parent
+    out_dir = Path(args.out_dir) if args.out_dir else Path(__file__).resolve().parent  # noqa: ASYNC240 — CLI 启动期一次性路径解析，非并发热路径
     ts = REC.write_report(
         out_dir / "verify-batch3.md",
         out_dir / "verify-batch3.json",

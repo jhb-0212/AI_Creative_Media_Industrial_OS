@@ -18,11 +18,10 @@ import argparse
 import asyncio
 import importlib.util
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import asyncpg
-
 import lab
 
 TENANT = "00000000-0000-0000-0000-000000000001"
@@ -600,10 +599,10 @@ async def main() -> int:
     passed = sum(1 for r in results if r["ok"])
     print(f"\n受控例外验证：{passed}/{total} 通过")
 
-    out_dir = Path(args.out_dir) if args.out_dir else Path(__file__).resolve().parent
+    out_dir = Path(args.out_dir) if args.out_dir else Path(__file__).resolve().parent  # noqa: ASYNC240 — CLI 启动期一次性路径解析，非并发热路径
     out_md = out_dir / "verify-exception.md"
     out_json = out_dir / "verify-exception.json"
-    ts = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    ts = datetime.now(UTC).astimezone().isoformat(timespec="seconds")
     lines = [
         "# 受控例外迁移验证结果（b0c9d8e7f6a5）",
         "",

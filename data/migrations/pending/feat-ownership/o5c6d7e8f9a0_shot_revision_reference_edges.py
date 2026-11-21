@@ -55,13 +55,13 @@ def _key_name(table: str) -> str:
 def upgrade_sqls() -> list[str]:
     sqls: list[str] = []
     for name, table in TARGET_KEYS:
-        cols = ", ".join(("entity_id",) + OWNERSHIP_COLS)
+        cols = ", ".join(("entity_id", *OWNERSHIP_COLS))
         sqls.append(
             f"ALTER TABLE {table} ADD CONSTRAINT {_key_name(name)} UNIQUE ({cols})"
         )
     for constraint, column, target in EDGES:
-        cols = ", ".join((column,) + OWNERSHIP_COLS)
-        ref = ", ".join(("entity_id",) + OWNERSHIP_COLS)
+        cols = ", ".join((column, *OWNERSHIP_COLS))
+        ref = ", ".join(("entity_id", *OWNERSHIP_COLS))
         sqls.append(
             f"ALTER TABLE {SR} ADD CONSTRAINT {constraint} FOREIGN KEY ({cols}) "
             f"REFERENCES {target} ({ref}) NOT VALID"

@@ -96,7 +96,7 @@ async def run_steps(conn: asyncpg.Connection, steps) -> None:
     for step in steps:
         try:
             await conn.execute(step.sql)
-        except Exception as exc:  # noqa: BLE001 - 需要原样上报，不吞
+        except Exception as exc:
             raise RuntimeError(f"[{step.code}] {step.title} 失败: {exc}") from exc
 
 
@@ -173,7 +173,7 @@ async def case_clean() -> None:
             try:
                 await conn.execute(f"ALTER TABLE {qualified} VALIDATE CONSTRAINT {name}")
                 validated.append(name)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 failed.append(f"{name}: {exc}")
         check(
             "D2",
@@ -249,7 +249,7 @@ async def case_dirty() -> None:
                         '{{"bucket":"b","key":"av-ok"}}'::jsonb, '[]'::jsonb)
                 """
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             valid_ok = False
             denied = f"{type(exc).__name__}: {exc}"
         check("D3c", "归属正确的写入不被误伤", valid_ok, "" if valid_ok else str(denied))
@@ -342,7 +342,7 @@ async def main() -> int:
         for db in (LAB_CLEAN, LAB_DIRTY, LAB_DOWN):
             try:
                 await drop(db)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 print(f"[warn] 清理 {db} 失败: {exc}", file=sys.stderr)
 
     passed = sum(1 for r in results if r[2])
