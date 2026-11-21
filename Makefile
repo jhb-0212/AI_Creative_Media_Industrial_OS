@@ -1,4 +1,4 @@
-.PHONY: help install test lint typecheck freeze-check contract-check arch-check up down build dev-keys
+.PHONY: help install test lint typecheck freeze-check contract-check arch-check merge-check merge-check-full up down build dev-keys
 
 help: ## 显示可用命令
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -26,6 +26,12 @@ contract-check: ## 契约派生一致性（Action/OpenAPI/Schema/状态机/事�
 
 arch-check: ## 分层依赖校验（铁律 1：依赖方向/服务间直连/导入期循环）
 	python scripts/architecture_check.py
+
+merge-check: ## 合并前自检（轻量）：字典重复键/同名定义/覆盖面防呆
+	python scripts/merge_readiness.py
+
+merge-check-full: ## 合并前自检（完整）：轻量 + git 前置 + CI 全口径
+	python scripts/merge_readiness.py --git --full
 
 up: ## 本地启动（docker-compose）
 	docker compose -f infra/compose/docker-compose.yml up -d
