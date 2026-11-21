@@ -445,20 +445,30 @@ def check_remote_baseline(
     return findings
 
 
+def resolve_command(root: Path, cmd: tuple[str, ...]) -> list[str]:
+    """把 ``CHECK_COMMANDS`` 的一项解析成可执行命令列表。
+
+    ruff/mypy 优先用项目虚拟环境的可执行文件，保证与 CI（uv.lock）同版本；
+    其余项本身就是 ``sys.executable <script>``，不需要解析。
+
+    ``scripts/verification_battery.py`` 复用它而不是自己抄一份：
+    两份解释器解析逻辑迟早会分叉，而分叉出来的那处只会表现为「本地绿、CI 红」。
+    """
+    resolved = list(cmd)
+    if resolved[0] in ("ruff", "mypy"):
+        exe = root / ".venv" / "Scripts" / f"{resolved[0]}.exe"
+        if not exe.exists():
+            exe = root / ".venv" / "bin" / resolved[0]
+        if exe.exists():
+            resolved[0] = str(exe)
+    return resolved
+
+
 def run_external_checks(root: Path = ROOT) -> list[Finding]:
     """B 类：逐项跑 CI 口径检查器。任何一项非零退出即记为发现，fail-closed。"""
     findings: list[Finding] = []
     for name, cmd in CHECK_COMMANDS:
-        resolved = list(cmd)
-        # ruff/mypy 优先用项目虚拟环境的 exe，保证与 CI（uv.lock）同版本
-        if resolved[0] == "ruff":
-            exe = root / ".venv" / "Scripts" / "ruff.exe"
-            if exe.exists():
-                resolved[0] = str(exe)
-        elif resolved[0] == "mypy":
-            exe = root / ".venv" / "Scripts" / "mypy.exe"
-            if exe.exists():
-                resolved[0] = str(exe)
+        resolved = resolve_command(root, cmd)
         p = subprocess.run(resolved, cwd=root, capture_output=True, text=True, check=False)
         if p.returncode != 0:
             tail = "\n".join((p.stdout + p.stderr).strip().splitlines()[-12:])

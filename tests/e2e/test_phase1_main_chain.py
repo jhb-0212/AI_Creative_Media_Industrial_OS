@@ -18,8 +18,11 @@
 
 主链口径来自 ``contracts/phases/phase_map.yaml`` 的 Phase 1 core_production。
 当前实现只覆盖到「核心 QC → 人工 Gate」这一段：AI 拆镜、ShotSpec、
-ConstraintPack、单一路线生成、DeliveryManifest 五环尚未实现（见
-``contracts/runtime/action_implementations.yaml`` 的 not_implemented 台账）。
+ConstraintPack、单一路线生成、DeliveryManifest 五环尚未被**端到端串起**。
+其中 ShotSpec（A22）与 ConstraintPack（A23）已有逐域实现、端点与逐域用例，
+但本文件没有把它们接进这条链；「尚未串起」不等于「尚未实现」——
+把两者写混会让读者低估已交付面，也会让 Phase 1 验收缺口被错误定位
+（见 ``contracts/runtime/action_implementations.yaml`` 的 not_implemented 台账）。
 因此本文件覆盖的是 Phase 1 的**已实现段**，不宣称整条 Phase 1 主链已通。
 
 角色取值说明

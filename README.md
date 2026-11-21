@@ -76,6 +76,14 @@ docs/          # 架构/ADR/runbook/SOP
 是 §1.3.2 第 4 条「高技术标准」的验收内容，不是独立铁律，也不替代上面五条。
 它们的验收证据（压测报告、故障演练记录）单列，当前状态见「未覆盖范围」一节。
 
+### 核验与审计标注
+
+审查报告的标注词汇、证据等级与报告格式以
+`docs/standards/verification-and-audit-annotation-standard.md` 为唯一权威。
+两套体系不得混用：`[V-*]` 只证明事实，`[A-*]` 才判断是否符合基准；
+报告必须分别给出九项最终状态，禁止只给一个 PASS。
+铁律编号直接引用基线 §1.3.2-1…5，仓库不另立第二套编号。
+
 ## 自动化闸门
 
 铁律靠机器守，不靠记性。下表是**当前真实执行**的闸门，以及它**只能证明到哪一步**：
@@ -84,11 +92,12 @@ docs/          # 架构/ADR/runbook/SOP
 |---|---|---|---|
 | `ruff` | 风格与常见缺陷 | `ruff check .` | 不证明设计与边界正确 |
 | `mypy` | 类型契约 | `mypy packages services apps workers` | 不覆盖 `scripts/`、`tests/`（脚本与测试的类型错误不在闸门内） |
-| `pytest tests` | 行为正确性、负向路径、分层规则 | `pytest tests` | `tests/e2e/test_phase1_main_chain.py` 存在，但只覆盖项目/剧本/资产/QC/审批等**已实现段**，不代表 Scene→Generation→Delivery 全链通过；`tests/resilience` 尚不存在（见「未覆盖范围」） |
+| `pytest tests` | 行为正确性、负向路径、分层规则 | `pytest tests` | `tests/e2e/test_phase1_main_chain.py` 存在，但只覆盖项目/剧本/资产/QC/审批等**已实现段**，不代表 Scene→Generation→Delivery 全链通过；`tests/resilience` 已有故障传播用例，但不覆盖生产环境故障演练（见「未覆盖范围」） |
 | `freeze_manifest` | **契约冻结**：基线正文未变 + 十一类产物哈希一致 + 演进有据（名称全集 == 基线 ∪ 已批准修订） | `python scripts/freeze_manifest.py --check` | 不证明契约内容业务正确，只证明「符合 V2.0.5 且变更可追溯」 |
 | `contract_check` | 派生一致性：Action ↔ OpenAPI ↔ Schema ↔ 状态机 ↔ 事件 ↔ 债务台账 | `python scripts/contract_check.py` | 只证明派生文件互相自洽，**不能**证明符合基线（由 `freeze_manifest` 负责） |
 | `architecture_check` | 层间依赖方向、服务间直连、导入期循环、进程边界（R4：apps 不得 import 签发模块） | `python scripts/architecture_check.py` | 只覆盖顶层分层；服务内 `api/domain/repository` 分层与数据库授权边界未覆盖 |
 | `alembic check` | 迁移与模型无漂移 | `alembic check` | 不证明迁移后的权限边界正确 |
+| `verification_battery` | 把核验表变成可复算证据：独立复算哈希、复用闸门命令清单、执行分层测试 | `python scripts/verification_battery.py` | 只陈述事实与证据等级，**不做合规判断**；静态项委托 `merge_readiness.CHECK_COMMANDS`，不维护第二份命令清单 |
 
 `freeze_manifest` 与 `contract_check` 是**两层互补**，不是重复：前者回答「还是不是 V2.0.5」，
 后者回答「派生文件之间有没有打架」。历史教训是只有后者时，81↔81 自洽也能一路 PASS。

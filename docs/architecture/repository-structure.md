@@ -110,8 +110,13 @@ AI_Creative_Media_Industrial_OS/         # GitHub 仓库根（monorepo，与仓�
 ├── docs/                               # 文档
 │   ├── architecture/                   #   架构文档
 │   ├── adr/                            #   架构决策记录
+│   ├── audits/                         #   审计报告（时点判断，按 SHA 归档）
+│   ├── baseline/                       #   V2.0.5 唯一权威基线（受哈希校验）
+│   ├── evidence/                       #   机器生成的证据（核验电池等）
+│   ├── perf/                           #   压测方案与报告
+│   ├── proposals/                      #   整改提案（未批准，不得当基准用）
 │   ├── runbooks/                       #   运维手册
-│   └── sop/                            #   标准作业程序
+│   └── standards/                      #   治理标注与报告规范（唯一权威）
 │
 ├── .github/                            # GitHub 专属
 │   ├── workflows/                      #   CI（lint/test/契约校验/构建）
