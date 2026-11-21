@@ -175,6 +175,15 @@ _RESOLVE_SQL: dict[str, str] = {
           ON p.entity_id = t.project_id AND p.tenant_id = t.tenant_id
         WHERE t.entity_id = :rid
     """,
+    # A22：规格自带 project_id（复合外键保证它与修订同项目），归属一跳到底。
+    # 不经 shot_revisions 两跳：多一条路径就多一处可漂移的归属口径。
+    "ShotSpec": """
+        SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
+        FROM project_planning.shot_specs AS s
+        JOIN project_planning.projects AS p
+          ON p.entity_id = s.project_id AND p.tenant_id = s.tenant_id
+        WHERE s.entity_id = :rid
+    """,
 }
 
 

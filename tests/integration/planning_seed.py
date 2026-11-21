@@ -192,3 +192,82 @@ def shot_revision_params(
         "revno": revision_no,
         "script_rev": script_revision_ref,
     }
+
+
+SHOT_SPEC_INSERT = """
+    INSERT INTO project_planning.shot_specs
+        (entity_id, entity_type, schema_version, entity_version, status,
+         owner_module, tenant_id, created_at, created_by, updated_at,
+         shot_spec_id, project_id, shot_revision_id, duration_ms,
+         fps_num, fps_den, cut_points_frames, aspect_ratio,
+         coordinate_system, camera_path, subject_paths, shot_size_changes,
+         previz_ref, control_signal_refs, locked_dimensions)
+    VALUES
+        (:eid, 'ShotSpec', 205, 1, :status, 'project_planning',
+         :tid, :now, 'tester', :now,
+         :eid, :pid, :rev, :duration, :fps_num, :fps_den,
+         CAST(:cuts AS integer[]), '16:9', 'SCENE_LOCAL', 'static', 'A', '',
+         'previz://shot/1', '[]'::jsonb, '')
+"""
+
+
+def shot_spec_params(
+    *,
+    entity_id: str,
+    project_id: str,
+    shot_revision_id: str,
+    tenant,
+    duration_ms: int = 1000,
+    fps_num: int = 25,
+    fps_den: int = 1,
+    cut_points: list[int] | None = None,
+    status: str = "DRAFT",
+) -> dict[str, object]:
+    """规格播种参数。
+
+    ``cut_points`` 故意可传非法值：库层 CHECK 的负向用例需要绕过领域层，
+    否则「库层也拦得住」这句话永远只是一句注释。
+    """
+    return {
+        "eid": entity_id,
+        "status": status,
+        "tid": tenant,
+        "now": now(),
+        "pid": project_id,
+        "rev": shot_revision_id,
+        "duration": duration_ms,
+        "fps_num": fps_num,
+        "fps_den": fps_den,
+        "cuts": cut_points if cut_points is not None else [0, 10],
+    }
+
+
+async def seed_shot_spec(
+    admin_sessionmaker,
+    *,
+    entity_id: str,
+    project_id: str,
+    shot_revision_id: str,
+    tenant,
+    duration_ms: int = 1000,
+    fps_num: int = 25,
+    fps_den: int = 1,
+    cut_points: list[int] | None = None,
+    status: str = "DRAFT",
+) -> None:
+    async with admin_sessionmaker() as session:
+        await session.execute(
+            text(SHOT_SPEC_INSERT),
+            shot_spec_params(
+                entity_id=entity_id,
+                project_id=project_id,
+                shot_revision_id=shot_revision_id,
+                tenant=tenant,
+                duration_ms=duration_ms,
+                fps_num=fps_num,
+                fps_den=fps_den,
+                cut_points=cut_points,
+                status=status,
+            ),
+        )
+        await session.commit()

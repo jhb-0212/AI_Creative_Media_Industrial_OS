@@ -3,7 +3,7 @@
 # 校验口径：action_key 全局唯一、命名规范、audit_event 与 negative_test_id 一一对应
 registry_source: 'AFS-ARCH-MASTER-V2.0.5 / 31.6 Action Registry'
 registry_version: 'V2.0.5'
-total_actions: 97
+total_actions: 98
 actions:
   - action_key: 'PROJECT.CREATE'
     resource_type: 'Project'
@@ -81,6 +81,17 @@ actions:
     audit_event: 'SHOT_REVISION_CONFIRMED'
     negative_test_id: 'ACT-SHOT-NEG-002'
     negative_test_desc: 'Agent 确认拒绝'
+    status: 'ACTIVE'
+  - action_key: 'SHOTSPEC.READ'
+    resource_type: 'ShotSpec'
+    scope: 'project/shot'
+    risk_level: 'LOW'
+    token_required: true
+    allowed_principals: '导演/TD/QC 审核人'
+    approval_requirement: '读取规格元数据与 locked_dimensions；租户边界由 RLS 保证，组织边界由统一授权入口判定。'
+    audit_event: 'SHOTSPEC_READ'
+    negative_test_id: 'ACT-SPEC-NEG-003'
+    negative_test_desc: '跨组织读取规格拒绝'
     status: 'ACTIVE'
   - action_key: 'SHOTSPEC.CREATE'
     resource_type: 'ShotSpec'

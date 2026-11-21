@@ -131,6 +131,10 @@ class _Revisions(ShotRevisionRepository):
     async def get_active_by_shot(self, shot_id: str) -> ShotRevision | None:
         return None
 
+    async def lock_for_child_write(self, entity_id: str) -> ShotRevision | None:
+        # 确认路径不建规格，故不需要锁；实现它只为满足端口（A22 新增）。
+        raise AssertionError("确认路径不取修订共享锁")
+
 
 class _Scenes(SceneRepository):
     def __init__(self, scenes: list[Scene]) -> None:

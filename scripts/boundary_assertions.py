@@ -1079,6 +1079,8 @@ _ORG_RLS_TABLES: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
             "shot_revisions",
             "shot_breakdown_drafts",
             "rework_tasks",
+            # A22：规格自带 project_id，与上面五张同形态（组织经父项目传递）。
+            "shot_specs",
         )
     ),
 )

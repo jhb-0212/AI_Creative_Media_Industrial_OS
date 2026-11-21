@@ -1045,8 +1045,59 @@ amendments:
       state_machines: 44
     residual_risks:
       - 'ShotSpec 的状态集属所有者新增建模，8.12 未给；若正文后续补锁定口径（尤其是否需要 PARTIALLY_LOCKED），须改状态机并另立修订'
-      - 'SHOTSPEC.CREATE / SHOTSPEC.LOCK 运行时未实现（台账 not_implemented）：表、路由、事件与迁移在下一批交付'
-      - 'SS-3（切点单调 / fps·时长换算）仍为 RUNTIME_PENDING；定级必须与实现同批，否则是虚假声明'
 
+  - id: 'V205-R14-A22'
+    title: 'ShotSpec 运行时落地：SS-3 定级为 RUNTIME_ENFORCED，补读取入口'
+    retroactive: false
+    recorded_at: '2026-11-21'
+    discovered_by: >-
+      A21 补齐 ShotSpec 契约时把两条动作登记为 not_implemented、SS-3 留在
+      RUNTIME_PENDING。本批实现这一环，按既定准则「定级必须与实现同批，否则是
+      虚假声明」处置。
+    reason: >-
+      一、SS-3 由 RUNTIME_PENDING 改判 RUNTIME_ENFORCED，三层同时成立：领域
+      ShotSpec.__post_init__ 拒绝自相矛盾的规格；库层 ck_shot_specs_cut_points 用
+      IMMUTABLE 函数判严格递增、用整数除法判末点上限（与领域 total_frames() 同一
+      算式）；服务层在建规格时先行校验以给出更早、更可读的错误。整数运算不是风格
+      偏好——浮点换算会把 30000/1001 变成 29.97 再取整，与任何一侧都可能差一帧。
+      二、新增 SHOTSPEC.READ（LOW）。A21 只登记了 CREATE / LOCK，「规格建立后按
+      id 读取」没有任何落点：端点无法暴露（本项目要求 Action Registry ↔ OpenAPI
+      ↔ 运行时三方一致），锁定用例也无从取得当前状态。读取不改状态，故不登记
+      审计事件（与 SCENE.READ / SHOT.READ 同口径）。
+      三、库层新增 uq_shot_revisions_entity_project，作为复合外键
+      fk_shot_specs_revision (project_id, shot_revision_id) 的引用目标，使「规格与
+      修订必须同项目」（负测 ACT-SPEC-NEG-002）在数据库层成立，而不是只靠服务层
+      比对 project_id。
+    adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
+    approved_by: '项目所有者（2026-11-21 会话内「开」：按主链顺序推进 ShotSpec 实现）'
+    approved_at: '2026-11-21'
+    source_commits: []
+    additions:
+      actions:
+        - action_key: SHOTSPEC.READ
+          why: 规格建立后必须能按 id 读取；缺 READ 时端点无法暴露，锁定用例也无从取得当前状态
+    modifications:
+      invariants:
+        - object: 'ShotSpec'
+          ids: ['SS-3']
+          from: 'RUNTIME_PENDING'
+          to: 'RUNTIME_ENFORCED'
+          why: '领域构造校验 + 库层 ck_shot_specs_cut_points（递增性用 IMMUTABLE 函数、末点上限用整数除法）+ 服务层创建前校验，三层同算式。'
+      constraints:
+        added:
+          - 'uq_shot_revisions_entity_project (project_id, entity_id)：fk_shot_specs_revision 的引用目标'
+          - 'uq_shot_spec_per_revision (shot_revision_id)：同一修订至多一份规格'
+          - 'fk_shot_specs_revision (project_id, shot_revision_id) → shot_revisions(project_id, entity_id)'
+          - 'ck_shot_specs_cut_points：SS-3 的库层形态（首点为 0、严格递增、末点 < 换算帧数）'
+          - 'ck_shot_specs_identity_single / ck_shot_specs_duration_positive / ck_shot_specs_fps_positive'
+    counts_after:
+      actions: 98
+      openapi_operations: 98
+      schema_objects: 84
+      state_machines: 44
+    residual_risks:
+      - '规格的冻结屏障只判直接父对象（ShotRevision.SUPERSEDED）。上游（Project / Scene / Shot）已封存而修订仍 ACTIVE 时仍可补登规格——与 A13 既有子表同形态（只判直接父）；若要收紧，须先统一「深层父链冻结」的判定与锁协议，属独立修订'
+      - 'locked_dimensions 在契约里是字符串而非数组，维度也没有受控词汇表（契约未给「必锁维度全集」，这正是 A21 不设 PARTIALLY_LOCKED 的原因）。服务层只做「逗号/顿号切分 + 排序去重」的形态规范化，不校验维度名是否属于某个集合'
+      - '迁移里建的 ck_*_status 与模型声明之间没有逐字比对（runtime_status_problems 只读 ORM 元数据）。本批把 A13 五对象与 ShotSpec 一并回填到该判据的应检集合，但「迁移文本 vs 模型文本」的一致仍无判据，属既有缺口'
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

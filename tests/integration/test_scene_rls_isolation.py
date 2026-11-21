@@ -44,6 +44,9 @@ _NEW_TABLES = (
     "shot_revisions",
     "shot_breakdown_drafts",
     "rework_tasks",
+    # A22：新表必须与既有子表同形态（父项目存在性 + 租户谓词），否则又是一次
+    # 「加了表就是漏检，而漏检表现为绿灯」。
+    "shot_specs",
 )
 
 

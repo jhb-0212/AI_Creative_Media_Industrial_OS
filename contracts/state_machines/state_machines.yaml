@@ -854,8 +854,9 @@ objects:
   initial_state: ACTIVE
   transitions:
   - {from: ACTIVE, to: SUPERSEDED}
-  # 修订是叶子对象：不可变版本链，没有子对象挂在修订下。
-  frozen_states: []
+  # 子对象是 ShotSpec（A22）：规格绑定精确修订，修订被取代后不再接受新规格。
+  # 「修订不可变」与「修订下有子对象」并不矛盾——子对象引用它，不改写它。
+  frozen_states: [SUPERSEDED]
   note: >-
     正文没有为 ShotRevision 单列状态机，也没有给出审核/生产进度状态集；此处的两态是从不可变 版本语义推导的最小必要集，不是正文原文。
     依据：8.2 规定 ShotRevision 保存每次内容修订、 标识不得复用；2635 行规定任何分支合并都生成新的 ShotRevision「并保留父版本、差异摘要、 审批记录和来源引用；

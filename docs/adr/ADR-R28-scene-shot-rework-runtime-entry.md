@@ -493,6 +493,84 @@ Lifecycle.assert_child_creation_allowed(status, child_object=...) -> None  # 命
 `SS-3`（切点单调 / fps·时长换算）仍为 `RUNTIME_PENDING`——定级必须与实现同批，否则就是
 「声称强制、实际没有」，这正是 A19 抓到的 `create_scene` 注释形态。
 
+### 6.8 ShotSpec 运行时落地（2026-11-21，V205-R14-A22）
+
+§6.7 补完契约后，`SHOTSPEC.CREATE` / `SHOTSPEC.LOCK` 仍登记为 `not_implemented`，`SS-3` 仍
+`RUNTIME_PENDING`。本批把「契约存在、运行时为零」补成四层一致，并把定级同时改为
+`RUNTIME_ENFORCED`——定级与实现同批，是 §6.7 结尾那条纪律的自我适用。
+
+#### 为什么「同一修订至多一份规格」不能靠服务层查重
+
+服务层「先查没有、再插入」在并发下必被穿透：两个请求都能查到没有。这不是加锁能修的
+（锁的是修订行，而唯一性说的是「这张表里不得出现第二行」），唯一约束是唯一能真正拒绝的
+东西。因此 `uq_shot_spec_per_revision` 是结构性的，服务层只在 23505 之后负责**解释**：
+
+| 冲突形态 | 语义 | 返回 |
+|---|---|---|
+| 同一 `entity_id` 重放，内容一致 | 幂等（重试） | 返回原对象，无新事件 |
+| 同一 `entity_id`，内容不同 | 幂等键复用 | 409，点明「不能复用」 |
+| 该修订已有另一份规格 | 业务冲突 | 409，**点出占用者 `shot_spec_id`** |
+| uuid 主键冲突 / CHECK 被穿透 | 代码缺陷形态 | 500，不伪装成 409 |
+
+沿用 §6.4 的逐路径口径：把「代码缺陷」伪装成 409 会让故障看起来像用户输错。
+
+#### 归属：复合外键，不是单列
+
+`fk_shot_specs_revision (project_id, shot_revision_id) → shot_revisions(project_id, entity_id)`。
+单列外键只能证明修订存在，挡不住「规格属项目 A、修订属项目 B」——负测 `ACT-SPEC-NEG-002`
+打的正是这条。代价是引用目标必须先有 `uq_shot_revisions_entity_project`（`b1c2d3e4f5a6` 已补）。
+服务层仍先给可读的 400（谁属于谁），库层外键是最后防线：两层同口径，不是两套规则。
+
+#### 冻结：`ShotRevision.SUPERSEDED` 必须表态
+
+规格是为「可生产的修订」而存在的。已取代的修订再补新规格，会产生一批与「有效规格集」
+难以区分的孤儿对象，而它们永远无法交付。故 `ShotRevision` 的 `frozen_states` 增
+`SUPERSEDED`——这不是为过闸门而加的一行：冻结覆盖判据（§6.5/§6.6）要求「有子表引用的
+父表必须表态」，`shot_specs` 一建表，`shot_revisions` 就欠一个答复。
+
+拒绝码用 `PARENT_LIFECYCLE_FROZEN` 而非 `STATE_TRANSITION_DENIED`：前者说「父已封存、
+不该再出现新对象」，重试没有意义；后者说「这条边走不通」。合成一个码，调用方就分不清
+该不该重试。
+
+#### SS-3 三层同口径，一份算式
+
+- 领域层 `ShotSpec.__post_init__`：构造即拒（无 IO，纯对象一致性）；
+- 服务层：同一函数再调一次，只为给出更早、更可读的错误；
+- 库层 `ck_shot_specs_cut_points`：拦住绕过服务的写入（运维脚本、批处理）。
+
+库层不能在 CHECK 里写子查询，故递增性用 `IMMUTABLE` 函数 `cut_points_monotonic(integer[])`；
+函数内每个比较都 `COALESCE(..., false)`——**空数组会让 `array_length = NULL`、整个 CHECK
+求值为 NULL 而放行**，这个陷阱由 `test_shot_spec_boundaries.py` 的空数组用例钉死。
+
+帧数换算只有一份实现（`total_frames`），库层 CHECK 用整数除法逐字等价（正数截断）。
+`30000/1001` 与 `29.97` 在 1 秒处正好差一帧，先除后乘或浮点近似都会造成「库里合法、
+领域拒绝」的分歧，这类分歧只在 NTSC 素材上复现。
+
+域内新增一条类型判据：`duration_ms` / `fps_num` / `fps_den` 必须是 `int`（`type(x) is int`）。
+只判 `>= 1` 时 `29.97` 与 `True` 都能通过——前者让整数换算静默退化成浮点，后者在库里
+变成 1。契约的 `minimum: 1` 不表达类型。
+
+#### 顺序：幂等排在父链锁读与冻结判定之前
+
+重放一个当时成功过的请求是重试，不是新建。若先判冻结，修订在两次请求之间被取代，重试
+就会变成 409——而调用方看到 409 只能理解成「创建失败」，与实际（第一次已生效）相反，
+且没有任何途径确认。这条顺序由单测断言「项目查询与修订锁**零调用**」来固定，不是靠注释。
+
+#### 读取入口
+
+新增 `SHOTSPEC.READ`（LOW）：规格写完之后没有任何读取入口，「登记成功」在 API 层面不可见。
+`total_actions` 97 → 98，与修订台账（基线 75 + 登记 23）逐格对得上。
+
+#### 契约变更点
+
+- Action：新增 `SHOTSPEC.READ`（`total_actions` 97→98），三条动作移入 `implemented`；
+- OpenAPI：新增 `/actions/shotspec.read`，与两份 YAML、真实路由三向一致；
+- 事件：`SHOTSPEC_CREATED` / `SHOTSPEC_LOCKED` 入 `event_catalog` 并由服务真发出；
+- 状态机：`ShotSpec` 进 `_STATE_MACHINE_SOURCES`（DRAFT→LOCKED 一条边，归 LOCK）；
+- Schema：`SS-3` 由 `RUNTIME_PENDING` 升为 `RUNTIME_ENFORCED`；
+- 冻结策略：`ShotRevision.frozen_states = [SUPERSEDED]`，`shot_revisions` 登记为冻结容器；
+- 台账：`V205-R14-A22` 登记上述增量，`freeze_manifest --write` 重签。
+
 ## 7. 已知债务（本批不解决，必须登记）
 
 1. **`affected_asset_version_ids` 无外键**：跨域 ID 数组，库层无法约束。
@@ -532,6 +610,13 @@ Lifecycle.assert_child_creation_allowed(status, child_object=...) -> None  # 命
    - **豁免表的理由正确性**需人工判断：闸门能发现「豁免了但不该豁免」只有一种
      形态——该表已不存在或已无子表引用；理由本身是否成立不在机器判断范围内。
    - `Project.COMPLETED` 的语义与冻结策略的契约化见 §6.6（A20，已裁定）。
+9. **冻结屏障只判直接父对象**（A22 引入 `shot_specs` 后显性化）：规格的父是
+   `ShotRevision`，故只判 `SUPERSEDED`。上游 `Project / Scene / Shot` 已封存、
+   而修订仍 `ACTIVE` 时，仍可补登规格。这不是本批新增的漏洞——A13 五张子表
+   同形态（只判直接父），`Shot` 自身的 `frozen_states` 为空。收紧它需要同时
+   定义「深层父链冻结」的判定链与加锁顺序（父→子，否则死锁），属独立修订；
+   在此之前不得只给某一层加判据——单层加判据会造成「有的路径冻结、有的不冻结」
+   的错觉，比统一宽松更危险。
 
 ## 8. 被拒绝的替代方案
 
@@ -593,3 +678,16 @@ Lifecycle.assert_child_creation_allowed(status, child_object=...) -> None  # 命
     `frozen_states`，且与 `Lifecycle.frozen_states` 相等；五类缺陷各有负向用例
     （缺字段、含未声明状态、重复项、两侧不等、Lifecycle 未登记）
     （`test_contract_check.py`）。
+19. ShotSpec 的 SS-3 三层同口径（§6.8）：领域构造、服务入口、库层 CHECK 各有一条负向
+    用例；库层用例必须包含**空数组**（`COALESCE` 缺失时 CHECK 求值为 NULL 而放行），
+    并在真实 PostgreSQL 上验证末点等于帧数被拒（`test_shot_spec_domain.py`、
+    `test_shot_spec_boundaries.py`）。
+20. 绑定同项目由复合外键保证（§6.8）：以 admin 连接直接 SQL 写入「规格属 A、修订属 B」
+    必须 23503；服务层同场景给 400 且说明双方项目（`test_shot_spec_boundaries.py`）。
+21. 一修订一规格由唯一约束保证（§6.8）：第二份规格必须 23505；服务层把 23505 解释为
+    四类不同语义（幂等返回 / 幂等键复用 409 / 占用者 409 / 代码缺陷 500），
+    各有单测（`test_shot_spec_service.py`）。
+22. 创建顺序不可换位（§6.8）：幂等回读必须排在项目查询与父行锁之前——单测断言两条
+    父链路径**零调用**；否则修订被取代后的重试会变成 4xx，调用方无法确认创建是否生效。
+23. `SHOTSPEC.READ` 存在且与契约一致：Action Registry / OpenAPI / 真实路由三向比对，
+    `action_implementations.yaml` 的 route 由 `app.openapi()` 校验。

@@ -327,3 +327,30 @@ events:
       - changed_by
       - tenant_id
     contract_ref: contracts/state_machines/state_machines.yaml#ReworkTask
+  - event_type: SHOTSPEC_CREATED
+    aggregate_type: ShotSpec
+    emitted_by: services/project_planning/service/shot_spec_service.py
+    payload_required:
+      - shot_spec_id
+      - project_id
+      - shot_revision_id
+      - duration_ms
+      - cut_point_count
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#ShotSpec
+  - event_type: SHOTSPEC_LOCKED
+    aggregate_type: ShotSpec
+    emitted_by: services/project_planning/service/shot_spec_service.py
+    payload_required:
+      - shot_spec_id
+      - project_id
+      - shot_revision_id
+      - locked_dimensions
+      - lock_basis_ref
+      - from_status
+      - to_status
+      - locked_by
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#ShotSpec

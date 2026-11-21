@@ -123,6 +123,23 @@ class ShotDraftStatus(str, Enum):
     DISCARDED = "DISCARDED"
 
 
+class ShotSpecStatus(str, Enum):
+    """镜头规格状态（8.12 / A21 裁定 / A22 实现）。
+
+    对齐 contracts/state_machines/state_machines.yaml → objects → ShotSpec：
+    只有一条边 DRAFT → LOCKED，归 SHOTSPEC.LOCK。
+
+    为什么只有两态：8.12 给了字段与「绑定精确修订」，没给状态集。不设
+    PARTIALLY_LOCKED 是因为该状态依赖「必锁维度全集」，而契约只给
+    locked_dimensions 字段、没给全集——没有全集，「部分」到哪为止不可判定。
+    不设 SUPERSEDED 是因为换版发生在 ShotRevision 层：新修订配新规格，旧规格
+    对其修订仍然有效。LOCKED 为终态：改规格必须新修订 + 新规格。
+    """
+
+    DRAFT = "DRAFT"      # 草稿：可编辑（创建后即此态）
+    LOCKED = "LOCKED"    # 已锁定：维度/依据/审批事件齐备，此后不可原地修改
+
+
 class ReworkTaskStatus(str, Enum):
     """返工任务状态（7.6 精准返工 / A13）。
 
