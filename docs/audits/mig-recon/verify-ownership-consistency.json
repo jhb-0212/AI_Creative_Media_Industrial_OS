@@ -1,12 +1,12 @@
 {
-  "derived": 50,
-  "ok": false,
+  "derived": 54,
+  "ok": true,
   "counts": {
-    "PASS": 22,
+    "PASS": 23,
     "NO_FK": 0,
     "FK_NOT_COMPOSITE": 0,
     "PENDING_VALIDATE": 0,
-    "DANGLING": 1,
+    "DANGLING": 0,
     "UNCLASSIFIED": 0
   },
   "findings": [
@@ -161,8 +161,8 @@
       "table": "shot_planning.shots",
       "column": "rework_basis_ref",
       "parent": "workflow.rework_tasks",
-      "status": "DANGLING",
-      "detail": "返工依据引用（ReworkTask 授权记录）；回退到 IN_PRODUCTION 时必须能指回授权；目标表在库中不存在"
+      "status": "PASS",
+      "detail": "fk_shots_rework_basis"
     },
     {
       "table": "shot_planning.shots",

@@ -170,6 +170,10 @@ OWNERSHIP_STACK: tuple[str, ...] = (
     # 顺序同样不能漏——它必须早于批次五的 `DROP TABLE`，否则 downgrade 里的
     # `GRANT ... ON ... scenes` 会在表已消失后执行而报 42P01。
     "l2a3b4c5d6e7",
+    # 批次九：建 `workflow.rework_tasks`，并给 `shots.rework_basis_ref`
+    # 挂上真实外键。回退顺序必须在本层：先撤 shots 外键、再撤目标表；
+    # 若把它排在批次五之前，DROP TABLE 会被 shots 的外键依赖挡住。
+    "m3b4c5d6e7f8",
 )
 
 
@@ -331,6 +335,11 @@ async def assert_rewound(conn: asyncpg.Connection) -> list[str]:
         # 会让批次七漏撤时算出一个看起来正常的 2。
         "批次七阻断集合函数": "SELECT (to_regprocedure("
         "'shot_planning.shot_archive_blocking_states()') IS NOT NULL)::int",
+        # 批次九两类对象分开数：目标表和 shots 侧外键。只数表会让外键漏撤
+        # 时照样算出 0（基线本来就没有表，残留的外键却会让下次建表失败）。
+        "批次九返工表": "SELECT (to_regclass('workflow.rework_tasks') IS NOT NULL)::int",
+        "批次九返工引用外键": "SELECT count(*) FROM pg_constraint WHERE contype='f' "
+        "AND conname = 'fk_shots_rework_basis'",
         # 批次四单列两项：一批里有**两类**对象（父表唯一键、子表复合外键），
         # 它们的回退方向相反且互不牵连。只记一个聚合数时，「唯一键撤了但外键没撤」
         # 这种半回退会算出一个非零的、看起来正常的总数。

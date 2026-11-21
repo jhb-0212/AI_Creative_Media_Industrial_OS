@@ -1,10 +1,10 @@
 # 归属闭环验收台账（机器生成，勿手改）
 
-- 目标库：`ai_film_industrial` @ `localhost:15444`
-- 采集时间：2026-11-21 11:34:37
+- 目标库：`tmp_batch9_mutant` @ `localhost:15444`
+- 采集时间：2026-11-21 12:06:45
 - 判据：`PASS ⇔ 约束存在 ∧ convalidated ∧ 违规行数 = 0`（ADR-R40 §13 D-10.1 / 附录 J.2）
-- **整体判定：PASS（34/34 闭环）**
-  - 「真实」半边（A/B/ROOT）：20/20
+- **整体判定：未通过（34/35）**
+  - 「真实」半边（A/B/ROOT）：20/21
   - 「一致」半边（A2）：14/14
 
 ## 一、「真实」半边：归属指向的实体真实存在且组织一致
@@ -30,7 +30,8 @@
 | 17 | `workflow.approval_steps` | A | `fk_approval_steps_project_tenant_org` | 是 | true | 0 | PASS |
 | 18 | `project_planning.scenes` | A | `fk_scenes_project_tenant_org` | 是 | true | 0 | PASS |
 | 19 | `shot_planning.shots` | A | `fk_shots_project_tenant_org` | 是 | true | 0 | PASS |
-| 20 | `project_planning.projects` | ROOT | `fk_projects_organization_tenant` | 是 | true | 0 | PASS |
+| 20 | `workflow.rework_tasks` | A | `fk_rework_tasks_project_tenant_org` | 否 | — | — | 未建立（表不存在） |
+| 21 | `project_planning.projects` | ROOT | `fk_projects_organization_tenant` | 是 | true | 0 | PASS |
 
 ## 二、「一致」半边：本行 `project_id` 必须等于父行的 `project_id`
 

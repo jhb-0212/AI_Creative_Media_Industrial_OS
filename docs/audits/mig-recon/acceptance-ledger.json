@@ -1,9 +1,9 @@
 {
   "meta": {
-    "db": "ai_film_industrial",
+    "db": "tmp_batch9_mutant",
     "host": "localhost",
     "port": 15444,
-    "ts": "2026-11-21 11:34:37",
+    "ts": "2026-11-21 12:06:45",
     "server": "16.15 (Debian 16.15-1.pgdg13+2)"
   },
   "rows": [
@@ -255,6 +255,19 @@
       "pass": true
     },
     {
+      "table": "workflow.rework_tasks",
+      "kind": "A",
+      "constraint": "fk_rework_tasks_project_tenant_org",
+      "parent": null,
+      "note": "",
+      "table_exists": false,
+      "constraint_exists": false,
+      "convalidated": null,
+      "violations": null,
+      "verdict": "未建立（表不存在）",
+      "pass": false
+    },
+    {
       "table": "project_planning.projects",
       "kind": "ROOT",
       "constraint": "fk_projects_organization_tenant",
@@ -471,6 +484,6 @@
     }
   ],
   "passed": 34,
-  "total": 34,
-  "closed": true
+  "total": 35,
+  "closed": false
 }

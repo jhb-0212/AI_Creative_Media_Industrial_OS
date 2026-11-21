@@ -127,6 +127,9 @@ def ledger_rows() -> list[Row]:
         # 从第一天起就由同一台机器判定，而不是等下次有人想起来补。
         Row("project_planning.scenes", "A", "fk_scenes_project_tenant_org"),
         Row("shot_planning.shots", "A", "fk_shots_project_tenant_org"),
+        # 批次九：返工授权记录首次入库。它是 `shots.rework_basis_ref` 的
+        # 目标键——不进台账就会出现「外键有了、目标归属没人验」的半闭环。
+        Row("workflow.rework_tasks", "A", "fk_rework_tasks_project_tenant_org"),
 
         Row(PROJECTS, "ROOT", "fk_projects_organization_tenant"),
 
@@ -601,6 +604,9 @@ SELFTEST_MIGRATIONS: tuple[tuple[str, str], ...] = (
     # `verify_batch7` 需要从模块里读 `BLOCKING_STATES` / `NON_BLOCKING_STATES`
     # 与契约做划分完备性比对——那两个常量就是本批次的被测命题。
     ("*_shot_archive_blocking_states.py", "ownership_batch7"),
+    # 批次九建的是归属表 + 外键（不是授权），必须进自检链：
+    # 漏掉它时 ownership_fks() 会少一条，台账新增的 A 行就无从校验。
+    ("*_rework_tasks.py", "ownership_batch9"),
 )
 
 
@@ -684,18 +690,18 @@ async def _drop(db: str, port: int) -> None:
 # 旧版只有三种状态（未迁移 / 全验证 / 一张脏），缺「约束全建但一个都没 VALIDATE」——
 # 而这恰恰是迁移刚激活后的真实形态，也是「约束存在 ≠ 不变量成立」最容易被误读的形态：
 # 18 条约束都在、`NOT VALID` 也在，若台账把「存在」当「闭环」，这一态会被判 18/18。
-#: 批次五新建的两张表。它们的约束写在 CREATE TABLE 里，因此不存在
-#: 「已建待验证」这一态——这是 DDL 的事实，不是验收的宽松。
-STRUCTURAL_TABLES = ("project_planning.scenes", "shot_planning.shots")
+#: 「结构性通过」的约束从数据库目录实读，而不是人工维护表名清单。
+#: 建表时写进 CREATE TABLE 的外键无法声明 NOT VALID，天然 convalidated=true；
+#: 把这类行算成「待验证」是伪造状态。至于哪些表属于这一类，是 DDL 的事实，
+#: 不该由一份会腐化的清单决定——之前硬编码两张新表，批次九一加就失真。
+NATURAL_VALID_SQL = """
+SELECT conname FROM pg_constraint WHERE contype = 'f' AND convalidated
+"""
 
 
-def _structural_pass(rows: list[dict[str, object]]) -> int:
-    """数出「约束随建表一起生效」的行：新建表上的归属边与一致边。
-
-    `shot_revisions` 的新列外键不在此列——它走的是 `ALTER TABLE ADD ... NOT VALID`，
-    可以（也应该）先待验证再 VALIDATE。两者的差别正是本条存在的原因。
-    """
-    return sum(1 for r in rows if str(r["table"]) in STRUCTURAL_TABLES)
+async def _structural_constraints(conn: asyncpg.Connection) -> set[str]:
+    """在「已建约束、尚未 VALIDATE」的场景下，天然已验的约束名集合。"""
+    return {r["conname"] for r in await conn.fetch(NATURAL_VALID_SQL)}
 
 
 SELFTEST_SCENARIOS = (
@@ -772,6 +778,13 @@ async def selftest(port: int, template: str) -> int:
                     elif mode == "inconsistent":
                         await seed_inconsistent_post_fk(conn)
                     await _apply_validation(conn, fks, sc["validate"])
+                # 必须在 VALIDATE 之前、连接仍开着时取：这是场景的独立事实，
+                # 不能从被测脚本自己的 rows 反推，否则自检就变成自证。
+                natural_valid = (
+                    await _structural_constraints(conn)
+                    if sc["migrate"] and sc["validate"] == "none"
+                    else set()
+                )
             finally:
                 await conn.close()
             r = await run(db, port, write=False)
@@ -779,7 +792,9 @@ async def selftest(port: int, template: str) -> int:
             pending = sum(1 for row in r["rows"] if str(row["verdict"]).startswith("待验证"))
             # 期望值允许用「相对量」表达（all / all_minus_1）：台账行数会随批次增长，
             # 把 18、28 写死在断言里，下一批就得改测试——那是让测试迁就实现。
-            structural = _structural_pass(r["rows"])
+            structural = sum(
+                1 for row in r["rows"] if str(row["constraint"]) in natural_valid
+            )
             want_passed = (
                 total if sc["passed"] == "all"
                 else total - 1 if sc["passed"] == "all_minus_1"
@@ -828,7 +843,8 @@ async def selftest(port: int, template: str) -> int:
     print(
         "预期：\n"
         "  nomig         全未建立 → 0 PASS\n"
-        "  pending       约束全建、一条都没 VALIDATE → 0 PASS 且**全部**行待验证\n"
+        "  pending       约束全建、一条都没 VALIDATE → 只有建表内生效的约束 PASS，"
+        "其余全部待验证（结构性通过数由 pg_constraint 实读，不写死）\n"
         "  clean         全部 VALIDATE → 全绿\n"
         "  dirty         仅 asset_versions 存量违规（指向不存在的项目）→ 全绿减 1，且**恰好**那一行\n"
         "  inconsistent  仅 qc_reports 父子归属不同（两个项目都真实）→ 全绿减 1，且**恰好**那一行"

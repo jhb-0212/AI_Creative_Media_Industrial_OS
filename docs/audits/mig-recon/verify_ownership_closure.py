@@ -145,6 +145,21 @@ EXEMPTIONS: tuple[Exemption, ...] = (
         )
         """,
     ),
+    Exemption(
+        "audit.status_transitions",
+        "derived",
+        "审计事实表跨对象记录状态迁移，归属由 resource_type/resource_id 指向的对象承担；"
+        "本表不持有 project_id，因而不属于单一项目归属链",
+        """
+        SELECT to_regclass('audit.status_transitions') IS NOT NULL
+           AND NOT EXISTS (
+                SELECT 1 FROM pg_attribute
+                 WHERE attrelid = to_regclass('audit.status_transitions')
+                   AND attname = 'project_id'
+                   AND NOT attisdropped
+           )
+        """,
+    ),
 )
 
 

@@ -283,11 +283,30 @@ CLASSIFICATION: dict[tuple[str, str], Edge | NonRef] = {
     ("shot_planning.shot_revisions", "episode_id"): Edge(
         "project_planning.episodes", "正式修订按身份归集（契约 ShotRevision.episode_id）"
     ),
-    # 这两条指向尚未实施的对象。**不登记为 NonRef**：它们是真实的对象引用，
-    # 只是父表还没建。归入「不是边」会把「未实施」永久洗白——本项目反复踩的坑。
+    # 返工依据由批次九建成真实对象，边仍登记为 Edge：目标表现在存在，
+    # 由复合外键 (project_id, rework_basis_ref) → (project_id, rework_task_id) 强制。
+    # 若把它改成 NonRef，就等于把「授权可跨项目借用」这件事从判据里删掉。
     ("shot_planning.shots", "rework_basis_ref"): Edge(
         "workflow.rework_tasks",
         "返工依据引用（ReworkTask 授权记录）；回退到 IN_PRODUCTION 时必须能指回授权",
+    ),
+
+    # ---- 批次九新表：只有决定 project 归属的列才登记为 Edge ----
+    # 其余四列是「跟着别人的归属走」或「本表自己的键」，不是父子归属边。
+    # 全登记成 Edge 会让判据要求给每列建外键，那是另一种形式的假阳性。
+    ("workflow.rework_tasks", "rework_task_id"): NonRef(
+        "own_business_key", "与 entity_id 同值的本表业务键（CHECK 强制），不是指向别处的引用"
+    ),
+    ("workflow.rework_tasks", "constraint_pack_ref"): NonRef(
+        "soft_pointer", "追溯用约束包标识；返工任务的项目归属由自身 project_id 承担"
+    ),
+    ("workflow.rework_tasks", "issue_id"): NonRef(
+        "soft_pointer",
+        "缺陷单号是跨模块软引用；QCIssue 对象契约已登记但库内无实体表，"
+        "它的实施是独立债务，不决定本行的项目归属",
+    ),
+    ("workflow.rework_tasks", "target_ref"): NonRef(
+        "polymorphic", "多态目标引用（目标类型由业务上下文决定），无法用单条外键表达"
     ),
 
     # ---- 父表在库中尚不存在：显式登记为悬空边，见 DANGLING 说明 ----
