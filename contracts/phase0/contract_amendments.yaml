@@ -1099,5 +1099,79 @@ amendments:
       - '规格的冻结屏障只判直接父对象（ShotRevision.SUPERSEDED）。上游（Project / Scene / Shot）已封存而修订仍 ACTIVE 时仍可补登规格——与 A13 既有子表同形态（只判直接父）；若要收紧，须先统一「深层父链冻结」的判定与锁协议，属独立修订'
       - 'locked_dimensions 在契约里是字符串而非数组，维度也没有受控词汇表（契约未给「必锁维度全集」，这正是 A21 不设 PARTIALLY_LOCKED 的原因）。服务层只做「逗号/顿号切分 + 排序去重」的形态规范化，不校验维度名是否属于某个集合'
       - '迁移里建的 ck_*_status 与模型声明之间没有逐字比对（runtime_status_problems 只读 ORM 元数据）。本批把 A13 五对象与 ShotSpec 一并回填到该判据的应检集合，但「迁移文本 vs 模型文本」的一致仍无判据，属既有缺口'
+  - id: 'V205-R14-A23'
+    title: 'ConstraintPack 运行时落地：七条不变量定级、补读取与治理入口登记'
+    retroactive: false
+    recorded_at: '2026-11-21'
+    discovered_by: >-
+      7.9 早已给出 ConstraintPack 的完整字段契约（包级 12 字段 + 条目 8 必填字段）、
+      五状态四边，31.6 也登记了 CONSTRAINT.PACK.CREATE / LOCK，但库里没有任何对应物，
+      两条动作一直是 not_implemented。本批按主链顺序（ShotSpec → ConstraintPack）
+      把它补成四层一致，并在补的过程中发现契约本身缺一个治理入口。
+    reason: >-
+      一、新增 CONSTRAINT.PACK.READ（LOW）。CREATE / LOCK 之外没有任何读取入口，
+      「包建好了」在 API 层面不可见，锁定用例也无从取得当前状态。读取不改状态，
+      故不登记审计事件（与 SCENE.READ / SHOT.READ / SHOTSPEC.READ 同口径）。
+
+      二、新增 CONSTRAINT.PACK.STATUS.CHANGE（HIGH，导演/授权 TD）。7.9 画了三条治理边
+      （ACTIVE→REVOKED / STALE / SUPERSEDED），但 31.6 没有任何动作拥有它们——这是一个
+      真实的契约缺口：有了边却没有人负责走。不能把三条边塞给 CONSTRAINT.PACK.LOCK：
+      LOCK 回答「这份包的锁定义务已尽」，治理边回答「这份包此后还能不能被用」，
+      共用一个入口会让「锁一份新包」与「撤销一份已生效的包」成为同一种通行证
+      （正是 N-07 修掉的形态）。本批只登记动作、不实现入口——三条边的下游消费者
+      （生成路线选择、STALE 传播）尚未落地，现在实现只能得到「能改状态、没人读」的边。
+      逐边债务登记在 contracts/runtime/state_machine_gaps.yaml。
+
+      三、七条不变量定级（CP-1…CP-7）。7.9 的字段契约里写着若干「必须/不得」，此前
+      只活在文档里：applicability 与内容自洽（CP-1）、锁定维度受控七值（CP-2）、
+      条目八字段必填与 id 包内唯一（CP-3）、作用镜头真实且同项目（CP-4）、
+      包与项目同租户（CP-5）、同包至多一个 ACTIVE 版本（CP-6）——六条都由领域校验 +
+      库层约束双层成立，定级 RUNTIME_ENFORCED。CP-7「只有 ACTIVE 可作生成输入」保持
+      RUNTIME_PENDING：生成域尚无消费者，定级 ENFORCED 就是虚假声明。
+
+      四、库层约束（见 constraints.added）。数组元素无法用外键表达，shot_ids 的归属
+      用触发器而不是关联表：关联表会让契约字段 shot_ids 降级成派生投影，库里同时存在
+      「数组」与「关联行」两份事实。触发器的 ERRCODE 取 23503，与真外键共用同一条
+      错误映射，不为它新增翻译分支。
+    adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
+    approved_by: '项目所有者（2026-11-21 会话内「继续」：按主链顺序推进 ConstraintPack 实现）'
+    approved_at: '2026-11-21'
+    source_commits: []
+    additions:
+      actions:
+        - action_key: 'CONSTRAINT.PACK.READ'
+          why: '约束包建立后必须能按 id 读取；缺 READ 时端点无法暴露（Action Registry ↔ OpenAPI ↔ 运行时三方一致），锁定用例也无从取得当前状态'
+        - action_key: 'CONSTRAINT.PACK.STATUS.CHANGE'
+          why: '7.9 的三条治理边此前没有任何责任动作；登记它是为了让「谁有权撤销/标记失效/取代」有答案，本批不实现入口并登记逐边债务'
+    modifications:
+      invariants:
+        - object: 'ConstraintPack'
+          ids: ['CP-1', 'CP-2', 'CP-3', 'CP-4', 'CP-5', 'CP-6']
+          from: 'ABSENT'
+          to: 'RUNTIME_ENFORCED'
+          why: '领域构造校验（applicability 自洽、七维度词表、条目八字段与 id 唯一）+ 库层 CHECK / 复合外键 / 部分唯一索引 / 触发器；两层同一不变量，绕过服务的写入也写不进去。'
+      constraints:
+        added:
+          - 'fk_constraint_packs_project_tenant (project_id, tenant_id) → projects(entity_id, tenant_id)：包与项目必须同租户'
+          - 'uq_constraint_pack_version (constraint_pack_id, version)：同版本内唯一，变更新建版本'
+          - 'uq_constraint_pack_single_active (constraint_pack_id) WHERE status = ACTIVE：同一逻辑包至多一个生效版本'
+          - 'ck_constraint_packs_shot_ids_present / ck_constraint_packs_shot_ids_unique / ck_constraint_packs_shot_groups_unique：作用范围非空且元素不重复'
+          - 'ck_constraint_packs_dimensions_known：locked_dimensions 必须包含于 7.9 的七个受控值'
+          - 'ck_constraint_packs_entries：条目八字段必填且 constraint_id 包内唯一（IMMUTABLE 函数）'
+          - 'ck_constraint_packs_not_applicable_empty / ck_constraint_packs_applicability / ck_constraint_packs_version_positive'
+          - '身份分层（刻意不加 CHECK）：entity_id 标识版本行、constraint_pack_id 标识逻辑包（缺省取 entity_id）。若加 constraint_pack_id = entity_id 的 CHECK，uq_constraint_pack_version 与 uq_constraint_pack_single_active 会退化为结构上恒真——同一行的两列不可能在同一行内冲突两次，CP-6 就成了 ENFORCED 的虚假声明'
+          - 'trg_constraint_packs_shots：shot_ids 每个元素必须指向同项目的 Shot（数组无法外键，以触发器在库层强制，ERRCODE 23503）'
+    counts_after:
+      actions: 100
+      openapi_operations: 100
+      schema_objects: 84
+      state_machines: 44
+    residual_risks:
+      - '三条治理边（ACTIVE→REVOKED / STALE / SUPERSEDED）无运行时入口：责任动作 CONSTRAINT.PACK.STATUS.CHANGE 已登记但未实现，逐边债务在 state_machine_gaps.yaml。此期间「撤销一份已生效的包」只能靠人工改库，而改库不会留下 audit.status_transitions 事实'
+      - 'source_previz_revision 的「EXPLORATORY 型不得填入」未校验：判定需要 PrevizVersion 对象与其 exploration 类型，该对象尚未建模。当前只校验字段长度，无法区分 BASELINE 与 EXPLORATORY 来源'
+      - 'shot_group_ids 无对应对象（ShotGroup 未建模），是自由引用：无法校验取值是否为真实镜头组，也无法校验其成员是否属于本项目。与 shot_ids 的差异是刻意的——有对象才做归属校验，为不存在的对象编一套校验只会造出假约束'
+      - 'shot_ids 归属用触发器而非外键：存在「校验通过后镜头被删」的窗口。Shot 创建即绑定项目且项目归属不可迁移，该窗口不构成新的不变量缺口，但严格意义上弱于复合外键'
+      - 'CP-7（只有 ACTIVE 可作生成输入）保持 RUNTIME_PENDING：生成域尚未落地，无消费者可校验；定级必须与实现同批'
+
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

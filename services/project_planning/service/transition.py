@@ -114,6 +114,19 @@ async def advance_status(
     ``on_conflict="skip"`` 时并发冲突返回 ``False``（调用方据此幂等跳过），
     其余异常照常上抛——幂等跳过只对「终态已达成」这一种冲突成立。
 
+    失败后聚合必须回到推进前的样子
+    ------------------------------
+    本函数是「先改内存、再条件落库」。落库被乐观锁/唯一约束拒绝时，**内存里的
+    新状态已经生效**，而库里没有。若那个实体对象被复用（服务层「读→改→存」
+    失败后重试、批处理循环、进程内幂等回读后再推进），第二次推进会把它当成
+    「当前已经是 ACTIVE」，于是写进 ``TransitionFact.from_status`` 的是一条
+    从未在库里存在过的状态——审计表里最不该有的东西，且它不会被任何闸门发现。
+    所以任何失败路径（含 ``on_conflict="skip"``）都要恢复快照。
+
+    快照取 ``entity.__dict__`` 的浅拷贝：``transition_to`` 只写标量字段，各域的
+    实现都不就地把集合改掉；将来若出现就地改集合的转移，那一处必须自己负责
+    恢复（浅拷贝恢复的是同一个列表对象）。
+
     ``domain_operation`` 用于「状态变更同时要写审批链字段」的领域操作
     （剧本锁定的申请人/批准人）。为什么允许它存在：剧本的 ``request_lock`` /
     ``approve_lock`` 此前各自把 ``self.status`` 直接赋值，等于在同一聚合上开了
@@ -142,37 +155,46 @@ async def advance_status(
     """
     previous_status = entity.status
     expected_version = entity.entity_version
+    # 推进前的完整字段快照（见 docstring「失败后聚合必须回到推进前的样子」）。
+    before: dict[str, Any] = dict(vars(entity))
     # 事实 id 必须先于迁移生成：audit_ref 已降级为「指向本次事实的指针」，
     # 若等写完事实再回填，迁移那一刻就只有自由串可写（ADR-R23 §D2-c）。
     transition_id = uuid4()
     audit_ref = transition_audit_ref(transition_id)
-    if domain_operation is None:
-        entity.transition_to(target_status, audit_ref, owner_action)
-    else:
-        # 领域操作自己经 transition_to 改状态，同时写审批链字段（申请人/批准人）。
-        # 传 audit_ref 而不是 ID：领域层不解释指针格式（ADR-R23 §D2-c）。
-        # 传 owner_action 而不是让领域操作自己挑：准入凭据只有一个来源。
-        domain_operation(audit_ref, owner_action)
-
-    # 事实里的 to_status 取聚合的真实结果，并当场核对调用方声明的目标一致。
-    # 若两者不一致，写进事实的就是一条谎——审计表里最不该有的东西。
-    if entity.status != target_status:
-        raise DomainError(
-            ErrorRegistry.INTERNAL_ERROR,
-            detail=(
-                f"状态推进结果与声明目标不一致：{resource_type}/{entity.entity_id} "
-                f"期望 {_status_value(target_status)}，实际 {_status_value(entity.status)}"
-            ),
-        )
-
     try:
-        await repository.save(entity, expected_version)
-    except ConcurrentModificationError as exc:
-        if on_conflict == "skip":
-            return False
-        raise DomainError(
-            ErrorRegistry.CONCURRENT_MODIFICATION, detail=conflict_detail
-        ) from exc
+        if domain_operation is None:
+            entity.transition_to(target_status, audit_ref, owner_action)
+        else:
+            # 领域操作自己经 transition_to 改状态，同时写审批链字段（申请人/批准人）。
+            # 传 audit_ref 而不是 ID：领域层不解释指针格式（ADR-R23 §D2-c）。
+            # 传 owner_action 而不是让领域操作自己挑：准入凭据只有一个来源。
+            domain_operation(audit_ref, owner_action)
+
+        # 事实里的 to_status 取聚合的真实结果，并当场核对调用方声明的目标一致。
+        # 若两者不一致，写进事实的就是一条谎——审计表里最不该有的东西。
+        if entity.status != target_status:
+            raise DomainError(
+                ErrorRegistry.INTERNAL_ERROR,
+                detail=(
+                    f"状态推进结果与声明目标不一致：{resource_type}/{entity.entity_id} "
+                    f"期望 {_status_value(target_status)}，实际 {_status_value(entity.status)}"
+                ),
+            )
+
+        try:
+            await repository.save(entity, expected_version)
+        except ConcurrentModificationError as exc:
+            if on_conflict == "skip":
+                vars(entity).update(before)
+                return False
+            raise DomainError(
+                ErrorRegistry.CONCURRENT_MODIFICATION, detail=conflict_detail
+            ) from exc
+    except BaseException:
+        # 守卫拒绝（非法边/缺审批要素）与落库失败都在这里回滚：两种情况都不该让
+        # 调用方手上那个对象比库里「更前进」。
+        vars(entity).update(before)
+        raise
 
     outbox_writer.record_transition(
         fact=TransitionFact(

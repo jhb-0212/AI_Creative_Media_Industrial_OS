@@ -8,7 +8,7 @@ Scene / Shot / ShotRevision / Draft 四个仓储），拆成四个文件会让�
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
@@ -33,6 +33,7 @@ from services.project_planning.repository.episode_sqlalchemy_repo import (
     SqlAlchemyEpisodeRepository,
 )
 from services.project_planning.repository.shot_planning_sqlalchemy_repos import (
+    SqlAlchemyConstraintPackRepository,
     SqlAlchemyReworkTaskRepository,
     SqlAlchemySceneRepository,
     SqlAlchemyShotDraftRepository,
@@ -46,6 +47,9 @@ from services.project_planning.repository.sqlalchemy_outbox_writer import (
 from services.project_planning.repository.sqlalchemy_repo import (
     SqlAlchemyProjectRepository,
 )
+from services.project_planning.service.constraint_pack_service import (
+    ConstraintPackService,
+)
 from services.project_planning.service.rework_task_service import ReworkTaskService
 from services.project_planning.service.scene_service import SceneService
 from services.project_planning.service.shot_draft_service import ShotDraftService
@@ -57,12 +61,16 @@ shot_router = APIRouter(prefix="/shots", tags=["shot-management"])
 draft_router = APIRouter(prefix="/shot-drafts", tags=["shot-breakdown-draft"])
 rework_router = APIRouter(prefix="/rework-tasks", tags=["rework-task"])
 shot_spec_router = APIRouter(prefix="/shot-specs", tags=["shot-spec"])
+constraint_pack_router = APIRouter(
+    prefix="/constraint-packs", tags=["constraint-pack"]
+)
 
 _SceneResponse = contract_model("Scene")
 _ShotResponse = contract_model("Shot")
 _DraftResponse = contract_model("ShotBreakdownDraft")
 _ReworkResponse = contract_model("ReworkTask")
 _ShotSpecResponse = contract_model("ShotSpec")
+_ConstraintPackResponse = contract_model("ConstraintPack")
 
 
 # --------------------------------------------------------------------------- #
@@ -690,3 +698,146 @@ async def lock_shot_spec(
     )
     await uow.commit()
     return spec.to_dict()
+
+
+# --------------------------------------------------------------------------- #
+# ConstraintPack（A23）
+# --------------------------------------------------------------------------- #
+class CreateConstraintPackRequest(BaseModel):
+    """登记约束包（7.9）。
+
+    ``applicability`` 用 ``Literal`` 而不是自由字符串：它是 7.9 明文枚举
+    （APPLICABLE / NOT_APPLICABLE），且「无锁定约束必须显式标 NOT_APPLICABLE，
+    不得留空」——留空在这里就是 422，而不是等到领域层再拒绝。
+    领域层仍是权威（它给出的错误文案能说清「为什么不能留空」），表示层只是提前。
+
+    ``locked_dimensions`` / ``constraints`` 默认空：DRAFT 阶段的包可以渐进填写，
+    内容完备性判定挂在 DRAFT→ACTIVE 这条边上（见 domain/constraint_pack.py）。
+    """
+
+    project_id: str = Field(..., min_length=1, max_length=64)
+    shot_ids: list[str] = Field(..., min_length=1)
+    applicability: Literal["APPLICABLE", "NOT_APPLICABLE"]
+    scene_id: str = Field("", max_length=64)
+    shot_group_ids: list[str] | None = None
+    locked_dimensions: list[str] | None = None
+    constraints: list[dict[str, Any]] | None = None
+    source_previz_revision: str = Field("", max_length=200)
+    version: int = Field(1, ge=1)
+    # 显式给出表示「同一逻辑包的另一个版本」；缺省时由服务层取实体 id。
+    constraint_pack_id: str | None = Field(default=None, max_length=64)
+    entity_id: str | None = None
+
+
+class LockConstraintPackRequest(BaseModel):
+    """使约束包生效（DRAFT → ACTIVE）。
+
+    ``approved_at`` 是**审批事实**而非请求时间，故要求调用方显式给出：
+    服务端替审批人编一个时间，等于替别人声明了一件他没声明的事。
+    ``lock_basis_ref`` 写进迁移事实的 ``authority_ref``（契约里没有包级依据字段，
+    但它必须落在不可篡改的地方，而不是只出现在事件 payload 里）。
+    """
+
+    approved_at: datetime
+    lock_basis_ref: str = Field(..., min_length=1, max_length=128)
+
+
+def _pack_service(session: AsyncSession) -> ConstraintPackService:
+    return ConstraintPackService(
+        SqlAlchemyConstraintPackRepository(session),
+        # 作用镜头必须真实存在且同项目：缺这个仓储，「约束包只能约束本项目
+        # 的镜头」就只剩库层触发器一句 23503。
+        SqlAlchemyShotRepository(session),
+        SqlAlchemyProjectRepository(session),
+        SqlAlchemyOutboxWriter(session),
+    )
+
+
+def _get_pack(uow: UnitOfWork = Depends(get_project_tenant_uow)) -> ConstraintPackService:
+    return _pack_service(uow.session)
+
+
+def _get_read_pack(
+    uow: UnitOfWork = Depends(get_read_project_tenant_uow),
+) -> ConstraintPackService:
+    return _pack_service(uow.session)
+
+
+@constraint_pack_router.post("", status_code=201, response_model=_ConstraintPackResponse)
+async def create_constraint_pack(
+    body: CreateConstraintPackRequest,
+    principal: Principal = Depends(require_role("CONSTRAINT.PACK.CREATE")),
+    uow: UnitOfWork = Depends(get_project_tenant_uow),
+    service: ConstraintPackService = Depends(_get_pack),
+) -> dict[str, Any]:
+    """登记约束包。归属判定对象是父项目（包尚不存在）。"""
+    await authorize_on_parent(
+        "CONSTRAINT.PACK.CREATE",
+        principal,
+        uow.session,
+        parent_type="Project",
+        parent_id=body.project_id,
+    )
+    pack = await service.create_pack(
+        project_id=body.project_id,
+        shot_ids=body.shot_ids,
+        applicability=body.applicability,
+        scene_id=body.scene_id,
+        shot_group_ids=body.shot_group_ids,
+        locked_dimensions=body.locked_dimensions,
+        constraints=body.constraints,
+        source_previz_revision=body.source_previz_revision,
+        version=body.version,
+        constraint_pack_id=body.constraint_pack_id,
+        created_by=principal.subject_id,
+        tenant_id=principal.tenant_id,
+        entity_id=body.entity_id,
+    )
+    await uow.commit()
+    return pack.to_dict()
+
+
+@constraint_pack_router.get("/{entity_id}", response_model=_ConstraintPackResponse)
+async def get_constraint_pack(
+    entity_id: str,
+    _principal: Principal = Depends(
+        require_resource_role(
+            "CONSTRAINT.PACK.READ",
+            resource_type="ConstraintPack",
+            param_name="entity_id",
+            uow_dep=get_read_project_tenant_uow,
+        )
+    ),
+    service: ConstraintPackService = Depends(_get_read_pack),
+) -> dict[str, Any]:
+    pack = await service.get_pack(entity_id)
+    return pack.to_dict()
+
+
+@constraint_pack_router.post(
+    "/{entity_id}/lock", response_model=_ConstraintPackResponse
+)
+async def lock_constraint_pack(
+    entity_id: str,
+    body: LockConstraintPackRequest,
+    principal: Principal = Depends(
+        require_resource_role(
+            "CONSTRAINT.PACK.LOCK",
+            resource_type="ConstraintPack",
+            param_name="entity_id",
+            uow_dep=get_project_tenant_uow,
+        )
+    ),
+    uow: UnitOfWork = Depends(get_project_tenant_uow),
+    service: ConstraintPackService = Depends(_get_pack),
+) -> dict[str, Any]:
+    """使约束包生效：审批人 / 审批时间 / 依据 / 审批事件四要素齐备才落 ACTIVE。"""
+    pack = await service.lock_pack(
+        entity_id=entity_id,
+        approved_by=principal.subject_id,
+        approved_at=body.approved_at,
+        lock_basis_ref=body.lock_basis_ref,
+        tenant_id=principal.tenant_id,
+    )
+    await uow.commit()
+    return pack.to_dict()

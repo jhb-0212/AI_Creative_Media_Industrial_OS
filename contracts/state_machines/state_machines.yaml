@@ -234,13 +234,24 @@ objects:
 - object: ConstraintPack
   authoritative_source: 7.9 隐式连续性依赖登记
   allowed_states: [ACTIVE, DRAFT, REVOKED, STALE, SUPERSEDED]
+  initial_state: DRAFT
   transitions:
   - {from: ACTIVE, to: REVOKED}
   - {from: ACTIVE, to: STALE}
   - {from: ACTIVE, to: SUPERSEDED}
   - {from: DRAFT, to: ACTIVE}
-  note: 只有 ACTIVE 可作为生成输入；NOT_APPLICABLE 包同样须经 ACTIVE，以证明“无锁定约束”是授权人判断而非默认值；REVOKED 立即阻断相关路线。
+  # 约束包是叶子对象：约束条目是包内 JSON 数组（7.9 的 object[]），不是独立对象，
+  # 没有子对象挂在其下。
+  frozen_states: []
+  note: >-
+    只有 ACTIVE 可作为生成输入；NOT_APPLICABLE 包同样须经 ACTIVE，以证明「无锁定约束」是
+    授权人判断而非默认值；REVOKED 立即阻断相关路线。四条边分属两个动作：DRAFT→ACTIVE 归
+    CONSTRAINT.PACK.LOCK（锁定义务），ACTIVE→STALE/SUPERSEDED/REVOKED 归
+    CONSTRAINT.PACK.STATUS.CHANGE（治理结论）。共用一个入口会让「锁一份新包」与「撤销一份
+    已生效的包」成为同一种通行证。三条治理边当前无运行时入口，逐边债务见
+    contracts/runtime/state_machine_gaps.yaml。
   source_kind: field_contract_status
+  registration_status: PENDING_PHASE1_REVIEW
   all_sources:
   - 7.9 隐式连续性依赖登记
 

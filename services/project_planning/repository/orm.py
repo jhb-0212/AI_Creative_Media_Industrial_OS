@@ -28,6 +28,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -35,7 +36,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 from packages.shared.database import Base
 from packages.shared.orm import EntityMixin
 from packages.shared.status_constraint import status_check
+from services.project_planning.domain.constraint_pack import LOCKED_DIMENSIONS
 from services.project_planning.domain.enums import (
+    ConstraintPackStatus,
     EpisodeStatus,
     ProjectStatus,
     ReworkTaskStatus,
@@ -449,6 +452,133 @@ class ShotSpecModel(EntityMixin, Base):
     control_signal_refs: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
     locked_dimensions: Mapped[str] = mapped_column(
         String(512), nullable=False, default=""
+    )
+
+
+class ConstraintPackModel(EntityMixin, Base):
+    """constraint_packs 表模型（隐式连续性约束包，7.9 / A23）。
+
+    每条约束都在回答「绕过服务的写入会不会破坏 7.9」，而不是「服务层已经查过」：
+
+    - ``fk_constraint_packs_project_tenant (project_id, tenant_id)``：**租户复合**
+      外键。单列 ``project_id`` 外键只能证明项目存在，挡不住「包属租户 A、项目
+      属租户 B」。复合外键把「包与项目同租户」放到库里（与 projects 的
+      ``uq_projects_entity_tenant`` 对齐）。RLS 是查询侧的隔离，外键是写入侧的
+      归属——两者不能互相替代。
+    - ``uq_constraint_pack_version (constraint_pack_id, version)``：7.9「包标识，
+      同版本内唯一；变更须新建版本并 supersede 旧版本」。两个不同内容自称同一
+      版本号，会让「哪一份是 v3」没有答案。
+    - ``uq_constraint_pack_single_active``（部分唯一，``WHERE status='ACTIVE'``）：
+      7.9「只有 ACTIVE 可作为生成输入」。同一逻辑包若允许两个 ACTIVE 版本并存，
+      下游按 pack 查询会拿到两份互斥的锁定维度，而「用哪一份」只能靠调用方猜。
+      这条索引同时把「版本推进必须 supersede 旧版本」变成结构性要求：没有
+      SUPERSEDE 入口时，新版本锁不上——这是刻意的，缺口应当表现为可读的拒绝，
+      而不是静默的双 ACTIVE。
+    - ``ck_constraint_packs_dimensions_known``：7.9 用「：」列举了七个维度，
+      那就是枚举。``<@`` 是包含于，允许空数组（NOT_APPLICABLE 的包没有维度），
+      但任一非空元素都必须在词表内。
+    - ``ck_constraint_packs_entries``：条目八字段必填下沉到库层。用 IMMUTABLE
+      函数而不是表达式：CHECK 不能写子查询，而「遍历 JSONB 数组逐条判」没有
+      等价的纯表达式写法。
+    - ``ck_constraint_packs_not_applicable_empty``：CP-4 的自述一致性。
+      ``applicability='NOT_APPLICABLE'`` 与「列了锁定维度/条目」不能同时成立。
+
+    刻意**没有** ``ck_constraint_packs_identity_single``
+    --------------------------------------------------
+    Scene/Shot/ShotRevision/ShotSpec 都有这条 CHECK（SC-1 / SH-1 / SR-1「身份单一」），
+    本表没有，且不应补上：那几个对象的契约要求业务 id 与 entity_id 同一，本对象相反——
+    ``entity_id`` 标识**版本行**，``constraint_pack_id`` 标识**逻辑包**。7.9 的
+    ``version`` 写「变更须新建版本并 supersede 旧版本」，新版本就是「新行 + 同包标识
+    + version 递增」。加上那条 CHECK 会让 ``uq_constraint_pack_version`` 与
+    ``uq_constraint_pack_single_active`` 变成结构上恒真的约束（同一行的两列不可能
+    让同一行冲突两次），即两条不变量被登记成 RUNTIME_ENFORCED 却什么也没挡住。
+
+    为什么 ``constraints`` 用 JSONB 而不是子表：7.9 把它定义为包内 ``object[]``，
+    条目没有独立生命周期与状态机；建表会让「包内条目」有第二个可被直接引用的
+    入口，而契约只承认前者。``shot_ids`` 用 ``text[]`` 是因为它确实是一个集合
+    （元素唯一、非空），类型系统能直接表达，JSONB 只能靠应用层自觉。
+    """
+
+    __tablename__ = "constraint_packs"
+    __table_args__ = (
+        UniqueConstraint(
+            "constraint_pack_id", "version", name="uq_constraint_pack_version"
+        ),
+        # 子表复合外键的引用目标（A13 同形）；也是包在项目内的身份唯一性。
+        UniqueConstraint(
+            "project_id", "entity_id", name="uq_constraint_packs_entity_project"
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id"],
+            [
+                f"{SCHEMA_NAME}.projects.entity_id",
+                f"{SCHEMA_NAME}.projects.tenant_id",
+            ],
+            name="fk_constraint_packs_project_tenant",
+        ),
+        Index(
+            "uq_constraint_pack_single_active",
+            "constraint_pack_id",
+            unique=True,
+            postgresql_where=text("status = 'ACTIVE'"),
+        ),
+        CheckConstraint(
+            "applicability IN ('APPLICABLE', 'NOT_APPLICABLE')",
+            name="ck_constraint_packs_applicability",
+        ),
+        CheckConstraint(
+            "cardinality(shot_ids) >= 1", name="ck_constraint_packs_shot_ids_present"
+        ),
+        CheckConstraint(
+            f"{SCHEMA_NAME}.text_array_unique(shot_ids::text[])",
+            name="ck_constraint_packs_shot_ids_unique",
+        ),
+        CheckConstraint(
+            f"{SCHEMA_NAME}.text_array_unique(shot_group_ids::text[])",
+            name="ck_constraint_packs_shot_groups_unique",
+        ),
+        CheckConstraint(
+            "locked_dimensions::text[] <@ ARRAY["
+            + ", ".join(f"'{name}'" for name in sorted(LOCKED_DIMENSIONS))
+            + "]::text[]",
+            name="ck_constraint_packs_dimensions_known",
+        ),
+        CheckConstraint(
+            f"{SCHEMA_NAME}.constraint_entries_complete(constraints)",
+            name="ck_constraint_packs_entries",
+        ),
+        CheckConstraint(
+            "applicability <> 'NOT_APPLICABLE' OR "
+            "(cardinality(locked_dimensions) = 0 "
+            "AND jsonb_array_length(constraints) = 0)",
+            name="ck_constraint_packs_not_applicable_empty",
+        ),
+        CheckConstraint("version >= 1", name="ck_constraint_packs_version_positive"),
+        status_check((s.value for s in ConstraintPackStatus), table="constraint_packs"),
+        {"schema": SCHEMA_NAME},
+    )
+
+    constraint_pack_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    scene_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    shot_ids: Mapped[list[str]] = mapped_column(ARRAY(String(64)), nullable=False)
+    shot_group_ids: Mapped[list[str]] = mapped_column(
+        ARRAY(String(64)), nullable=False
+    )
+    applicability: Mapped[str] = mapped_column(String(32), nullable=False)
+    locked_dimensions: Mapped[list[str]] = mapped_column(
+        ARRAY(String(32)), nullable=False
+    )
+    constraints: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
+    source_previz_revision: Mapped[str] = mapped_column(
+        String(200), nullable=False, default=""
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 授权人：7.9「不得为 Agent」。这一句由授权层保证（Agent/Worker 角色没有
+    # CONSTRAINT.PACK.LOCK 权限），不在库里按字符串猜主体类型。
+    approved_by: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    approved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
 

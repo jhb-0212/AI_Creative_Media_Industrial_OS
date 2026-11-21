@@ -354,3 +354,34 @@ events:
       - locked_by
       - tenant_id
     contract_ref: contracts/state_machines/state_machines.yaml#ShotSpec
+  - event_type: CONSTRAINT_PACK_CREATED
+    aggregate_type: ConstraintPack
+    emitted_by: services/project_planning/service/constraint_pack_service.py
+    payload_required:
+      - constraint_pack_id
+      - project_id
+      - applicability
+      - shot_count
+      - locked_dimension_count
+      - constraint_count
+      - version
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#ConstraintPack
+  - event_type: CONSTRAINT_PACK_LOCKED
+    aggregate_type: ConstraintPack
+    emitted_by: services/project_planning/service/constraint_pack_service.py
+    payload_required:
+      - constraint_pack_id
+      - project_id
+      - applicability
+      - locked_dimensions
+      - version
+      - lock_basis_ref
+      - approved_at
+      - approved_by
+      - from_status
+      - to_status
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#ConstraintPack

@@ -3,7 +3,7 @@
 # 校验口径：action_key 全局唯一、命名规范、audit_event 与 negative_test_id 一一对应
 registry_source: 'AFS-ARCH-MASTER-V2.0.5 / 31.6 Action Registry'
 registry_version: 'V2.0.5'
-total_actions: 98
+total_actions: 100
 actions:
   - action_key: 'PROJECT.CREATE'
     resource_type: 'Project'
@@ -115,6 +115,17 @@ actions:
     negative_test_id: 'ACT-SPEC-NEG-001'
     negative_test_desc: '未审批锁定拒绝'
     status: 'ACTIVE'
+  - action_key: 'CONSTRAINT.PACK.READ'
+    resource_type: 'ConstraintPack'
+    scope: 'project/shot'
+    risk_level: 'LOW'
+    token_required: true
+    allowed_principals: '导演/TD/QC 审核人'
+    approval_requirement: '读取约束包元数据与 locked_dimensions；租户边界由 RLS 保证，组织边界由统一授权入口判定。'
+    audit_event: 'CONSTRAINT_PACK_READ'
+    negative_test_id: 'ACT-CNST-NEG-003'
+    negative_test_desc: '跨组织读取约束包拒绝'
+    status: 'ACTIVE'
   - action_key: 'CONSTRAINT.PACK.CREATE'
     resource_type: 'ConstraintPack'
     scope: 'project/shot'
@@ -136,6 +147,17 @@ actions:
     audit_event: 'CONSTRAINT_PACK_LOCKED'
     negative_test_id: 'ACT-CNST-NEG-002'
     negative_test_desc: 'Agent 锁定拒绝'
+    status: 'ACTIVE'
+  - action_key: 'CONSTRAINT.PACK.STATUS.CHANGE'
+    resource_type: 'ConstraintPack'
+    scope: 'project/shot'
+    risk_level: 'HIGH'
+    token_required: true
+    allowed_principals: '导演/授权 TD'
+    approval_requirement: '仅用于治理边：ACTIVE→REVOKED（撤销须给依据）/ STALE（须指认失效源）/ SUPERSEDED（须给新版本引用）；不得用于内容修改。'
+    audit_event: 'CONSTRAINT_PACK_STATUS_CHANGED'
+    negative_test_id: 'ACT-CNST-NEG-004'
+    negative_test_desc: 'Agent 推进治理边拒绝'
     status: 'ACTIVE'
   - action_key: 'PRODUCTION.ROUTE.SELECT'
     resource_type: 'ProductionRoute'

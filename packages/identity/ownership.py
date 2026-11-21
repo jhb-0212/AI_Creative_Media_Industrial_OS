@@ -184,6 +184,15 @@ _RESOLVE_SQL: dict[str, str] = {
           ON p.entity_id = s.project_id AND p.tenant_id = s.tenant_id
         WHERE s.entity_id = :rid
     """,
+    # A23：约束包自带 project_id（7.9 的必填字段），一跳即可解析。
+    # 不经 shots / shot_revisions：它作用在「多镜头」，没有单一父对象。
+    "ConstraintPack": """
+        SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
+        FROM project_planning.constraint_packs AS c
+        JOIN project_planning.projects AS p
+          ON p.entity_id = c.project_id AND p.tenant_id = c.tenant_id
+        WHERE c.entity_id = :rid
+    """,
 }
 
 

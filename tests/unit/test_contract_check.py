@@ -634,42 +634,22 @@ def test_transition_entry_gaps_passes_on_current_contract() -> None:
 def test_transition_entry_gaps_detects_dropped_entry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """删掉无入口对象的债务条目 → 反向完备性检查必须报红（不能打印 PASS）。
+    """删掉无入口边的债务条目 → 反向完备性必须报红（不能打印 PASS）。
 
-    当前契约里 Project/Episode 均已实现状态变更入口（Phase 6），不再是
-    「无入口对象」；因此这里用 monkeypatch 把 Project 伪装成「无状态变更
-    action」，验证反向完备性逻辑对无入口对象仍然生效。
+    当前契约里天然存在真实缺口：``ConstraintPack`` 的三条治理边由
+    ``CONSTRAINT.PACK.STATUS.CHANGE`` 拥有，而该动作只登记未实现。所以这条用例
+    不需要伪造任何状态——它验证的正是「边级判据能看见对象级判据看不见的缺口」。
     """
-    original = cc._status_change_action_keys
-
-    def _without_status_change(resource_type: str) -> set[str]:
-        keys = original(resource_type)
-        if resource_type == "Project":
-            keys = keys - {"PROJECT.STATUS.CHANGE"}
-        return keys
-
-    monkeypatch.setattr(cc, "_status_change_action_keys", _without_status_change)
-    monkeypatch.setattr(cc, "STATE_GAPS_PATH", _gaps_without("Project", tmp_path=tmp_path))
+    monkeypatch.setattr(
+        cc, "STATE_GAPS_PATH", _gaps_without("ConstraintPack", tmp_path=tmp_path)
+    )
     assert cc.check_transition_entry_gaps() is False
 
 
 def test_transition_entry_gaps_detects_missing_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """删掉整个债务文件，且存在无入口对象 → 必须让闸门报红。
-
-    同理，用 monkeypatch 把 Project 伪装成无入口对象，再删掉债务文件，
-    验证反向完备性不会被「删文件变绿」绕过。
-    """
-    original = cc._status_change_action_keys
-
-    def _without_status_change(resource_type: str) -> set[str]:
-        keys = original(resource_type)
-        if resource_type == "Project":
-            keys = keys - {"PROJECT.STATUS.CHANGE"}
-        return keys
-
-    monkeypatch.setattr(cc, "_status_change_action_keys", _without_status_change)
+    """删掉整个债务文件 → 必须报红（反向完备性不接受「没有文件 = 没有债务」）。"""
     monkeypatch.setattr(cc, "STATE_GAPS_PATH", tmp_path / "does-not-exist.yaml")
     assert cc.check_transition_entry_gaps() is False
 
@@ -680,7 +660,8 @@ def test_transition_entry_gaps_bad_shape_raises_value_error(
     """债务详情写成字符串 → ValueError（结构化 FAIL），而不是 AttributeError 崩溃。"""
     bad = tmp_path / "gaps.yaml"
     bad.write_text(
-        "transition_entry_gaps:\n  Project: oops\n", encoding="utf-8"
+        "transition_entry_gaps:\n  Project: oops\n",
+        encoding="utf-8",
     )
     monkeypatch.setattr(cc, "STATE_GAPS_PATH", bad)
     with pytest.raises(ValueError) as exc_info:
@@ -688,15 +669,59 @@ def test_transition_entry_gaps_bad_shape_raises_value_error(
     assert "transition_entry_gaps.Project" in str(exc_info.value)
 
 
+def test_transition_entry_gaps_bad_edge_detail_raises_value_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """边这一层的详情不是映射 → ValueError，而不是在 `.get` 上崩掉。
+
+    两层嵌套之后多了一种坏形状（对象对了、边对了、详情不是映射），必须单独覆盖：
+    只在顶层做形状校验会让它在 detail.get() 处抛 AttributeError，闸门带着
+    traceback 崩掉而不是给出可读的 FAIL。
+    """
+    bad = tmp_path / "gaps.yaml"
+    bad.write_text(
+        "transition_entry_gaps:\n  ConstraintPack:\n\n    'ACTIVE -> REVOKED': oops\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cc, "STATE_GAPS_PATH", bad)
+    with pytest.raises(ValueError) as exc_info:
+        cc.check_transition_entry_gaps()
+    assert "transition_entry_gaps.ConstraintPack.ACTIVE -> REVOKED" in str(
+        exc_info.value
+    )
+
+
+def test_transition_entry_gaps_rejects_unknown_edge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """登记一条不存在的边 → 报红。
+
+    手抄边标签是本判据唯一的写入风险：写错一个状态名不会撞上任何约束，只会让
+    「这条边已登记」看起来成立，而真实的缺口仍然没人登记。
+    """
+    data = yaml.safe_load(cc.STATE_GAPS_PATH.read_text(encoding="utf-8"))
+    data["transition_entry_gaps"]["ConstraintPack"]["DRAFT -> LOCKED"] = {
+        "reason": "手抄错边",
+        "contract_ref": "x",
+        "unblocks_when": "y",
+    }
+    target = tmp_path / "gaps.yaml"
+    target.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    monkeypatch.setattr(cc, "STATE_GAPS_PATH", target)
+    assert cc.check_transition_entry_gaps() is False
+
+
 def test_transition_entry_gaps_detects_stale_entry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """AssetVersion 已有已实现的状态变更 action，再登记债务即陈旧 → 报红。"""
+    """给一条 owner_action 已实现的边登记债务 → 陈旧，必须报红。"""
     data = yaml.safe_load(cc.STATE_GAPS_PATH.read_text(encoding="utf-8"))
     data["transition_entry_gaps"]["AssetVersion"] = {
-        "reason": "陈旧登记",
-        "contract_ref": "x",
-        "unblocks_when": "y",
+        "GENERATED -> TECHNICAL_QC": {
+            "reason": "陈旧登记",
+            "contract_ref": "x",
+            "unblocks_when": "y",
+        }
     }
     target = tmp_path / "gaps.yaml"
     target.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
@@ -710,30 +735,25 @@ def test_transition_entry_gaps_contract_registration_is_not_stale(
     """契约先登记、运行时未实现不算陈旧（否则会逼着人删掉真实缺口）。
 
     「已补上入口」只认运行时台账 implemented，不认 action_registry 的登记。
-    构造：registry 里 Project 有 PROJECT.STATUS.CHANGE，但 implemented 里没有
-    （伪造为未实现），且债务文件里仍登记 Project 债务——此时不得判「陈旧」，
-    闸门应通过（债务仍真实有效）。
-
-    注：Phase 6 后 PROJECT.STATUS.CHANGE 已真实实现，故此处用 monkeypatch
-    把 implemented 里它摘掉，复现「已登记未实现」的历史状态以守护该口径。
+    构造：把 CONSTRAINT.PACK.LOCK 从 implemented 摘掉（模拟「契约已登记、运行时
+    尚未实现」），并把 DRAFT→ACTIVE 也登记进债务——此时四条边全部「未实现且有
+    登记」，闸门应 PASS；若判据改成按 registry 判定，这里会误报「陈旧」。
     """
     original_impl = cc._implemented_action_keys
 
-    def _without_project_status_change() -> set[str]:
-        keys = original_impl()
-        return keys - {"PROJECT.STATUS.CHANGE"}
+    def _without_pack_lock() -> set[str]:
+        return original_impl() - {"CONSTRAINT.PACK.LOCK"}
 
-    # 构造债务文件：重新登记 Project 债务（模拟「入口尚未实现」的历史状态）。
     data = yaml.safe_load(cc.STATE_GAPS_PATH.read_text(encoding="utf-8"))
-    data["transition_entry_gaps"]["Project"] = {
-        "reason": "登记了 PROJECT.STATUS.CHANGE 但运行时尚未实现",
+    data["transition_entry_gaps"]["ConstraintPack"]["DRAFT -> ACTIVE"] = {
+        "reason": "契约已登记 CONSTRAINT.PACK.LOCK，但运行时入口尚未实现",
         "contract_ref": "contracts/action_registry/action_registry.yaml",
         "unblocks_when": "实现 service/route 并登记 action_implementations.yaml",
     }
     target = tmp_path / "gaps.yaml"
     target.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
 
-    monkeypatch.setattr(cc, "_implemented_action_keys", _without_project_status_change)
+    monkeypatch.setattr(cc, "_implemented_action_keys", _without_pack_lock)
     monkeypatch.setattr(cc, "STATE_GAPS_PATH", target)
     assert cc.check_transition_entry_gaps() is True
 

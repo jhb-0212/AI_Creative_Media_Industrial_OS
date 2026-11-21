@@ -571,6 +571,98 @@ Lifecycle.assert_child_creation_allowed(status, child_object=...) -> None  # 命
 - 冻结策略：`ShotRevision.frozen_states = [SUPERSEDED]`，`shot_revisions` 登记为冻结容器；
 - 台账：`V205-R14-A22` 登记上述增量，`freeze_manifest --write` 重签。
 
+### 6.9 ConstraintPack 运行时落地（2026-11-21，V205-R14-A23）
+
+7.9 给了 ConstraintPack 完整的包级 12 字段与条目 8 必填字段、五个状态与四条边，31.6 也
+登记了 `CONSTRAINT.PACK.CREATE` / `LOCK`，但库里没有任何对应物。本批按主链顺序（ShotSpec
+之后、单一路线生成之前）把它补成四层落地：契约登记 → 库层约束 → 领域层 → 服务/路由/事件。
+
+#### 四条边分属两个动作，不是「一个动作管一个对象」
+
+`DRAFT → ACTIVE` 归 `CONSTRAINT.PACK.LOCK`；三条治理边（`ACTIVE → STALE / SUPERSEDED /
+REVOKED`）归**新增**的 `CONSTRAINT.PACK.STATUS.CHANGE`。理由不是命名洁癖：LOCK 回答的是
+「锁定义务已尽」（审批人、审批时间、依据、事件四要素一次落齐），治理边回答的是「此后还能
+不能被用」。把治理边塞进 LOCK，等于让「重新审批一次锁定」顺带撤销一份已生效的授权——正
+是 N-07 修掉的形态：一个入口承载两种准入条件，实际效果是两者都只剩较松的那条。
+
+`STATUS.CHANGE` 本批只登记、不实现：三条治理边没有下游消费者（生成域未落地），现在实现
+只能得到「能改状态、没人读」的边，而它会立刻把 §7 的债务伪装成已解决。逐边债务登记在
+`state_machine_gaps.yaml`。
+
+#### 身份分层：`entity_id` 是版本行，`constraint_pack_id` 是逻辑包（本批的自我纠错）
+
+初版照抄了 Scene/Shot/ShotRevision/ShotSpec 的 `ck_*_identity_single`（业务 id = entity_id），
+并在领域层强制两者相等。那是**拷贝形态而不是读懂契约**：那几个对象没有跨行版本，7.9 的
+`version` 却写着「变更须新建版本并 supersede 旧版本」——新版本就是「新行 + 同一个包标识 +
+version 递增」。
+
+两列被钉死为同一值的后果不是「多一道防线」，而是同时废掉两条刚要登记为 `RUNTIME_ENFORCED`
+的不变量：
+
+- `uq_constraint_pack_version (constraint_pack_id, version)`：同一行不可能与自己冲突两次；
+- `uq_constraint_pack_single_active WHERE status='ACTIVE'`：一行只能有一个 status，CP-6 恒真。
+
+恒真的约束比没有约束更危险——闸门会报绿，而「两个 ACTIVE 并存」这件事从未被挡过。故本批
+删掉该 CHECK（迁移与 ORM 同步），领域层改为「缺省取 entity_id，允许显式不同」，并在
+`planning_seed` 的 `constraint_pack_id` 参数上留出构造第二版本的入口，用集成用例证明两条
+约束真的会拒绝。这条纠错也解释了 §9 第 13 条为什么必须有「不同包各自 ACTIVE 放行」的
+正测：只有负测时，把部分唯一索引误写成全表唯一同样是绿的。
+
+#### 作用镜头的归属：触发器，不是关联表
+
+`shot_ids` 是数组，外键表达不了「每个元素都是本项目的真实 Shot」。关联表能让复合外键生效，
+但会把契约字段降级成派生投影——库里同时存在「数组」与「关联行」两份事实，任何写入路径都
+得维护一致性，而两份事实迟早分叉。
+
+触发器 `trg_constraint_packs_shots` 保持「数组是唯一存储形态」，同时以 `ERRCODE='23503'`
+抛出，与真外键共用同一条错误映射（`classify_write_error` 按 SQLSTATE 前缀 `23` 判定），
+不新增翻译分支——每新增一条分支就多一处「记得同步」。
+
+代价是两层判定顺序必须在文档里说清：触发器**先于** CHECK 执行，因此 `shot_ids` 的空白元素
+永远以 23503（引用不成立）被拒，永远不会走到 `text_array_unique` 的空白分支。断言一个取决于
+执行顺序的 SQLSTATE 是脆弱的，故库层空白负测改用 `shot_group_ids`（无触发器，直达 CHECK）。
+
+#### 部分唯一索引：把「版本推进没有入口」变成可读的 409
+
+新版本锁不上时，服务层收到的是一条唯一冲突。若不解释，路由只能给 500；若解释成「重复提交」，
+调用方会一直重试一条注定失败的请求。正确的话术是第三种：**同一逻辑包已有生效版本，取代入口
+尚未实现**。这要求仓储能回答「生效中的是哪一版」（`get_active_by_pack`）。
+
+同一原则适用于 `uq_constraint_pack_version` 冲突：只说「版本已存在」，调用方无法判断该递增
+`version` 还是该换 `constraint_pack_id`（两种修法方向相反）。故仓储补 `get_by_pack_version`，
+409 里点出占用者的 `entity_id`。`ConstraintPackRepository.save` 也必须翻译驱动异常——部分唯一
+索引在 `save`（DRAFT→ACTIVE 的条件更新）上才会被触发，不翻译就只有 500。
+
+#### 闸门升级：转移入口判据从对象级降为边级（方向相反，是升精度）
+
+原判据问的是「这个对象有没有实现任意一个状态变更动作」。ConstraintPack 恰好是「一条边有
+入口、三条没有」的形态，对象级判据会直接放行——三条治理边在库里永远走不通，而闸门是绿的。
+
+新判据应检集合直接来自 `Transition.owner_action`：每条边都必须有责任动作，且该动作已实现；
+未实现的边必须在 `state_machine_gaps.yaml` 里**逐边**登记，实现后登记项必须删除（反向完备）。
+不再有「按命名猜哪个动作管状态变更」的步骤（旧的 `_status_change_action_keys` 已删），
+判据也不依赖命名约定。
+
+#### 顺带根治：`advance_status` 失败后聚合必须回到推进前
+
+`advance_status` 是「先改内存、再条件落库」。落库被乐观锁或唯一约束拒绝时，内存里的新状态
+已经生效而库里没有；若那个对象被复用（重试、批处理、幂等回读后再推进），第二次推进会把它
+当成「当前已经是 ACTIVE」，写进 `TransitionFact.from_status` 的是一条从未在库里存在过的状态。
+
+审计表里最不该有的东西，且没有任何闸门会发现。修复放在唯一入口：失败路径（含
+`on_conflict="skip"`）一律用推进前的 `__dict__` 浅拷贝恢复。约束写在注释里——快照是浅拷贝，
+`transition_to` 目前只写标量字段；将来若出现就地改集合的转移，那一处必须自己负责。
+
+#### 契约变更点
+
+- Action：新增 `CONSTRAINT.PACK.READ`（LOW）与 `CONSTRAINT.PACK.STATUS.CHANGE`（HIGH），
+  `total_actions` 98→100；`CREATE` / `READ` / `LOCK` 移入 `implemented`；
+- OpenAPI：新增 `/actions/constraint.pack.read` 与 `/actions/constraint.pack.status.change`；
+- 事件：`CONSTRAINT_PACK_CREATED` / `CONSTRAINT_PACK_LOCKED` 入 `event_catalog` 并由服务真发出；
+- 状态机：`ConstraintPack` 进 `_STATE_MACHINE_SOURCES`（4 条边），状态枚举与 CHECK 一致；
+- Schema：`CP-1…CP-6` 由 `ABSENT` 升为 `RUNTIME_ENFORCED`，`CP-7` 保持 `RUNTIME_PENDING`；
+- 台账：`V205-R14-A23` 登记上述增量与身份分层裁定，`freeze_manifest --write` 重签。
+
 ## 7. 已知债务（本批不解决，必须登记）
 
 1. **`affected_asset_version_ids` 无外键**：跨域 ID 数组，库层无法约束。
@@ -617,6 +709,26 @@ Lifecycle.assert_child_creation_allowed(status, child_object=...) -> None  # 命
    定义「深层父链冻结」的判定链与加锁顺序（父→子，否则死锁），属独立修订；
    在此之前不得只给某一层加判据——单层加判据会造成「有的路径冻结、有的不冻结」
    的错觉，比统一宽松更危险。
+
+10. **`ConstraintPack` 的三条治理边无运行时入口**（A23）：`ACTIVE → STALE / SUPERSEDED /
+    REVOKED` 的责任动作 `CONSTRAINT.PACK.STATUS.CHANGE` 已登记但未实现，逐边登记在
+    `state_machine_gaps.yaml`。期间「撤销一份已生效的约束包」只能人工改库，而改库不会留下
+    `audit.status_transitions` 事实——即一次授权被撤销，审计查不到。这是本批最大的缺口，
+    也是「版本推进」缺席的直接后果：没有 SUPERSEDE 入口，新版本锁不上（部分唯一索引会拒）。
+11. **`ConstraintPack.source_previz_revision` 的「EXPLORATORY 型不得填入」未校验**：判定需要
+    PrevizVersion 对象及其 exploration 类型，该对象尚未建模。当前只校验字段长度，无法区分
+    BASELINE 与 EXPLORATORY 来源。
+12. **`shot_group_ids` 是自由引用**：`ShotGroup` 未建模，既无法校验取值是否为真实镜头组，
+    也无法校验其成员属于本项目。与 `shot_ids` 的差异是刻意的——有对象才做归属校验，为不存在
+    的对象编一套校验只会造出假约束。
+13. **`shot_ids` 归属用触发器而非复合外键**：存在「校验通过后镜头被删」的窗口。Shot 创建即
+    绑定项目且项目归属不可迁移，该窗口不构成新的不变量缺口，但严格意义上弱于复合外键。
+14. **`CP-7`（只有 ACTIVE 可作生成输入）保持 `RUNTIME_PENDING`**：生成域未落地，无消费者可
+    校验；定级必须与实现同批，否则就是 §6.1 之后反复出现的虚假声明。
+15. **唯一冲突的成因仍靠回读区分**（§6.4 债务 7 的延续）：`translate_write_error` 不透出约束名，
+    `save` 抛出的 `DuplicateEntityError.constraint` 恒为空，`lock_pack` 只能再用
+    `get_active_by_pack` 查一次才知道是「已有生效版本」。多一次往返是可接受的代价，但它是
+    「约束名没有从驱动透出来」的症状，不是设计选择。
 
 ## 8. 被拒绝的替代方案
 
@@ -691,3 +803,19 @@ Lifecycle.assert_child_creation_allowed(status, child_object=...) -> None  # 命
     父链路径**零调用**；否则修订被取代后的重试会变成 4xx，调用方无法确认创建是否生效。
 23. `SHOTSPEC.READ` 存在且与契约一致：Action Registry / OpenAPI / 真实路由三向比对，
     `action_implementations.yaml` 的 route 由 `app.openapi()` 校验。
+13. 「同一逻辑包至多一个 ACTIVE」双向证明：`test_constraint_pack_boundaries.py` 里
+    `test_two_active_versions_of_one_pack_are_rejected`（23505）与
+    `test_different_packs_may_each_have_an_active_version`（两个不同 pack 各自 ACTIVE 必须
+    成功）成对存在。只有负测时，把部分唯一索引误写成全表唯一同样是绿的。
+14. 转移入口判据逐边比对：11 个状态机共 47 条边，每条边的 `owner_action` 必须已实现，或
+    在 `state_machine_gaps.yaml` 逐边登记；登记项与实现、实现与登记两个方向都不许缺
+    （`tests/unit/test_contract_check.py` 的 `transition_entry_gaps` 用例覆盖四类错法）。
+15. 失败推进不污染聚合：`advance_status` 的任一失败路径（守卫拒绝、乐观锁冲突、
+    `on_conflict="skip"`）之后，实体的 `status` / `entity_version` 必须回到推进前；
+    `test_constraint_pack_service.py::test_single_active_conflict_explains_missing_supersede_entry`
+    以「拒绝后仍为 DRAFT」钉死这条。
+16. 幂等早于归属：重放已成功过的创建请求时，镜头归属查询必须**零调用**（不是「结果相同」）——
+    否则镜头在下游被改名后，重试会变成 4xx，调用方永远无法确认第一次是否生效。
+17. 库层七类负测各有 SQLSTATE 断言：跨租户归属 23503、跨项目/悬空镜头 23503、同包双 ACTIVE
+    23505、同包同版本 23505、重复镜头/未登记维度/条目缺字段/NOT_APPLICABLE 带内容/版本非正/
+    适用性非法 23514。断言具体 SQLSTATE 而不是「报错了」，否则「被错的约束拒绝」也算通过。

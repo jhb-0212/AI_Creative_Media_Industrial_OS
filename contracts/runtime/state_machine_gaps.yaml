@@ -52,15 +52,47 @@ gaps:
 # 为什么需要它：check_state_reachability 只做「状态图可达性」——只要域转移表里有
 # 边，闸门就绿；它不校验「是否有 action 能触发这条边」。于是「项目创建后停在
 # DRAFT、平台无法推进到生产态」与「闸门全绿」可以同时成立（审计 P2-1 即此）。
-# 本分区把「无入口的转移」显式登记，闸门校验其诚实性（对象已实现、字段完整、
-# 且该对象确实仍无状态变更 action——一旦补上入口就必须删条目，否则报「陈旧债务」）。
+#
+# 为什么判到**边**而不是对象（A23 升级）：
+# 旧判据是对象级——对象有任意一个已实现的状态变更 action 就整对象过关。于是
+# 「一个对象四条边，一条有入口、三条没有」会静默通过。ConstraintPack 正是这种
+# 形态（DRAFT→ACTIVE 归 LOCK 已实现，三条治理边归 STATUS.CHANGE 未实现）。
+# 边级判据的应检集合直接来自边表的 Transition.owner_action，不依赖命名约定，
+# 也不依赖任何手写清单。
+#
+# 结构：对象 → 转移边标签 → 债务详情。
 #
 # 写入口径：
 # - 只登记 _STATE_MACHINE_SOURCES 里已实现状态机的对象；
-# - 每个条目必须给 reason / contract_ref / unblocks_when 三项；
-# - 反向完备性（删条目/删文件都绕不过）：状态机有转移边、却没有任何**已实现**的
-#   状态变更 action 的对象，必须在这里登记债务，否则闸门报红；
+# - 边标签必须与边表的 ``Transition.label`` 逐字一致（"SOURCE -> TARGET"）；
+# - 每条边必须给 reason / contract_ref / unblocks_when 三项；
+# - 反向完备性（删条目/删文件都绕不过）：owner_action 未实现的边必须登记；
 # - 「已补上入口」只认运行时台账 action_implementations.yaml 的 implemented：
-#   契约里先登记 PROJECT.STATUS.CHANGE（not_implemented）不算入口已补上；
+#   契约里先登记动作（not_implemented）不算入口已补上；
 # - 入口真的实现后必须删条目，否则闸门以「陈旧债务」报红。
-transition_entry_gaps: {}
+transition_entry_gaps:
+  ConstraintPack:
+    'ACTIVE -> REVOKED':
+      reason: 7.9 要求「REVOKED 立即阻断相关路线」，但阻断的消费者（生成路线选择、
+        任务调度）尚未落地；现在实现只能得到一条「能改状态、没人读」的边。撤销依据
+        （凭什么撤销）也还没有落点——state_machines 只给了边，没给撤销的授权条件。
+      contract_ref: contracts/state_machines/state_machines.yaml → objects.ConstraintPack
+      unblocks_when: 生成路线选择（PRODUCTION.ROUTE.SELECT）落地并读取 ACTIVE 约束包时，
+        实现 CONSTRAINT.PACK.STATUS.CHANGE 的 REVOKED 分支（携带撤销依据与撤销人），
+        并把该边的 owner_action 指向已实现条目后删除本条
+    'ACTIVE -> STALE':
+      reason: STALE 的触发源是「引用的 PrevizVersion 或上游锁定维度失效」，而 PrevizVersion
+        未建模、DAG 依赖也未落地——没有失效源的判定能力，实现出来的只是一个「人手置
+        STALE」的开关，无法与 7.9 的「须重新确认」语义对齐。
+      contract_ref: contracts/state_machines/state_machines.yaml → objects.ConstraintPack
+      unblocks_when: PrevizVersion 建模且 STALE 传播（读 DAG 边 + 有效连续性约束）落地后，
+        实现 STATUS.CHANGE 的 STALE 分支（携带失效源引用），并删除本条
+    'ACTIVE -> SUPERSEDED':
+      reason: 7.9「变更须新建版本并 supersede 旧版本」，但「谁有权取代」没有动作。
+        把 supersede 藏进 CONSTRAINT.PACK.CREATE 会让「导入一份新包」顺带撤销一份已生效
+        的授权（N-07 修掉的形态）。在此之前，库层的部分唯一索引
+        uq_constraint_pack_single_active 会把「新版本锁不上」变成可读的 409，而不是静默的
+        双 ACTIVE。
+      contract_ref: contracts/state_machines/state_machines.yaml → objects.ConstraintPack
+      unblocks_when: 实现 STATUS.CHANGE 的 SUPERSEDED 分支（携带新版本引用），并让
+        CONSTRAINT.PACK.LOCK 在同一事务内先取代旧版本；落库后删除本条

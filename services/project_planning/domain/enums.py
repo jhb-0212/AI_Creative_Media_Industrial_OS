@@ -155,3 +155,30 @@ class ReworkTaskStatus(str, Enum):
     VERIFYING = "VERIFYING"
     CLOSED = "CLOSED"
     REJECTED = "REJECTED"
+
+
+class ConstraintPackStatus(str, Enum):
+    """约束包状态（7.9 隐式连续性依赖登记 / A23 实现）。
+
+    对齐 contracts/state_machines/state_machines.yaml → objects → ConstraintPack：
+    ``DRAFT → ACTIVE``；``ACTIVE → STALE / SUPERSEDED / REVOKED``。
+
+    五个状态全部保留，不做「只实现两态」的裁剪——契约给了五态，裁剪会让库里
+    出现一个与契约不同的状态集，而闸门按契约比对，裁剪必然报红。
+
+    但**只有 ``DRAFT → ACTIVE`` 这一条边在本批有入口**（``CONSTRAINT.PACK.LOCK``）。
+    三条治理边（REVOKED / STALE / SUPERSEDED）的责任动作 ``CONSTRAINT.PACK.STATUS.CHANGE``
+    已在契约登记、运行时尚未实现，逐边债务登记在
+    ``contracts/runtime/state_machine_gaps.yaml``。它们是「可达但无入口」，
+    不是「不可达」：区别在闸门的债务分区不同，不能混为一谈。
+
+    ``ACTIVE`` 是唯一可作生成输入的状态（7.9 原文）。NOT_APPLICABLE 的包同样
+    必须经 ACTIVE：否则「已确认无锁定约束」就退化成一个默认值，而契约要的是
+    授权人的判断。
+    """
+
+    DRAFT = "DRAFT"            # 草稿：可编辑（创建后即此态）
+    ACTIVE = "ACTIVE"          # 已审批生效：唯一可作生成输入的状态
+    STALE = "STALE"            # 引用的 PrevizVersion 或上游锁定维度失效，须重新确认
+    SUPERSEDED = "SUPERSEDED"  # 已被新版本取代
+    REVOKED = "REVOKED"        # 授权被撤销，相关路线立即阻断
