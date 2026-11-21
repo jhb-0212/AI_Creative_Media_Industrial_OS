@@ -150,6 +150,11 @@ jobs:
         # 覆盖面防呆防止新代码目录天然免疫闸门。轻量模式不含 --git（PR 分支落后
         # main 是正常的）与 --full（本 job 已逐项跑过 ruff/mypy/contract/arch/freeze）。
         run: uv run python scripts/merge_readiness.py
+      - name: Secret scan (交付包密钥，生产准入条件之一)
+        # 第三轮审查 P1-2：交付包密钥扫描此前未实现。高置信规则 + 可机检豁免
+        # （陈旧豁免会报红），负向测试见 tests/unit/test_secret_scan.py。
+        # 挂在已 required 的 contract-check job 内，自动受分支保护约束。
+        run: uv run python scripts/secret_scan.py
 
   permission-negative-tests:
     runs-on: ubuntu-24.04
