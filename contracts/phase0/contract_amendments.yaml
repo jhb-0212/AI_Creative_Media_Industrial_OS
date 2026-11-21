@@ -24,8 +24,11 @@
 # ------------------------
 # 1. 新增/删除任何 Action、Schema 对象、状态机，必须先改基线文档（新修订）
 #    或在此登记修订，再改派生文件；顺序反了就是「先斩后奏」，闸门会拦住。
-# 2. 每条修订必须给：id、title、reason、adr、source_commits、approved_by、
-#    approved_at，缺一项即 FAIL（债务不能含糊）。
+# 2. 每条修订的必填字段以 scripts/freeze_manifest.py::_REQUIRED_AMENDMENT_FIELDS 为
+#    唯一权威（本文件不复制该清单，抄一份必然与判据漂移）。缺任一项即 FAIL，
+#    唯一的例外是 `traceability_debt` 显式登记的历史条目缺 source_commits——
+#    登记清单被双向校验：缺了没登记报红，登记了却已补齐也报红。
+#    **新增条目必须自带 source_commits，不得再往债务清单里加。**
 # 3. 修订只能追加，不得改写历史条目；撤销一条修订用新的 `revocations` 记录，
 #    保留原始痕迹。
 # 4. 补登记（retroactive: true）必须如实标注——事后追认不等于当时合规，
@@ -1136,7 +1139,7 @@ amendments:
     adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
     approved_by: '项目所有者（2026-11-21 会话内「继续」：按主链顺序推进 ConstraintPack 实现）'
     approved_at: '2026-11-21'
-    source_commits: []
+    source_commits: ['8f5033b']
     additions:
       actions:
         - action_key: 'CONSTRAINT.PACK.READ'
@@ -1172,6 +1175,36 @@ amendments:
       - 'shot_group_ids 无对应对象（ShotGroup 未建模），是自由引用：无法校验取值是否为真实镜头组，也无法校验其成员是否属于本项目。与 shot_ids 的差异是刻意的——有对象才做归属校验，为不存在的对象编一套校验只会造出假约束'
       - 'shot_ids 归属用触发器而非外键：存在「校验通过后镜头被删」的窗口。Shot 创建即绑定项目且项目归属不可迁移，该窗口不构成新的不变量缺口，但严格意义上弱于复合外键'
       - 'CP-7（只有 ACTIVE 可作生成输入）保持 RUNTIME_PENDING：生成域尚未落地，无消费者可校验；定级必须与实现同批'
+
+# 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
+#
+# 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——
+# 比缺失更糟。挂账保留「这里缺一条追溯」这个事实，且被 freeze_manifest 双向校验：
+#   缺了没登记 → FAIL（有人改了台账却没登记债务）；
+#   登记了却已补齐 → FAIL（陈旧债务会掩盖真实缺口，必须删条目）。
+# 新增修订不得再进本清单：必须自带 source_commits（A23 起已如此）。
+traceability_debt:
+  - 'V205-R14-A2'
+  - 'V205-R14-A3'
+  - 'V205-R14-A4'
+  - 'V205-R14-A5'
+  - 'V205-R14-A6'
+  - 'V205-R14-A7'
+  - 'V205-R14-A8'
+  - 'V205-R14-A9'
+  - 'V205-R14-A10'
+  - 'V205-R14-A11'
+  - 'V205-R14-A12'
+  - 'V205-R14-A13'
+  - 'V205-R14-A14'
+  - 'V205-R14-A15'
+  - 'V205-R14-A16'
+  - 'V205-R14-A17'
+  - 'V205-R14-A18'
+  - 'V205-R14-A19'
+  - 'V205-R14-A20'
+  - 'V205-R14-A21'
+  - 'V205-R14-A22'
 
 # 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
 revocations: []

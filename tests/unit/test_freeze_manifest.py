@@ -69,6 +69,7 @@ def _amendment(
     added_objects: list[str] | None = None,
     added_machines: list[str] | None = None,
     removed_actions: list[str] | None = None,
+    source_commits: list[str] | None = None,
 ) -> dict[str, object]:
     return {
         "id": amendment_id,
@@ -77,6 +78,8 @@ def _amendment(
         "adr": "docs/adr/x.md",
         "approved_by": "test",
         "approved_at": "2026-11-16",
+        # 缺省给一个非空提交：可追溯性是必填项，测试夹具不应默认豁免它。
+        "source_commits": ["abc1234"] if source_commits is None else source_commits,
         "additions": {
             "actions": [{"action_key": k, "why": "t"} for k in (added_actions or [])],
             "schema_objects": [{"object": o, "why": "t"} for o in (added_objects or [])],
@@ -373,6 +376,123 @@ def test_duplicate_amendment_id_detected(pack: FrozenPack) -> None:
     with pytest.raises(fm.FreezeDriftError) as exc_info:
         fm.load_amendments()
     assert "id 重复" in str(exc_info.value)
+
+
+# --------------------------------------------------------------------------- #
+# 可追溯性：source_commits 必填 + 历史债务双向校验
+#
+# 这一组守的是「规则写在注释里、判据写在代码里」的分叉：台账头部曾自称
+# 「source_commits 缺一项即 FAIL」，而判据里根本没有这个字段，于是 22 条修订
+# 用空列表冒充已追溯，闸门全绿。修法不是把规则从注释里删掉（那是降标准），
+# 而是让判据执行规则，并把无法凭空补齐的历史挂成可枚举债务。
+# --------------------------------------------------------------------------- #
+def test_amendment_empty_source_commits_is_rejected(pack: FrozenPack) -> None:
+    """空列表不等于已追溯：``str([]) == "[]"`` 非空，靠 str() 判空会漏。"""
+    _write_yaml(
+        pack.amendments,
+        {
+            "amendments": [_amendment(source_commits=[])],
+            "revocations": [],
+        },
+    )
+    with pytest.raises(fm.FreezeDriftError) as exc_info:
+        fm.load_amendments()
+    assert "source_commits" in str(exc_info.value)
+
+
+def test_amendment_blank_source_commit_is_rejected(pack: FrozenPack) -> None:
+    """``['  ']`` 也不能算追溯：列表里必须有非空字符串。"""
+    _write_yaml(
+        pack.amendments,
+        {
+            "amendments": [_amendment(source_commits=["  "])],
+            "revocations": [],
+        },
+    )
+    with pytest.raises(fm.FreezeDriftError) as exc_info:
+        fm.load_amendments()
+    assert "source_commits" in str(exc_info.value)
+
+
+def test_registered_traceability_debt_is_accepted(pack: FrozenPack) -> None:
+    """已在 traceability_debt 登记的历史条目允许缺 source_commits。"""
+    _write_yaml(
+        pack.amendments,
+        {
+            "amendments": [_amendment(amendment_id="OLD-A1", source_commits=[])],
+            "traceability_debt": ["OLD-A1"],
+            "revocations": [],
+        },
+    )
+    amendments = fm.load_amendments()
+
+    assert [a.id for a in amendments] == ["OLD-A1"]
+
+
+def test_stale_traceability_debt_is_rejected(pack: FrozenPack) -> None:
+    """登记了债务但条目其实已补齐 → 陈旧债务同样是债，必须删条目。
+
+    不做这条反向校验，债务清单会只增不减，最终变成第二份白名单：
+    真实缺口补上了也没人知道，新的缺口混在里面也看不出来。
+    """
+    _write_yaml(
+        pack.amendments,
+        {
+            "amendments": [_amendment(source_commits=["abc1234"])],
+            "traceability_debt": ["T-A1"],
+            "revocations": [],
+        },
+    )
+    with pytest.raises(fm.FreezeDriftError) as exc_info:
+        fm.load_amendments()
+    assert "traceability_debt" in str(exc_info.value)
+
+
+def test_unknown_id_in_traceability_debt_is_rejected(pack: FrozenPack) -> None:
+    """债务条目指向不存在的修订 id：要么是笔误，要么是删了修订没删债务。"""
+    _write_yaml(
+        pack.amendments,
+        {
+            "amendments": [_amendment()],
+            "traceability_debt": ["NO-SUCH-ID"],
+            "revocations": [],
+        },
+    )
+    with pytest.raises(fm.FreezeDriftError) as exc_info:
+        fm.load_amendments()
+    assert "traceability_debt" in str(exc_info.value)
+
+
+def test_traceability_debt_does_not_excuse_other_missing_fields(pack: FrozenPack) -> None:
+    """例外必须窄：登记了债务也不能顺带豁免 reason 缺失。"""
+    bad = _amendment(source_commits=[])
+    bad.pop("reason")
+    _write_yaml(
+        pack.amendments,
+        {
+            "amendments": [bad],
+            "traceability_debt": ["T-A1"],
+            "revocations": [],
+        },
+    )
+    with pytest.raises(fm.FreezeDriftError) as exc_info:
+        fm.load_amendments()
+    assert "reason" in str(exc_info.value)
+
+
+def test_traceability_debt_bad_shape_raises_readable_error(pack: FrozenPack) -> None:
+    """债务清单里混进非字符串 → 报结构错误，而不是把 None 当 id。"""
+    _write_yaml(
+        pack.amendments,
+        {
+            "amendments": [_amendment()],
+            "traceability_debt": [123],
+            "revocations": [],
+        },
+    )
+    with pytest.raises(fm.FreezeDriftError) as exc_info:
+        fm.load_amendments()
+    assert "traceability_debt" in str(exc_info.value)
 
 
 def test_duplicate_action_key_in_registry_detected(pack: FrozenPack) -> None:

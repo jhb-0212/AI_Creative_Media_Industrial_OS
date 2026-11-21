@@ -361,7 +361,17 @@ class Amendment:
     removed_state_machines: frozenset[str]
 
 
-_REQUIRED_AMENDMENT_FIELDS = ("title", "reason", "adr", "approved_by", "approved_at")
+# 修订条目必填字段（唯一权威）。历史条目缺 ``source_commits`` 的例外**不在这里放宽**，
+# 而是走 ``traceability_debt`` 显式登记并双向校验：豁免写在数据里且可枚举，
+# 判据标准本身不下降（清单语义见 contract_amendments.yaml 的 traceability_debt 注释）。
+_REQUIRED_AMENDMENT_FIELDS = (
+    "title",
+    "reason",
+    "adr",
+    "approved_by",
+    "approved_at",
+    "source_commits",
+)
 
 
 def _collect_names(
@@ -378,12 +388,52 @@ def _collect_names(
     return frozenset(names)
 
 
+def _traceability_debt(data: dict[str, Any]) -> set[str]:
+    """读取 ``traceability_debt``：缺 ``source_commits`` 的历史修订 id 集合。
+
+    这份清单不是白名单——它被**双向**校验（见 :func:`load_amendments`）：
+    实际缺失却未登记的条目报红，登记了却已补齐的条目也报红（陈旧债务同样是债）。
+    因此它无法被用来放松判据，只能如实反映历史。
+    """
+    entries = _sequence(
+        data.get("traceability_debt") or [], "contract_amendments.traceability_debt"
+    )
+    debt: set[str] = set()
+    for index, item in enumerate(entries):
+        if not isinstance(item, str) or not item.strip():
+            raise FreezeDriftError(
+                f"contract_amendments.traceability_debt[{index}] 必须是修订 id 字符串"
+            )
+        debt.add(item.strip())
+    return debt
+
+
+def _is_filled(value: Any) -> bool:
+    """字段是否算「已填」：非空字符串，或至少含一个非空字符串的列表。
+
+    不能用 ``str(value or "").strip()``：``source_commits: []`` 会被判成已填
+    （``str([]) == "[]"`` 非空），于是「空清单冒充已追溯」直接过关。
+    """
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple)):
+        return any(isinstance(item, str) and bool(item.strip()) for item in value)
+    return False
+
+
 def load_amendments() -> list[Amendment]:
-    """读取并校验修订登记的结构完整性（缺字段即 FAIL，不允许含糊债务）。"""
+    """读取并校验修订登记的结构完整性（缺字段即 FAIL，不允许含糊债务）。
+
+    ``source_commits`` 的可追溯性用「显式债务 + 双向校验」处理，而不是从必填清单里删掉：
+    判据仍是「每条修订都能指到落地提交」，历史无法补齐的部分作为可枚举债务挂账，
+    补齐后必须删条目。这样「标准」和「现状」是两个可分别审计的事实，而不是把标准降低到现状。
+    """
     data = _mapping(_load_yaml(AMENDMENTS_PATH), "contract_amendments.yaml")
     entries = _sequence(data.get("amendments") or [], "contract_amendments.amendments")
+    debt = _traceability_debt(data)
     amendments: list[Amendment] = []
     seen_ids: set[str] = set()
+    untraced: set[str] = set()
     for index, item in enumerate(entries):
         where = f"contract_amendments.amendments[{index}]"
         entry = _mapping(item, where)
@@ -393,9 +443,17 @@ def load_amendments() -> list[Amendment]:
         if amendment_id in seen_ids:
             raise FreezeDriftError(f"修订 id 重复：{amendment_id}")
         seen_ids.add(amendment_id)
-        missing = [key for key in _REQUIRED_AMENDMENT_FIELDS if not str(entry.get(key) or "").strip()]
+        missing = [
+            key for key in _REQUIRED_AMENDMENT_FIELDS if not _is_filled(entry.get(key))
+        ]
         if missing:
-            raise FreezeDriftError(f"修订 {amendment_id} 缺字段：{missing}")
+            # 唯一例外：只缺 source_commits 且已在 traceability_debt 登记。
+            # 写成「missing == ['source_commits']」而不是「in missing」，
+            # 是为了让「同时缺别的东西」也走严格分支——例外不能顺带豁免其它字段。
+            if missing == ["source_commits"] and amendment_id in debt:
+                untraced.add(amendment_id)
+            else:
+                raise FreezeDriftError(f"修订 {amendment_id} 缺字段：{missing}")
         additions = _mapping(entry.get("additions") or {}, f"{where}.additions")
         removals = _mapping(entry.get("removals") or {}, f"{where}.removals")
         amendments.append(
@@ -428,6 +486,15 @@ def load_amendments() -> list[Amendment]:
                     f"{where}.removals.state_machines",
                 ),
             )
+        )
+    # 反向完备：债务清单必须精确等于「实际缺 source_commits 的条目」。
+    # 少了 → 有人改了台账却没登记债务（上面已按缺字段报红，这里是兜底）；
+    # 多了 → 条目已补齐或 id 根本不存在，陈旧债务同样是债，必须删。
+    stale_debt = sorted(debt - untraced)
+    if stale_debt:
+        raise FreezeDriftError(
+            "contract_amendments.traceability_debt 登记了实际不缺 source_commits 的修订："
+            f"{stale_debt}。债务条目必须在补齐后删除（陈旧债务会掩盖真实缺口）"
         )
     return amendments
 
