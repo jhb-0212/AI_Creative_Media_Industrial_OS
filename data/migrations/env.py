@@ -29,10 +29,22 @@ from services.asset_service.repository.orm import (  # noqa: F401
     AssetVersionModel,
     QCReportModel,
 )
+from services.budget_quota.repository.orm import (  # noqa: F401
+    BudgetLedgerModel,
+    ShotBudgetRequestModel,
+)
+from services.production_planning.repository.orm import (  # noqa: F401
+    GenerationTaskModel,
+    ProductionRouteModel,
+)
 from services.project_planning.repository.orm import (  # noqa: F401
     EpisodeModel,
     ProjectModel,
     ScriptModel,
+)
+from services.qc_governance.repository.orm import (  # noqa: F401
+    GateDecisionModel,
+    QCTaskModel,
 )
 
 config = context.config
