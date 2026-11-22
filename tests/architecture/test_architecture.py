@@ -169,6 +169,12 @@ def test_platform_capability_dependency_is_allowed(tmp_path: Path) -> None:
         "from services.identity_access.auth_dependency import require_role\n",
     )
     _write(tmp_path, "services/identity_access/auth_dependency.py", "require_role = None\n")
+    _write(
+        tmp_path,
+        "services/production_planning/worker.py",
+        "from services.project_planning.kernel import kernel\n",
+    )
+    _write(tmp_path, "services/project_planning/kernel.py", "kernel = None\n")
     imports = arch.collect_imports(tmp_path)
     assert arch.check_cross_service(imports) == []
     assert arch.check_stale_platform_dependencies(imports) == []

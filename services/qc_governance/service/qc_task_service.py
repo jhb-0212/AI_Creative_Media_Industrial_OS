@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
@@ -86,7 +86,7 @@ class QCTaskService:
         task = await self._repository.get_by_id(task_id)
         if task is None:
             raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"QC 任务不存在: {task_id}")
-        return task
+        return cast(QCTask, task)
 
     async def claim(
         self,

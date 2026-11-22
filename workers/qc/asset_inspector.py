@@ -17,7 +17,7 @@ import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from packages.identity.principal import Principal
 from packages.shared.outbox_writer import SqlAlchemyOutboxWriter
@@ -79,7 +79,9 @@ class AssetIntegrityInspector:
                 )
 
             findings = self._check(task, asset)
-            verdict = "PASSED" if all(f["passed"] for f in findings) else "REJECTED"
+            verdict: Literal["PASSED", "REJECTED"] = (
+                "PASSED" if all(f["passed"] for f in findings) else "REJECTED"
+            )
             _asset, report = await service.create_qc_report(
                 asset_version_id=task.asset_version_id,
                 quality_profile_version=task.quality_profile_version,

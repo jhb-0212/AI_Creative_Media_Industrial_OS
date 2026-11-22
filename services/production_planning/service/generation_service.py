@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
@@ -106,7 +106,7 @@ class GenerationService:
             raise DomainError(
                 ErrorRegistry.NOT_FOUND, detail=f"生成任务不存在: {task_id}"
             )
-        return task
+        return cast(GenerationTask, task)
 
     async def claim(
         self,

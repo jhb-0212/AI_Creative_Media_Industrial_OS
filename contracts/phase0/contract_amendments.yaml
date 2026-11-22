@@ -1247,7 +1247,7 @@ amendments:
         - object: 'GenerationTask'
           why: 'REQUESTED→RUNNING、RUNNING→SUCCEEDED/FAILED、RUNNING→REQUESTED 四条租约边归 GENERATION.PROCESS'
       actions:
-        - action: 'GENERATION.PROCESS'
+        - action_key: 'GENERATION.PROCESS'
           why: 'Worker 持有租约时推进已存在的任务；领取/续租/终结/到期回收共用一个准入凭据'
     counts_after:
       actions: 101
@@ -1280,9 +1280,9 @@ amendments:
         - object: 'BudgetLedger'
           why: '补 reservation_ref（结算流水指回被处理的 RESERVE）与 transaction_kind 受控 enum（RESERVE/RELEASE/REFUND）'
       actions:
-        - action: 'BUDGET.SHOT.RELEASE'
+        - action_key: 'BUDGET.SHOT.RELEASE'
           why: '释放已预留未消耗额度：追加 RELEASE 流水，不修改原流水'
-        - action: 'BUDGET.SHOT.REFUND'
+        - action_key: 'BUDGET.SHOT.REFUND'
           why: '冲销已结算额度：追加 REFUND 流水，不修改原流水'
     counts_after:
       actions: 103
@@ -1318,9 +1318,9 @@ amendments:
         - object: 'QCTask'
           why: 'QUEUED→RUNNING（领取）、RUNNING→PASSED/REJECTED（判定）、RUNNING→QUEUED（过期回收），全部归 QC.TASK.PROCESS'
       actions:
-        - action: 'QC.TASK.ENQUEUE'
+        - action_key: 'QC.TASK.ENQUEUE'
           why: '生成成功产物入队；同一 generation_task_id 唯一，重复入队返回 IDEMPOTENCY_CONFLICT'
-        - action: 'QC.TASK.PROCESS'
+        - action_key: 'QC.TASK.PROCESS'
           why: 'QC Worker 领取/续租/判定/到期回收共用一个准入凭据'
     counts_after:
       actions: 105

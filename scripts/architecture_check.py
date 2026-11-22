@@ -121,6 +121,13 @@ PLATFORM_SERVICE_DEPENDENCIES: dict[str, str] = {
         "所有服务都自己实现一遍鉴权依赖才是真正的重复；若将来下沉到 packages/identity，"
         "本条目必须删除"
     ),
+    "services.project_planning": (
+        "生命周期内核共享（R16 生产链 / 预算 / QC 新服务复用）：状态推进唯一入口"
+        " advance_status / save_versioned_entity、各对象状态枚举与边表当前托管在 project_planning 域；"
+        "新服务只复用这套乐观锁 + 事件落库序列与类型定义，数据表仍归各服务自有 schema"
+        "（14.2 数据所有权未跨库）。待该内核下沉 packages/（或按服务拆分自有 enums/state_machine）后，"
+        "本条目必须删除"
+    ),
 }
 
 
