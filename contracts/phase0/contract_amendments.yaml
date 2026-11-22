@@ -1309,6 +1309,7 @@ amendments:
     approved_at: '2026-11-22'
     source_commits:
       - 'a167495'
+      - 'c88111b'
     additions:
       schema_objects:
         - object: 'QCTask'
@@ -1327,9 +1328,9 @@ amendments:
       schema_objects: 89
       state_machines: 48
     residual_risks:
-      - 'workers/qc 真实检测器未接：UnconfiguredInspector 恒为 configured=False，生产队列会停在 QUEUED，不产生占位 PASS'
+      - '检测深度有限：AssetIntegrityInspector 只校验资产存在/项目归属/哈希与内容可验证，不做分辨率、时长、黑帧、语义一致性等质量判断（需模型网关与质量档案执行器）'
       - 'quality_profile_version 仅作字符串记录，不校验质量档案是否存在，指向不存在档案也能入队'
-      - '生成侧入队为尽力语义：入队事务失败只记日志，生成终态已提交后崩溃的产物会漏入队，需后续对账扫描补齐'
+      - '生成侧入队为尽力语义：入队事务失败只记日志；生成终态提交后崩溃的产物会漏入队，且 GenerationTask 不持久化产物引用，对账扫描无法重建 asset_version_id，需先做字段级契约变更'
 
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #

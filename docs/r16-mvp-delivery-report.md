@@ -164,10 +164,11 @@ Worker 为下一阶段。
 4. ~~`workers/qc` 缺 QC 任务对象与待检队列~~ → **已签发并落地**（Owner 2026-11-22 选定 A 方案，
    见 `docs/architecture/amendment-pack-r16-phase3-qc.md`）：新增 `QCTask`（第 89 个 schema 对象）
    与 `QC.TASK.ENQUEUE` / `QC.TASK.PROCESS`（动作 103→105）、迁移 `f1a2b3c4d5e6`、`workers/qc`
-   本体与生成侧入队钩子（`a167495`）。真实检测器仍未接：`configured=False` 时 Worker 拒绝领取，
-   队列停在 `QUEUED`（A27 `residual_risks`）。
+   本体与生成侧入队钩子（`a167495`）；真实检测器 `AssetIntegrityInspector` 读资产域校验完整性并
+   经 `QC.REPORT.CREATE` 登记报告（`c88111b`）。检测深度限于完整性/归属/内容可验证，语义级画质
+   判断仍需模型网关与质量档案执行器（A27 `residual_risks`）。
 5. `A24.source_commits` 为 `LOCAL-NO-GIT-PLACEHOLDER`，合入团队仓库时替换真实 SHA。
-6. API 镜像已重建并重启（新镜像含本轮全部端点，`/openapi.json` 已核对）；容器重建时需要
+6. API 镜像已按 `c88111b` 重建并重启（`/openapi.json` 含 5 条 `/qc-tasks*` 路径）；容器重建时需要
    `IDENTITY_PUBLIC_KEY_PEM`（本次从身份进程读取同一把公钥注入，属于宿主环境事实，
    建议写入 compose `.env` 以免下次重建再次缺失）。
 

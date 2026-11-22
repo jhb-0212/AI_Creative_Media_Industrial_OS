@@ -111,23 +111,26 @@ tenant_isolation_qc_tasks       tenant_id = current_setting(app.current_tenant_i
 | Worker 未配置检测器 | 未指定 | `QCExecutor.configured` 属性；为 False 时不领取 | 不造假的 PASS |
 | 执行器异常 | 未指定 | 不写假 `REJECTED`，保持 `RUNNING` 等租约过期回收 | 写假 REJECTED 会把「人员/系统故障」记成「质量不合格」，污染质量数据 |
 | 生成侧入队失败 | 未指定 | 只记日志，不回滚生成终态 | 生成成功是既成事实；回滚会让产物失去登记 |
-| 进程身份 | 未登记 | `ProcessRole.qc` + `POSTGRES_QC_GOVERNANCE_PASSWORD` | QC 只连自己的域 |
+| 进程身份 | 未登记 | `ProcessRole.qc` + `POSTGRES_QC_GOVERNANCE_PASSWORD` + `POSTGRES_ASSET_SERVICE_PASSWORD` | QC 只连自己的域；报告必须经资产域服务层登记，所以需要资产域只读/追加报告的凭证 |
+| 真实检测器（2026-11-22 补） | 未指定 | `AssetIntegrityInspector`：读资产版本 → 校验项目一致/哈希格式/内容可验证 → 经 `AssetService.create_qc_report` 写报告 → 判定 | 只检「能举证」的完整性；语义级画质判断需要模型网关与质量档案执行器，当前没有 |
+| 无检测能力的部署 | 未指定 | `--no-detector` 显式退化 `UnconfiguredInspector`（不领取） | 给了资产域凭证就能检完整性；没给的部署仍然不能造假 PASS |
+| 检测受阻（资产不存在/状态已不接报告） | 未指定 | 抛 `InspectionBlockedError`，不写 REJECTED，租约到期回 `QUEUED` | 上游缺失不是质量结论；缺口以 `attempt_count` 可见 |
 
 ## 6. 测试证据
 
 - `tests/unit/test_qc_task_queue.py`（8 项）：入队、重复入队冲突、空产物拒绝、领取/重复领取、续租越权、无报告不得终结、REJECTED 事件、过期回收。
-- `tests/unit/test_qc_worker.py`（5 项）：未配置不领取、PASSED 写报告、执行器异常不写假 REJECTED、扫尾只收过期、判定字面量。
+- `tests/unit/test_qc_worker.py`（8 项）：未配置不领取、PASSED 写报告、执行器异常不写假 REJECTED、扫尾只收过期、判定字面量，以及完整性检测的项目越界、哈希不一致、内容不可验证三种判定。
 - `tests/unit/test_generation_worker.py` 新增 3 项：成功带引用入队、失败不入队、缺引用跳过。
 - 全量 `python -m pytest tests/unit tests/engineering -q` 退出 0（SKIP 1 项：`2192af9` 不可达的历史定义）；
   `python -m ruff check .` 0；`python scripts/contract_check.py` GATE=0。
+- 运行侧：`ai-film-api:local` 已按新代码重建并重启，`/openapi.json` 含 5 条 `/qc-tasks*` 路径。
 
 ## 7. 残余风险（登记在 A27 `residual_risks`）
 
-1. **真实检测器未接**：`workers/qc` 的 `UnconfiguredInspector` 永远 `configured=False`，
-   生产环境队列会持续停在 `QUEUED`。接检测能力（读资产 + 跑质量档案）是下一轮工作，
-   不是本包能顺带解决的。
+1. **检测深度有限**：`AssetIntegrityInspector` 只做完整性/归属/内容可验证三项，
+   不做分辨率、时长、黑帧、语义一致性等质量判断——那需要模型网关与质量档案执行器。
 2. **质量档案版本只是字符串**：当前 `quality_profile_version` 不做存在性校验，
    指向一个不存在的档案也能入队。等质量档案有独立对象后再加外键式校验。
 3. **生成侧入队是「尽力」语义**：入队事务失败只记日志，若进程在生成终态提交后、
-   入队前崩溃，该产物不会出现在待检队列。补偿方式是后续加「成功产物对账扫描」，
-   当前没有消费者。
+   入队前崩溃，该产物不会出现在待检队列。补偿需要对账扫描，但 `GenerationTask`
+   不持久化产物引用，扫描无法重建 `asset_version_id`，因此需先加字段级契约变更。
