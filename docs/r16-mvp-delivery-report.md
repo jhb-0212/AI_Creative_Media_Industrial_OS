@@ -166,7 +166,9 @@ Worker 为下一阶段。
    与 `QC.TASK.ENQUEUE` / `QC.TASK.PROCESS`（动作 103→105）、迁移 `f1a2b3c4d5e6`、`workers/qc`
    本体与生成侧入队钩子（`a167495`）；真实检测器 `AssetIntegrityInspector` 读资产域校验完整性并
    经 `QC.REPORT.CREATE` 登记报告（`c88111b`）。检测深度限于完整性/归属/内容可验证，语义级画质
-   判断仍需模型网关与质量档案执行器（A27 `residual_risks`）。
+   判断仍需模型网关与质量档案执行器（A27 `residual_risks`）。成功任务的产物引用已落库
+   （`asset_version_id` / `quality_profile_version`，A28 `e22be7e`），空闲轮次自动对账补
+   漏入队；历史成功任务无引用，无法回填。
 5. `A24.source_commits` 为 `LOCAL-NO-GIT-PLACEHOLDER`，合入团队仓库时替换真实 SHA。
 6. API 镜像已按 `c88111b` 重建并重启（`/openapi.json` 含 5 条 `/qc-tasks*` 路径）；容器重建时需要
    `IDENTITY_PUBLIC_KEY_PEM`（本次从身份进程读取同一把公钥注入，属于宿主环境事实，

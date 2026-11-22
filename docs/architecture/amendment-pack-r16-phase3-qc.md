@@ -131,6 +131,23 @@ tenant_isolation_qc_tasks       tenant_id = current_setting(app.current_tenant_i
    不做分辨率、时长、黑帧、语义一致性等质量判断——那需要模型网关与质量档案执行器。
 2. **质量档案版本只是字符串**：当前 `quality_profile_version` 不做存在性校验，
    指向一个不存在的档案也能入队。等质量档案有独立对象后再加外键式校验。
-3. **生成侧入队是「尽力」语义**：入队事务失败只记日志，若进程在生成终态提交后、
-   入队前崩溃，该产物不会出现在待检队列。补偿需要对账扫描，但 `GenerationTask`
-   不持久化产物引用，扫描无法重建 `asset_version_id`，因此需先加字段级契约变更。
+3. ~~生成侧入队是「尽力」语义~~ → **已补对账**（§8，A28 `e22be7e`）：`GenerationTask`
+   持久化 `asset_version_id` / `quality_profile_version`，成功任务空闲时由
+   `reconcile_qc` 扫描，缺待检项则补入队。历史成功任务没有产物引用，无法回填。
+
+## 8. 补强记录（2026-11-22，A28 `e22be7e`）
+
+| 项 | 做法 | 为什么 |
+| --- | --- | --- |
+| 产物引用落库 | `GenerationTask` 增 `asset_version_id` / `quality_profile_version`（可为空串） | 入队是终态提交后的第二个事务；引用只在内存里，崩溃后无法重建「检什么」 |
+| 写入时机 | `GenerationService.finish` 在 `SUCCEEDED` 时接收引用，经 `attach_product_refs` 校验后与终态同事务落库 | 让「谁产出了这份资产」与「任务成功」成为同一个事实，不留中间态 |
+| FAILED 不接受引用 | 失败任务即使带着产物引用也不落库 | 失败产物不该进 QC 队列，留成功标记只会让扫描误入队 |
+| 对账触发 | `run_once`/`_run_cycle` 空闲时 `reconcile_qc(limit)`；先查 QC 队列是否已有该 `generation_task_id`，缺才补 | 已入队的重复提交只会在日志里制造噪音，先查后补 |
+| 迁移 | `a2b3c4d5e6f7_generation_product_refs`（`f1a2b3c4d5e6` → 新 head） | 两列 `NOT NULL DEFAULT ''`：空串表示「未登记」，扫描时排除，而不是伪装已登记 |
+
+库层证据：`generation_tasks.asset_version_id` / `quality_profile_version` 均为
+`varchar NOT NULL DEFAULT ''`（`information_schema.columns` 已核对）。
+
+测试证据：`test_generation_worker.py` 新增「成功落产物引用」「对账补入队且跳过已有」
+两项；`test_generation_worker.py` + `test_generation_lease.py` 全绿；全量
+`pytest tests/unit tests/engineering` 退出 0、`ruff check .` 0、GATE=0。

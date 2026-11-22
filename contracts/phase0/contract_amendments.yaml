@@ -1332,6 +1332,36 @@ amendments:
       - 'quality_profile_version 仅作字符串记录，不校验质量档案是否存在，指向不存在档案也能入队'
       - '生成侧入队为尽力语义：入队事务失败只记日志；生成终态提交后崩溃的产物会漏入队，且 GenerationTask 不持久化产物引用，对账扫描无法重建 asset_version_id，需先做字段级契约变更'
 
+  - id: 'V205-R15-A28'
+    title: 'Phase 3 补强：GenerationTask 产物引用 + 漏入队对账'
+    retroactive: false
+    recorded_at: '2026-11-22'
+    discovered_by: 'docs/architecture/amendment-pack-r16-phase3-qc.md §8（Owner 2026-11-22 指令「做」，授权执行上一轮列出的对账前置项）'
+    reason: >-
+      生成成功后的入队是第二个事务：进程在终态提交与入队之间崩溃时，任务已成功、
+      待检队列却没有对应项。补偿扫描的唯一依据是「这份成功任务产出了哪个资产」，
+      而 GenerationTask 此前只在 Worker 内存里持有产物引用，进程一崩即丢失，
+      扫描无法重建 asset_version_id。本修订把产物引用与质量标准版本落库，
+      并要求 SUCCEEDED 终结时由持租约的 Worker 一并写入，扫描随后可发现并补入队。
+      schema 对象数不变（89），字段级变更。
+    adr: 'docs/architecture/amendment-pack-r16-phase3-qc.md'
+    approved_by: '项目所有者（2026-11-22 会话内指令「做」，授权执行上一轮列出的对账前置项）'
+    approved_at: '2026-11-22'
+    source_commits:
+      - 'e22be7e'
+    additions:
+      schema_objects:
+        - object: 'GenerationTask'
+          why: '补 asset_version_id / quality_profile_version：SUCCEEDED 时落库，供 QC 入队与漏入队对账使用'
+    counts_after:
+      actions: 105
+      openapi_operations: 105
+      schema_objects: 89
+      state_machines: 48
+    residual_risks:
+      - '历史成功任务（本修订之前）没有产物引用，无法回填；对账只覆盖修订后登记了引用的任务'
+      - '同步路径（GENERATION.REQUEST 直接终结）不写产物引用，仍不参与对账；需要网关返回产物时才补登记'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——
