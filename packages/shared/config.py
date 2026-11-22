@@ -230,9 +230,11 @@ class Settings(BaseSettings):
                 "POSTGRES_PRODUCTION_PLANNING_PASSWORD",
             ),
         ),
-        # QC Worker 只连 qc_governance 域（队列与租约都在那）。
+        # QC Worker 连两个域：qc_governance 存队列与租约，asset_service 读资产
+        # 并登记 QC 报告（报告只能经资产域服务层创建，不能由 Worker 直接插表）。
         "qc": (
             ("postgres_qc_governance_password", "POSTGRES_QC_GOVERNANCE_PASSWORD"),
+            ("postgres_asset_service_password", "POSTGRES_ASSET_SERVICE_PASSWORD"),
         ),
     }
 

@@ -142,3 +142,63 @@ async def test_sweep_reclaims_expired_only() -> None:
 
 def test_qc_result_literal() -> None:
     assert QCInspection("REJECTED", "report-2").result == "REJECTED"
+
+
+# ---- 真实检测器（资产完整性）的判定逻辑 ------------------------------------ #
+
+
+class _Asset:
+    def __init__(self, *, project_id="proj-1", sha256="", storage_ref=None):
+        self.project_id = project_id
+        self.sha256 = sha256
+        self.storage_ref = storage_ref or {}
+
+
+def _inspector():
+    from workers.qc.asset_inspector import AssetIntegrityInspector
+
+    ins = AssetIntegrityInspector(asset_sessionmaker=None)
+    assert ins.configured is True
+    return ins
+
+
+def test_integrity_checks_detect_project_scope_mismatch() -> None:
+    insp = _inspector()
+    task = type("T", (), {"project_id": "proj-1"})()
+    asset = _Asset(project_id="proj-other", sha256="a" * 64, storage_ref={"path": "x"})
+
+    findings = insp._check(task, asset)
+    assert not all(f["passed"] for f in findings)
+    assert next(f for f in findings if f["check"] == "project_scope")["passed"] is False
+
+
+def test_integrity_checks_verify_content_hash(tmp_path) -> None:
+    import hashlib
+
+    payload = b"qc-fixture"
+    digest = hashlib.sha256(payload).hexdigest()
+    path = tmp_path / "asset.bin"
+    path.write_bytes(payload)
+
+    insp = _inspector()
+    task = type("T", (), {"project_id": "proj-1"})()
+    asset = _Asset(
+        project_id="proj-1", sha256=digest, storage_ref={"path": str(path)}
+    )
+    assert all(f["passed"] for f in insp._check(task, asset))
+
+    asset.sha256 = "b" * 64
+    findings = insp._check(task, asset)
+    content = next(f for f in findings if f["check"] == "content_verifiable")
+    assert content["passed"] is False
+    assert content["sha256_matches"] is False
+
+
+def test_integrity_checks_reject_unverifiable_storage_ref() -> None:
+    insp = _inspector()
+    task = type("T", (), {"project_id": "proj-1"})()
+    asset = _Asset(project_id="proj-1", sha256="a" * 64, storage_ref={"s3": "bucket/key"})
+
+    findings = insp._check(task, asset)
+    content = next(f for f in findings if f["check"] == "content_verifiable")
+    assert content["passed"] is False
