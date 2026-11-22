@@ -1221,6 +1221,41 @@ amendments:
     residual_risks:
       - 'source_commits 为本地占位（本地目录无 .git，无法提供真实提交号）；团队合并时须替换为真实 SHA 后再回填追溯矩阵'
 
+  - id: 'V205-R15-A25'
+    title: 'Phase 2 §1：GenerationTask 异步租约（RUNNING 状态 + 租约三字段 + GENERATION.PROCESS）'
+    retroactive: false
+    recorded_at: '2026-11-23'
+    discovered_by: 'docs/architecture/amendment-pack-r16-phase2.md（Owner 2026-11-23 指令「按申请包签发」）'
+    reason: >-
+      R16 MVP 的 GENERATION.REQUEST 是同步执行：任务创建即终态，没有「谁在跑、跑到哪、
+      崩了怎么办」这三个事实。Phase 2 引入 Worker 后，这三个事实必须由租约承载：
+      没有 lease_owner 就无法判断任务被持有还是被遗弃；没有 lease_expires_at 就无法
+      回收崩溃 Worker 的任务（任务永远停在 RUNNING）；没有 attempt_count 就分不清
+      「首次失败」与「第 9 次崩」。本修订把 RUNNING 状态与四条租约边、租约三字段、
+      新动作 GENERATION.PROCESS 一并补入冻结契约，动作从 100 增至 101。
+    adr: 'docs/architecture/amendment-pack-r16-phase2.md'
+    approved_by: '项目所有者（2026-11-23 会话内指令「按申请包签发」，范围 §1/§2/§3）'
+    approved_at: '2026-11-23'
+    source_commits:
+      - '336ce08'
+    additions:
+      schema_objects:
+        - object: 'GenerationTask'
+          why: '补 lease_owner / lease_expires_at / attempt_count 三字段，status 枚举加 RUNNING'
+      state_machines:
+        - object: 'GenerationTask'
+          why: 'REQUESTED→RUNNING、RUNNING→SUCCEEDED/FAILED、RUNNING→REQUESTED 四条租约边归 GENERATION.PROCESS'
+      actions:
+        - action: 'GENERATION.PROCESS'
+          why: 'Worker 持有租约时推进已存在的任务；领取/续租/终结/到期回收共用一个准入凭据'
+    counts_after:
+      actions: 101
+      openapi_operations: 101
+      schema_objects: 88
+      state_machines: 47
+    residual_risks:
+      - 'Worker 进程本体（workers/generation）尚未落地：端点与租约语义已可执行，但没有常驻消费者自动领取任务，需 §3 同批补齐'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——

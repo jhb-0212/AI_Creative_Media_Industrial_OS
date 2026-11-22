@@ -126,3 +126,25 @@ Worker 若要「领取任务再执行」，必须有一条**由某个动作拥�
 
 爆炸半径：API 启动链路（五池 + readiness）与全部跨域读 SQL 同时改变，属**一次性 cutover**。
 建议单独一个批次执行，并且执行前后各跑一次 `scripts/verify_r16_persistence.py`。
+
+## 5. 落地记录（§1，2026-11-23）
+
+提交 `336ce08`（修订台账 `V205-R15-A25`）。实现与申请包的差异逐条说明，不隐藏：
+
+| 项 | 申请包写法 | 实际落地 | 为什么改 |
+| --- | --- | --- | --- |
+| 边数 | 3 条 | 4 条（多 `RUNNING → REQUESTED`） | 租约到期若只能落 FAILED，崩溃会丢掉重试；回到 REQUESTED 才能重新领取。`attempt_count` 同时落地，用于区分「首次失败」与「反复崩」 |
+| 入口路径 | `POST /generation-tasks/{id}/claim` | `POST /generation-tasks/{id}/lease` + `lease/renew` + `lease/release` + `finish` | 领取与续租同属「持有租约」，终结与回收也归同一动作键；一条路径塞四种语义会让 body 变成隐式状态机 |
+| 事件 | 1 个（`GENERATION_STARTED`） | 5 个（STARTED / LEASE_RENEWED / LEASE_EXPIRED / SUCCEEDED / FAILED） | 续租、回收、终结都是可观察事实；只登 STARTED 会让「任务何时被判失败」在审计里查不到。契约要求「登记了必须真发」，因此五个都落到 `generation_service.py` |
+| 字段签名台账 | 需重签 | 已 `--write-schema-signatures` 重签 | 加三字段必触发字段级 diff，重签是唯一合规路径 |
+
+库层证据（可在活库复核）：
+
+- `production_planning.generation_tasks` 增 `lease_owner varchar(128) NOT NULL DEFAULT '`、`lease_expires_at timestamptz NULL`、`attempt_count integer NOT NULL DEFAULT 0`；
+- `ck_generation_tasks_status` 重生成后为 `status IN ('FAILED','REQUESTED','RUNNING','SUCCEEDED')`——第一版误用枚举名（`GenerationTaskStatus.RUNNING`）写进 CHECK，等于放行任意字符串，已在同批修正并重放迁移；
+- 迁移 `d5e6f7a8b9c0`（`a0b1c2d3e4f5` → `d5e6f7a8b9c0`）是唯一 head。
+
+测试证据：`tests/unit/test_generation_lease.py` 八项（异步创建停在 REQUESTED、领取落租约、重复领取被拒、续租越权被拒、终结越权被拒且清空租约、未到期不可回收、到期回收后可重领且计数累加、序列化暴露三字段）。
+
+剩余缺口（§3 才补齐）：`workers/generation` 进程本体未落地——端点与租约语义可执行，但没有常驻消费者自动领取；`GENERATION.PROCESS` 的 `negative_test_id: ACT-GEN-NEG-002` 尚无对应测试用例编号，需随 Worker 一并补。
+
