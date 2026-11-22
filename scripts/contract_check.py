@@ -139,6 +139,10 @@ _STATE_MACHINE_SOURCES: dict[str, tuple[str, str]] = {
         "ASSET_ALLOWED_TRANSITIONS",
     ),
     # A13（ADR-R28）
+    "QCTask": (
+        "services.qc_governance.domain.state_machine",
+        "QC_TASK_ALLOWED_TRANSITIONS",
+    ),
     "Scene": (
         "services.project_planning.domain.state_machine",
         "SCENE_ALLOWED_TRANSITIONS",

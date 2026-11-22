@@ -1754,3 +1754,24 @@ signatures:
     transaction_id: string
     transaction_kind: string
     updated_at: string
+  QCTask:
+    asset_version_id: string
+    attempt_count: integer
+    audit_ref: string|null
+    created_at: string
+    created_by: string
+    entity_id: string
+    entity_type: string
+    entity_version: integer
+    generation_task_id: string
+    lease_expires_at: string|null
+    lease_owner: string
+    owner_module: string
+    project_id: string
+    qc_report_id: string
+    qc_task_id: string
+    quality_profile_version: string
+    schema_version: integer
+    shot_id: string
+    status: string
+    updated_at: string

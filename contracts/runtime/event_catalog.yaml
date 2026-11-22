@@ -540,3 +540,60 @@ events:
       - to_status
       - tenant_id
     contract_ref: contracts/state_machines/state_machines.yaml#ShotBudgetRequest
+  - event_type: QC_TASK_QUEUED
+    aggregate_type: QCTask
+    emitted_by: services/qc_governance/service/qc_task_service.py
+    payload_required:
+    - qc_task_id
+    - project_id
+    - asset_version_id
+    - generation_task_id
+    - quality_profile_version
+    - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#QCTask
+  - event_type: QC_TASK_STARTED
+    aggregate_type: QCTask
+    emitted_by: services/qc_governance/service/qc_task_service.py
+    payload_required:
+    - qc_task_id
+    - worker_id
+    - lease_expires_at
+    - attempt_count
+    contract_ref: contracts/state_machines/state_machines.yaml#QCTask
+  - event_type: QC_TASK_LEASE_RENEWED
+    aggregate_type: QCTask
+    emitted_by: services/qc_governance/service/qc_task_service.py
+    payload_required:
+    - qc_task_id
+    - worker_id
+    - lease_expires_at
+    - attempt_count
+    contract_ref: contracts/state_machines/state_machines.yaml#QCTask
+  - event_type: QC_TASK_PASSED
+    aggregate_type: QCTask
+    emitted_by: services/qc_governance/service/qc_task_service.py
+    payload_required:
+    - qc_task_id
+    - worker_id
+    - qc_report_id
+    - evidence_refs
+    - attempt_count
+    contract_ref: contracts/state_machines/state_machines.yaml#QCTask
+  - event_type: QC_TASK_REJECTED
+    aggregate_type: QCTask
+    emitted_by: services/qc_governance/service/qc_task_service.py
+    payload_required:
+    - qc_task_id
+    - worker_id
+    - qc_report_id
+    - evidence_refs
+    - attempt_count
+    contract_ref: contracts/state_machines/state_machines.yaml#QCTask
+  - event_type: QC_TASK_LEASE_EXPIRED
+    aggregate_type: QCTask
+    emitted_by: services/qc_governance/service/qc_task_service.py
+    payload_required:
+    - qc_task_id
+    - worker_id
+    - attempt_count
+    contract_ref: contracts/state_machines/state_machines.yaml#QCTask

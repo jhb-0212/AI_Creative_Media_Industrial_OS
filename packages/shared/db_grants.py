@@ -424,6 +424,15 @@ DOMAIN_GRANTS[QC_GOVERNANCE] = (
         "SELECT：Gate 决策回读与审计比对；INSERT：PRODUCTION.GATE.APPROVE 落一条决策。"
         "无 UPDATE/DELETE：决策是追加式不可变证据，撤销语义应记新决策而不是改写历史。",
     ),
+    _grant(
+        QC_GOVERNANCE,
+        "qc_tasks",
+        "SELECT INSERT UPDATE",
+        "SELECT：待检队列调度（next_claimable / list_expired）与回读；"
+        "INSERT：QC.TASK.ENQUEUE 入队；"
+        "UPDATE：QC.TASK.PROCESS 的领取/续租/判定/租约回收（乐观锁条件更新）。"
+        "无 DELETE：队列记录是「这份产物检过没有」的证据，不能物理删除。",
+    ),
     _projects_readonly("质检治理"),
     *_platform_grants(label="质检治理"),
 )

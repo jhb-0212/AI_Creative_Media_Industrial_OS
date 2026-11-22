@@ -16,7 +16,7 @@
 
 generated_by: scripts/gen_status_contracts.py
 source: contracts/state_machines/state_machines.yaml
-object_count: 47
+object_count: 48
 objects:
 - object: Appeal
   states: [CLOSED, DECISION_OVERTURNED, DECISION_UPHELD, IN_REVIEW, SUBMITTED]
@@ -76,6 +76,8 @@ objects:
   states: [APPROVED, IN_REVIEW, QUEUED, REJECTED, RETURNED]
 - object: QCReviewSession
   states: [CLOSED, DECISION_PENDING, GATE_ELIGIBLE, IN_REVIEW, OPEN, RESOLVED, WAIVE_WITH_AUTHORITY]
+- object: QCTask
+  states: [PASSED, QUEUED, REJECTED, RUNNING]
 - object: QuotaReservation
   states: [COMMITTED, EXPIRED, FAILED, RELEASED, REQUESTED, RESERVED]
 - object: ReuseRequest

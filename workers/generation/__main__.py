@@ -26,6 +26,7 @@ from typing import Any
 from packages.shared.config import get_process_settings
 from packages.shared.database import (
     create_production_planning_engine,
+    create_qc_governance_engine,
     create_sessionmaker,
 )
 from packages.shared.logging import get_logger, setup_logging
@@ -36,6 +37,8 @@ from services.production_planning.service.generation_service import GenerationSe
 from services.project_planning.repository.sqlalchemy_outbox_writer import (
     SqlAlchemyOutboxWriter,
 )
+from services.qc_governance.repository.qc_task_repo import SqlAlchemyQCTaskRepository
+from services.qc_governance.service.qc_task_service import QCTaskService
 from workers.generation.worker import (
     GenerationExecutor,
     GenerationOutcome,
@@ -73,7 +76,9 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _build_worker(session: Any, args: argparse.Namespace) -> GenerationWorker:
+def _build_worker(
+    session: Any, args: argparse.Namespace, qc_enqueuer: Any | None = None
+) -> GenerationWorker:
     return GenerationWorker(
         service=GenerationService(
             SqlAlchemyGenerationTaskRepository(session),
@@ -84,13 +89,39 @@ def _build_worker(session: Any, args: argparse.Namespace) -> GenerationWorker:
         worker_id=args.worker_id,
         lease_seconds=args.lease_seconds,
         idle_sleep=args.idle_sleep,
+        qc_enqueuer=qc_enqueuer,
     )
 
 
-async def _run_cycle(sessionmaker: Any, args: argparse.Namespace) -> bool:
+def _make_qc_enqueuer(qc_sessionmaker: Any) -> Any:
+    """成功产物入 QC 队列：独立事务，入队失败不回滚生成终态。"""
+
+    async def enqueue(task: Any, outcome: Any) -> None:
+        async with qc_sessionmaker() as session:
+            service = QCTaskService(
+                SqlAlchemyQCTaskRepository(session),
+                SqlAlchemyOutboxWriter(session),
+            )
+            await service.enqueue(
+                project_id=task.project_id,
+                shot_id=task.shot_id,
+                asset_version_id=outcome.asset_version_id,
+                generation_task_id=task.entity_id,
+                quality_profile_version=outcome.quality_profile_version,
+                created_by="generation-worker",
+                tenant_id=task.tenant_id,
+            )
+            await session.commit()
+
+    return enqueue
+
+
+async def _run_cycle(
+    sessionmaker: Any, args: argparse.Namespace, qc_enqueuer: Any | None = None
+) -> bool:
     """一个事务跑一轮：领任务或扫尾，提交后归还连接。"""
     async with sessionmaker() as session:
-        worker = _build_worker(session, args)
+        worker = _build_worker(session, args, qc_enqueuer)
         if args.sweep:
             reclaimed = await worker.sweep_expired()
             await session.commit()
@@ -113,19 +144,22 @@ async def _main(argv: list[str] | None = None) -> int:
     setup_logging(settings.log_level)
     engine = create_production_planning_engine()
     sessionmaker = create_sessionmaker(engine)
+    qc_engine = create_qc_governance_engine()
+    qc_enqueuer = _make_qc_enqueuer(create_sessionmaker(qc_engine))
     try:
         if args.sweep or args.once:
-            await _run_cycle(sessionmaker, args)
+            await _run_cycle(sessionmaker, args, qc_enqueuer)
             return 0
         while True:
             try:
-                busy = await _run_cycle(sessionmaker, args)
+                busy = await _run_cycle(sessionmaker, args, qc_enqueuer)
             except Exception:
                 logger.exception("generation worker cycle failed")
                 busy = False
             if not busy:
                 await asyncio.sleep(args.idle_sleep)
     finally:
+        await qc_engine.dispose()
         await engine.dispose()
     return 0
 

@@ -22,7 +22,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 #   outbox_maintenance —— Outbox 运维 CLI：用 postgres 超级用户做 DDL。
 #   identity           —— 身份签发服务：持私钥（+公钥）签发令牌。
 ProcessRole = Literal[
-    "api", "relay", "outbox_maintenance", "identity", "generation"
+    "api", "relay", "outbox_maintenance", "identity", "generation", "qc"
 ]
 
 # 数据库角色配置项：环境变量名 → Settings 字段名（单一事实源）。
@@ -229,6 +229,10 @@ class Settings(BaseSettings):
                 "postgres_production_planning_password",
                 "POSTGRES_PRODUCTION_PLANNING_PASSWORD",
             ),
+        ),
+        # QC Worker 只连 qc_governance 域（队列与租约都在那）。
+        "qc": (
+            ("postgres_qc_governance_password", "POSTGRES_QC_GOVERNANCE_PASSWORD"),
         ),
     }
 

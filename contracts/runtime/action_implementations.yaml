@@ -52,6 +52,16 @@ implemented:
   ASSET.VERSION.CREATE:
     route: "POST /assets"
     module: services/asset_service/api/asset_routes.py
+  QC.TASK.ENQUEUE:
+    route: POST /qc-tasks
+    module: services/qc_governance/api/qc_task_routes.py
+  QC.TASK.PROCESS:
+    route: POST /qc-tasks/{entity_id}/lease
+    module: services/qc_governance/api/qc_task_routes.py
+    extra_routes:
+    - POST /qc-tasks/{entity_id}/lease/renew
+    - POST /qc-tasks/{entity_id}/lease/release
+    - POST /qc-tasks/{entity_id}/finish
   QC.REPORT.CREATE:
     route: "POST /assets/{asset_version_id}/qc-reports"
     module: services/asset_service/api/asset_routes.py

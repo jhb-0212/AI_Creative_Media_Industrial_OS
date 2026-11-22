@@ -21,7 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from packages.shared.database import Base
 from packages.shared.orm import EntityMixin
 from packages.shared.status_constraint import status_check
-from services.project_planning.domain.enums import NoLifecycleStatus
+from services.project_planning.domain.enums import NoLifecycleStatus, QCTaskStatus
 
 SCHEMA_NAME = "qc_governance"
 
@@ -71,4 +71,38 @@ class GateDecisionModel(Base, EntityMixin):
     scope: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
 
 
-__all__ = ["SCHEMA_NAME", "GateDecisionModel"]
+class QCTaskModel(Base, EntityMixin):
+    """qc_tasks：QC 待检队列（QUEUED/RUNNING/PASSED/REJECTED + 租约）。"""
+
+    __tablename__ = "qc_tasks"
+    __table_args__ = (
+        Index("ix_qc_governance_qc_tasks_tenant_id", "tenant_id"),
+        Index("ix_qc_governance_qc_tasks_status", "status"),
+        Index(
+            "uq_qc_governance_qc_tasks_generation_task",
+            "generation_task_id",
+            unique=True,
+        ),
+        status_check((s.value for s in QCTaskStatus), table="qc_tasks"),
+        {"schema": SCHEMA_NAME},
+    )
+
+    qc_task_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    shot_id: Mapped[str] = mapped_column(String(64), nullable=False, server_default="")
+    asset_version_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    generation_task_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    quality_profile_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    lease_owner: Mapped[str] = mapped_column(
+        String(128), nullable=False, server_default=""
+    )
+    lease_expires_at: Mapped[Any | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    qc_report_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default=""
+    )
+
+
+__all__ = ["SCHEMA_NAME", "GateDecisionModel", "QCTaskModel"]

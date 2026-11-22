@@ -3,7 +3,7 @@
 # 校验口径：action_key 全局唯一、命名规范、audit_event 与 negative_test_id 一一对应
 registry_source: 'AFS-ARCH-MASTER-V2.0.5 / 31.6 Action Registry'
 registry_version: 'V2.0.5'
-total_actions: 103
+total_actions: 105
 actions:
   - action_key: 'PROJECT.CREATE'
     resource_type: 'Project'
@@ -1163,4 +1163,26 @@ actions:
     audit_event: 'REWORK_TASK_READ'
     negative_test_id: 'ACT-REWORK-NEG-003'
     negative_test_desc: '跨组织读取返工任务拒绝'
+    status: 'ACTIVE'
+  - action_key: 'QC.TASK.ENQUEUE'
+    resource_type: 'QCTask'
+    scope: 'project/shot/asset_version'
+    risk_level: 'MEDIUM'
+    token_required: true
+    allowed_principals: '生成 Worker/受信调度服务'
+    approval_requirement: '仅在生成终态且携带产物引用时入队；同一生成任务不得重复入队。'
+    audit_event: 'QC_TASK_QUEUED'
+    negative_test_id: 'ACT-QC-NEG-002'
+    negative_test_desc: '缺失产物引用或重复入队拒绝'
+    status: 'ACTIVE'
+  - action_key: 'QC.TASK.PROCESS'
+    resource_type: 'QCTask'
+    scope: 'project/shot/asset_version'
+    risk_level: 'MEDIUM'
+    token_required: true
+    allowed_principals: 'QC Worker（租约持有者）'
+    approval_requirement: '仅领取/续租/终结已存在的 QC 任务；不得改写产物引用与质量档案版本。'
+    audit_event: 'QC_TASK_STARTED'
+    negative_test_id: 'ACT-QC-NEG-003'
+    negative_test_desc: '非持有者操作或租约过期时拒绝改写'
     status: 'ACTIVE'

@@ -1102,6 +1102,8 @@ _ORG_RLS_TABLES: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
             ("production_planning", "generation_tasks"),
             ("budget_quota", "shot_budget_requests"),
             ("qc_governance", "gate_decisions"),
+            # Phase 3：QC 待检队列同样以父项目存在性表达组织可见性。
+            ("qc_governance", "qc_tasks"),
         )
     ),
     # R16：预算账本是追加式流水，无 project/org 列，按租户维度兜底隔离

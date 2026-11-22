@@ -95,6 +95,7 @@ objects:
   - {object: ToolExchangeSession, class: lifecycle}
   - {object: ProductionRoute, class: lifecycle}
   - {object: GenerationTask, class: lifecycle}
+  - {object: QCTask, class: lifecycle}
   - {object: ShotBudgetRequest, class: lifecycle}
 
   # ---------------- envelope_only：17 个无独立生命周期的对象 ----------------

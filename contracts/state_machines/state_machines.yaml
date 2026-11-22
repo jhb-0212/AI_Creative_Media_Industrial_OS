@@ -30,7 +30,7 @@
 version: 2
 source: AFS-ARCH-MASTER-V2.0.5 各章节状态机定义（由 Markdown 基线派生）
 authority_rule: 同一对象多处定义时，按 31.5 唯一权威状态机 > 32.6/C.7 > 34.x > 33.3 > C.3 取权威；24.11 为摘要不计入权威；差异不静默合并，见 conflict 字段。
-total_objects: 47
+total_objects: 48
 conflict_count: 6
 object_count_note: total_objects 只计持久化领域对象；UI 投影见 projections 分区（不计入对象数，也不得进枚举注册表）。
 
@@ -973,3 +973,24 @@ objects:
   - 31.6 Action Registry（BUDGET.SHOT.REQUEST / BUDGET.SHOT.APPROVE）
   - contracts/budget/budget_caliber.yaml
   - docs/architecture/decision-register-r16.md（R16-D3 架构决策）
+- object: QCTask
+  authoritative_source: docs/architecture/amendment-pack-r16-phase3-qc.md（Owner 2026-11-23 指令「A」）
+  allowed_states: [QUEUED, RUNNING, PASSED, REJECTED]
+  initial_state: QUEUED
+  transitions:
+  - {from: QUEUED, to: RUNNING, owner_action: QC.TASK.PROCESS}
+  - {from: RUNNING, to: PASSED, owner_action: QC.TASK.PROCESS}
+  - {from: RUNNING, to: REJECTED, owner_action: QC.TASK.PROCESS}
+  # 租约到期退回 QUEUED 可被重新领取：否则 QC Worker 崩溃会让任务永远停在 RUNNING。
+  - {from: RUNNING, to: QUEUED, owner_action: QC.TASK.PROCESS}
+  frozen_states: []
+  note: >-
+    QC 待检队列。QC.TASK.ENQUEUE 在生成终态（SUCCEEDED 且带产物引用）时创建 QUEUED；
+    QC.TASK.PROCESS 持有租约时领取（QUEUED→RUNNING）、续租、判定 PASSED/REJECTED，
+    租约到期把 RUNNING 退回 QUEUED 以便重新领取。QC Worker 只写 QC 任务与报告，
+    不直接改 Gate——Gate 仍由人工职责主体裁决。
+  source_kind: owner_supplied_design
+  registration_status: APPROVED_BY_OWNER
+  all_sources:
+  - docs/architecture/amendment-pack-r16-phase3-qc.md
+  - docs/architecture/decision-register-r16.md（R16-D3-04 / R16-D3-05）

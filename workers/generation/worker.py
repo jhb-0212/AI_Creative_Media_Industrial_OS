@@ -29,10 +29,16 @@ OutcomeResult = Literal["SUCCEEDED", "FAILED"]
 
 @dataclass(frozen=True)
 class GenerationOutcome:
-    """执行结果：Worker 只认这两种终态，中间态由领域状态机管。"""
+    """执行结果：Worker 只认这两种终态，中间态由领域状态机管。
+
+    ``asset_version_id`` 是产物的权威引用：QC 待检队列靠它把「任务」映射到
+    「待检资产」。没有它就不入队——用一个含糊的 evidence_ref 顶替会让 QC 检错对象。
+    """
 
     result: OutcomeResult
     evidence_ref: str = ""
+    asset_version_id: str = ""
+    quality_profile_version: str = ""
 
 
 class GenerationExecutor(Protocol):
@@ -57,6 +63,7 @@ class GenerationWorker:
         worker_id: str,
         lease_seconds: int = 60,
         idle_sleep: float = 1.0,
+        qc_enqueuer: Any | None = None,
     ) -> None:
         if lease_seconds <= 0:
             raise ValueError("lease_seconds 必须为正")
@@ -66,6 +73,7 @@ class GenerationWorker:
         self.worker_id = worker_id
         self.lease_seconds = lease_seconds
         self.idle_sleep = idle_sleep
+        self._qc_enqueuer = qc_enqueuer
 
     @property
     def heartbeat_interval(self) -> float:
@@ -95,6 +103,7 @@ class GenerationWorker:
                 result="FAILED",
                 evidence_ref=f"worker-error:{type(exc).__name__}",
             )
+        finished = False
         try:
             await self._service.finish(
                 task_id=claimed.entity_id,
@@ -102,10 +111,38 @@ class GenerationWorker:
                 result=outcome.result,
                 evidence_ref=outcome.evidence_ref,
             )
+            finished = True
         except DomainError as exc:
             # 执行期间租约被别人回收：结果作废，状态以回收方为准，不能覆盖。
             logger.warning("finish rejected for task %s: %s", claimed.entity_id, exc)
+        if finished and outcome.result == "SUCCEEDED":
+            await self._enqueue_qc(claimed, outcome)
         return True
+
+    async def _enqueue_qc(self, task: Any, outcome: GenerationOutcome) -> None:
+        """成功产物进入 QC 待检队列；没有权威产物引用就不入队（不猜）。"""
+        if self._qc_enqueuer is None:
+            return
+        if not outcome.asset_version_id.strip():
+            logger.warning(
+                "task %s succeeded without asset_version_id; skip QC enqueue",
+                task.entity_id,
+            )
+            return
+        if not outcome.quality_profile_version.strip():
+            logger.warning(
+                "task %s succeeded without quality_profile_version; skip QC enqueue",
+                task.entity_id,
+            )
+            return
+        try:
+            await self._qc_enqueuer(task, outcome)
+        except DomainError as exc:
+            # 重复入队（幂等冲突）不是错误：说明上一轮已经入队成功。
+            logger.info("QC enqueue skipped for task %s: %s", task.entity_id, exc)
+        except Exception:
+            # 入队失败不回滚生成终态：任务已完成，QC 队列缺口必须留日志待补。
+            logger.exception("QC enqueue failed for task %s", task.entity_id)
 
     async def _execute_with_heartbeat(self, task: Any) -> GenerationOutcome:
         work = asyncio.create_task(self._executor.execute(task))

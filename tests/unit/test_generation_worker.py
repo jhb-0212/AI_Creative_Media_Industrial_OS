@@ -62,7 +62,7 @@ class RecordingExecutor:
 
 
 def _setup(
-    executor, *, lease_seconds: int = 60
+    executor, *, lease_seconds: int = 60, qc_enqueuer=None
 ) -> tuple[GenerationWorker, FakeTaskRepository, GenerationService]:
     repo = FakeTaskRepository()
     service = GenerationService(repo, InMemoryOutboxWriter())
@@ -73,6 +73,7 @@ def _setup(
         worker_id="worker-1",
         lease_seconds=lease_seconds,
         idle_sleep=0.05,
+        qc_enqueuer=qc_enqueuer,
     )
     return worker, repo, service
 
@@ -170,3 +171,57 @@ async def test_run_once_prefers_work_over_sweep() -> None:
 
 def test_lease_lost_error_is_runtime_error() -> None:
     assert issubclass(LeaseLostError, RuntimeError)
+
+
+async def test_success_enqueues_qc_with_asset_reference() -> None:
+    """成功产物必须带着权威资产引用入队，QC 才能检对对象。"""
+    seen: list[tuple[str, str, str]] = []
+
+    async def enqueue(task, outcome) -> None:
+        seen.append((task.entity_id, outcome.asset_version_id, outcome.quality_profile_version))
+
+    executor = RecordingExecutor(
+        GenerationOutcome(
+            "SUCCEEDED",
+            "asset://out.mp4",
+            asset_version_id="asset-ver-1",
+            quality_profile_version="qp-r16-v1",
+        )
+    )
+    worker, repo, service = _setup(executor, qc_enqueuer=enqueue)
+    task = await _requested(service, repo)
+
+    assert await worker.process_one() is True
+    assert seen == [(task.entity_id, "asset-ver-1", "qp-r16-v1")]
+
+
+async def test_failed_task_never_enqueues_qc() -> None:
+    called: list[str] = []
+
+    async def enqueue(task, outcome) -> None:
+        called.append(task.entity_id)
+
+    worker, repo, service = _setup(
+        RecordingExecutor(raise_exc=RuntimeError("boom")), qc_enqueuer=enqueue
+    )
+    await _requested(service, repo)
+
+    assert await worker.process_one() is True
+    assert called == []
+
+
+async def test_success_without_asset_reference_skips_qc() -> None:
+    """没有权威产物引用就不猜：宁可留日志，也不给 QC 一个错对象。"""
+    called: list[str] = []
+
+    async def enqueue(task, outcome) -> None:
+        called.append(task.entity_id)
+
+    worker, repo, service = _setup(
+        RecordingExecutor(GenerationOutcome("SUCCEEDED", "asset://out.mp4")),
+        qc_enqueuer=enqueue,
+    )
+    await _requested(service, repo)
+
+    assert await worker.process_one() is True
+    assert called == []

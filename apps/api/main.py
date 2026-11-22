@@ -77,6 +77,9 @@ from services.project_planning.api.shot_planning_routes import (  # noqa: E402
     shot_spec_router,
 )
 from services.qc_governance.api.gate_routes import router as gate_router  # noqa: E402
+from services.qc_governance.api.qc_task_routes import (  # noqa: E402
+    router as qc_task_router,
+)
 
 app.include_router(project_router)
 app.include_router(script_router)
@@ -93,6 +96,7 @@ app.include_router(generation_router)
 app.include_router(budget_router)
 app.include_router(budget_ledger_router)
 app.include_router(gate_router)
+app.include_router(qc_task_router)
 
 
 # 探针与指标端点不参与限流：编排系统高频抓取，被限流会误判实例不可用。

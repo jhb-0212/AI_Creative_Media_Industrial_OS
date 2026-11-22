@@ -200,6 +200,15 @@ class GenerationTaskStatus(str, Enum):
     FAILED = "FAILED"        # 执行失败（终态）
 
 
+class QCTaskStatus(str, Enum):
+    """QC 待检任务的生命周期（Phase 3，生成终态入队）。"""
+
+    QUEUED = "QUEUED"        # 待检：已入队，等待 QC Worker 领取
+    RUNNING = "RUNNING"      # 检测中：由 QC.TASK.PROCESS 的租约持有者推进
+    PASSED = "PASSED"        # 检测通过（终态）
+    REJECTED = "REJECTED"    # 检测不通过（终态）
+
+
 class ShotBudgetRequestStatus(str, Enum):
     """单镜头预算申请的生命周期（R16-D3，两步审批）。"""
 
