@@ -77,7 +77,10 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 
 def _build_worker(
-    session: Any, args: argparse.Namespace, qc_enqueuer: Any | None = None
+    session: Any,
+    args: argparse.Namespace,
+    qc_enqueuer: Any | None = None,
+    qc_lookup: Any | None = None,
 ) -> GenerationWorker:
     return GenerationWorker(
         service=GenerationService(
@@ -90,6 +93,7 @@ def _build_worker(
         lease_seconds=args.lease_seconds,
         idle_sleep=args.idle_sleep,
         qc_enqueuer=qc_enqueuer,
+        qc_lookup=qc_lookup,
     )
 
 
@@ -116,12 +120,26 @@ def _make_qc_enqueuer(qc_sessionmaker: Any) -> Any:
     return enqueue
 
 
+def _make_qc_lookup(qc_sessionmaker: Any) -> Any:
+    """对账用：该生成任务是否已有待检项（跨域只读查询，独立会话）。"""
+
+    async def exists(generation_task_id: str) -> bool:
+        async with qc_sessionmaker() as session:
+            repo = SqlAlchemyQCTaskRepository(session)
+            return await repo.find_by_generation_task(generation_task_id) is not None
+
+    return exists
+
+
 async def _run_cycle(
-    sessionmaker: Any, args: argparse.Namespace, qc_enqueuer: Any | None = None
+    sessionmaker: Any,
+    args: argparse.Namespace,
+    qc_enqueuer: Any | None = None,
+    qc_lookup: Any | None = None,
 ) -> bool:
-    """一个事务跑一轮：领任务或扫尾，提交后归还连接。"""
+    """一个事务跑一轮：领任务或（空闲时）补漏入队 + 扫尾，提交后归还连接。"""
     async with sessionmaker() as session:
-        worker = _build_worker(session, args, qc_enqueuer)
+        worker = _build_worker(session, args, qc_enqueuer, qc_lookup)
         if args.sweep:
             reclaimed = await worker.sweep_expired()
             await session.commit()
@@ -129,6 +147,7 @@ async def _run_cycle(
             return False
         busy = await worker.process_one()
         if not busy:
+            await worker.reconcile_qc()
             reclaimed = await worker.sweep_expired()
             await session.commit()
             if reclaimed:
@@ -145,14 +164,16 @@ async def _main(argv: list[str] | None = None) -> int:
     engine = create_production_planning_engine()
     sessionmaker = create_sessionmaker(engine)
     qc_engine = create_qc_governance_engine()
-    qc_enqueuer = _make_qc_enqueuer(create_sessionmaker(qc_engine))
+    qc_sessionmaker = create_sessionmaker(qc_engine)
+    qc_enqueuer = _make_qc_enqueuer(qc_sessionmaker)
+    qc_lookup = _make_qc_lookup(qc_sessionmaker)
     try:
         if args.sweep or args.once:
-            await _run_cycle(sessionmaker, args, qc_enqueuer)
+            await _run_cycle(sessionmaker, args, qc_enqueuer, qc_lookup)
             return 0
         while True:
             try:
-                busy = await _run_cycle(sessionmaker, args, qc_enqueuer)
+                busy = await _run_cycle(sessionmaker, args, qc_enqueuer, qc_lookup)
             except Exception:
                 logger.exception("generation worker cycle failed")
                 busy = False

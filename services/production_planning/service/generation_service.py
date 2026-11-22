@@ -184,11 +184,19 @@ class GenerationService:
         worker_id: str,
         result: Literal["SUCCEEDED", "FAILED"],
         evidence_ref: str = "",
+        asset_version_id: str = "",
+        quality_profile_version: str = "",
     ) -> GenerationTask:
-        """RUNNING → SUCCEEDED / FAILED：只有租约持有者能终结。"""
+        """RUNNING → SUCCEEDED / FAILED：只有租约持有者能终结。
+
+        SUCCEEDED 可同时登记产物引用（同一次版本推进落库）。FAILED 不接受产物引用：
+        失败任务不该出现在 QC 队列，也就不该留下「可被扫描到」的成功标记。
+        """
         task = await self._load(task_id)
         task.require_lease_owner(worker_id)
         target = GenerationTaskStatus(result)
+        if target is GenerationTaskStatus.SUCCEEDED and asset_version_id:
+            task.attach_product_refs(asset_version_id, quality_profile_version)
         payload = {
             "generation_task_id": task.generation_task_id,
             "worker_id": worker_id,

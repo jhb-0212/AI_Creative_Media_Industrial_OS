@@ -1691,6 +1691,7 @@ signatures:
     task_ref: string
     updated_at: string
   GenerationTask:
+    asset_version_id: string
     attempt_count: integer
     audit_ref: string|null
     budget_ref: string
@@ -1708,6 +1709,7 @@ signatures:
     production_route_ref: string
     project_id: string
     prompt_ref: string
+    quality_profile_version: string
     schema_version: integer
     shot_id: string
     shot_revision_id: string

@@ -60,6 +60,10 @@ class GenerationTask(Entity):
     lease_owner: str = ""
     lease_expires_at: datetime | None = None
     attempt_count: int = 0
+    # 产物引用：SUCCEEDED 时落库。QC 待检队列和失败补偿扫描都靠它把「任务」
+    # 映射到「待检资产」；只放在 Worker 内存里，进程一崩就再也查不回产物。
+    asset_version_id: str = ""
+    quality_profile_version: str = ""
 
     def __post_init__(self) -> None:
         super()._validate_envelope()
@@ -143,8 +147,40 @@ class GenerationTask(Entity):
         self.attempt_count += 1
         return self
 
-    def renew(
+    def attach_product_refs(
         self,
+        asset_version_id: str,
+        quality_profile_version: str,
+    ) -> GenerationTask:
+        """终结前登记产物引用（不改状态、不推版本；由随后的 finish 一并落库）。
+
+        只允许在 RUNNING 且租约期内调用：没有租约的人不能替别的执行者写产物引用，
+        否则「谁生成了这份资产」这一事实就无从判定。
+        """
+        asset_version_id = (asset_version_id or "").strip()
+        quality_profile_version = (quality_profile_version or "").strip()
+        if not asset_version_id:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR, detail="asset_version_id 不能为空"
+            )
+        if not quality_profile_version:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR, detail="quality_profile_version 不能为空"
+            )
+        for name, value in (
+            ("asset_version_id", asset_version_id),
+            ("quality_profile_version", quality_profile_version),
+        ):
+            if len(value) > 64:
+                raise DomainError(
+                    ErrorRegistry.VALIDATION_ERROR,
+                    detail=f"{name} 长度超过上限 64",
+                )
+        self.asset_version_id = asset_version_id
+        self.quality_profile_version = quality_profile_version
+        return self
+
+    def renew(        self,
         worker_id: str,
         lease_expires_at: datetime,
         audit_ref: str,
@@ -202,6 +238,8 @@ class GenerationTask(Entity):
                     else None
                 ),
                 "attempt_count": self.attempt_count,
+                "asset_version_id": self.asset_version_id,
+                "quality_profile_version": self.quality_profile_version,
             }
         )
         return data

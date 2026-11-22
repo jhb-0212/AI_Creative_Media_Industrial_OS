@@ -64,6 +64,7 @@ class GenerationWorker:
         lease_seconds: int = 60,
         idle_sleep: float = 1.0,
         qc_enqueuer: Any | None = None,
+        qc_lookup: Any | None = None,
     ) -> None:
         if lease_seconds <= 0:
             raise ValueError("lease_seconds 必须为正")
@@ -74,6 +75,7 @@ class GenerationWorker:
         self.lease_seconds = lease_seconds
         self.idle_sleep = idle_sleep
         self._qc_enqueuer = qc_enqueuer
+        self._qc_lookup = qc_lookup
 
     @property
     def heartbeat_interval(self) -> float:
@@ -103,6 +105,16 @@ class GenerationWorker:
                 result="FAILED",
                 evidence_ref=f"worker-error:{type(exc).__name__}",
             )
+        product_refs: dict[str, str] = {}
+        if (
+            outcome.result == "SUCCEEDED"
+            and outcome.asset_version_id.strip()
+            and outcome.quality_profile_version.strip()
+        ):
+            product_refs = {
+                "asset_version_id": outcome.asset_version_id,
+                "quality_profile_version": outcome.quality_profile_version,
+            }
         finished = False
         try:
             await self._service.finish(
@@ -110,6 +122,7 @@ class GenerationWorker:
                 worker_id=self.worker_id,
                 result=outcome.result,
                 evidence_ref=outcome.evidence_ref,
+                **product_refs,
             )
             finished = True
         except DomainError as exc:
@@ -180,10 +193,38 @@ class GenerationWorker:
             reclaimed += 1
         return reclaimed
 
+    async def reconcile_qc(self, limit: int = 50) -> int:
+        """补偿「生成成功但漏入队」：扫描带产物引用的成功任务，缺则补入队。
+
+        为什么需要它：入队是生成终态提交后的第二个事务，进程在两者之间崩溃时
+        任务已成功、队列里却没有对应待检项。产物引用落库后，这个缺口可被扫描发现。
+        """
+        if self._qc_enqueuer is None:
+            return 0
+        lister = getattr(self._repository, "list_succeeded_with_asset", None)
+        if lister is None:
+            return 0
+        succeeded = await lister(limit)
+        enqueued = 0
+        for task in succeeded:
+            if self._qc_lookup is not None and await self._qc_lookup(task.entity_id):
+                continue
+            outcome = GenerationOutcome(
+                result="SUCCEEDED",
+                asset_version_id=task.asset_version_id,
+                quality_profile_version=task.quality_profile_version,
+            )
+            await self._enqueue_qc(task, outcome)
+            enqueued += 1
+        if enqueued:
+            logger.info("QC reconcile enqueued %d missed success(es)", enqueued)
+        return enqueued
+
     async def run_once(self) -> bool:
-        """一轮调度：优先领任务，空闲时顺带扫尾。返回是否领到了任务。"""
+        """一轮调度：优先领任务，空闲时补漏入队并扫尾。返回是否领到了任务。"""
         if await self.process_one():
             return True
+        await self.reconcile_qc()
         reclaimed = await self.sweep_expired()
         if reclaimed:
             logger.info("reclaimed %d expired lease(s)", reclaimed)

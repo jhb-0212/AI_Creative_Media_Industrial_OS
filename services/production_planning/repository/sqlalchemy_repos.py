@@ -129,6 +129,8 @@ def _task_to_orm(task: GenerationTask) -> GenerationTaskModel:
         lease_owner=task.lease_owner,
         lease_expires_at=task.lease_expires_at,
         attempt_count=task.attempt_count,
+        asset_version_id=task.asset_version_id,
+        quality_profile_version=task.quality_profile_version,
     )
 
 
@@ -163,6 +165,8 @@ def _task_to_domain(model: GenerationTaskModel) -> GenerationTask:
         lease_owner=model.lease_owner,
         lease_expires_at=model.lease_expires_at,
         attempt_count=model.attempt_count,
+        asset_version_id=model.asset_version_id,
+        quality_profile_version=model.quality_profile_version,
     )
 
 
@@ -213,6 +217,23 @@ class SqlAlchemyGenerationTaskRepository:
                 GenerationTaskModel.lease_expires_at.is_not(None),
                 GenerationTaskModel.lease_expires_at < now,
             )
+        )
+        return [_task_to_domain(model) for model in result.scalars()]
+
+    async def list_succeeded_with_asset(self, limit: int = 50) -> list[GenerationTask]:
+        """成功且登记了产物引用的任务（QC 漏入队对账的数据源）。
+
+        只取带 ``asset_version_id`` 的行：没有产物引用的历史成功任务无法映射到
+        待检资产，扫描它们只会制造无对象的入队请求。
+        """
+        result = await self._session.execute(
+            select(GenerationTaskModel)
+            .where(
+                GenerationTaskModel.status == GenerationTaskStatus.SUCCEEDED.value,
+                GenerationTaskModel.asset_version_id != "",
+            )
+            .order_by(GenerationTaskModel.updated_at.asc())
+            .limit(limit)
         )
         return [_task_to_domain(model) for model in result.scalars()]
 

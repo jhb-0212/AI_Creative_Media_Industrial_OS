@@ -9531,6 +9531,8 @@
         "lease_expires_at": {"type": ["string", "null"]},
         "lease_owner": {"type": "string"},
         "attempt_count": {"type": "integer"},
+        "asset_version_id": {"type": "string"},
+        "quality_profile_version": {"type": "string"},
         "owner_module": {"type": "string"},
         "created_at": {"type": "string"},
         "created_by": {"type": "string"},

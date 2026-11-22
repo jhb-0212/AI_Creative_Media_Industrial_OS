@@ -85,6 +85,14 @@ class GenerationTaskModel(Base, EntityMixin):
     attempt_count: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="0"
     )
+    # 产物引用（Phase 3 后续）：成功任务把产物与质量标准版本落库，
+    # QC 入队与「成功但漏入队」的对账扫描都以这两列为唯一依据。
+    asset_version_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default=""
+    )
+    quality_profile_version: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default=""
+    )
 
 
 __all__ = ["SCHEMA_NAME", "GenerationTaskModel", "ProductionRouteModel"]

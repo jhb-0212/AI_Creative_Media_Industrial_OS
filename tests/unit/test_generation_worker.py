@@ -44,6 +44,15 @@ class FakeTaskRepository(InMemoryRepository):
             and task.lease_expires_at < now
         ]
 
+    async def list_succeeded_with_asset(self, limit: int = 50):
+        succeeded = [
+            task
+            for task in self.snapshot().values()
+            if task.status is GenerationTaskStatus.SUCCEEDED
+            and task.asset_version_id
+        ]
+        return sorted(succeeded, key=lambda task: task.created_at)[:limit]
+
 
 class RecordingExecutor:
     def __init__(self, outcome: GenerationOutcome | None = None, *, raise_exc=None, delay=0.0):
@@ -62,7 +71,11 @@ class RecordingExecutor:
 
 
 def _setup(
-    executor, *, lease_seconds: int = 60, qc_enqueuer=None
+    executor,
+    *,
+    lease_seconds: int = 60,
+    qc_enqueuer=None,
+    qc_lookup=None,
 ) -> tuple[GenerationWorker, FakeTaskRepository, GenerationService]:
     repo = FakeTaskRepository()
     service = GenerationService(repo, InMemoryOutboxWriter())
@@ -74,6 +87,7 @@ def _setup(
         lease_seconds=lease_seconds,
         idle_sleep=0.05,
         qc_enqueuer=qc_enqueuer,
+        qc_lookup=qc_lookup,
     )
     return worker, repo, service
 
@@ -193,6 +207,66 @@ async def test_success_enqueues_qc_with_asset_reference() -> None:
 
     assert await worker.process_one() is True
     assert seen == [(task.entity_id, "asset-ver-1", "qp-r16-v1")]
+
+
+async def test_success_persists_product_refs_on_task() -> None:
+    """产物引用必须落库：只有内存引用的话，漏入队永远无法对账。"""
+    executor = RecordingExecutor(
+        GenerationOutcome(
+            "SUCCEEDED",
+            "asset://out.mp4",
+            asset_version_id="asset-ver-1",
+            quality_profile_version="qp-r16-v1",
+        )
+    )
+    worker, repo, service = _setup(executor)
+    task = await _requested(service, repo)
+
+    assert await worker.process_one() is True
+    done = repo.snapshot()[task.entity_id]
+    assert done.asset_version_id == "asset-ver-1"
+    assert done.quality_profile_version == "qp-r16-v1"
+
+
+async def test_reconcile_enqueues_success_without_qc_task() -> None:
+    """成功但没入队的产物，由对账补上；已入队的不重复提交。"""
+    enqueued: list[tuple[str, str, str]] = []
+    existing = {"gen-existing"}
+
+    async def enqueue(task, outcome) -> None:
+        enqueued.append(
+            (task.entity_id, outcome.asset_version_id, outcome.quality_profile_version)
+        )
+
+    async def lookup(generation_task_id: str) -> bool:
+        return generation_task_id in existing
+
+    worker, repo, service = _setup(
+        RecordingExecutor(
+            GenerationOutcome(
+                "SUCCEEDED",
+                "asset://out.mp4",
+                asset_version_id="asset-ver-1",
+                quality_profile_version="qp-r16-v1",
+            )
+        ),
+        qc_enqueuer=enqueue,
+        qc_lookup=lookup,
+    )
+    task = await _requested(service, repo)
+    assert await worker.process_one() is True
+    enqueued.clear()  # 正常路径已入队，下面只看对账行为
+
+    # 模拟「任务已成功、队列缺项」：清空去重集合，让对账重新发现它
+    existing.clear()
+    assert await worker.reconcile_qc() == 1
+    assert enqueued == [(task.entity_id, "asset-ver-1", "qp-r16-v1")]
+
+    # 已入队（lookup 返回 True）不得重复提交
+    existing.add(task.entity_id)
+    enqueued.clear()
+    assert await worker.reconcile_qc() == 0
+    assert enqueued == []
 
 
 async def test_failed_task_never_enqueues_qc() -> None:
