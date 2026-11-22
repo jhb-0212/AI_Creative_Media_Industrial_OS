@@ -1747,6 +1747,7 @@ signatures:
     entity_version: integer
     idempotency_key: string
     owner_module: string
+    reservation_ref: string
     schema_version: integer
     source: string
     status: string

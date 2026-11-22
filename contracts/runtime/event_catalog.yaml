@@ -491,6 +491,30 @@ events:
       - decided_by
       - tenant_id
     contract_ref: contracts/schemas/object_schemas.schema.json#GateDecision
+  # --- Phase 2 §2：账本结算族事件（归 BUDGET.SHOT.RELEASE / REFUND）---
+  - event_type: SHOT_BUDGET_RELEASED
+    aggregate_type: BudgetLedger
+    emitted_by: services/budget_quota/service/budget_service.py
+    contract_ref: contracts/action_registry/action_registry.yaml#BUDGET.SHOT.RELEASE
+    payload_required:
+      - reservation_ref
+      - transaction_kind
+      - amount
+      - idempotency_key
+      - actor
+      - reason
+  - event_type: SHOT_BUDGET_REFUNDED
+    aggregate_type: BudgetLedger
+    emitted_by: services/budget_quota/service/budget_service.py
+    contract_ref: contracts/action_registry/action_registry.yaml#BUDGET.SHOT.REFUND
+    payload_required:
+      - reservation_ref
+      - transaction_kind
+      - amount
+      - idempotency_key
+      - actor
+      - reason
+
   - event_type: SHOT_BUDGET_REQUESTED
     aggregate_type: ShotBudgetRequest
     emitted_by: services/budget_quota/service/budget_service.py

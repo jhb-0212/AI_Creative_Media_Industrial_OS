@@ -26,6 +26,7 @@ from services.project_planning.repository.sqlalchemy_outbox_writer import (
 )
 
 router = APIRouter(prefix="/shot-budget-requests", tags=["shot-budget"])
+ledger_router = APIRouter(prefix="/budget-ledger", tags=["budget-ledger"])
 
 
 def _service(session: AsyncSession) -> BudgetService:
@@ -119,4 +120,51 @@ async def approve_shot_budget(
     return request.to_dict()
 
 
-__all__ = ["router"]
+class SettleBudgetRequest(BaseModel):
+    """释放 / 冲销一笔预留言本。"""
+
+    amount: int = Field(..., gt=0)
+    reason: str = Field("", max_length=200)
+
+
+@ledger_router.post("/{entity_id}/release", status_code=201)
+async def release_budget(
+    entity_id: str,
+    body: SettleBudgetRequest,
+    principal: Principal = Depends(require_role("BUDGET.SHOT.RELEASE")),
+    uow: UnitOfWork = Depends(get_budget_quota_tenant_uow),
+    service: BudgetService = Depends(_get_service),
+) -> dict[str, Any]:
+    """释放已预留未消耗的额度（追加一条 RELEASE 流水）。"""
+    ledger = await service.release_budget(
+        reservation_ledger_id=entity_id,
+        amount=body.amount,
+        actor=principal.subject_id,
+        tenant_id=principal.tenant_id,
+        reason=body.reason,
+    )
+    await uow.commit()
+    return ledger.to_dict()
+
+
+@ledger_router.post("/{entity_id}/refund", status_code=201)
+async def refund_budget(
+    entity_id: str,
+    body: SettleBudgetRequest,
+    principal: Principal = Depends(require_role("BUDGET.SHOT.REFUND")),
+    uow: UnitOfWork = Depends(get_budget_quota_tenant_uow),
+    service: BudgetService = Depends(_get_service),
+) -> dict[str, Any]:
+    """对已结算额度做冲销（追加一条 REFUND 流水，不修改原流水）。"""
+    ledger = await service.refund_budget(
+        reservation_ledger_id=entity_id,
+        amount=body.amount,
+        actor=principal.subject_id,
+        tenant_id=principal.tenant_id,
+        reason=body.reason,
+    )
+    await uow.commit()
+    return ledger.to_dict()
+
+
+__all__ = ["ledger_router", "router"]

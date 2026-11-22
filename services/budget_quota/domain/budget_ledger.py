@@ -18,6 +18,7 @@ from typing import Any
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.entity import Entity
+from services.budget_quota.domain.enums import SETTLEMENT_KINDS, BudgetTransactionKind
 from services.project_planning.domain.enums import NoLifecycleStatus
 
 _OWNER_MODULE = "budget-quota"
@@ -43,6 +44,8 @@ class BudgetLedger(Entity):
     idempotency_key: str = ""
     approval_ref: str = ""
     source: str = ""
+    # RELEASE / REFUND 指回被释放/冲销的那条 RESERVE 流水；RESERVE 自身为空。
+    reservation_ref: str = ""
     status: NoLifecycleStatus = NoLifecycleStatus.NO_LIFECYCLE
 
     def __post_init__(self) -> None:
@@ -60,6 +63,25 @@ class BudgetLedger(Entity):
                 raise DomainError(
                     ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
                 )
+        # 受控维度：不在枚举里就当场拒绝。库层还有 CHECK，两者同一集合派生。
+        try:
+            kind = BudgetTransactionKind(self.transaction_kind)
+        except ValueError as exc:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=f"transaction_kind 不在受控集合: {self.transaction_kind!r}",
+            ) from exc
+        # 释放/冲销必须指回预留言本；否则「释放的是哪一笔」无从判断，
+        # 余额口径会退化成「按账户类型猜」。
+        if kind in SETTLEMENT_KINDS and _blank(self.reservation_ref):
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=f"{kind.value} 必须携带 reservation_ref（指回被处理的 RESERVE 流水）",
+            )
+        if self.amount < 0:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR, detail="amount 不能为负"
+            )
         for name, max_len in (
             ("transaction_id", 64),
             ("account_type", 32),
@@ -92,6 +114,7 @@ class BudgetLedger(Entity):
                 "idempotency_key": self.idempotency_key,
                 "approval_ref": self.approval_ref,
                 "source": self.source,
+                "reservation_ref": self.reservation_ref,
             }
         )
         return data

@@ -131,6 +131,7 @@ def _ledger_to_orm(ledger: BudgetLedger) -> BudgetLedgerModel:
         idempotency_key=ledger.idempotency_key,
         approval_ref=ledger.approval_ref,
         source=ledger.source,
+        reservation_ref=ledger.reservation_ref,
     )
 
 
@@ -160,6 +161,7 @@ def _ledger_to_domain(model: BudgetLedgerModel) -> BudgetLedger:
         idempotency_key=model.idempotency_key,
         approval_ref=model.approval_ref,
         source=model.source,
+        reservation_ref=model.reservation_ref,
         status=status,
     )
 
@@ -178,6 +180,23 @@ class SqlAlchemyBudgetLedgerRepository:
     async def get_by_id(self, entity_id: str) -> BudgetLedger | None:
         result = await self._session.execute(
             select(BudgetLedgerModel).where(BudgetLedgerModel.entity_id == entity_id)
+        )
+        model = result.scalar_one_or_none()
+        return _ledger_to_domain(model) if model is not None else None
+
+    async def find_settlement(
+        self, *, reservation_ref: str, transaction_kind: str
+    ) -> BudgetLedger | None:
+        """查「这笔预留是否已经被同种结算（RELEASE / REFUND）」过。
+
+        库层有部分唯一索引兜底，但服务层也需要先查：直接撞唯一约束会得到一个
+        数据库错误，调用方拿不到「已经释放过」这个业务语义。
+        """
+        result = await self._session.execute(
+            select(BudgetLedgerModel).where(
+                BudgetLedgerModel.reservation_ref == reservation_ref,
+                BudgetLedgerModel.transaction_kind == transaction_kind,
+            )
         )
         model = result.scalar_one_or_none()
         return _ledger_to_domain(model) if model is not None else None

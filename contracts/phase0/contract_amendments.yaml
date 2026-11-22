@@ -1256,6 +1256,40 @@ amendments:
     residual_risks:
       - 'Worker 进程本体（workers/generation）尚未落地：端点与租约语义已可执行，但没有常驻消费者自动领取任务，需 §3 同批补齐'
 
+  - id: 'V205-R15-A26'
+    title: 'Phase 2 §2：账本 RELEASE / REFUND（reservation_ref + 受控 transaction_kind）'
+    retroactive: false
+    recorded_at: '2026-11-23'
+    discovered_by: 'docs/architecture/amendment-pack-r16-phase2.md §2（申请 B）'
+    reason: >-
+      账本此前只有 RESERVE 一种语义，且 transaction_kind 是裸 VARCHAR：写
+      「RELEASED」或「release」都能落库，按字符串匹配算余额时会静默漏算。释放与
+      冲销还缺一个关键事实——「这笔操作针对哪一条预留」，没有它就无法在库层拒绝
+      「同一笔预留释放两次」。本修订新增两个动作键（BUDGET.SHOT.RELEASE /
+      BUDGET.SHOT.REFUND）、reservation_ref 字段与部分唯一索引、以及从枚举派生的
+      CHECK 约束，动作从 101 增至 103。
+    adr: 'docs/architecture/amendment-pack-r16-phase2.md'
+    approved_by: '项目所有者（2026-11-23 会话内指令「按申请包签发」，范围 §1/§2/§3）'
+    approved_at: '2026-11-23'
+    source_commits:
+      - 'PENDING'
+    additions:
+      schema_objects:
+        - object: 'BudgetLedger'
+          why: '补 reservation_ref（结算流水指回被处理的 RESERVE）与 transaction_kind 受控 enum（RESERVE/RELEASE/REFUND）'
+      actions:
+        - action: 'BUDGET.SHOT.RELEASE'
+          why: '释放已预留未消耗额度：追加 RELEASE 流水，不修改原流水'
+        - action: 'BUDGET.SHOT.REFUND'
+          why: '冲销已结算额度：追加 REFUND 流水，不修改原流水'
+    counts_after:
+      actions: 103
+      openapi_operations: 103
+      schema_objects: 88
+      state_machines: 47
+    residual_risks:
+      - 'RESERVE→RELEASE 的跨流水一致性由部分唯一索引保证「只能一次」，但「释放金额+已消耗金额 ≤ 预留金额」目前只校验单笔上限，多次部分释放的累计校验需消费者按 kind 汇总'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——

@@ -125,5 +125,130 @@ class BudgetService:
             await self._ledger_repository.add(ledger)
         return cast("ShotBudgetRequest", request)
 
+    # ---- Phase 2 §2：账本释放 / 冲销 ------------------------------------- #
+
+    async def _settle(
+        self,
+        *,
+        kind: Literal["RELEASE", "REFUND"],
+        reservation_ledger_id: str,
+        amount: int,
+        actor: str,
+        tenant_id: UUID,
+        reason: str,
+    ) -> BudgetLedger:
+        run = await self._ledger_repository.get_by_id(reservation_ledger_id)
+        if run is None:
+            raise DomainError(
+                ErrorRegistry.NOT_FOUND,
+                detail=f"预留言本不存在: {reservation_ledger_id}",
+            )
+        # 只能对 RESERVE 流水做结算：对一条 RELEASE 再 RELEASE 会让余额无限下探。
+        if run.transaction_kind != "RESERVE":
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=f"{kind} 只能作用于 RESERVE 流水，实际为 {run.transaction_kind}",
+            )
+        if run.tenant_id != tenant_id:
+            raise DomainError(
+                ErrorRegistry.AUTH_SCOPE_DENIED,
+                detail="预留言本不属于当前租户",
+            )
+        if amount <= 0 or amount > run.amount:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=f"{kind} 金额必须大于 0 且不超过预留金额 {run.amount}，实际 {amount}",
+            )
+        existing = await self._ledger_repository.find_settlement(
+            reservation_ref=run.entity_id, transaction_kind=kind
+        )
+        if existing is not None:
+            raise DomainError(
+                ErrorRegistry.IDEMPOTENCY_CONFLICT,
+                detail=f"该预留已存在 {kind} 流水（{existing.entity_id}），不可重复结算",
+            )
+
+        ledger = BudgetLedger(
+            entity_id=str(uuid4()),
+            created_by=actor,
+            tenant_id=tenant_id,
+            transaction_id="",
+            account_type=run.account_type,
+            amount=amount,
+            currency=run.currency,
+            transaction_kind=kind,
+            idempotency_key=f"budget-{kind.lower()}:::{run.entity_id}",
+            approval_ref=run.approval_ref,
+            source=run.entity_id,
+            reservation_ref=run.entity_id,
+        )
+        await self._ledger_repository.add(ledger)
+        payload = {
+            "reservation_ref": run.entity_id,
+            "transaction_kind": kind,
+            "amount": amount,
+            "idempotency_key": ledger.idempotency_key,
+            "actor": actor,
+            "reason": reason,
+            "tenant_id": str(tenant_id),
+        }
+        # 事件名必须写字面量：事件契约靠源码字面量双向核对（登记了必须真发），
+        # 用三元表达式拼名字会让「把 SHOT_BUDGET_RELEASED 错写成 ..._REFUNDED」查不出来。
+        if kind == "RELEASE":
+            self._outbox_writer.record(
+                aggregate_type="BudgetLedger",
+                aggregate_id=ledger.entity_id,
+                tenant_id=tenant_id,
+                event_type="SHOT_BUDGET_RELEASED",
+                payload=payload,
+            )
+        else:
+            self._outbox_writer.record(
+                aggregate_type="BudgetLedger",
+                aggregate_id=ledger.entity_id,
+                tenant_id=tenant_id,
+                event_type="SHOT_BUDGET_REFUNDED",
+                payload=payload,
+            )
+        return ledger
+
+    async def release_budget(
+        self,
+        *,
+        reservation_ledger_id: str,
+        amount: int,
+        actor: str,
+        tenant_id: UUID,
+        reason: str = "",
+    ) -> BudgetLedger:
+        """释放已预留但未消耗的额度（新增 RELEASE 流水，不改旧流水）。"""
+        return await self._settle(
+            kind="RELEASE",
+            reservation_ledger_id=reservation_ledger_id,
+            amount=amount,
+            actor=actor,
+            tenant_id=tenant_id,
+            reason=reason,
+        )
+
+    async def refund_budget(
+        self,
+        *,
+        reservation_ledger_id: str,
+        amount: int,
+        actor: str,
+        tenant_id: UUID,
+        reason: str = "",
+    ) -> BudgetLedger:
+        """对已结算额度做冲销（新增 REFUND 流水，减法由消费者按 kind 计算）。"""
+        return await self._settle(
+            kind="REFUND",
+            reservation_ledger_id=reservation_ledger_id,
+            amount=amount,
+            actor=actor,
+            tenant_id=tenant_id,
+            reason=reason,
+        )
+
 
 __all__ = ["BudgetService"]

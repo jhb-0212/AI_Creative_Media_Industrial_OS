@@ -55,6 +55,7 @@ setup_telemetry(app)
 
 # 挂载领域模块路由。
 from services.asset_service.api.asset_routes import router as asset_router  # noqa: E402
+from services.budget_quota.api.budget_routes import ledger_router as budget_ledger_router  # noqa: E402
 from services.budget_quota.api.budget_routes import router as budget_router  # noqa: E402
 from services.production_planning.api.generation_routes import (  # noqa: E402
     router as generation_router,
@@ -90,6 +91,7 @@ app.include_router(asset_router)
 app.include_router(production_route_router)
 app.include_router(generation_router)
 app.include_router(budget_router)
+app.include_router(budget_ledger_router)
 app.include_router(gate_router)
 
 

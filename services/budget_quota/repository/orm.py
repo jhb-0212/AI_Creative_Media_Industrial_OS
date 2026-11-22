@@ -13,12 +13,13 @@ SELECT/INSERT）与任何「状态推进型」业务表（SELECT/INSERT/UPDATE�
 
 from __future__ import annotations
 
-from sqlalchemy import CheckConstraint, Index, Integer, String, UniqueConstraint
+from sqlalchemy import CheckConstraint, Index, Integer, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from packages.shared.database import Base
 from packages.shared.orm import EntityMixin
 from packages.shared.status_constraint import status_check
+from services.budget_quota.domain.enums import transaction_kind_values
 from services.project_planning.domain.enums import (
     NoLifecycleStatus,
     ShotBudgetRequestStatus,
@@ -57,6 +58,19 @@ class BudgetLedgerModel(Base, EntityMixin):
     __tablename__ = "budget_ledger"
     __table_args__ = (
         UniqueConstraint("idempotency_key", name="uq_budget_ledger_idempotency_key"),
+        # 同一笔预留只能被释放一次、冲销一次。用部分唯一索引而不是普通唯一约束：
+        # RESERVE 流水自身 reservation_ref 为空，普通唯一约束会把多条空串判成重复。
+        Index(
+            "uq_budget_quota_ledger_reservation_kind",
+            "reservation_ref",
+            "transaction_kind",
+            unique=True,
+            postgresql_where=text("reservation_ref <> ''"),
+        ),
+        CheckConstraint(
+            "transaction_kind IN (" + ", ".join(f"'{v}'" for v in transaction_kind_values()) + ")",
+            name="ck_budget_ledger_transaction_kind",
+        ),
         Index("ix_budget_quota_budget_ledger_tenant_id", "tenant_id"),
         status_check((s.value for s in NoLifecycleStatus), table="budget_ledger"),
         {"schema": SCHEMA_NAME},
@@ -70,6 +84,9 @@ class BudgetLedgerModel(Base, EntityMixin):
     idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
     approval_ref: Mapped[str] = mapped_column(String(128), nullable=False)
     source: Mapped[str] = mapped_column(String(128), nullable=False)
+    reservation_ref: Mapped[str] = mapped_column(
+        String(128), nullable=False, server_default=""
+    )
 
 
 __all__ = ["SCHEMA_NAME", "BudgetLedgerModel", "ShotBudgetRequestModel"]

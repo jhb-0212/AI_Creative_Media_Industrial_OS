@@ -3,7 +3,7 @@
 # 校验口径：action_key 全局唯一、命名规范、audit_event 与 negative_test_id 一一对应
 registry_source: 'AFS-ARCH-MASTER-V2.0.5 / 31.6 Action Registry'
 registry_version: 'V2.0.5'
-total_actions: 101
+total_actions: 103
 actions:
   - action_key: 'PROJECT.CREATE'
     resource_type: 'Project'
@@ -302,6 +302,28 @@ actions:
     audit_event: 'SHOT_BUDGET_APPROVED'
     negative_test_id: 'ACT-BUDGET-NEG-002'
     negative_test_desc: '自批/质量储备挪用/跨账户伪装同账户 三例拒绝（同账户额度重分配的子用例挂在 ACT-BUDGET-NEG-002 下）'
+    status: 'ACTIVE'
+  - action_key: 'BUDGET.SHOT.RELEASE'
+    resource_type: 'BudgetLedger'
+    scope: 'project/account'
+    risk_level: 'MEDIUM'
+    token_required: true
+    allowed_principals: '预算管理员/制片'
+    approval_requirement: '只能释放已预留且未消耗的额度；金额不得超过该笔预留；同一笔预留只可释放一次（库层部分唯一索引兜底）。'
+    audit_event: 'SHOT_BUDGET_RELEASED'
+    negative_test_id: 'ACT-BUDGET-NEG-003'
+    negative_test_desc: '重复释放、超预留金额释放、对非 RESERVE 流水释放 三例拒绝'
+    status: 'ACTIVE'
+  - action_key: 'BUDGET.SHOT.REFUND'
+    resource_type: 'BudgetLedger'
+    scope: 'project/account'
+    risk_level: 'MEDIUM'
+    token_required: true
+    allowed_principals: '预算管理员/制片'
+    approval_requirement: '冲销不修改原流水，只追加反向流水；金额不得超过该笔预留；同一笔预留只可冲销一次。'
+    audit_event: 'SHOT_BUDGET_REFUNDED'
+    negative_test_id: 'ACT-BUDGET-NEG-004'
+    negative_test_desc: '重复冲销、超预留金额冲销、跨租户冲销 三例拒绝'
     status: 'ACTIVE'
   - action_key: 'BUDGET.TRANSFER.REQUEST'
     resource_type: 'BudgetTransferRequest'
