@@ -148,3 +148,17 @@ Worker 若要「领取任务再执行」，必须有一条**由某个动作拥�
 
 剩余缺口（§3 才补齐）：`workers/generation` 进程本体未落地——端点与租约语义可执行，但没有常驻消费者自动领取；`GENERATION.PROCESS` 的 `negative_test_id: ACT-GEN-NEG-002` 尚无对应测试用例编号，需随 Worker 一并补。
 
+### §2 落地记录（2026-11-23，提交 `b9dfcd3`，修订台账 `V205-R15-A26`）
+
+| 项 | 申请包写法 | 实际落地 | 为什么 |
+| --- | --- | --- | --- |
+| 唯一性载体 | 建议 `reservation_ref` 外键式引用 + 唯一约束 | `reservation_ref` 列 + **部分**唯一索引 `(reservation_ref, transaction_kind) WHERE reservation_ref <> ''` | 普通唯一约束会把所有 RESERVE 的空串当重复，建表即失败；部分索引只约束「真的指回某笔预留」的行 |
+| 受控枚举落点 | 建议登记在枚举台账 | 代码 `BudgetTransactionKind` + 迁移 CHECK + schema `enum` 三处同源派生 | 该仓库的枚举台账只承载生命周期 status；transaction_kind 不是 status，硬塞进去会让「status 三层校验」语义污染 |
+| 校验粒度 | RELEASE 前置是否要求 RESERVE 存在 | 是：必须被处置的是 RESERVE 流水、同租户、金额 ≤ 预留金额、同 kind 不重复 | 「对一条 RELEASE 再 RELEASE」会让余额无限下探，这是表象背后真正的洞 |
+
+库层证据：`ck_budget_ledger_transaction_kind` = `CHECK (transaction_kind IN (REFUND, RELEASE, RESERVE))`；索引 `uq_budget_quota_ledger_reservation_kind` 已建。
+
+已登记残余风险（A26 `residual_risks`）：单笔上限已校验，但「多次部分释放累计 ≤ 预留」需消费者按 kind 汇总，当前没有消费者。
+
+测试证据：`tests/unit/test_budget_ledger_settlement.py` 九项。
+
