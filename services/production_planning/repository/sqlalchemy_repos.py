@@ -124,6 +124,9 @@ def _task_to_orm(task: GenerationTask) -> GenerationTaskModel:
         constraint_snapshot_id=task.constraint_snapshot_id,
         budget_ref=task.budget_ref,
         prompt_ref=task.prompt_ref,
+        lease_owner=task.lease_owner,
+        lease_expires_at=task.lease_expires_at,
+        attempt_count=task.attempt_count,
     )
 
 
@@ -155,6 +158,9 @@ def _task_to_domain(model: GenerationTaskModel) -> GenerationTask:
         budget_ref=model.budget_ref,
         prompt_ref=model.prompt_ref,
         status=status,
+        lease_owner=model.lease_owner,
+        lease_expires_at=model.lease_expires_at,
+        attempt_count=model.attempt_count,
     )
 
 

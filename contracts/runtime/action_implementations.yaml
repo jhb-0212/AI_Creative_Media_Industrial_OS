@@ -148,6 +148,15 @@ implemented:
   GENERATION.REQUEST:
     route: "POST /generation-tasks"
     module: services/production_planning/api/generation_routes.py
+  # Phase 2 §1：租约族的四条入口表达同一语义「推进一个已有任务」，因此共用
+  # 一个准入凭据 GENERATION.PROCESS；拆成四个 action 会让同一条边出现四个凭据。
+  GENERATION.PROCESS:
+    route: "POST /generation-tasks/{entity_id}/lease"
+    module: services/production_planning/api/generation_routes.py
+    extra_routes:
+      - "POST /generation-tasks/{entity_id}/lease/renew"
+      - "POST /generation-tasks/{entity_id}/lease/release"
+      - "POST /generation-tasks/{entity_id}/finish"
   PRODUCTION.GATE.APPROVE:
     route: "POST /gate-decisions"
     module: services/qc_governance/api/gate_routes.py

@@ -3,7 +3,7 @@
 # 校验口径：action_key 全局唯一、命名规范、audit_event 与 negative_test_id 一一对应
 registry_source: 'AFS-ARCH-MASTER-V2.0.5 / 31.6 Action Registry'
 registry_version: 'V2.0.5'
-total_actions: 100
+total_actions: 101
 actions:
   - action_key: 'PROJECT.CREATE'
     resource_type: 'Project'
@@ -181,7 +181,19 @@ actions:
     negative_test_id: 'ACT-GEN-NEG-001'
     negative_test_desc: '预算/权限越界拒绝'
     status: 'ACTIVE'
+  - action_key: 'GENERATION.PROCESS'
+    resource_type: 'GenerationTask'
+    scope: 'project/shot'
+    risk_level: 'MEDIUM'
+    token_required: true
+    allowed_principals: 'Worker（租约持有者）'
+    approval_requirement: '仅领取/续租/终结已存在的任务；不得改写约束快照、预算引用或镜头修订指针。'
+    audit_event: 'GENERATION_STARTED'
+    negative_test_id: 'ACT-GEN-NEG-002'
+    negative_test_desc: '非持有者操作或租约已过期时拒绝改写'
+    status: 'ACTIVE'
   - action_key: 'ASSET.VERSION.CREATE'
+
     resource_type: 'AssetVersion'
     scope: 'project/shot/asset'
     risk_level: 'MEDIUM'

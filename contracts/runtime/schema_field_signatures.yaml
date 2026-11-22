@@ -1691,6 +1691,7 @@ signatures:
     task_ref: string
     updated_at: string
   GenerationTask:
+    attempt_count: integer
     audit_ref: string|null
     budget_ref: string
     constraint_snapshot_id: string
@@ -1700,6 +1701,8 @@ signatures:
     entity_type: string
     entity_version: integer
     generation_task_id: string
+    lease_expires_at: string|null
+    lease_owner: string
     model_adapter_ref: string
     owner_module: string
     production_route_ref: string

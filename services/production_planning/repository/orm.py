@@ -17,7 +17,9 @@ denied，不是代码评审的意见。
 
 from __future__ import annotations
 
-from sqlalchemy import Index, String, UniqueConstraint
+from datetime import datetime
+
+from sqlalchemy import DateTime, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from packages.shared.database import Base
@@ -73,6 +75,16 @@ class GenerationTaskModel(Base, EntityMixin):
     constraint_snapshot_id: Mapped[str] = mapped_column(String(128), nullable=False)
     budget_ref: Mapped[str] = mapped_column(String(128), nullable=False)
     prompt_ref: Mapped[str] = mapped_column(String(200), nullable=False)
+    # 租约：领取者、到期时间、领取次数（Phase 2，GENERATION.PROCESS）。
+    lease_owner: Mapped[str] = mapped_column(
+        String(128), nullable=False, server_default=""
+    )
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    attempt_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0"
+    )
 
 
 __all__ = ["SCHEMA_NAME", "GenerationTaskModel", "ProductionRouteModel"]

@@ -618,6 +618,40 @@ paths:
           description: 幂等键冲突
         '422':
           description: 请求信封或载荷校验失败
+  /actions/generation.process:
+    post:
+      operationId: generation.process
+      tags:
+      - GenerationTask
+      summary: GENERATION.PROCESS（资源 GenerationTask，风险 MEDIUM）
+      description: Worker 持租约领取 / 续租 / 终结 / 到期回收；非持有者或租约已过期一律拒绝。
+      x-afs-action-key: GENERATION.PROCESS
+      x-afs-scope: project/shot
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: Worker（租约持有者）
+      x-afs-audit-event: GENERATION_STARTED
+      x-afs-negative-test: ACT-GEN-NEG-002
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: #/components/schemas/ActionRequestEnvelope
+      responses:
+        '200':
+          description: 已受理；返回最新任务快照（status / lease_owner / attempt_count）
+          content:
+            application/json:
+              schema:
+                $ref: #/components/schemas/ActionAccepted
+        '403':
+          description: Capability Token 越权、非租约持有者或角色不允许
+        '409':
+          description: 任务已被其他 Worker 领取 / 租约尚未到期
+        '422':
+          description: 请求信封或载荷校验失败
   /actions/asset.version.create:
     post:
       operationId: asset.version.create

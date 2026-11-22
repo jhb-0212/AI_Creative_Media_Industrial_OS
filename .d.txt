@@ -1,0 +1,42 @@
+==== permission_matrix 90-120
+    grants:
+      导演/创作负责人: 无
+      编剧: 无
+      技术导演: 按运维授权
+      QC 审核人: 无
+      制片/预算管理员: 无
+      版权合规: 审计参与
+      Agent/Worker: Worker 最小权限；系统管理员操作全审计
+action_matrix:
+  source_section: 31.6 Action Registry 唯一注册表
+  generated_from: action_registry.yaml
+  total: 100
+separation_of_duty:
+  source_section: C.5.1 Capability Token 最小契约
+  rule: 申请人不得审批自己的预算/Canon/Gate 变更；预算管理员不得批准质量 Gate；QC 不得修改权利事实；版权角色不得代替导演决定艺术意图；Agent、Worker 和系统管理员不得通过技术权限绕过业务审批。系统管理员的紧急访问必须限时、双人授权并写入不可篡改审计。
+==== event_catalog 头 25
+# 事件契约（Event Catalog）——跨模块事件的唯一登记处
+#
+# 为什么需要它：
+# - 事件名此前只活在代码字符串里，改名/改字段无人知道下游是否还在消费；
+# - 更危险的是「动作登记了 audit_event，但代码从不发」——声明自洽、事实缺失，
+#   这类缺口只有把事件也纳入契约才看得见。
+#
+# 校验规则（scripts/contract_check.py::check_event_catalog，双向）：
+# 1. 代码里出现的每个 event_type 必须在本文件登记（未登记发事件 = 私自发契约）；
+# 2. 本文件登记的每个 event_type 必须真被发出（陈旧条目 = 台账撒谎）；
+# 3. emitted_by 必须指向真正发出该事件的文件（路径漂移报红）；
+# 4. 已实现且非 READ 的 action，其 audit_event 必须已登记；确实还没落地的，
+#    在 contracts/runtime/event_emission_gaps.yaml 显式登记债务，不得静默。
+#
+# 维护规则：
+# 1. payload_required 是下游可依赖的最小字段集。删字段等于破坏契约，必须改契约；
+# 2. 一个 action 可以发多条事件（例如批准要先记录「进入人工复核」）；
+# 3. 事件与状态迁移同事务：不得先改状态再补事件，也不得先发事件再改状态。
+version: 1
+
+events:
+  - event_type: ASSET_VERSION_CREATED
+    aggregate_type: AssetVersion
+    emitted_by: services/asset_service/service/asset_service.py
+    payload_required:

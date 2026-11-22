@@ -1,0 +1,150 @@
+﻿python : INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+所在位置 行:3 字符: 1
++ python -m alembic check *> .check.txt; "CHECK_CODE=$LASTEXITCODE"; (G ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (INFO  [alembic....PostgresqlImpl.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.plugins] setting up autogenerate plugin alembic.autogenerate.schemas
+INFO  [alembic.runtime.plugins] setting up autogenerate plugin alembic.autogenerate.tables
+INFO  [alembic.runtime.plugins] setting up autogenerate plugin alembic.autogenerate.types
+INFO  [alembic.runtime.plugins] setting up autogenerate plugin alembic.autogenerate.constraints
+INFO  [alembic.runtime.plugins] setting up autogenerate plugin alembic.autogenerate.defaults
+INFO  [alembic.runtime.plugins] setting up autogenerate plugin alembic.autogenerate.comments
+INFO  [alembic.autogenerate.compare.constraints] Detected removed index 'ix_budget_quota_shot_budget_requests_project_i
+d' on 'shot_budget_requests'
+INFO  [alembic.autogenerate.compare.constraints] Detected removed index 'ix_budget_quota_shot_budget_requests_tenant_id
+' on 'shot_budget_requests'
+INFO  [alembic.autogenerate.compare.tables] Detected removed table 'budget_quota.shot_budget_requests'
+INFO  [alembic.autogenerate.compare.constraints] Detected removed index 'ix_qc_governance_gate_decisions_project_id' on
+ 'gate_decisions'
+INFO  [alembic.autogenerate.compare.constraints] Detected removed index 'ix_qc_governance_gate_decisions_project_id_gat
+e_key' on 'gate_decisions'
+INFO  [alembic.autogenerate.compare.constraints] Detected removed index 'ix_qc_governance_gate_decisions_tenant_id' on 
+'gate_decisions'
+INFO  [alembic.autogenerate.compare.tables] Detected removed table 'qc_governance.gate_decisions'
+INFO  [alembic.autogenerate.compare.constraints] Detected removed index 'ix_budget_quota_budget_ledger_tenant_id' on 'b
+udget_ledger'
+INFO  [alembic.autogenerate.compare.tables] Detected removed table 'budget_quota.budget_ledger'
+INFO  [alembic.autogenerate.compare.constraints] Detected removed index 'ix_production_planning_generation_tasks_projec
+t_id' on 'generation_tasks'
+INFO  [alembic.autogenerate.compare.constraints] Detected removed index 'ix_production_planning_generation_tasks_tenant
+_id' on 'generation_tasks'
+INFO  [alembic.autogenerate.compare.tables] Detected removed table 'production_planning.generation_tasks'
+INFO  [alembic.autogenerate.compare.constraints] Detected removed index 'ix_production_planning_production_routes_proje
+ct_id' on 'production_routes'
+INFO  [alembic.autogenerate.compare.constraints] Detected removed index 'ix_production_planning_production_routes_tenan
+t_id' on 'production_routes'
+INFO  [alembic.autogenerate.compare.tables] Detected removed table 'production_planning.production_routes'
+INFO  [alembic.ddl.postgresql] Detected sequence named 'maintenance_runs_id_seq' as owned by integer column 'maintenanc
+e_runs(id)', assuming SERIAL and omitting
+ERROR [alembic.util.messaging] New upgrade operations detected: [('remove_index', Index('ix_budget_quota_shot_budget_re
+quests_project_id', Column('project_id', VARCHAR(length=64), table=<shot_budget_requests>, nullable=False))), ('remove_
+index', Index('ix_budget_quota_shot_budget_requests_tenant_id', Column('tenant_id', UUID(), table=<shot_budget_requests
+>, nullable=False))), ('remove_table', Table('shot_budget_requests', MetaData(), Column('entity_id', VARCHAR(length=64)
+, table=<shot_budget_requests>, primary_key=True, nullable=False), Column('entity_type', VARCHAR(length=64), table=<sho
+t_budget_requests>, nullable=False), Column('schema_version', INTEGER(), table=<shot_budget_requests>, nullable=False),
+ Column('entity_version', INTEGER(), table=<shot_budget_requests>, nullable=False), Column('status', VARCHAR(length=32)
+, table=<shot_budget_requests>, nullable=False), Column('owner_module', VARCHAR(length=64), table=<shot_budget_requests
+>, nullable=False), Column('tenant_id', UUID(), table=<shot_budget_requests>, nullable=False), Column('created_at', TIM
+ESTAMP(timezone=True), table=<shot_budget_requests>, nullable=False), Column('created_by', VARCHAR(length=64), table=<s
+hot_budget_requests>, nullable=False), Column('updated_at', TIMESTAMP(timezone=True), table=<shot_budget_requests>, nul
+lable=False), Column('audit_ref', VARCHAR(length=128), table=<shot_budget_requests>), Column('request_id', VARCHAR(leng
+th=64), table=<shot_budget_requests>, nullable=False), Column('project_id', VARCHAR(length=64), table=<shot_budget_requ
+ests>, nullable=False), Column('shot_id', VARCHAR(length=64), table=<shot_budget_requests>, nullable=False), Column('ac
+count_type', VARCHAR(length=32), table=<shot_budget_requests>, nullable=False), Column('purpose', VARCHAR(length=128), 
+table=<shot_budget_requests>, nullable=False), Column('cost_category', VARCHAR(length=64), table=<shot_budget_requests>
+, nullable=False), Column('amount_limit', INTEGER(), table=<shot_budget_requests>, nullable=False), Column('requested_b
+y', VARCHAR(length=64), table=<shot_budget_requests>, nullable=False), Column('approver', VARCHAR(length=64), table=<sh
+ot_budget_requests>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x00000
+1F177E71E80>, for_update=False)), Column('decision_reason', VARCHAR(length=200), table=<shot_budget_requests>, nullable
+=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177E71F60>, for_update=Fals
+e)), schema='budget_quota')), ('remove_index', Index('ix_qc_governance_gate_decisions_project_id', Column('project_id',
+ VARCHAR(length=64), table=<gate_decisions>, nullable=False))), ('remove_index', Index('ix_qc_governance_gate_decisions
+_project_id_gate_key', Column('project_id', VARCHAR(length=64), table=<gate_decisions>, nullable=False), Column('gate_k
+ey', VARCHAR(length=64), table=<gate_decisions>, nullable=False))), ('remove_index', Index('ix_qc_governance_gate_decis
+ions_tenant_id', Column('tenant_id', UUID(), table=<gate_decisions>, nullable=False))), ('remove_table', Table('gate_de
+cisions', MetaData(), Column('entity_id', VARCHAR(length=64), table=<gate_decisions>, primary_key=True, nullable=False)
+, Column('entity_type', VARCHAR(length=64), table=<gate_decisions>, nullable=False), Column('schema_version', INTEGER()
+, table=<gate_decisions>, nullable=False), Column('entity_version', INTEGER(), table=<gate_decisions>, nullable=False),
+ Column('status', VARCHAR(length=32), table=<gate_decisions>, nullable=False), Column('owner_module', VARCHAR(length=64
+), table=<gate_decisions>, nullable=False), Column('tenant_id', UUID(), table=<gate_decisions>, nullable=False), Column
+('created_at', TIMESTAMP(timezone=True), table=<gate_decisions>, nullable=False), Column('created_by', VARCHAR(length=6
+4), table=<gate_decisions>, nullable=False), Column('updated_at', TIMESTAMP(timezone=True), table=<gate_decisions>, nul
+lable=False), Column('audit_ref', VARCHAR(length=128), table=<gate_decisions>), Column('gate_key', VARCHAR(length=64), 
+table=<gate_decisions>, nullable=False), Column('project_id', VARCHAR(length=64), table=<gate_decisions>, nullable=Fals
+e), Column('decision', VARCHAR(length=16), table=<gate_decisions>, nullable=False), Column('decided_by', VARCHAR(length
+=64), table=<gate_decisions>, nullable=False), Column('decided_at', TIMESTAMP(timezone=True), table=<gate_decisions>, n
+ullable=False), Column('gate_instance_id', VARCHAR(length=64), table=<gate_decisions>, nullable=False, server_default=D
+efaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177EB3CB0>, for_update=False)), Column('constraint_
+snapshot_id', VARCHAR(length=128), table=<gate_decisions>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql
+.elements.TextClause object at 0x000001F177EB3D90>, for_update=False)), Column('entry_criteria', VARCHAR(length=500), t
+able=<gate_decisions>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000
+001F177EB3E70>, for_update=False)), Column('reason_code', VARCHAR(length=64), table=<gate_decisions>, nullable=False, s
+erver_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177EB3F50>, for_update=False)), Colu
+mn('comment', VARCHAR(length=500), table=<gate_decisions>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql
+.elements.TextClause object at 0x000001F177ED40C0>, for_update=False)), Column('required_artifacts', VARCHAR(length=500
+), table=<gate_decisions>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0
+x000001F177ED41A0>, for_update=False)), Column('evidence_refs', JSONB(astext_type=Text()), table=<gate_decisions>, null
+able=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177ED4280>, for_update=
+False)), Column('reviewers', JSONB(astext_type=Text()), table=<gate_decisions>, nullable=False, server_default=DefaultC
+lause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177ED4360>, for_update=False)), Column('ruleset_version', 
+INTEGER(), table=<gate_decisions>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause obj
+ect at 0x000001F177ED4440>, for_update=False)), Column('scope', JSONB(astext_type=Text()), table=<gate_decisions>, null
+able=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177ED4520>, for_update=
+False)), schema='qc_governance')), ('remove_index', Index('ix_budget_quota_budget_ledger_tenant_id', Column('tenant_id'
+, UUID(), table=<budget_ledger>, nullable=False))), ('remove_table', Table('budget_ledger', MetaData(), Column('entity_
+id', VARCHAR(length=64), table=<budget_ledger>, primary_key=True, nullable=False), Column('entity_type', VARCHAR(length
+=64), table=<budget_ledger>, nullable=False), Column('schema_version', INTEGER(), table=<budget_ledger>, nullable=False
+), Column('entity_version', INTEGER(), table=<budget_ledger>, nullable=False), Column('status', VARCHAR(length=32), tab
+le=<budget_ledger>, nullable=False), Column('owner_module', VARCHAR(length=64), table=<budget_ledger>, nullable=False),
+ Column('tenant_id', UUID(), table=<budget_ledger>, nullable=False), Column('created_at', TIMESTAMP(timezone=True), tab
+le=<budget_ledger>, nullable=False), Column('created_by', VARCHAR(length=64), table=<budget_ledger>, nullable=False), C
+olumn('updated_at', TIMESTAMP(timezone=True), table=<budget_ledger>, nullable=False), Column('audit_ref', VARCHAR(lengt
+h=128), table=<budget_ledger>), Column('transaction_id', VARCHAR(length=64), table=<budget_ledger>, nullable=False), Co
+lumn('account_type', VARCHAR(length=32), table=<budget_ledger>, nullable=False), Column('amount', INTEGER(), table=<bud
+get_ledger>, nullable=False), Column('currency', VARCHAR(length=8), table=<budget_ledger>, nullable=False, server_defau
+lt=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177F0E890>, for_update=False)), Column('transac
+tion_kind', VARCHAR(length=32), table=<budget_ledger>, nullable=False), Column('idempotency_key', VARCHAR(length=128), 
+table=<budget_ledger>, nullable=False), Column('approval_ref', VARCHAR(length=128), table=<budget_ledger>, nullable=Fal
+se), Column('source', VARCHAR(length=128), table=<budget_ledger>, nullable=False), schema='budget_quota')), ('remove_in
+dex', Index('ix_production_planning_generation_tasks_project_id', Column('project_id', VARCHAR(length=64), table=<gener
+ation_tasks>, nullable=False))), ('remove_index', Index('ix_production_planning_generation_tasks_tenant_id', Column('te
+nant_id', UUID(), table=<generation_tasks>, nullable=False))), ('remove_table', Table('generation_tasks', MetaData(), C
+olumn('entity_id', VARCHAR(length=64), table=<generation_tasks>, primary_key=True, nullable=False), Column('entity_type
+', VARCHAR(length=64), table=<generation_tasks>, nullable=False), Column('schema_version', INTEGER(), table=<generation
+_tasks>, nullable=False), Column('entity_version', INTEGER(), table=<generation_tasks>, nullable=False), Column('status
+', VARCHAR(length=32), table=<generation_tasks>, nullable=False), Column('owner_module', VARCHAR(length=64), table=<gen
+eration_tasks>, nullable=False), Column('tenant_id', UUID(), table=<generation_tasks>, nullable=False), Column('created
+_at', TIMESTAMP(timezone=True), table=<generation_tasks>, nullable=False), Column('created_by', VARCHAR(length=64), tab
+le=<generation_tasks>, nullable=False), Column('updated_at', TIMESTAMP(timezone=True), table=<generation_tasks>, nullab
+le=False), Column('audit_ref', VARCHAR(length=128), table=<generation_tasks>), Column('generation_task_id', VARCHAR(len
+gth=64), table=<generation_tasks>, nullable=False), Column('project_id', VARCHAR(length=64), table=<generation_tasks>, 
+nullable=False), Column('shot_id', VARCHAR(length=64), table=<generation_tasks>, nullable=False), Column('shot_revision
+_id', VARCHAR(length=64), table=<generation_tasks>, nullable=False), Column('production_route_ref', VARCHAR(length=64),
+ table=<generation_tasks>, nullable=False), Column('model_adapter_ref', VARCHAR(length=128), table=<generation_tasks>, 
+nullable=False), Column('constraint_snapshot_id', VARCHAR(length=128), table=<generation_tasks>, nullable=False), Colum
+n('budget_ref', VARCHAR(length=128), table=<generation_tasks>, nullable=False), Column('prompt_ref', VARCHAR(length=200
+), table=<generation_tasks>, nullable=False), Column('lease_owner', VARCHAR(length=128), table=<generation_tasks>, null
+able=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177F75160>, for_update=
+False)), Column('lease_expires_at', TIMESTAMP(timezone=True), table=<generation_tasks>), Column('attempt_count', INTEGE
+R(), table=<generation_tasks>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object 
+at 0x000001F177F752B0>, for_update=False)), schema='production_planning')), ('remove_index', Index('ix_production_plann
+ing_production_routes_project_id', Column('project_id', VARCHAR(length=64), table=<production_routes>, nullable=False))
+), ('remove_index', Index('ix_production_planning_production_routes_tenant_id', Column('tenant_id', UUID(), table=<prod
+uction_routes>, nullable=False))), ('remove_table', Table('production_routes', MetaData(), Column('entity_id', VARCHAR(
+length=64), table=<production_routes>, primary_key=True, nullable=False), Column('entity_type', VARCHAR(length=64), tab
+le=<production_routes>, nullable=False), Column('schema_version', INTEGER(), table=<production_routes>, nullable=False)
+, Column('entity_version', INTEGER(), table=<production_routes>, nullable=False), Column('status', VARCHAR(length=32), 
+table=<production_routes>, nullable=False), Column('owner_module', VARCHAR(length=64), table=<production_routes>, nulla
+ble=False), Column('tenant_id', UUID(), table=<production_routes>, nullable=False), Column('created_at', TIMESTAMP(time
+zone=True), table=<production_routes>, nullable=False), Column('created_by', VARCHAR(length=64), table=<production_rout
+es>, nullable=False), Column('updated_at', TIMESTAMP(timezone=True), table=<production_routes>, nullable=False), Column
+('audit_ref', VARCHAR(length=128), table=<production_routes>), Column('route_id', VARCHAR(length=64), table=<production
+_routes>, nullable=False), Column('project_id', VARCHAR(length=64), table=<production_routes>, nullable=False), Column(
+'shot_id', VARCHAR(length=64), table=<production_routes>, nullable=False), Column('task_ref', VARCHAR(length=64), table
+=<production_routes>, nullable=False), Column('route_type', VARCHAR(length=32), table=<production_routes>, nullable=Fal
+se), Column('capability_ref', VARCHAR(length=200), table=<production_routes>, nullable=False), Column('basis_ref', VARC
+HAR(length=200), table=<production_routes>, nullable=False), schema='production_planning'))]
+FAILED: New upgrade operations detected: [('remove_index', Index('ix_budget_quota_shot_budget_requests_project_id', Column('project_id', VARCHAR(length=64), table=<shot_budget_requests>, nullable=False))), ('remove_index', Index('ix_budget_quota_shot_budget_requests_tenant_id', Column('tenant_id', UUID(), table=<shot_budget_requests>, nullable=False))), ('remove_table', Table('shot_budget_requests', MetaData(), Column('entity_id', VARCHAR(length=64), table=<shot_budget_requests>, primary_key=True, nullable=False), Column('entity_type', VARCHAR(length=64), table=<shot_budget_requests>, nullable=False), Column('schema_version', INTEGER(), table=<shot_budget_requests>, nullable=False), Column('entity_version', INTEGER(), table=<shot_budget_requests>, nullable=False), Column('status', VARCHAR(length=32), table=<shot_budget_requests>, nullable=False), Column('owner_module', VARCHAR(length=64), table=<shot_budget_requests>, nullable=False), Column('tenant_id', UUID(), table=<shot_budget_requests>, nullable=False), Column('created_at', TIMESTAMP(timezone=True), table=<shot_budget_requests>, nullable=False), Column('created_by', VARCHAR(length=64), table=<shot_budget_requests>, nullable=False), Column('updated_at', TIMESTAMP(timezone=True), table=<shot_budget_requests>, nullable=False), Column('audit_ref', VARCHAR(length=128), table=<shot_budget_requests>), Column('request_id', VARCHAR(length=64), table=<shot_budget_requests>, nullable=False), Column('project_id', VARCHAR(length=64), table=<shot_budget_requests>, nullable=False), Column('shot_id', VARCHAR(length=64), table=<shot_budget_requests>, nullable=False), Column('account_type', VARCHAR(length=32), table=<shot_budget_requests>, nullable=False), Column('purpose', VARCHAR(length=128), table=<shot_budget_requests>, nullable=False), Column('cost_category', VARCHAR(length=64), table=<shot_budget_requests>, nullable=False), Column('amount_limit', INTEGER(), table=<shot_budget_requests>, nullable=False), Column('requested_by', VARCHAR(length=64), table=<shot_budget_requests>, nullable=False), Column('approver', VARCHAR(length=64), table=<shot_budget_requests>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177E71E80>, for_update=False)), Column('decision_reason', VARCHAR(length=200), table=<shot_budget_requests>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177E71F60>, for_update=False)), schema='budget_quota')), ('remove_index', Index('ix_qc_governance_gate_decisions_project_id', Column('project_id', VARCHAR(length=64), table=<gate_decisions>, nullable=False))), ('remove_index', Index('ix_qc_governance_gate_decisions_project_id_gate_key', Column('project_id', VARCHAR(length=64), table=<gate_decisions>, nullable=False), Column('gate_key', VARCHAR(length=64), table=<gate_decisions>, nullable=False))), ('remove_index', Index('ix_qc_governance_gate_decisions_tenant_id', Column('tenant_id', UUID(), table=<gate_decisions>, nullable=False))), ('remove_table', Table('gate_decisions', MetaData(), Column('entity_id', VARCHAR(length=64), table=<gate_decisions>, primary_key=True, nullable=False), Column('entity_type', VARCHAR(length=64), table=<gate_decisions>, nullable=False), Column('schema_version', INTEGER(), table=<gate_decisions>, nullable=False), Column('entity_version', INTEGER(), table=<gate_decisions>, nullable=False), Column('status', VARCHAR(length=32), table=<gate_decisions>, nullable=False), Column('owner_module', VARCHAR(length=64), table=<gate_decisions>, nullable=False), Column('tenant_id', UUID(), table=<gate_decisions>, nullable=False), Column('created_at', TIMESTAMP(timezone=True), table=<gate_decisions>, nullable=False), Column('created_by', VARCHAR(length=64), table=<gate_decisions>, nullable=False), Column('updated_at', TIMESTAMP(timezone=True), table=<gate_decisions>, nullable=False), Column('audit_ref', VARCHAR(length=128), table=<gate_decisions>), Column('gate_key', VARCHAR(length=64), table=<gate_decisions>, nullable=False), Column('project_id', VARCHAR(length=64), table=<gate_decisions>, nullable=False), Column('decision', VARCHAR(length=16), table=<gate_decisions>, nullable=False), Column('decided_by', VARCHAR(length=64), table=<gate_decisions>, nullable=False), Column('decided_at', TIMESTAMP(timezone=True), table=<gate_decisions>, nullable=False), Column('gate_instance_id', VARCHAR(length=64), table=<gate_decisions>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177EB3CB0>, for_update=False)), Column('constraint_snapshot_id', VARCHAR(length=128), table=<gate_decisions>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177EB3D90>, for_update=False)), Column('entry_criteria', VARCHAR(length=500), table=<gate_decisions>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177EB3E70>, for_update=False)), Column('reason_code', VARCHAR(length=64), table=<gate_decisions>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177EB3F50>, for_update=False)), Column('comment', VARCHAR(length=500), table=<gate_decisions>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177ED40C0>, for_update=False)), Column('required_artifacts', VARCHAR(length=500), table=<gate_decisions>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177ED41A0>, for_update=False)), Column('evidence_refs', JSONB(astext_type=Text()), table=<gate_decisions>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177ED4280>, for_update=False)), Column('reviewers', JSONB(astext_type=Text()), table=<gate_decisions>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177ED4360>, for_update=False)), Column('ruleset_version', INTEGER(), table=<gate_decisions>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177ED4440>, for_update=False)), Column('scope', JSONB(astext_type=Text()), table=<gate_decisions>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177ED4520>, for_update=False)), schema='qc_governance')), ('remove_index', Index('ix_budget_quota_budget_ledger_tenant_id', Column('tenant_id', UUID(), table=<budget_ledger>, nullable=False))), ('remove_table', Table('budget_ledger', MetaData(), Column('entity_id', VARCHAR(length=64), table=<budget_ledger>, primary_key=True, nullable=False), Column('entity_type', VARCHAR(length=64), table=<budget_ledger>, nullable=False), Column('schema_version', INTEGER(), table=<budget_ledger>, nullable=False), Column('entity_version', INTEGER(), table=<budget_ledger>, nullable=False), Column('status', VARCHAR(length=32), table=<budget_ledger>, nullable=False), Column('owner_module', VARCHAR(length=64), table=<budget_ledger>, nullable=False), Column('tenant_id', UUID(), table=<budget_ledger>, nullable=False), Column('created_at', TIMESTAMP(timezone=True), table=<budget_ledger>, nullable=False), Column('created_by', VARCHAR(length=64), table=<budget_ledger>, nullable=False), Column('updated_at', TIMESTAMP(timezone=True), table=<budget_ledger>, nullable=False), Column('audit_ref', VARCHAR(length=128), table=<budget_ledger>), Column('transaction_id', VARCHAR(length=64), table=<budget_ledger>, nullable=False), Column('account_type', VARCHAR(length=32), table=<budget_ledger>, nullable=False), Column('amount', INTEGER(), table=<budget_ledger>, nullable=False), Column('currency', VARCHAR(length=8), table=<budget_ledger>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177F0E890>, for_update=False)), Column('transaction_kind', VARCHAR(length=32), table=<budget_ledger>, nullable=False), Column('idempotency_key', VARCHAR(length=128), table=<budget_ledger>, nullable=False), Column('approval_ref', VARCHAR(length=128), table=<budget_ledger>, nullable=False), Column('source', VARCHAR(length=128), table=<budget_ledger>, nullable=False), schema='budget_quota')), ('remove_index', Index('ix_production_planning_generation_tasks_project_id', Column('project_id', VARCHAR(length=64), table=<generation_tasks>, nullable=False))), ('remove_index', Index('ix_production_planning_generation_tasks_tenant_id', Column('tenant_id', UUID(), table=<generation_tasks>, nullable=False))), ('remove_table', Table('generation_tasks', MetaData(), Column('entity_id', VARCHAR(length=64), table=<generation_tasks>, primary_key=True, nullable=False), Column('entity_type', VARCHAR(length=64), table=<generation_tasks>, nullable=False), Column('schema_version', INTEGER(), table=<generation_tasks>, nullable=False), Column('entity_version', INTEGER(), table=<generation_tasks>, nullable=False), Column('status', VARCHAR(length=32), table=<generation_tasks>, nullable=False), Column('owner_module', VARCHAR(length=64), table=<generation_tasks>, nullable=False), Column('tenant_id', UUID(), table=<generation_tasks>, nullable=False), Column('created_at', TIMESTAMP(timezone=True), table=<generation_tasks>, nullable=False), Column('created_by', VARCHAR(length=64), table=<generation_tasks>, nullable=False), Column('updated_at', TIMESTAMP(timezone=True), table=<generation_tasks>, nullable=False), Column('audit_ref', VARCHAR(length=128), table=<generation_tasks>), Column('generation_task_id', VARCHAR(length=64), table=<generation_tasks>, nullable=False), Column('project_id', VARCHAR(length=64), table=<generation_tasks>, nullable=False), Column('shot_id', VARCHAR(length=64), table=<generation_tasks>, nullable=False), Column('shot_revision_id', VARCHAR(length=64), table=<generation_tasks>, nullable=False), Column('production_route_ref', VARCHAR(length=64), table=<generation_tasks>, nullable=False), Column('model_adapter_ref', VARCHAR(length=128), table=<generation_tasks>, nullable=False), Column('constraint_snapshot_id', VARCHAR(length=128), table=<generation_tasks>, nullable=False), Column('budget_ref', VARCHAR(length=128), table=<generation_tasks>, nullable=False), Column('prompt_ref', VARCHAR(length=200), table=<generation_tasks>, nullable=False), Column('lease_owner', VARCHAR(length=128), table=<generation_tasks>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177F75160>, for_update=False)), Column('lease_expires_at', TIMESTAMP(timezone=True), table=<generation_tasks>), Column('attempt_count', INTEGER(), table=<generation_tasks>, nullable=False, server_default=DefaultClause(<sqlalchemy.sql.elements.TextClause object at 0x000001F177F752B0>, for_update=False)), schema='production_planning')), ('remove_index', Index('ix_production_planning_production_routes_project_id', Column('project_id', VARCHAR(length=64), table=<production_routes>, nullable=False))), ('remove_index', Index('ix_production_planning_production_routes_tenant_id', Column('tenant_id', UUID(), table=<production_routes>, nullable=False))), ('remove_table', Table('production_routes', MetaData(), Column('entity_id', VARCHAR(length=64), table=<production_routes>, primary_key=True, nullable=False), Column('entity_type', VARCHAR(length=64), table=<production_routes>, nullable=False), Column('schema_version', INTEGER(), table=<production_routes>, nullable=False), Column('entity_version', INTEGER(), table=<production_routes>, nullable=False), Column('status', VARCHAR(length=32), table=<production_routes>, nullable=False), Column('owner_module', VARCHAR(length=64), table=<production_routes>, nullable=False), Column('tenant_id', UUID(), table=<production_routes>, nullable=False), Column('created_at', TIMESTAMP(timezone=True), table=<production_routes>, nullable=False), Column('created_by', VARCHAR(length=64), table=<production_routes>, nullable=False), Column('updated_at', TIMESTAMP(timezone=True), table=<production_routes>, nullable=False), Column('audit_ref', VARCHAR(length=128), table=<production_routes>), Column('route_id', VARCHAR(length=64), table=<production_routes>, nullable=False), Column('project_id', VARCHAR(length=64), table=<production_routes>, nullable=False), Column('shot_id', VARCHAR(length=64), table=<production_routes>, nullable=False), Column('task_ref', VARCHAR(length=64), table=<production_routes>, nullable=False), Column('route_type', VARCHAR(length=32), table=<production_routes>, nullable=False), Column('capability_ref', VARCHAR(length=200), table=<production_routes>, nullable=False), Column('basis_ref', VARCHAR(length=200), table=<production_routes>, nullable=False), schema='production_planning'))]

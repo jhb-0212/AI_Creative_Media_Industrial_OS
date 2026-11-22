@@ -61,7 +61,7 @@ objects:
 - object: ExternalToolConnection
   states: [ACTIVE, DRAFT, REVOKED, SUSPENDED, VALIDATING]
 - object: GenerationTask
-  states: [FAILED, REQUESTED, SUCCEEDED]
+  states: [FAILED, REQUESTED, RUNNING, SUCCEEDED]
 - object: Pattern
   states: [DEPRECATED, EXPERIMENT_RECORD, FAILURE_CASE, IN_REVIEW, REJECTED, RETIRED, REUSABLE_PATTERN]
 - object: PatternRecord

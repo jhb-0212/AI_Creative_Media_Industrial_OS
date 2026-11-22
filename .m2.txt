@@ -1,0 +1,10 @@
+﻿python : INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+所在位置 行:4 字符: 1
++ python -m alembic upgrade head *> .m2.txt 2>&1; "UP=$LASTEXITCODE"
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (INFO  [alembic....PostgresqlImpl.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade a0b1c2d3e4f5 -> d5e6f7a8b9c0, GenerationTask 异步租约：RUNNING 状态 + 租约三列（P
+hase 2 §1）

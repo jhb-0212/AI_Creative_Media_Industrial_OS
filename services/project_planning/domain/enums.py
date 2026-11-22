@@ -192,11 +192,12 @@ class ProductionRouteStatus(str, Enum):
 
 
 class GenerationTaskStatus(str, Enum):
-    """生成任务记录的生命周期（R16-D3，MVP 同步执行）。"""
+    """生成任务记录的生命周期（R16-D3 同步 / Phase 2 异步租约）。"""
 
-    REQUESTED = "REQUESTED"  # 已请求：准入校验通过（创建即此态）
-    SUCCEEDED = "SUCCEEDED"  # 同步执行成功（终态）
-    FAILED = "FAILED"        # 同步执行失败（终态）
+    REQUESTED = "REQUESTED"  # 已请求：准入校验通过（创建即此态；也是租约到期退回态）
+    RUNNING = "RUNNING"      # 执行中：由 GENERATION.PROCESS 的租约持有者推进
+    SUCCEEDED = "SUCCEEDED"  # 执行成功（终态）
+    FAILED = "FAILED"        # 执行失败（终态）
 
 
 class ShotBudgetRequestStatus(str, Enum):

@@ -423,6 +423,52 @@ events:
       - from_status
       - to_status
     contract_ref: contracts/state_machines/state_machines.yaml#ProductionRoute
+  # --- Phase 2 §1：租约族事件（归 GENERATION.PROCESS）---
+  - event_type: GENERATION_STARTED
+    aggregate_type: GenerationTask
+    emitted_by: services/production_planning/service/generation_service.py
+    contract_ref: contracts/action_registry/action_registry.yaml#GENERATION.PROCESS
+    payload_required:
+      - generation_task_id
+      - worker_id
+      - lease_expires_at
+      - attempt_count
+  - event_type: GENERATION_LEASE_RENEWED
+    aggregate_type: GenerationTask
+    emitted_by: services/production_planning/service/generation_service.py
+    contract_ref: contracts/action_registry/action_registry.yaml#GENERATION.PROCESS
+    payload_required:
+      - generation_task_id
+      - worker_id
+      - lease_expires_at
+      - attempt_count
+  - event_type: GENERATION_LEASE_EXPIRED
+    aggregate_type: GenerationTask
+    emitted_by: services/production_planning/service/generation_service.py
+    contract_ref: contracts/action_registry/action_registry.yaml#GENERATION.PROCESS
+    payload_required:
+      - generation_task_id
+      - worker_id
+      - attempt_count
+  - event_type: GENERATION_SUCCEEDED
+    aggregate_type: GenerationTask
+    emitted_by: services/production_planning/service/generation_service.py
+    contract_ref: contracts/action_registry/action_registry.yaml#GENERATION.PROCESS
+    payload_required:
+      - generation_task_id
+      - worker_id
+      - evidence_ref
+      - attempt_count
+  - event_type: GENERATION_FAILED
+    aggregate_type: GenerationTask
+    emitted_by: services/production_planning/service/generation_service.py
+    contract_ref: contracts/action_registry/action_registry.yaml#GENERATION.PROCESS
+    payload_required:
+      - generation_task_id
+      - worker_id
+      - evidence_ref
+      - attempt_count
+
   - event_type: GENERATION_REQUESTED
     aggregate_type: GenerationTask
     emitted_by: services/production_planning/service/generation_service.py

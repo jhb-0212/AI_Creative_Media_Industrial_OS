@@ -452,7 +452,8 @@ CONSTRAINT_PACK_ALLOWED_TRANSITIONS: dict[
 # 三者的边全部由 MVP 动作拥有，不存在「可达但无入口」的边。
 # --------------------------------------------------------------------------- #
 PRODUCTION_ROUTE_SELECT_ACTION = "PRODUCTION.ROUTE.SELECT"
-GENERATION_REQUEST_ACTION = "GENERATION.REQUEST"
+GENERATION_REQUEST_ACTION = GENERATION_REQUEST_ACTION = "GENERATION.REQUEST"
+GENERATION_PROCESS_ACTION = "GENERATION.PROCESS"
 BUDGET_SHOT_APPROVE_ACTION = "BUDGET.SHOT.APPROVE"
 
 PRODUCTION_ROUTE_TRANSITIONS: tuple[Transition[ProductionRouteStatus], ...] = (
@@ -485,6 +486,29 @@ GENERATION_TASK_TRANSITIONS: tuple[Transition[GenerationTaskStatus], ...] = (
         GenerationTaskStatus.REQUESTED,
         GenerationTaskStatus.FAILED,
         GENERATION_REQUEST_ACTION,
+    ),
+    # --- Phase 2：异步租约边，全部归 GENERATION.PROCESS ---
+    # REQUESTED → RUNNING：Worker 持租约领取；RUNNING → SUCCEEDED/FAILED：租约持有者
+    # 终结；RUNNING → REQUESTED：租约到期退回，否则 Worker 崩溃的任务会永远卡在 RUNNING。
+    Transition(
+        GenerationTaskStatus.REQUESTED,
+        GenerationTaskStatus.RUNNING,
+        GENERATION_PROCESS_ACTION,
+    ),
+    Transition(
+        GenerationTaskStatus.RUNNING,
+        GenerationTaskStatus.SUCCEEDED,
+        GENERATION_PROCESS_ACTION,
+    ),
+    Transition(
+        GenerationTaskStatus.RUNNING,
+        GenerationTaskStatus.FAILED,
+        GENERATION_PROCESS_ACTION,
+    ),
+    Transition(
+        GenerationTaskStatus.RUNNING,
+        GenerationTaskStatus.REQUESTED,
+        GENERATION_PROCESS_ACTION,
     ),
 )
 
@@ -586,6 +610,7 @@ __all__ = [
     "EPISODE_LIFECYCLE",
     "EPISODE_STATUS_CHANGE_ACTION",
     "EPISODE_TRANSITIONS",
+        "GENERATION_PROCESS_ACTION",
     "GENERATION_REQUEST_ACTION",
     "GENERATION_TASK_ALLOWED_TRANSITIONS",
     "GENERATION_TASK_LIFECYCLE",

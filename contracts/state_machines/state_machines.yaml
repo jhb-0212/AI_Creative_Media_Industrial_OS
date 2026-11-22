@@ -932,11 +932,18 @@ objects:
   - docs/architecture/decision-register-r16.md（R16-D3 架构决策）
 - object: GenerationTask
   authoritative_source: 31.6 Action Registry（GENERATION.REQUEST）
-  allowed_states: [REQUESTED, SUCCEEDED, FAILED]
+  allowed_states: [REQUESTED, RUNNING, SUCCEEDED, FAILED]
   initial_state: REQUESTED
   transitions:
-  - {from: REQUESTED, to: SUCCEEDED}
-  - {from: REQUESTED, to: FAILED}
+  - {from: REQUESTED, to: SUCCEEDED, owner_action: GENERATION.REQUEST}
+  - {from: REQUESTED, to: FAILED, owner_action: GENERATION.REQUEST}
+  # 异步领取：只有持有租约的一方才推进 RUNNING（Phase 2，申请包 §1 已签发）。
+  - {from: REQUESTED, to: RUNNING, owner_action: GENERATION.PROCESS}
+  - {from: RUNNING, to: SUCCEEDED, owner_action: GENERATION.PROCESS}
+  - {from: RUNNING, to: FAILED, owner_action: GENERATION.PROCESS}
+  # 租约到期退回 REQUESTED 可被重新领取：否则 Worker 崩溃会让任务永远停在 RUNNING。
+  - {from: RUNNING, to: REQUESTED, owner_action: GENERATION.PROCESS}
+
   frozen_states: []
   note: >-
     生成任务记录。MVP 为同步执行：GENERATION.REQUEST 校验预算/配额/依赖/约束快照通过后

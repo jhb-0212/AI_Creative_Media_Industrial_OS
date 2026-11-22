@@ -1,0 +1,75 @@
+已校验 YAML 22 个，JSON 1 个
+[WARN] Project 状态机已一致，但契约为 PENDING_PHASE1_REVIEW（待 Phase 1 验收复核固化），请勿在生产环境修改其状态集。
+[PASS] Project 状态机一致：7 条转移
+[WARN] ScriptRevision 状态机已一致，但契约为 PENDING_PHASE1_REVIEW（待 Phase 1 验收复核固化），请勿在生产环境修改其状态集。
+[PASS] ScriptRevision 状态机一致：5 条转移
+[WARN] Episode 状态机已一致，但契约为 PENDING_PHASE1_REVIEW（待 Phase 1 验收复核固化），请勿在生产环境修改其状态集。
+[PASS] Episode 状态机一致：3 条转移
+[PASS] AssetVersion 状态机一致：4 条转移
+[WARN] Scene 状态机已一致，但契约为 PENDING_PHASE1_REVIEW（待 Phase 1 验收复核固化），请勿在生产环境修改其状态集。
+[PASS] Scene 状态机一致：3 条转移
+[WARN] Shot 状态机已一致，但契约为 PENDING_PHASE1_REVIEW（待 Phase 1 验收复核固化），请勿在生产环境修改其状态集。
+[PASS] Shot 状态机一致：10 条转移
+[WARN] ShotRevision 状态机已一致，但契约为 PENDING_PHASE1_REVIEW（待 Phase 1 验收复核固化），请勿在生产环境修改其状态集。
+[PASS] ShotRevision 状态机一致：1 条转移
+[WARN] ShotBreakdownDraft 状态机已一致，但契约为 PENDING_PHASE1_REVIEW（待 Phase 1 验收复核固化），请勿在生产环境修改其状态集。
+[PASS] ShotBreakdownDraft 状态机一致：5 条转移
+[PASS] ReworkTask 状态机一致：4 条转移
+[WARN] ShotSpec 状态机已一致，但契约为 PENDING_PHASE1_REVIEW（待 Phase 1 验收复核固化），请勿在生产环境修改其状态集。
+[PASS] ShotSpec 状态机一致：1 条转移
+[WARN] ConstraintPack 状态机已一致，但契约为 PENDING_PHASE1_REVIEW（待 Phase 1 验收复核固化），请勿在生产环境修改其状态集。
+[PASS] ConstraintPack 状态机一致：4 条转移
+[WARN] ProductionRoute 状态机已一致，但契约为 PENDING_PHASE1_REVIEW（待 Phase 1 验收复核固化），请勿在生产环境修改其状态集。
+[PASS] ProductionRoute 状态机一致：1 条转移
+[WARN] GenerationTask 状态机已一致，但契约为 PENDING_PHASE1_REVIEW（待 Phase 1 验收复核固化），请勿在生产环境修改其状态集。
+[PASS] GenerationTask 状态机一致：6 条转移
+[WARN] ShotBudgetRequest 状态机已一致，但契约为 PENDING_PHASE1_REVIEW（待 Phase 1 验收复核固化），请勿在生产环境修改其状态集。
+[PASS] ShotBudgetRequest 状态机一致：2 条转移
+[PASS] 阶段表派生一致：5 个阶段 / 2 个非权威表登记
+[PASS] Action Registry ↔ OpenAPI 一致：101 个 action
+[PASS] 运行时 ↔ 契约覆盖：ACTIVE 57 个（已实现 42 / 登记未实现 15）
+[PASS] 已实现 action 的对象 schema 覆盖：42 个动作（豁免 1 个资源类型）
+[PASS] ACTIVE action 的对象 schema 覆盖：57 个动作 / 30 个资源类型（显式债务 3 项，豁免 1 项）
+[PASS] 已实现 action 的授权落点：42 个动作均已挂 require_role
+[PASS] 状态可达性：14 个已实现状态机；显式登记不可达 6 项
+[FAIL] GenerationTask 的债务登记指向不存在的转移边 'REQUESTED→RUNNING'：该对象已登记的边为 ['REQUESTED -> FAILED', 'REQUESTED -> RUNNING', 'REQUESTED -> SUCCEEDED', 'RUNNING -> FAILED', 'RUNNING -> REQUESTED', 'RUNNING -> SUCCEEDED']
+[FAIL] GenerationTask 的债务登记指向不存在的转移边 'RUNNING→FAILED'：该对象已登记的边为 ['REQUESTED -> FAILED', 'REQUESTED -> RUNNING', 'REQUESTED -> SUCCEEDED', 'RUNNING -> FAILED', 'RUNNING -> REQUESTED', 'RUNNING -> SUCCEEDED']
+[FAIL] GenerationTask 的债务登记指向不存在的转移边 'RUNNING→REQUESTED'：该对象已登记的边为 ['REQUESTED -> FAILED', 'REQUESTED -> RUNNING', 'REQUESTED -> SUCCEEDED', 'RUNNING -> FAILED', 'RUNNING -> REQUESTED', 'RUNNING -> SUCCEEDED']
+[FAIL] GenerationTask 的债务登记指向不存在的转移边 'RUNNING→SUCCEEDED'：该对象已登记的边为 ['REQUESTED -> FAILED', 'REQUESTED -> RUNNING', 'REQUESTED -> SUCCEEDED', 'RUNNING -> FAILED', 'RUNNING -> REQUESTED', 'RUNNING -> SUCCEEDED']
+[PASS] 状态机守卫：2 个对象 / 7 条守卫的转移与字段全部可校验
+[PASS] 子集合冻结覆盖：4 个冻结容器 / 3 个已登记豁免 / 7 个被引用的父表全部表态
+[PASS] 冻结态契约一致：14 个已实现状态机逐对象比对
+[PASS] Permission Matrix 为派生视图（无重复维护）：覆盖 101 个 action
+[FAIL] GenerationTask 响应出现契约未声明字段: ['attempt_count', 'lease_owner']（私有字段泄漏或字段漂移）
+[FAIL] GenerationTask 新增字段 lease_expires_at（string|null）
+[PASS] 引用目标可解析：24 条声明全部命中已定义对象（覆盖 4 个对象）；未声明的引用类字段 491 个（覆盖边界见 ADR-R19）
+[PASS] 状态枚举一致：47 个状态机对象 / 269 个状态 / 197 条转移；status 字段分类 44 lifecycle + 18 占位 + 18 缺口；11 个已实现对象的枚举与 CHECK 与契约一致
+[FAIL] 事件 GENERATION_STARTED 登记缺字段: ['contract_ref']
+[FAIL] 事件 GENERATION_LEASE_RENEWED 登记缺字段: ['contract_ref']
+[FAIL] 事件 GENERATION_LEASE_EXPIRED 登记缺字段: ['contract_ref']
+[FAIL] 事件 GENERATION_SUCCEEDED 登记缺字段: ['contract_ref']
+[FAIL] 事件 GENERATION_FAILED 登记缺字段: ['contract_ref']
+[FAIL] 事件契约有陈旧条目（代码已不发）: ['GENERATION_FAILED', 'GENERATION_SUCCEEDED']
+[FAIL] 事件 GENERATION_SUCCEEDED 的 emitted_by='services/production_planning/service/generation_service.py' 与实际发出文件不一致: []
+[FAIL] 事件 GENERATION_FAILED 的 emitted_by='services/production_planning/service/generation_service.py' 与实际发出文件不一致: []
+{"event": "setup plugin alembic.autogenerate.schemas", "level": "info", "timestamp": "2026-11-22T05:46:54.302682Z", "trace_id": "unknown"}
+{"event": "setup plugin alembic.autogenerate.tables", "level": "info", "timestamp": "2026-11-22T05:46:54.302834Z", "trace_id": "unknown"}
+{"event": "setup plugin alembic.autogenerate.types", "level": "info", "timestamp": "2026-11-22T05:46:54.302925Z", "trace_id": "unknown"}
+{"event": "setup plugin alembic.autogenerate.constraints", "level": "info", "timestamp": "2026-11-22T05:46:54.303002Z", "trace_id": "unknown"}
+{"event": "setup plugin alembic.autogenerate.defaults", "level": "info", "timestamp": "2026-11-22T05:46:54.303070Z", "trace_id": "unknown"}
+{"event": "setup plugin alembic.autogenerate.comments", "level": "info", "timestamp": "2026-11-22T05:46:54.303137Z", "trace_id": "unknown"}
+{"event": "setup plugin alembic.ext.checkconstraint_byname", "level": "info", "timestamp": "2026-11-22T05:46:54.303210Z", "trace_id": "unknown"}
+python : C:\Users\9527\AppData\Local\Doubao\User Data\sandbox_runtime\bases\fa694f517e5995233c80a9a8db5212c2\python\Lib
+\site-packages\alembic\script\revision.py:208: UserWarning: Revision b1c2d3e4f5a6 is present more than once
+所在位置 行:3 字符: 7
++ $o = (python scripts\contract_check.py 2>&1 | Out-String)
++       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (C:\Users\9527\A... more than once:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  util.warn(
+[FAIL] SCOPE-4 断言 scope.org_rls_enforced 执行异常: CommandError('Requested revision a0b1c2d3e4f5 overlaps with other requested revisions b1c2d3e4f5a6')
+[FAIL] DATA-4 断言未通过（data.transition_single_entry）: 在领域 transition_to 之外直接改写 self.status（事实行会静默缺失）：services/production_planning/domain/generation_task.py::claim、services/production_planning/domain/generation_task.py::release_expired
+[FAIL] DATA-6 断言 data.role_grants_least_privilege 执行异常: CommandError('Requested revision a0b1c2d3e4f5 overlaps with other requested revisions b1c2d3e4f5a6')
+[PASS] 提案状态：4 份提案（implemented 1 / in_progress 3 / proposed 0 / superseded 0）
+[FAIL] 契约一致性校验未通过
