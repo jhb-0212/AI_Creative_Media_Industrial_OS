@@ -57,16 +57,21 @@ _EXISTING_APPEND_ONLY: tuple[tuple[str, str], ...] = (
 )
 
 
+# 本迁移执行时点存在的业务域（时间胶囊）：新增域不得改写这里。
+_SNAPSHOT_DOMAINS: tuple[str, ...] = ("project_planning", "asset_service")
+
+
 def _tenant_roles() -> tuple[str, ...]:
-    """业务域角色名（来自配置，不写字面量）。
+    """本迁移执行时点**存在的两个**业务域角色名（快照，不是当前域集合）。
 
-    角色名可被 ``POSTGRES_PROJECT_PLANNING_USER`` /
-    ``POSTGRES_ASSET_SERVICE_USER`` 改；写成字面量时，自定义角色名的部署会在
-    本迁移的 GRANT 处失败（角色不存在），把部署堵在升级路径上（codex 评审 T5）。
+    角色名来自配置（不写字面量）；域集合必须是快照：``domain_role_names()``
+    返回的是**当前**域集合，R16 拆出 production_planning / budget_quota /
+    qc_governance 之后它变成五元组——一条已执行过的历史迁移若跟着漂移，
+    clean install 会在本迁移里给三个当时还不存在的角色授 audit 权限并失败。
     """
-    from packages.shared.db_roles import domain_role_names
+    from packages.shared.db_roles import domain_role
 
-    return domain_role_names()
+    return tuple(domain_role(domain) for domain in _SNAPSHOT_DOMAINS)
 
 
 def _tenant_predicate(column: str = "tenant_id") -> str:

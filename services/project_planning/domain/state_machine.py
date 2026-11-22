@@ -42,10 +42,13 @@ from packages.shared.lifecycle import (
 from services.project_planning.domain.enums import (
     ConstraintPackStatus,
     EpisodeStatus,
+    GenerationTaskStatus,
+    ProductionRouteStatus,
     ProjectStatus,
     ReworkTaskStatus,
     SceneStatus,
     ScriptStatus,
+    ShotBudgetRequestStatus,
     ShotDraftStatus,
     ShotRevisionStatus,
     ShotSpecStatus,
@@ -439,6 +442,117 @@ CONSTRAINT_PACK_ALLOWED_TRANSITIONS: dict[
 
 
 # --------------------------------------------------------------------------- #
+# R16-D3：生产链与预算 MVP 的三个生命周期对象。
+# - ProductionRoute：VERIFIED → REVOKED（一条边归 PRODUCTION.ROUTE.SELECT；
+#   创建即 VERIFIED，契约「路线须处于 VERIFIED」由出生点满足）。
+# - GenerationTask：REQUESTED → SUCCEEDED / FAILED（MVP 同步执行；RUNNING 等
+#   异步状态归 Phase 2/3 Worker，无 MVP 动作拥有这些边，不建模以免制造债务）。
+# - ShotBudgetRequest：DRAFT → APPROVED / REJECTED（两步审批；APPROVED 时同一
+#   事务原子追加 BudgetLedger 流水）。
+# 三者的边全部由 MVP 动作拥有，不存在「可达但无入口」的边。
+# --------------------------------------------------------------------------- #
+PRODUCTION_ROUTE_SELECT_ACTION = "PRODUCTION.ROUTE.SELECT"
+GENERATION_REQUEST_ACTION = GENERATION_REQUEST_ACTION = "GENERATION.REQUEST"
+GENERATION_PROCESS_ACTION = "GENERATION.PROCESS"
+BUDGET_SHOT_APPROVE_ACTION = "BUDGET.SHOT.APPROVE"
+
+PRODUCTION_ROUTE_TRANSITIONS: tuple[Transition[ProductionRouteStatus], ...] = (
+    Transition(
+        ProductionRouteStatus.VERIFIED,
+        ProductionRouteStatus.REVOKED,
+        PRODUCTION_ROUTE_SELECT_ACTION,
+    ),
+)
+
+PRODUCTION_ROUTE_LIFECYCLE = Lifecycle(
+    object_name="ProductionRoute",
+    states=tuple(ProductionRouteStatus),
+    edges=PRODUCTION_ROUTE_TRANSITIONS,
+    initial_states=(ProductionRouteStatus.VERIFIED,),
+    frozen_states=(),
+)
+
+PRODUCTION_ROUTE_ALLOWED_TRANSITIONS: dict[
+    ProductionRouteStatus, frozenset[ProductionRouteStatus]
+] = PRODUCTION_ROUTE_LIFECYCLE.allowed_transitions()
+
+GENERATION_TASK_TRANSITIONS: tuple[Transition[GenerationTaskStatus], ...] = (
+    Transition(
+        GenerationTaskStatus.REQUESTED,
+        GenerationTaskStatus.SUCCEEDED,
+        GENERATION_REQUEST_ACTION,
+    ),
+    Transition(
+        GenerationTaskStatus.REQUESTED,
+        GenerationTaskStatus.FAILED,
+        GENERATION_REQUEST_ACTION,
+    ),
+    # --- Phase 2：异步租约边，全部归 GENERATION.PROCESS ---
+    # REQUESTED → RUNNING：Worker 持租约领取；RUNNING → SUCCEEDED/FAILED：租约持有者
+    # 终结；RUNNING → REQUESTED：租约到期退回，否则 Worker 崩溃的任务会永远卡在 RUNNING。
+    Transition(
+        GenerationTaskStatus.REQUESTED,
+        GenerationTaskStatus.RUNNING,
+        GENERATION_PROCESS_ACTION,
+    ),
+    Transition(
+        GenerationTaskStatus.RUNNING,
+        GenerationTaskStatus.SUCCEEDED,
+        GENERATION_PROCESS_ACTION,
+    ),
+    Transition(
+        GenerationTaskStatus.RUNNING,
+        GenerationTaskStatus.FAILED,
+        GENERATION_PROCESS_ACTION,
+    ),
+    Transition(
+        GenerationTaskStatus.RUNNING,
+        GenerationTaskStatus.REQUESTED,
+        GENERATION_PROCESS_ACTION,
+    ),
+)
+
+GENERATION_TASK_LIFECYCLE = Lifecycle(
+    object_name="GenerationTask",
+    states=tuple(GenerationTaskStatus),
+    edges=GENERATION_TASK_TRANSITIONS,
+    initial_states=(GenerationTaskStatus.REQUESTED,),
+    frozen_states=(),
+)
+
+GENERATION_TASK_ALLOWED_TRANSITIONS: dict[
+    GenerationTaskStatus, frozenset[GenerationTaskStatus]
+] = GENERATION_TASK_LIFECYCLE.allowed_transitions()
+
+SHOT_BUDGET_REQUEST_TRANSITIONS: tuple[
+    Transition[ShotBudgetRequestStatus], ...
+] = (
+    Transition(
+        ShotBudgetRequestStatus.DRAFT,
+        ShotBudgetRequestStatus.APPROVED,
+        BUDGET_SHOT_APPROVE_ACTION,
+    ),
+    Transition(
+        ShotBudgetRequestStatus.DRAFT,
+        ShotBudgetRequestStatus.REJECTED,
+        BUDGET_SHOT_APPROVE_ACTION,
+    ),
+)
+
+SHOT_BUDGET_REQUEST_LIFECYCLE = Lifecycle(
+    object_name="ShotBudgetRequest",
+    states=tuple(ShotBudgetRequestStatus),
+    edges=SHOT_BUDGET_REQUEST_TRANSITIONS,
+    initial_states=(ShotBudgetRequestStatus.DRAFT,),
+    frozen_states=(),
+)
+
+SHOT_BUDGET_REQUEST_ALLOWED_TRANSITIONS: dict[
+    ShotBudgetRequestStatus, frozenset[ShotBudgetRequestStatus]
+] = SHOT_BUDGET_REQUEST_LIFECYCLE.allowed_transitions()
+
+
+# --------------------------------------------------------------------------- #
 # 兼容入口：既有调用方与测试使用「按对象命名」的函数。
 # 语义统一为「只判结构，不含所有权」——所有权校验在 edge_owned_by 与聚合根的
 # transition_to 上，任何真正的推进都必须经过后者。
@@ -486,6 +600,7 @@ def assert_transition_episode(
 
 __all__ = [
     "ALLOWED_TRANSITIONS",
+    "BUDGET_SHOT_APPROVE_ACTION",
     "CONSTRAINT_PACK_ALLOWED_TRANSITIONS",
     "CONSTRAINT_PACK_LIFECYCLE",
     "CONSTRAINT_PACK_LOCK_ACTION",
@@ -495,6 +610,15 @@ __all__ = [
     "EPISODE_LIFECYCLE",
     "EPISODE_STATUS_CHANGE_ACTION",
     "EPISODE_TRANSITIONS",
+        "GENERATION_PROCESS_ACTION",
+    "GENERATION_REQUEST_ACTION",
+    "GENERATION_TASK_ALLOWED_TRANSITIONS",
+    "GENERATION_TASK_LIFECYCLE",
+    "GENERATION_TASK_TRANSITIONS",
+    "PRODUCTION_ROUTE_ALLOWED_TRANSITIONS",
+    "PRODUCTION_ROUTE_LIFECYCLE",
+    "PRODUCTION_ROUTE_SELECT_ACTION",
+    "PRODUCTION_ROUTE_TRANSITIONS",
     "PROJECT_LIFECYCLE",
     "PROJECT_STATUS_CHANGE_ACTION",
     "PROJECT_TRANSITIONS",
@@ -513,6 +637,9 @@ __all__ = [
     "SCRIPT_LOCK_REQUEST_ACTION",
     "SCRIPT_TRANSITIONS",
     "SHOT_ALLOWED_TRANSITIONS",
+    "SHOT_BUDGET_REQUEST_ALLOWED_TRANSITIONS",
+    "SHOT_BUDGET_REQUEST_LIFECYCLE",
+    "SHOT_BUDGET_REQUEST_TRANSITIONS",
     "SHOT_DRAFT_ALLOWED_TRANSITIONS",
     "SHOT_DRAFT_CONFIRM_ACTION",
     "SHOT_DRAFT_DISCARD_ACTION",

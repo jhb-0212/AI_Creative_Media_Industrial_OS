@@ -50,6 +50,15 @@ x-db-business: &db-business
   POSTGRES_PROJECT_PLANNING_PASSWORD: ${POSTGRES_PROJECT_PLANNING_PASSWORD:-project_planning_dev_password}
   POSTGRES_ASSET_SERVICE_USER: asset_service_role
   POSTGRES_ASSET_SERVICE_PASSWORD: ${POSTGRES_ASSET_SERVICE_PASSWORD:-asset_service_dev_password}
+  # R16 三域（迁移 a0b1c2d3e4f5）：生产链 / 预算额度 / 质检治理各自角色。
+  # 缺项时 Settings 的默认值与之相同，但显式写出才能让「换了口令的部署」
+  # 不必改代码就换得掉，也让 compose 成为部署侧的唯一事实源。
+  POSTGRES_PRODUCTION_PLANNING_USER: production_planning_role
+  POSTGRES_PRODUCTION_PLANNING_PASSWORD: ${POSTGRES_PRODUCTION_PLANNING_PASSWORD:-production_planning_dev_password}
+  POSTGRES_BUDGET_QUOTA_USER: budget_quota_role
+  POSTGRES_BUDGET_QUOTA_PASSWORD: ${POSTGRES_BUDGET_QUOTA_PASSWORD:-budget_quota_dev_password}
+  POSTGRES_QC_GOVERNANCE_USER: qc_governance_role
+  POSTGRES_QC_GOVERNANCE_PASSWORD: ${POSTGRES_QC_GOVERNANCE_PASSWORD:-qc_governance_dev_password}
 
 # Relay 专用角色（F03）：只碰 outbox，不碰业务 schema。
 x-db-relay: &db-relay

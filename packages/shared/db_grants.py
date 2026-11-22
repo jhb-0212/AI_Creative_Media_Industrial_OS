@@ -43,7 +43,17 @@ from dataclasses import dataclass
 # domain_roles() 的插入序，不做位置耦合——用键取值，不用下标。
 PROJECT_PLANNING = "project_planning"
 ASSET_SERVICE = "asset_service"
-DOMAINS: tuple[str, ...] = (PROJECT_PLANNING, ASSET_SERVICE)
+# R16 三域拆分（迁移 a0b1c2d3e4f5）：生产链 / 预算额度 / 质检治理。
+PRODUCTION_PLANNING = "production_planning"
+BUDGET_QUOTA = "budget_quota"
+QC_GOVERNANCE = "qc_governance"
+DOMAINS: tuple[str, ...] = (
+    PROJECT_PLANNING,
+    ASSET_SERVICE,
+    PRODUCTION_PLANNING,
+    BUDGET_QUOTA,
+    QC_GOVERNANCE,
+)
 
 # PG 的表级权限全集。矩阵只应出现前四种；出现 TRUNCATE/REFERENCES/TRIGGER
 # 一律判为错误声明（应用从不 ALTER/DROP 表，也不需要整表清空）。
@@ -210,6 +220,10 @@ DOMAIN_GRANTS: dict[str, tuple[TableGrant, ...]] = {
             "无 DELETE：STALE/SUPERSEDED/REVOKED 都是治理结论，"
             "包历史是「当时凭什么锁」的唯一证据，不可物理删除。",
         ),
+        # 生产链与预算对象的五张表**不在**本域：R16 域拆分（a0b1c2d3e4f5）
+        # 已把它们移到 production_planning / budget_quota / qc_governance 三个
+        # 自有 schema。这里若继续声明，会变成「矩阵声明了本域不存在的表」，
+        # 且两个角色对同一张表的 DML 面会产生两份互相矛盾的声明。
         _grant(
             "audit",
             "status_transitions",
@@ -299,6 +313,131 @@ DOMAIN_GRANTS: dict[str, tuple[TableGrant, ...]] = {
 }
 
 
+def _platform_grants(*, label: str) -> tuple[TableGrant, ...]:
+    """共享基础设施的授权（audit 迁移事实写、outbox 事件写、auth 只读、版本只读）。
+
+    写成函数而不是各域抄一遍：``validate_matrix`` 要求共享表在**所有域**口径
+    一致，手抄四份的第一次手误就是「某个域能 UPDATE 事件内容」——而那种差异
+    不会在单域测试里暴露。``label`` 只影响 ``write_path`` 的文字（保留「谁在写」
+    这个必答项），不改变权限集。
+    """
+    return (
+        _grant(
+            "audit",
+            "status_transitions",
+            "SELECT INSERT",
+            f"INSERT：{label}的状态推进写迁移事实（与业务写同事务）；SELECT：历史查询。"
+            "append-only 由触发器保证，授权层面也不给 UPDATE/DELETE。",
+            source="migration",
+        ),
+        _grant(
+            "outbox",
+            "outbox_events",
+            "SELECT INSERT",
+            f"INSERT：{label}的跨域事件与业务写同事务落库；SELECT：同域回读校验。"
+            "UPDATE 归 relay（列级），DELETE 无人持有。分区授权见 partition_guard。",
+            source="migration",
+        ),
+        _grant(
+            "auth",
+            "revoked_tokens",
+            "SELECT",
+            "SELECT：每个请求的吊销检查（fail-closed）。写入由签发方负责。",
+            source="infra",
+        ),
+        _grant(
+            "public",
+            "alembic_version",
+            "SELECT",
+            "SELECT：/readyz 回报 schema revision（识别连到了另一个库实例）。",
+            source="infra",
+        ),
+    )
+
+
+def _projects_readonly(label: str) -> TableGrant:
+    """跨域列级只读 ``project_planning.projects``（归属解析的唯一依赖）。
+
+    新域要知道「这个 project 属于哪个租户/组织」才能做 RLS 与归属校验，但它
+    没有任何理由读剧本、镜头或规格。列级而非整表：项目域未来新增的列（例如
+    预算总额、客户信息）不会自动对邻域可见——这正是 ``b3c4d5e6f7a8`` 已经
+    为 asset_service 立下的范式，新域沿用同一形态而不是各写一种。
+    """
+    return _grant(
+        PROJECT_PLANNING,
+        "projects",
+        "SELECT",
+        f"跨域只读（DATA-2）：{label}校验归属项目是否存在、属于哪个租户/组织，"
+        "只读三列即可（entity_id / tenant_id / organization_id）。",
+        source="cross_domain",
+        columns=("entity_id", "organization_id", "tenant_id"),
+    )
+
+
+# R16 三域（a0b1c2d3e4f5）。每个域只声明**自己** schema 的表 + 平台共享表 +
+# 项目域的列级只读；它没有别的域的任何权限，因此「生产域去写账本」这类越界
+# 在数据库层就被拒绝，而不是靠代码审查。
+DOMAIN_GRANTS[PRODUCTION_PLANNING] = (
+    _grant(
+        PRODUCTION_PLANNING,
+        "production_routes",
+        "SELECT INSERT UPDATE",
+        "SELECT：路线读取/回读；INSERT：PRODUCTION.ROUTE.SELECT 落一条 VERIFIED 记录；"
+        "UPDATE：VERIFIED→REVOKED 治理边与版本递增。无 DELETE：选择记录是证据。",
+    ),
+    _grant(
+        PRODUCTION_PLANNING,
+        "generation_tasks",
+        "SELECT INSERT UPDATE",
+        "SELECT：任务读取；INSERT：GENERATION.REQUEST 建 REQUESTED；"
+        "UPDATE：推进 SUCCEEDED/FAILED（或未来的 RUNNING 租约续期）与版本递增。"
+        "无 DELETE：任务历史是「谁在什么约束下生成了什么」的证据。",
+    ),
+    _projects_readonly("生产链"),
+    *_platform_grants(label="生产链"),
+)
+
+DOMAIN_GRANTS[BUDGET_QUOTA] = (
+    _grant(
+        BUDGET_QUOTA,
+        "shot_budget_requests",
+        "SELECT INSERT UPDATE",
+        "SELECT：申请读取/审批回读；INSERT：BUDGET.SHOT.REQUEST 建 DRAFT；"
+        "UPDATE：BUDGET.SHOT.APPROVE 推进 APPROVED/REJECTED。无 DELETE：审批是证据。",
+    ),
+    _grant(
+        BUDGET_QUOTA,
+        "budget_ledger",
+        "SELECT INSERT",
+        "SELECT：余额按流水聚合、幂等键回读；INSERT：审批同事务原子追加一条流水。"
+        "无 UPDATE/DELETE：追加式不可变账本（金额事实一旦落库就只能新增冲正流水）。",
+    ),
+    _projects_readonly("预算额度"),
+    *_platform_grants(label="预算额度"),
+)
+
+DOMAIN_GRANTS[QC_GOVERNANCE] = (
+    _grant(
+        QC_GOVERNANCE,
+        "gate_decisions",
+        "SELECT INSERT",
+        "SELECT：Gate 决策回读与审计比对；INSERT：PRODUCTION.GATE.APPROVE 落一条决策。"
+        "无 UPDATE/DELETE：决策是追加式不可变证据，撤销语义应记新决策而不是改写历史。",
+    ),
+    _grant(
+        QC_GOVERNANCE,
+        "qc_tasks",
+        "SELECT INSERT UPDATE",
+        "SELECT：待检队列调度（next_claimable / list_expired）与回读；"
+        "INSERT：QC.TASK.ENQUEUE 入队；"
+        "UPDATE：QC.TASK.PROCESS 的领取/续租/判定/租约回收（乐观锁条件更新）。"
+        "无 DELETE：队列记录是「这份产物检过没有」的证据，不能物理删除。",
+    ),
+    _projects_readonly("质检治理"),
+    *_platform_grants(label="质检治理"),
+)
+
+
 # --------------------------------------------------------------------------- #
 # 派生视图与语句生成
 # --------------------------------------------------------------------------- #
@@ -377,6 +516,18 @@ def converge_statements(
     的「默认零授权」只覆盖了 app_role——旧机制在新角色上复发）。
     """
     statements: list[str] = [
+        # schema USAGE 是「能访问这个域」的前置条件，和表级授权同属授权面：
+        # 只授表不授 USAGE，第一次查询就是 permission denied for schema。
+        # 放在矩阵里生成（而不是让每条迁移各写一句 GRANT USAGE），否则
+        # 「新增一个域」需要改迁移，而「迁移是矩阵的执行器」这条不变量就破了。
+        f"GRANT USAGE ON SCHEMA {domain} TO {role}",
+    ]
+    if any(grant.source == "cross_domain" for grant in DOMAIN_GRANTS[domain]):
+        # 跨域列级只读还需要目标 schema 的 USAGE（表权限不蕴含 schema 权限）。
+        statements.append(
+            f"GRANT USAGE ON SCHEMA {PROJECT_PLANNING} TO {role}"
+        )
+    statements += [
         f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} REVOKE ALL ON TABLES FROM {role}"
         for schema in DOMAINS
     ] + [
@@ -447,6 +598,26 @@ def legacy_statements(role: str, domain: str) -> list[str]:
         for schema in DOMAINS
     )
     return statements
+
+
+def legacy_r16_grant_statements(role: str) -> list[str]:
+    """仅 downgrade 使用：cutover 之前五张 R16 表的旧授权口径。
+
+    为什么单独一份、而不是让矩阵「再声明一次」：矩阵描述的是**当前**权限面，
+    把已迁走的表写回去会让 coverage 判据认为它们还在 project_planning。降级
+    需要的是历史口径，两者混在同一个声明里必然有一方是错的——历史口径因此
+    显式命名为 legacy，并且只由 ``a0b1c2d3e4f5`` 的 ``downgrade()`` 调用。
+    """
+    return [
+        f"GRANT {privileges} ON {PROJECT_PLANNING}.{table} TO {role}"
+        for table, privileges in (
+            ("production_routes", "SELECT, INSERT, UPDATE"),
+            ("generation_tasks", "SELECT, INSERT, UPDATE"),
+            ("shot_budget_requests", "SELECT, INSERT, UPDATE"),
+            ("budget_ledger", "SELECT, INSERT"),
+            ("gate_decisions", "SELECT, INSERT"),
+        )
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -536,15 +707,19 @@ def validate_matrix() -> list[str]:
 __all__ = [
     "ALL_TABLE_PRIVILEGES",
     "ASSET_SERVICE",
+    "BUDGET_QUOTA",
     "DOMAINS",
     "DOMAIN_GRANTS",
+    "PRODUCTION_PLANNING",
     "PROJECT_PLANNING",
+    "QC_GOVERNANCE",
     "TableGrant",
     "business_tables",
     "converge_statements",
     "declared_column_privileges",
     "declared_privileges",
     "declared_tables",
+    "legacy_r16_grant_statements",
     "legacy_statements",
     "validate_matrix",
 ]

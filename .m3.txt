@@ -1,0 +1,10 @@
+﻿python : INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+所在位置 行:3 字符: 1
++ python -m alembic upgrade head *> .m3.txt 2>&1; "UP=$LASTEXITCODE"
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (INFO  [alembic....PostgresqlImpl.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade d5e6f7a8b9c0 -> e6f7a8b9c0d1, BudgetLedger 释放/冲销：reservation_ref + 受控
+ transaction_kind（Phase 2 §2）

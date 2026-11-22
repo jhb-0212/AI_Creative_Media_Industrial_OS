@@ -21,7 +21,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 #   relay              —— Outbox 投递进程：完全不碰身份密钥。
 #   outbox_maintenance —— Outbox 运维 CLI：用 postgres 超级用户做 DDL。
 #   identity           —— 身份签发服务：持私钥（+公钥）签发令牌。
-ProcessRole = Literal["api", "relay", "outbox_maintenance", "identity"]
+ProcessRole = Literal[
+    "api", "relay", "outbox_maintenance", "identity", "generation", "qc"
+]
 
 # 数据库角色配置项：环境变量名 → Settings 字段名（单一事实源）。
 # 启动校验与迁移取角色名都从这张表/对应属性取，任何地方都不得写字面量
@@ -30,6 +32,9 @@ ProcessRole = Literal["api", "relay", "outbox_maintenance", "identity"]
 _ROLE_FIELD_BY_ENV: dict[str, str] = {
     "POSTGRES_PROJECT_PLANNING_USER": "postgres_project_planning_user",
     "POSTGRES_ASSET_SERVICE_USER": "postgres_asset_service_user",
+    "POSTGRES_PRODUCTION_PLANNING_USER": "postgres_production_planning_user",
+    "POSTGRES_BUDGET_QUOTA_USER": "postgres_budget_quota_user",
+    "POSTGRES_QC_GOVERNANCE_USER": "postgres_qc_governance_user",
     "POSTGRES_RELAY_USER": "postgres_relay_user",
     "POSTGRES_APP_USER": "postgres_app_user",
 }
@@ -78,6 +83,16 @@ class Settings(BaseSettings):
     postgres_project_planning_password: SecretStr = SecretStr("project_planning_dev_password")
     postgres_asset_service_user: str = "asset_service_role"
     postgres_asset_service_password: SecretStr = SecretStr("asset_service_dev_password")
+    # R16 三域拆分（迁移 a0b1c2d3e4f5 创建）：生产链 / 预算额度 / 质检治理。
+    # 一域一角色一 schema 一连接池；跨域写越界在数据库层被拒绝，而不是靠代码自觉。
+    postgres_production_planning_user: str = "production_planning_role"
+    postgres_production_planning_password: SecretStr = SecretStr(
+        "production_planning_dev_password"
+    )
+    postgres_budget_quota_user: str = "budget_quota_role"
+    postgres_budget_quota_password: SecretStr = SecretStr("budget_quota_dev_password")
+    postgres_qc_governance_user: str = "qc_governance_role"
+    postgres_qc_governance_password: SecretStr = SecretStr("qc_governance_dev_password")
 
     # Redis（可能内嵌口令，按密钥处理，repr 不落明文）
     redis_url: SecretStr = SecretStr("redis://localhost:16379/0")
@@ -184,6 +199,14 @@ class Settings(BaseSettings):
         "api": (
             ("postgres_project_planning_password", "POSTGRES_PROJECT_PLANNING_PASSWORD"),
             ("postgres_asset_service_password", "POSTGRES_ASSET_SERVICE_PASSWORD"),
+            # R16 三域拆分后 API 以五个域角色连接，生产环境这六个值必须显式提供；
+            # 缺一项就是「某个池用默认开发口令连生产库」——静默降级，必须 fail-closed。
+            (
+                "postgres_production_planning_password",
+                "POSTGRES_PRODUCTION_PLANNING_PASSWORD",
+            ),
+            ("postgres_budget_quota_password", "POSTGRES_BUDGET_QUOTA_PASSWORD"),
+            ("postgres_qc_governance_password", "POSTGRES_QC_GOVERNANCE_PASSWORD"),
             ("identity_public_key_pem", "IDENTITY_PUBLIC_KEY_PEM"),
         ),
         "relay": (
@@ -198,6 +221,20 @@ class Settings(BaseSettings):
         "identity": (
             ("identity_private_key_pem", "IDENTITY_PRIVATE_KEY_PEM"),
             ("identity_public_key_pem", "IDENTITY_PUBLIC_KEY_PEM"),
+        ),
+        # 生成 Worker 只连 production_planning 域（任务表与租约都在那），
+        # 因此只需要这一个口令：多给一个就是多一份可被泄漏的凭证。
+        "generation": (
+            (
+                "postgres_production_planning_password",
+                "POSTGRES_PRODUCTION_PLANNING_PASSWORD",
+            ),
+        ),
+        # QC Worker 连两个域：qc_governance 存队列与租约，asset_service 读资产
+        # 并登记 QC 报告（报告只能经资产域服务层创建，不能由 Worker 直接插表）。
+        "qc": (
+            ("postgres_qc_governance_password", "POSTGRES_QC_GOVERNANCE_PASSWORD"),
+            ("postgres_asset_service_password", "POSTGRES_ASSET_SERVICE_PASSWORD"),
         ),
     }
 

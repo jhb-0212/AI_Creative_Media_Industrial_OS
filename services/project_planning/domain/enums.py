@@ -182,3 +182,46 @@ class ConstraintPackStatus(str, Enum):
     STALE = "STALE"            # 引用的 PrevizVersion 或上游锁定维度失效，须重新确认
     SUPERSEDED = "SUPERSEDED"  # 已被新版本取代
     REVOKED = "REVOKED"        # 授权被撤销，相关路线立即阻断
+
+
+class ProductionRouteStatus(str, Enum):
+    """生产路线选择记录的生命周期（R16-D3）。"""
+
+    VERIFIED = "VERIFIED"  # 选择生效：路线选择已建立（创建即此态）
+    REVOKED = "REVOKED"    # 选择被撤销，终态不可原地复活
+
+
+class GenerationTaskStatus(str, Enum):
+    """生成任务记录的生命周期（R16-D3 同步 / Phase 2 异步租约）。"""
+
+    REQUESTED = "REQUESTED"  # 已请求：准入校验通过（创建即此态；也是租约到期退回态）
+    RUNNING = "RUNNING"      # 执行中：由 GENERATION.PROCESS 的租约持有者推进
+    SUCCEEDED = "SUCCEEDED"  # 执行成功（终态）
+    FAILED = "FAILED"        # 执行失败（终态）
+
+
+class QCTaskStatus(str, Enum):
+    """QC 待检任务的生命周期（Phase 3，生成终态入队）。"""
+
+    QUEUED = "QUEUED"        # 待检：已入队，等待 QC Worker 领取
+    RUNNING = "RUNNING"      # 检测中：由 QC.TASK.PROCESS 的租约持有者推进
+    PASSED = "PASSED"        # 检测通过（终态）
+    REJECTED = "REJECTED"    # 检测不通过（终态）
+
+
+class ShotBudgetRequestStatus(str, Enum):
+    """单镜头预算申请的生命周期（R16-D3，两步审批）。"""
+
+    DRAFT = "DRAFT"          # 草稿：申请人已提交，待审批（创建即此态）
+    APPROVED = "APPROVED"    # 已批准：同一事务原子记账（终态）
+    REJECTED = "REJECTED"    # 已拒绝（终态）
+
+
+class NoLifecycleStatus(str, Enum):
+    """信封占位哨兵（status_layers.yaml envelope_only_sentinel）。
+
+    用于没有领域生命周期的追加式/不可变记录（如 BudgetLedger / GateDecision），
+    status 唯一允许写入 NO_LIFECYCLE，权威事实在别的字段上。
+    """
+
+    NO_LIFECYCLE = "NO_LIFECYCLE"

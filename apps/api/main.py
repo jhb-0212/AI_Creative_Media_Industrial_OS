@@ -55,6 +55,16 @@ setup_telemetry(app)
 
 # 挂载领域模块路由。
 from services.asset_service.api.asset_routes import router as asset_router  # noqa: E402
+from services.budget_quota.api.budget_routes import ledger_router as budget_ledger_router  # noqa: E402
+from services.budget_quota.api.budget_routes import router as budget_router  # noqa: E402
+from services.production_planning.api.generation_routes import (  # noqa: E402
+    router as generation_router,
+)
+
+# R16-D3：生产链与预算 MVP（生产路线 / 生成任务 / 预算 / Gate 决策）。
+from services.production_planning.api.production_routes import (  # noqa: E402
+    router as production_route_router,
+)
 from services.project_planning.api.episode_routes import router as episode_router  # noqa: E402
 from services.project_planning.api.project_routes import router as project_router  # noqa: E402
 from services.project_planning.api.script_routes import router as script_router  # noqa: E402
@@ -65,6 +75,10 @@ from services.project_planning.api.shot_planning_routes import (  # noqa: E402
     scene_router,
     shot_router,
     shot_spec_router,
+)
+from services.qc_governance.api.gate_routes import router as gate_router  # noqa: E402
+from services.qc_governance.api.qc_task_routes import (  # noqa: E402
+    router as qc_task_router,
 )
 
 app.include_router(project_router)
@@ -77,6 +91,12 @@ app.include_router(rework_router)
 app.include_router(shot_spec_router)
 app.include_router(constraint_pack_router)
 app.include_router(asset_router)
+app.include_router(production_route_router)
+app.include_router(generation_router)
+app.include_router(budget_router)
+app.include_router(budget_ledger_router)
+app.include_router(gate_router)
+app.include_router(qc_task_router)
 
 
 # 探针与指标端点不参与限流：编排系统高频抓取，被限流会误判实例不可用。

@@ -16,7 +16,7 @@
 
 generated_by: scripts/gen_status_contracts.py
 source: contracts/state_machines/state_machines.yaml
-object_count: 44
+object_count: 48
 objects:
 - object: Appeal
   states: [CLOSED, DECISION_OVERTURNED, DECISION_UPHELD, IN_REVIEW, SUBMITTED]
@@ -60,18 +60,24 @@ objects:
   states: [DRAFT, EXPIRED, EXPORTED, REJECTED, REVOKED, VALIDATED, VALIDATING]
 - object: ExternalToolConnection
   states: [ACTIVE, DRAFT, REVOKED, SUSPENDED, VALIDATING]
+- object: GenerationTask
+  states: [FAILED, REQUESTED, RUNNING, SUCCEEDED]
 - object: Pattern
   states: [DEPRECATED, EXPERIMENT_RECORD, FAILURE_CASE, IN_REVIEW, REJECTED, RETIRED, REUSABLE_PATTERN]
 - object: PatternRecord
   states: [DEPRECATED, EXPERIMENT_RECORD, FAILURE_CASE, IN_REVIEW, REJECTED, RETIRED, REUSABLE_PATTERN]
 - object: PrevizVersion
   states: [APPROVED, DRAFT, GEOMETRY_VALID, LOCKED, RENDERED, SUPERSEDED]
+- object: ProductionRoute
+  states: [REVOKED, VERIFIED]
 - object: Project
   states: [ACTIVE, ARCHIVED, COMPLETED, DRAFT, ON_HOLD]
 - object: PublicationReview
   states: [APPROVED, IN_REVIEW, QUEUED, REJECTED, RETURNED]
 - object: QCReviewSession
   states: [CLOSED, DECISION_PENDING, GATE_ELIGIBLE, IN_REVIEW, OPEN, RESOLVED, WAIVE_WITH_AUTHORITY]
+- object: QCTask
+  states: [PASSED, QUEUED, REJECTED, RUNNING]
 - object: QuotaReservation
   states: [COMMITTED, EXPIRED, FAILED, RELEASED, REQUESTED, RESERVED]
 - object: ReuseRequest
@@ -90,6 +96,8 @@ objects:
   states: [BLOCKED, CANCELLED, IN_PRODUCTION, NOT_STARTED, PRODUCTION_COMPLETE]
 - object: ShotBreakdownDraft
   states: [CONFIRMED, DISCARDED, IN_REVIEW, PENDING_CONFIRM, RETURNED]
+- object: ShotBudgetRequest
+  states: [APPROVED, DRAFT, REJECTED]
 - object: ShotRevision
   states: [ACTIVE, SUPERSEDED]
 - object: ShotSpec

@@ -44,6 +44,13 @@ def relay_role_name() -> str:
 _DOMAIN_ROLE_FIELDS: dict[str, str] = {
     "project_planning": "postgres_project_planning_user",
     "asset_service": "postgres_asset_service_user",
+    # R16 三域拆分（迁移 a0b1c2d3e4f5）：生产链 / 预算额度 / 质检治理。
+    # 拆分的理由不是「表变多了」：生产路线与 Gate 决策的证据生命周期、
+    # 预算账本的追加式不可变语义，都与项目规划的 DML 面不同；同角色同表空间
+    # 会让「账本只能 INSERT」这类收窄失去载体。
+    "production_planning": "postgres_production_planning_user",
+    "budget_quota": "postgres_budget_quota_user",
+    "qc_governance": "postgres_qc_governance_user",
 }
 
 
@@ -66,14 +73,15 @@ def domain_roles() -> dict[str, str]:
     return {domain: domain_role(domain) for domain in _DOMAIN_ROLE_FIELDS}
 
 
-def domain_role_names() -> tuple[str, str]:
-    """两个业务域角色名（``project_planning``、``asset_service``，DATA-1）。
+def domain_role_names() -> tuple[str, ...]:
+    """全部业务域角色名（按 ``_DOMAIN_ROLE_FIELDS`` 的插入序）。
 
-    保留元组形态供既有调用方（迁移、断言）使用；顺序由 ``_DOMAIN_ROLE_FIELDS``
-    的插入序决定，新增域时需同步确认调用方是否依赖位置。
+    返回的是**当前**域集合，不是历史快照：迁移里需要「当时有几个域」时必须
+    自己写快照别名（见 ``d8e9f0a1b2c3`` 的 ``_snapshot_domain_roles``），否则
+    新增一个域就会静默改写一条已执行过的迁移的行为。
     """
     roles = domain_roles()
-    return (roles["project_planning"], roles["asset_service"])
+    return tuple(roles[domain] for domain in _DOMAIN_ROLE_FIELDS)
 
 
 __all__ = [

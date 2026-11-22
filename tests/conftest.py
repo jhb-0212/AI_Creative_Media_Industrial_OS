@@ -36,7 +36,10 @@ from apps.api.main import app  # noqa: E402
 from packages.shared.database import (  # noqa: E402
     build_relay_database_url,
     create_asset_service_engine,
+    create_budget_quota_engine,
+    create_production_planning_engine,
     create_project_planning_engine,
+    create_qc_governance_engine,
     create_sessionmaker,
 )
 from services.identity_issuance import issue_token  # noqa: E402
@@ -202,12 +205,23 @@ async def db_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     """
     project_engine = create_project_planning_engine()
     asset_engine = create_asset_service_engine()
+    production_engine = create_production_planning_engine()
+    budget_engine = create_budget_quota_engine()
+    qc_engine = create_qc_governance_engine()
     project_sessionmaker = create_sessionmaker(project_engine)
     asset_sessionmaker = create_sessionmaker(asset_engine)
     app.state.project_planning_engine = project_engine
     app.state.asset_service_engine = asset_engine
+    app.state.production_planning_engine = production_engine
+    app.state.budget_quota_engine = budget_engine
+    app.state.qc_governance_engine = qc_engine
     app.state.project_planning_sessionmaker = project_sessionmaker
     app.state.asset_service_sessionmaker = asset_sessionmaker
+    # R16 三域（a0b1c2d3e4f5）：路由按域注入，测试装配必须提供同一批池，
+    # 否则「装配缺失」会在第一个用到该域的路由请求上变成 500。
+    app.state.production_planning_sessionmaker = create_sessionmaker(production_engine)
+    app.state.budget_quota_sessionmaker = create_sessionmaker(budget_engine)
+    app.state.qc_governance_sessionmaker = create_sessionmaker(qc_engine)
     # 向后兼容别名：/readyz 与既有代码读 app.state.sessionmaker 时，落到
     # project_planning 域会话工厂（与生产 lifespan 的别名语义一致）。
     app.state.engine = project_engine
@@ -215,8 +229,14 @@ async def db_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     try:
         yield project_sessionmaker
     finally:
-        await project_engine.dispose()
-        await asset_engine.dispose()
+        for engine in (
+            project_engine,
+            asset_engine,
+            production_engine,
+            budget_engine,
+            qc_engine,
+        ):
+            await engine.dispose()
 
 
 @pytest.fixture

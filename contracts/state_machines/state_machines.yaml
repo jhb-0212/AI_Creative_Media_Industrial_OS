@@ -30,7 +30,7 @@
 version: 2
 source: AFS-ARCH-MASTER-V2.0.5 各章节状态机定义（由 Markdown 基线派生）
 authority_rule: 同一对象多处定义时，按 31.5 唯一权威状态机 > 32.6/C.7 > 34.x > 33.3 > C.3 取权威；24.11 为摘要不计入权威；差异不静默合并，见 conflict 字段。
-total_objects: 44
+total_objects: 48
 conflict_count: 6
 object_count_note: total_objects 只计持久化领域对象；UI 投影见 projections 分区（不计入对象数，也不得进枚举注册表）。
 
@@ -911,3 +911,86 @@ objects:
   - 8.2 标识与版本规则
   - contracts/enums/status_field_taxonomy.yaml（ShotSpec 解除条件）
   - docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md §6.7
+- object: ProductionRoute
+  authoritative_source: 9.2.2 路线适配器抽象（ProductionRoute）+ 31.6 Action Registry（PRODUCTION.ROUTE.SELECT）
+  allowed_states: [VERIFIED, REVOKED]
+  initial_state: VERIFIED
+  transitions:
+  - {from: VERIFIED, to: REVOKED}
+  frozen_states: []
+  note: >-
+    路线选择记录（project/shot/task 作用域）。PRODUCTION.ROUTE.SELECT 创建即 VERIFIED——
+    契约要求「路线须处于 VERIFIED」，创建即 VERIFIED 使选择动作天然满足前置；能力与权利
+    证据由 capability_ref 承载（指向已验证的路线能力声明）。REVOKED 为撤销选择，终态不可
+    原地复活（重新选择须新建记录）。路线目录本身的注册/验证属能力目录（§16.1），不在
+    MVP 六个动作内，不在此建模。
+  source_kind: owner_supplied_design
+  registration_status: PENDING_PHASE1_REVIEW
+  all_sources:
+  - 9.2.2 路线适配器抽象（ProductionRoute）
+  - 31.6 Action Registry（PRODUCTION.ROUTE.SELECT）
+  - docs/architecture/decision-register-r16.md（R16-D3 架构决策）
+- object: GenerationTask
+  authoritative_source: 31.6 Action Registry（GENERATION.REQUEST）
+  allowed_states: [REQUESTED, RUNNING, SUCCEEDED, FAILED]
+  initial_state: REQUESTED
+  transitions:
+  - {from: REQUESTED, to: SUCCEEDED, owner_action: GENERATION.REQUEST}
+  - {from: REQUESTED, to: FAILED, owner_action: GENERATION.REQUEST}
+  # 异步领取：只有持有租约的一方才推进 RUNNING（Phase 2，申请包 §1 已签发）。
+  - {from: REQUESTED, to: RUNNING, owner_action: GENERATION.PROCESS}
+  - {from: RUNNING, to: SUCCEEDED, owner_action: GENERATION.PROCESS}
+  - {from: RUNNING, to: FAILED, owner_action: GENERATION.PROCESS}
+  # 租约到期退回 REQUESTED 可被重新领取：否则 Worker 崩溃会让任务永远停在 RUNNING。
+  - {from: RUNNING, to: REQUESTED, owner_action: GENERATION.PROCESS}
+
+  frozen_states: []
+  note: >-
+    生成任务记录。MVP 为同步执行：GENERATION.REQUEST 校验预算/配额/依赖/约束快照通过后
+    创建 REQUESTED，并同步推进 SUCCEEDED 或 FAILED。异步的 RUNNING 状态及 Worker 领取/
+    租约/崩溃恢复生命周期属 Phase 2/3（31.6 无任何 MVP 动作拥有这些边），本批不建模——
+    建模无法取得 owner_action 的边只会制造「可达但无入口」的债务。
+  source_kind: owner_supplied_design
+  registration_status: PENDING_PHASE1_REVIEW
+  all_sources:
+  - 31.6 Action Registry（GENERATION.REQUEST）
+  - docs/architecture/decision-register-r16.md（R16-D3 架构决策）
+- object: ShotBudgetRequest
+  authoritative_source: 31.6 Action Registry（BUDGET.SHOT.REQUEST / BUDGET.SHOT.APPROVE）+ 预算账户口径表
+  allowed_states: [DRAFT, APPROVED, REJECTED]
+  initial_state: DRAFT
+  transitions:
+  - {from: DRAFT, to: APPROVED}
+  - {from: DRAFT, to: REJECTED}
+  frozen_states: []
+  note: >-
+    单镜头预算申请（两步审批）。BUDGET.SHOT.REQUEST 创建 DRAFT；BUDGET.SHOT.APPROVE 推进
+    APPROVED 或 REJECTED，且申请人与审批人必须职责分离（自批拒绝）。APPROVED 时在同一事务
+    内追加 BudgetLedger 流水（原子记账 + 幂等键）。Quality Reserve 不得被挪用（ACT-BUDGET-NEG-002）。
+  source_kind: owner_supplied_design
+  registration_status: PENDING_PHASE1_REVIEW
+  all_sources:
+  - 31.6 Action Registry（BUDGET.SHOT.REQUEST / BUDGET.SHOT.APPROVE）
+  - contracts/budget/budget_caliber.yaml
+  - docs/architecture/decision-register-r16.md（R16-D3 架构决策）
+- object: QCTask
+  authoritative_source: docs/architecture/amendment-pack-r16-phase3-qc.md（Owner 2026-11-23 指令「A」）
+  allowed_states: [QUEUED, RUNNING, PASSED, REJECTED]
+  initial_state: QUEUED
+  transitions:
+  - {from: QUEUED, to: RUNNING, owner_action: QC.TASK.PROCESS}
+  - {from: RUNNING, to: PASSED, owner_action: QC.TASK.PROCESS}
+  - {from: RUNNING, to: REJECTED, owner_action: QC.TASK.PROCESS}
+  # 租约到期退回 QUEUED 可被重新领取：否则 QC Worker 崩溃会让任务永远停在 RUNNING。
+  - {from: RUNNING, to: QUEUED, owner_action: QC.TASK.PROCESS}
+  frozen_states: []
+  note: >-
+    QC 待检队列。QC.TASK.ENQUEUE 在生成终态（SUCCEEDED 且带产物引用）时创建 QUEUED；
+    QC.TASK.PROCESS 持有租约时领取（QUEUED→RUNNING）、续租、判定 PASSED/REJECTED，
+    租约到期把 RUNNING 退回 QUEUED 以便重新领取。QC Worker 只写 QC 任务与报告，
+    不直接改 Gate——Gate 仍由人工职责主体裁决。
+  source_kind: owner_supplied_design
+  registration_status: APPROVED_BY_OWNER
+  all_sources:
+  - docs/architecture/amendment-pack-r16-phase3-qc.md
+  - docs/architecture/decision-register-r16.md（R16-D3-04 / R16-D3-05）

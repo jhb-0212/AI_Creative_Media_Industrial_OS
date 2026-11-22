@@ -102,6 +102,12 @@ class ErrorRegistry:
         http_status=409,
         message="重复请求冲突，返回原结果",
     )
+    DUPLICATE_ENTITY = ErrorCode(
+        code="DUPLICATE_ENTITY",
+        category=ErrorCategory.CONFLICT,
+        http_status=409,
+        message="实体已存在，不得重复登记",
+    )
     CONCURRENT_MODIFICATION = ErrorCode(
         code="CONCURRENT_MODIFICATION",
         category=ErrorCategory.CONFLICT,

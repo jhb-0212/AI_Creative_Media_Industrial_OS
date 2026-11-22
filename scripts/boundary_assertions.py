@@ -1085,6 +1085,30 @@ _ORG_RLS_TABLES: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
             "constraint_packs",
         )
     ),
+    # R16 三域拆分（a0b1c2d3e4f5）：五表已随域迁到各自 schema，父项目仍在
+    # project_planning——谓词右值必须逐字取新 schema（相关性字符串不匹配就报红）。
+    *(
+        (
+            schema,
+            table,
+            "parent",
+            (
+                f"p.entity_id = {schema}.{table}.project_id",
+                f"p.tenant_id = {schema}.{table}.tenant_id",
+            ),
+        )
+        for schema, table in (
+            ("production_planning", "production_routes"),
+            ("production_planning", "generation_tasks"),
+            ("budget_quota", "shot_budget_requests"),
+            ("qc_governance", "gate_decisions"),
+            # Phase 3：QC 待检队列同样以父项目存在性表达组织可见性。
+            ("qc_governance", "qc_tasks"),
+        )
+    ),
+    # R16：预算账本是追加式流水，无 project/org 列，按租户维度兜底隔离
+    #（"tenant" 形态：仍校验 tenant 谓词与 FORCE，只是不要求父项目存在性）。
+    ("budget_quota", "budget_ledger", "tenant", ()),
 )
 
 
@@ -1204,6 +1228,10 @@ def evaluate_org_rls(
                 problems.append(
                     f"{schema}.{table} 策略未读取组织上下文 {RLS_ORGANIZATION_SETTING}"
                 )
+        elif form == "tenant":
+            # 无 project/org 列的业务表（预算账本）：以租户维度兜底隔离，
+            # 只校验租户谓词（上面已校验）与策略名，不要求父项目存在性。
+            pass
         else:
             if "EXISTS (SELECT 1 FROM" not in policy or (
                 "project_planning.projects" not in policy
@@ -1378,7 +1406,13 @@ def data_domain_role_split() -> AssertionResult:
     database = _read("packages/shared/database.py")
     pools = [
         name
-        for name in ("project_planning_sessionmaker", "asset_service_sessionmaker")
+        for name in (
+            "project_planning_sessionmaker",
+            "asset_service_sessionmaker",
+            "production_planning_sessionmaker",
+            "budget_quota_sessionmaker",
+            "qc_governance_sessionmaker",
+        )
         if name not in database
     ]
     if pools:
@@ -1642,14 +1676,17 @@ def data_role_grants_least_privilege() -> AssertionResult:
     )
     from packages.shared.db_roles import domain_role
     from services.asset_service.repository import orm as asset_orm
+    from services.budget_quota.repository import orm as budget_orm
+    from services.production_planning.repository import orm as production_orm
     from services.project_planning.repository import orm as planning_orm
+    from services.qc_governance.repository import orm as qc_orm
 
     # ORM 是「schema 里有哪些业务表」的权威视图：alembic check 保证它与迁移
     # 无漂移，因此用它做覆盖判据既准确又不需要连库。
     # 两个域模块都要导入：它们共用同一个 Base，只导入一个就只注册一个 schema，
     # 覆盖判据会误报「矩阵声明了不存在的表」（本地实测踩过）。
     by_schema: dict[str, set[str]] = {}
-    for module in (planning_orm, asset_orm):
+    for module in (planning_orm, production_orm, budget_orm, qc_orm, asset_orm):
         for table in module.Base.metadata.tables.values():
             by_schema.setdefault(table.schema or "", set()).add(table.name)
 
@@ -1974,6 +2011,15 @@ PROCESS_ALLOWED_DB_ENV: dict[str, frozenset[str]] = {
             "POSTGRES_PROJECT_PLANNING_PASSWORD",
             "POSTGRES_ASSET_SERVICE_USER",
             "POSTGRES_ASSET_SERVICE_PASSWORD",
+            # R16 三域（a0b1c2d3e4f5）：API 需要这三个域角色才能按域注入 UoW。
+            # 不加进白名单，compose 一旦注入就报「继承未授权数据库凭证」——
+            # 这条判据的意图是「每个进程只拿到自己该连的角色」，不是「不许扩展域」。
+            "POSTGRES_PRODUCTION_PLANNING_USER",
+            "POSTGRES_PRODUCTION_PLANNING_PASSWORD",
+            "POSTGRES_BUDGET_QUOTA_USER",
+            "POSTGRES_BUDGET_QUOTA_PASSWORD",
+            "POSTGRES_QC_GOVERNANCE_USER",
+            "POSTGRES_QC_GOVERNANCE_PASSWORD",
         }
     ),
     # 只投递事件：仅 relay 角色。

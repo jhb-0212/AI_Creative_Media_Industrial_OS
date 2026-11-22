@@ -25,6 +25,7 @@ from services.identity_access.deps import (
     require_role,
 )
 from services.project_planning.domain.enums import (
+    ConstraintPackStatus,
     ReworkTaskStatus,
     SceneStatus,
     ShotStatus,
@@ -838,6 +839,50 @@ async def lock_constraint_pack(
         approved_at=body.approved_at,
         lock_basis_ref=body.lock_basis_ref,
         tenant_id=principal.tenant_id,
+    )
+    await uow.commit()
+    return pack.to_dict()
+
+
+class ChangeConstraintPackStatusRequest(BaseModel):
+    """推进治理边（ACTIVE → REVOKED / STALE / SUPERSEDED）。
+
+    目标状态决定哪一个依据字段必填（服务层校验）；其余依据留空。三条边都
+    不得用于内容修改——内容变更必须新建版本并经 LOCK。
+    """
+
+    target_status: ConstraintPackStatus
+    revocation_basis_ref: str = Field("", max_length=128)
+    stale_source_ref: str = Field("", max_length=128)
+    superseding_pack_ref: str = Field("", max_length=128)
+
+
+@constraint_pack_router.post(
+    "/{entity_id}/status", response_model=_ConstraintPackResponse
+)
+async def change_constraint_pack_status(
+    entity_id: str,
+    body: ChangeConstraintPackStatusRequest,
+    principal: Principal = Depends(
+        require_resource_role(
+            "CONSTRAINT.PACK.STATUS.CHANGE",
+            resource_type="ConstraintPack",
+            param_name="entity_id",
+            uow_dep=get_project_tenant_uow,
+        )
+    ),
+    uow: UnitOfWork = Depends(get_project_tenant_uow),
+    service: ConstraintPackService = Depends(_get_pack),
+) -> dict[str, Any]:
+    """推进约束包治理边。依据必填字段由目标状态决定（见请求模型）。"""
+    pack = await service.change_status(
+        entity_id=entity_id,
+        target_status=body.target_status,
+        changed_by=principal.subject_id,
+        tenant_id=principal.tenant_id,
+        revocation_basis_ref=body.revocation_basis_ref,
+        stale_source_ref=body.stale_source_ref,
+        superseding_pack_ref=body.superseding_pack_ref,
     )
     await uow.commit()
     return pack.to_dict()

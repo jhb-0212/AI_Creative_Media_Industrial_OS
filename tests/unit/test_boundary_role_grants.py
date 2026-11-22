@@ -55,10 +55,13 @@ def _orm() -> dict[str, frozenset[str]]:
     """
     from packages.shared.db_grants import DOMAINS
     from services.asset_service.repository import orm as asset_orm
+    from services.budget_quota.repository import orm as budget_orm
+    from services.production_planning.repository import orm as production_orm
     from services.project_planning.repository import orm as planning_orm
+    from services.qc_governance.repository import orm as qc_orm
 
     by_schema: dict[str, set[str]] = {}
-    for module in (planning_orm, asset_orm):
+    for module in (planning_orm, production_orm, budget_orm, qc_orm, asset_orm):
         for table in module.Base.metadata.tables.values():
             by_schema.setdefault(table.schema or "", set()).add(table.name)
     return {domain: frozenset(by_schema.get(domain, set())) for domain in DOMAINS}

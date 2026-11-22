@@ -23,26 +23,6 @@
 # - 本文件不是豁免清单：豁免只留给核心信封对象（见 resource_schema_exemptions.yaml）。
 
 gaps:
-  ShotBudgetRequest:
-    referenced_by: ["BUDGET.SHOT.REQUEST", "BUDGET.SHOT.APPROVE"]
-    reason: "单镜头预算申请对象无 schema：预算申请与审批的金额、口径、幂等键无法被机器校验"
-    contract_ref: "contracts/budget/budget_caliber.yaml"
-    unblocks_when: "正文预算章节给出申请字段与审批前置后补 schema（金额口径复用 budget_caliber.yaml）"
-  BudgetLedger:
-    referenced_by: ["BUDGET.SHOT.APPROVE"]
-    reason: "账本对象无 schema：批准落账的流水结构无法校验，Gate D 账本对账缺少对象依据"
-    contract_ref: "contracts/state_machines/state_machines.yaml:51-56（BudgetLedgerTransaction 仅有文字定义）"
-    unblocks_when: "正文 C.7 / 预算章节给出流水字段（交易 ID、幂等键、余额计算）后补 schema"
-  GenerationTask:
-    referenced_by: ["GENERATION.REQUEST"]
-    reason: "生成任务对象无 schema：预算/配额/依赖与约束快照的准入校验没有可校验载体"
-    contract_ref: "contracts/action_registry/action_registry.yaml（GENERATION.REQUEST 条目）"
-    unblocks_when: "正文生成域章节给出任务字段与状态集后补 schema"
-  ProductionRoute:
-    referenced_by: ["PRODUCTION.ROUTE.SELECT"]
-    reason: "生产路线对象无 schema：路线选择的可选集合与选择依据无法被校验"
-    contract_ref: "contracts/action_registry/action_registry.yaml（PRODUCTION.ROUTE.SELECT 条目）"
-    unblocks_when: "正文生产路线章节给出路线枚举与选择约束后补 schema"
   CanonRevision:
     referenced_by: ["CANON.CHANGE.APPROVE"]
     reason: "设定变更对象无 schema：Canon 事实变更的授权链与冲突标记无法机器校验"

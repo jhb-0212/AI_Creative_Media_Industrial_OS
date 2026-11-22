@@ -618,6 +618,100 @@ paths:
           description: 幂等键冲突
         '422':
           description: 请求信封或载荷校验失败
+  /actions/generation.process:
+    post:
+      operationId: generation.process
+      tags:
+      - GenerationTask
+      summary: GENERATION.PROCESS（资源 GenerationTask，风险 MEDIUM）
+      description: Worker 持租约领取 / 续租 / 终结 / 到期回收；非持有者或租约已过期一律拒绝。
+      x-afs-action-key: GENERATION.PROCESS
+      x-afs-scope: project/shot
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: Worker（租约持有者）
+      x-afs-audit-event: GENERATION_STARTED
+      x-afs-negative-test: ACT-GEN-NEG-002
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；返回最新任务快照（status / lease_owner / attempt_count）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权、非租约持有者或角色不允许
+        '409':
+          description: 任务已被其他 Worker 领取 / 租约尚未到期
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/budget.shot.release:
+    post:
+      operationId: budget.shot.release
+      tags:
+      - BudgetLedger
+      summary: BUDGET.SHOT.RELEASE（资源 BudgetLedger，风险 MEDIUM）
+      description: 释放已预留但未消耗的额度；追加一条 RELEASE 流水，指回被释放的 RESERVE。
+      x-afs-action-key: BUDGET.SHOT.RELEASE
+      x-afs-scope: project/account
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 预算管理员/制片
+      x-afs-audit-event: SHOT_BUDGET_RELEASED
+      x-afs-negative-test: ACT-BUDGET-NEG-003
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '201':
+          description: 已追加 RELEASE 流水（返回新流水）
+        '403':
+          description: 越权或角色不允许
+        '409':
+          description: 该笔预留已释放过（reservation_ref + transaction_kind 唯一）
+        '422':
+          description: 金额超过预留额度或信封校验失败
+  /actions/budget.shot.refund:
+    post:
+      operationId: budget.shot.refund
+      tags:
+      - BudgetLedger
+      summary: BUDGET.SHOT.REFUND（资源 BudgetLedger，风险 MEDIUM）
+      description: 对已结算额度做冲销；追加一条 REFUND 流水，不修改原流水。
+      x-afs-action-key: BUDGET.SHOT.REFUND
+      x-afs-scope: project/account
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 预算管理员/制片
+      x-afs-audit-event: SHOT_BUDGET_REFUNDED
+      x-afs-negative-test: ACT-BUDGET-NEG-004
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '201':
+          description: 已追加 REFUND 流水（返回新流水）
+        '403':
+          description: 越权、跨租户或角色不允许
+        '409':
+          description: 该笔预留已冲销过
+        '422':
+          description: 金额超过预留额度或信封校验失败
   /actions/asset.version.create:
     post:
       operationId: asset.version.create
@@ -3410,6 +3504,72 @@ paths:
           description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
         '404':
           description: 资源不存在
+  /actions/qc.task.enqueue:
+    post:
+      operationId: qc.task.enqueue
+      tags:
+        - QCTask
+      summary: QC.TASK.ENQUEUE（资源 QCTask，风险 MEDIUM）
+      description: 生成终态入队；缺产物引用或同一生成任务重复入队时拒绝。
+      x-afs-action-key: QC.TASK.ENQUEUE
+      x-afs-scope: project/shot/asset_version
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: 生成 Worker/受信调度服务
+      x-afs-audit-event: QC_TASK_QUEUED
+      x-afs-negative-test: ACT-QC-NEG-002
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/qc.task.process:
+    post:
+      operationId: qc.task.process
+      tags:
+        - QCTask
+      summary: QC.TASK.PROCESS（资源 QCTask，风险 MEDIUM）
+      description: 领取/续租/终结 QC 待检任务；只允许租约持有者推进。
+      x-afs-action-key: QC.TASK.PROCESS
+      x-afs-scope: project/shot/asset_version
+      x-afs-risk-level: MEDIUM
+      x-afs-token-required: true
+      x-afs-allowed-principals: QC Worker（租约持有者）
+      x-afs-audit-event: QC_TASK_STARTED
+      x-afs-negative-test: ACT-QC-NEG-003
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '422':
+          description: 请求信封或载荷校验失败
 components:
   schemas:
     ActionRequestEnvelope:

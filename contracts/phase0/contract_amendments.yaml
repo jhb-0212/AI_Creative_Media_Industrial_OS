@@ -1176,6 +1176,192 @@ amendments:
       - 'shot_ids 归属用触发器而非外键：存在「校验通过后镜头被删」的窗口。Shot 创建即绑定项目且项目归属不可迁移，该窗口不构成新的不变量缺口，但严格意义上弱于复合外键'
       - 'CP-7（只有 ACTIVE 可作生成输入）保持 RUNTIME_PENDING：生成域尚未落地，无消费者可校验；定级必须与实现同批'
 
+  - id: 'V205-R15-A24'
+    title: 'R16-D3 生产链与预算 MVP：ProductionRoute / GenerationTask / ShotBudgetRequest / BudgetLedger 对象与状态机增补'
+    retroactive: false
+    recorded_at: '2026-11-22'
+    discovered_by: 'docs/architecture/decision-register-r16.md（R16-D3 生产链与预算 MVP 架构决策）'
+    reason: >-
+      V1.0 MVP 的六个动作里，PRODUCTION.ROUTE.SELECT / GENERATION.REQUEST /
+      PRODUCTION.GATE.APPROVE / BUDGET.SHOT.REQUEST / BUDGET.SHOT.APPROVE 在
+      Action Registry 均为 ACTIVE，但它们的资源对象 ProductionRoute / GenerationTask /
+      ShotBudgetRequest / BudgetLedger 无 schema，前三者亦无状态机，运行时无法落地
+      （此前分别登记在 resource_schema_gaps.yaml 与 action_implementations.yaml 的
+      not_implemented 分区）。本修订按用户「架构设计全部按最优最好」的授权，将四个
+      对象的 schema 与三个生命周期状态机补入冻结契约。GateDecision 为既有
+      envelope_only 对象（NO_LIFECYCLE 哨兵），不新增。五个动作已在冻结名集内
+      （A1…A23 已登记），本修订不重复增补动作。
+    adr: 'docs/architecture/decision-register-r16.md'
+    approved_by: '项目所有者（2026-11-22 会话内「按完整方案全部做完」：D3 决策先执行、留待复核）'
+    approved_at: '2026-11-22'
+    source_commits:
+      - 'cd2a7ec'   # 本地首次提交（此前为 LOCAL-NO-GIT-PLACEHOLDER，本地无 .git）
+    additions:
+      schema_objects:
+        - object: 'ProductionRoute'
+          why: '生产路线选择记录的落点；PRODUCTION.ROUTE.SELECT 的 resource_type'
+        - object: 'GenerationTask'
+          why: '生成任务记录的落点；GENERATION.REQUEST 的 resource_type'
+        - object: 'ShotBudgetRequest'
+          why: '单镜头预算申请记录的落点；BUDGET.SHOT.REQUEST / BUDGET.SHOT.APPROVE 的 resource_type'
+        - object: 'BudgetLedger'
+          why: '预算账本流水的落点；BUDGET.SHOT.APPROVE 原子记账的 resource_type'
+      state_machines:
+        - object: 'ProductionRoute'
+          why: '路线选择 VERIFIED→REVOKED 生命周期'
+        - object: 'GenerationTask'
+          why: '生成任务 REQUESTED→SUCCEEDED/FAILED 生命周期（MVP 同步执行，RUNNING 归 Phase 2/3 Worker）'
+        - object: 'ShotBudgetRequest'
+          why: '预算申请 DRAFT→APPROVED/REJECTED 两步审批生命周期'
+    counts_after:
+      actions: 100
+      openapi_operations: 100
+      schema_objects: 88
+      state_machines: 47
+    residual_risks:
+      - 'source_commits 为本地占位（本地目录无 .git，无法提供真实提交号）；团队合并时须替换为真实 SHA 后再回填追溯矩阵'
+
+  - id: 'V205-R15-A25'
+    title: 'Phase 2 §1：GenerationTask 异步租约（RUNNING 状态 + 租约三字段 + GENERATION.PROCESS）'
+    retroactive: false
+    recorded_at: '2026-11-23'
+    discovered_by: 'docs/architecture/amendment-pack-r16-phase2.md（Owner 2026-11-23 指令「按申请包签发」）'
+    reason: >-
+      R16 MVP 的 GENERATION.REQUEST 是同步执行：任务创建即终态，没有「谁在跑、跑到哪、
+      崩了怎么办」这三个事实。Phase 2 引入 Worker 后，这三个事实必须由租约承载：
+      没有 lease_owner 就无法判断任务被持有还是被遗弃；没有 lease_expires_at 就无法
+      回收崩溃 Worker 的任务（任务永远停在 RUNNING）；没有 attempt_count 就分不清
+      「首次失败」与「第 9 次崩」。本修订把 RUNNING 状态与四条租约边、租约三字段、
+      新动作 GENERATION.PROCESS 一并补入冻结契约，动作从 100 增至 101。
+    adr: 'docs/architecture/amendment-pack-r16-phase2.md'
+    approved_by: '项目所有者（2026-11-23 会话内指令「按申请包签发」，范围 §1/§2/§3）'
+    approved_at: '2026-11-23'
+    source_commits:
+      - '336ce08'
+      - '89c07fd'
+    additions:
+      schema_objects:
+        - object: 'GenerationTask'
+          why: '补 lease_owner / lease_expires_at / attempt_count 三字段，status 枚举加 RUNNING'
+      state_machines:
+        - object: 'GenerationTask'
+          why: 'REQUESTED→RUNNING、RUNNING→SUCCEEDED/FAILED、RUNNING→REQUESTED 四条租约边归 GENERATION.PROCESS'
+      actions:
+        - action_key: 'GENERATION.PROCESS'
+          why: 'Worker 持有租约时推进已存在的任务；领取/续租/终结/到期回收共用一个准入凭据'
+    counts_after:
+      actions: 101
+      openapi_operations: 101
+      schema_objects: 88
+      state_machines: 47
+    residual_risks:
+      - 'workers/generation 已落地（89c07fd），但执行器仍是占位（UnconfiguredExecutor 一律 FAILED）：真实生成网关 services/model_gateway 未接，调度与租约正确、产物生成能力未验证'
+      - 'workers/qc 仍为空目录：契约无 QC 任务对象/待检队列，QC.REPORT.CREATE 以 asset_version_id 为入参而 GenerationTask 不携带产物引用，补齐需新申请包，不能靠 Worker 内部约定绕过冻结契约'
+
+  - id: 'V205-R15-A26'
+    title: 'Phase 2 §2：账本 RELEASE / REFUND（reservation_ref + 受控 transaction_kind）'
+    retroactive: false
+    recorded_at: '2026-11-23'
+    discovered_by: 'docs/architecture/amendment-pack-r16-phase2.md §2（申请 B）'
+    reason: >-
+      账本此前只有 RESERVE 一种语义，且 transaction_kind 是裸 VARCHAR：写
+      「RELEASED」或「release」都能落库，按字符串匹配算余额时会静默漏算。释放与
+      冲销还缺一个关键事实——「这笔操作针对哪一条预留」，没有它就无法在库层拒绝
+      「同一笔预留释放两次」。本修订新增两个动作键（BUDGET.SHOT.RELEASE /
+      BUDGET.SHOT.REFUND）、reservation_ref 字段与部分唯一索引、以及从枚举派生的
+      CHECK 约束，动作从 101 增至 103。
+    adr: 'docs/architecture/amendment-pack-r16-phase2.md'
+    approved_by: '项目所有者（2026-11-23 会话内指令「按申请包签发」，范围 §1/§2/§3）'
+    approved_at: '2026-11-23'
+    source_commits:
+      - 'b9dfcd3'
+    additions:
+      schema_objects:
+        - object: 'BudgetLedger'
+          why: '补 reservation_ref（结算流水指回被处理的 RESERVE）与 transaction_kind 受控 enum（RESERVE/RELEASE/REFUND）'
+      actions:
+        - action_key: 'BUDGET.SHOT.RELEASE'
+          why: '释放已预留未消耗额度：追加 RELEASE 流水，不修改原流水'
+        - action_key: 'BUDGET.SHOT.REFUND'
+          why: '冲销已结算额度：追加 REFUND 流水，不修改原流水'
+    counts_after:
+      actions: 103
+      openapi_operations: 103
+      schema_objects: 88
+      state_machines: 47
+    residual_risks:
+      - 'RESERVE→RELEASE 的跨流水一致性由部分唯一索引保证「只能一次」，但「释放金额+已消耗金额 ≤ 预留金额」目前只校验单笔上限，多次部分释放的累计校验需消费者按 kind 汇总'
+
+  - id: 'V205-R15-A27'
+    title: 'Phase 3：QC 待检队列（QCTask 对象 + 入队/领取两动作 + 租约）'
+    retroactive: false
+    recorded_at: '2026-11-22'
+    discovered_by: 'docs/architecture/amendment-pack-r16-phase3-qc.md（Owner 2026-11-22 在 A/B/C 中选定 A 方案）'
+    reason: >-
+      QC.REPORT.CREATE 只回答「怎么登记一份报告」，不回答「哪一份产物还没被检」；
+      GenerationTask 又不携带产物引用，所以 workers/qc 无法在不臆造字段的前提下
+      把任务映射到待检资产（Phase 2 A25 已把这条缺口挂账）。本修订新增 QCTask
+      对象与待检队列：生成任务成功并携带 asset_version_id / quality_profile_version
+      时入队，QC Worker 租约领取后判定并回写报告。漏检从此表现为队列里可见的
+      QUEUED，而不是消失的调用。动作从 103 增至 105，schema 对象 88 增至 89。
+    adr: 'docs/architecture/amendment-pack-r16-phase3-qc.md'
+    approved_by: '项目所有者（2026-11-22 会话内选项「A」：新增 QC 任务对象 + 待检队列）'
+    approved_at: '2026-11-22'
+    source_commits:
+      - 'a167495'
+      - 'c88111b'
+    additions:
+      schema_objects:
+        - object: 'QCTask'
+          why: 'QC 待检任务聚合根：资产引用、质量档案版本、租约三字段、qc_report_id'
+      state_machines:
+        - object: 'QCTask'
+          why: 'QUEUED→RUNNING（领取）、RUNNING→PASSED/REJECTED（判定）、RUNNING→QUEUED（过期回收），全部归 QC.TASK.PROCESS'
+      actions:
+        - action_key: 'QC.TASK.ENQUEUE'
+          why: '生成成功产物入队；同一 generation_task_id 唯一，重复入队返回 IDEMPOTENCY_CONFLICT'
+        - action_key: 'QC.TASK.PROCESS'
+          why: 'QC Worker 领取/续租/判定/到期回收共用一个准入凭据'
+    counts_after:
+      actions: 105
+      openapi_operations: 105
+      schema_objects: 89
+      state_machines: 48
+    residual_risks:
+      - '检测深度有限：AssetIntegrityInspector 只校验资产存在/项目归属/哈希与内容可验证，不做分辨率、时长、黑帧、语义一致性等质量判断（需模型网关与质量档案执行器）'
+      - 'quality_profile_version 仅作字符串记录，不校验质量档案是否存在，指向不存在档案也能入队'
+      - '生成侧入队为尽力语义：入队事务失败只记日志；生成终态提交后崩溃的产物会漏入队，且 GenerationTask 不持久化产物引用，对账扫描无法重建 asset_version_id，需先做字段级契约变更'
+
+  - id: 'V205-R15-A28'
+    title: 'Phase 3 补强：GenerationTask 产物引用 + 漏入队对账'
+    retroactive: false
+    recorded_at: '2026-11-22'
+    discovered_by: 'docs/architecture/amendment-pack-r16-phase3-qc.md §8（Owner 2026-11-22 指令「做」，授权执行上一轮列出的对账前置项）'
+    reason: >-
+      生成成功后的入队是第二个事务：进程在终态提交与入队之间崩溃时，任务已成功、
+      待检队列却没有对应项。补偿扫描的唯一依据是「这份成功任务产出了哪个资产」，
+      而 GenerationTask 此前只在 Worker 内存里持有产物引用，进程一崩即丢失，
+      扫描无法重建 asset_version_id。本修订把产物引用与质量标准版本落库，
+      并要求 SUCCEEDED 终结时由持租约的 Worker 一并写入，扫描随后可发现并补入队。
+      schema 对象数不变（89），字段级变更。
+    adr: 'docs/architecture/amendment-pack-r16-phase3-qc.md'
+    approved_by: '项目所有者（2026-11-22 会话内指令「做」，授权执行上一轮列出的对账前置项）'
+    approved_at: '2026-11-22'
+    source_commits:
+      - 'e22be7e'
+    additions:
+      schema_objects:
+        - object: 'GenerationTask'
+          why: '补 asset_version_id / quality_profile_version：SUCCEEDED 时落库，供 QC 入队与漏入队对账使用'
+    counts_after:
+      actions: 105
+      openapi_operations: 105
+      schema_objects: 89
+      state_machines: 48
+    residual_risks:
+      - '历史成功任务（本修订之前）没有产物引用，无法回填；对账只覆盖修订后登记了引用的任务'
+      - '同步路径（GENERATION.REQUEST 直接终结）不写产物引用，仍不参与对账；需要网关返回产物时才补登记'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——

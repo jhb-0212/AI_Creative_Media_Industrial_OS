@@ -139,6 +139,10 @@ _STATE_MACHINE_SOURCES: dict[str, tuple[str, str]] = {
         "ASSET_ALLOWED_TRANSITIONS",
     ),
     # A13（ADR-R28）
+    "QCTask": (
+        "services.qc_governance.domain.state_machine",
+        "QC_TASK_ALLOWED_TRANSITIONS",
+    ),
     "Scene": (
         "services.project_planning.domain.state_machine",
         "SCENE_ALLOWED_TRANSITIONS",
@@ -170,6 +174,19 @@ _STATE_MACHINE_SOURCES: dict[str, tuple[str, str]] = {
     "ConstraintPack": (
         "services.project_planning.domain.state_machine",
         "CONSTRAINT_PACK_ALLOWED_TRANSITIONS",
+    ),
+    # R16-D3：生产链与预算 MVP 的三个生命周期对象。
+    "ProductionRoute": (
+        "services.project_planning.domain.state_machine",
+        "PRODUCTION_ROUTE_ALLOWED_TRANSITIONS",
+    ),
+    "GenerationTask": (
+        "services.project_planning.domain.state_machine",
+        "GENERATION_TASK_ALLOWED_TRANSITIONS",
+    ),
+    "ShotBudgetRequest": (
+        "services.project_planning.domain.state_machine",
+        "SHOT_BUDGET_REQUEST_ALLOWED_TRANSITIONS",
     ),
 }
 
@@ -433,6 +450,11 @@ def check_runtime_contract_coverage() -> bool:
         ok = False
 
     registered = {str(v.get("route", "")) for v in implemented.values()} | _NON_ACTION_PATHS
+    # 同一动作的第二个入口（如「选择」动作下的撤销治理边）：台账用 `extra_routes`
+    # 显式列出，否则运行时端点会因为只比对主 route 而被判成「未登记」——那会逼着
+    # 实现方为同一条准入凭据另造一个动作键，恰好是状态机边所有权要消除的形态。
+    for entry in implemented.values():
+        registered |= {str(r) for r in (entry.get("extra_routes") or [])}
     unregistered = runtime - registered
     if unregistered:
         print(f"[FAIL] 运行时暴露了未登记端点: {sorted(unregistered)}")
@@ -788,6 +810,23 @@ _RESOURCE_SERIALIZERS: dict[str, tuple[str, str]] = {
         "services.project_planning.domain.constraint_pack",
         "ConstraintPack",
     ),
+    # R16-D3：生产链与预算 MVP 四个对象纳入 to_dict ↔ 契约双向比对。
+    "ProductionRoute": (
+        "services.production_planning.domain.production_route",
+        "ProductionRoute",
+    ),
+    "GenerationTask": (
+        "services.production_planning.domain.generation_task",
+        "GenerationTask",
+    ),
+    "ShotBudgetRequest": (
+        "services.budget_quota.domain.shot_budget_request",
+        "ShotBudgetRequest",
+    ),
+    "BudgetLedger": (
+        "services.budget_quota.domain.budget_ledger",
+        "BudgetLedger",
+    ),
 }
 
 
@@ -798,6 +837,10 @@ def _serializer_factories() -> dict[str, object]:
 
     from services.asset_service.domain.asset_version import AssetVersion
     from services.asset_service.domain.qc_report import QCReport
+    from services.budget_quota.domain.budget_ledger import BudgetLedger
+    from services.budget_quota.domain.shot_budget_request import ShotBudgetRequest
+    from services.production_planning.domain.generation_task import GenerationTask
+    from services.production_planning.domain.production_route import ProductionRoute
     from services.project_planning.domain.constraint_pack import ConstraintPack
     from services.project_planning.domain.enums import ConstraintPackStatus
     from services.project_planning.domain.episode import Episode
@@ -889,6 +932,58 @@ def _serializer_factories() -> dict[str, object]:
             approved_by="probe",
             approved_at=datetime(2026, 11, 21, tzinfo=UTC),
             status=ConstraintPackStatus.ACTIVE,
+        ),
+        "ProductionRoute": ProductionRoute(
+            entity_id="probe-route",
+            created_by="probe",
+            tenant_id=tenant_id,
+            route_id="probe-route-id",
+            project_id="probe-project",
+            shot_id="probe-shot",
+            task_ref="probe-task",
+            route_type="IMAGE_TO_VIDEO",
+            capability_ref="probe-capability",
+            basis_ref="probe-basis",
+        ),
+        "GenerationTask": GenerationTask(
+            entity_id="probe-task",
+            created_by="probe",
+            tenant_id=tenant_id,
+            generation_task_id="probe-task-id",
+            project_id="probe-project",
+            shot_id="probe-shot",
+            shot_revision_id="probe-revision",
+            production_route_ref="probe-route-id",
+            model_adapter_ref="probe-adapter",
+            constraint_snapshot_id="probe-snapshot",
+            budget_ref="probe-budget",
+            prompt_ref="probe-prompt",
+        ),
+        "ShotBudgetRequest": ShotBudgetRequest(
+            entity_id="probe-budget",
+            created_by="probe",
+            tenant_id=tenant_id,
+            request_id="probe-budget-id",
+            project_id="probe-project",
+            shot_id="probe-shot",
+            account_type="PRODUCTION",
+            purpose="probe-purpose",
+            cost_category="render",
+            amount_limit=1000,
+            requested_by="probe",
+        ),
+        "BudgetLedger": BudgetLedger(
+            entity_id="probe-ledger",
+            created_by="probe",
+            tenant_id=tenant_id,
+            transaction_id="probe-ledger-id",
+            account_type="PRODUCTION",
+            amount=1000,
+            currency="CNY",
+            transaction_kind="RESERVE",
+            idempotency_key="probe-key",
+            approval_ref="probe-approval",
+            source="probe-budget-id",
         ),
     }
 

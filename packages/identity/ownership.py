@@ -193,6 +193,38 @@ _RESOLVE_SQL: dict[str, str] = {
           ON p.entity_id = c.project_id AND p.tenant_id = c.tenant_id
         WHERE c.entity_id = :rid
     """,
+    # R16：四个运行时对象都直接持有 project_id，归属一跳到底（与 A13/A22/A23 同形）。
+    # 为什么不省略「未被调用」的三条：审批端点用 ShotBudgetRequest 做资源级判定，
+    # 其余三条是同一批资源的读路径入口——登记在这里等于把「资源 → 归属」的事实
+    # 一次写全，而不是等第一个读端点出现时再临时补一条可能长歪的 SQL。
+    "ProductionRoute": """
+        SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
+        FROM project_planning.production_routes AS r
+        JOIN project_planning.projects AS p
+          ON p.entity_id = r.project_id AND p.tenant_id = r.tenant_id
+        WHERE r.entity_id = :rid
+    """,
+    "GenerationTask": """
+        SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
+        FROM project_planning.generation_tasks AS t
+        JOIN project_planning.projects AS p
+          ON p.entity_id = t.project_id AND p.tenant_id = t.tenant_id
+        WHERE t.entity_id = :rid
+    """,
+    "ShotBudgetRequest": """
+        SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
+        FROM project_planning.shot_budget_requests AS b
+        JOIN project_planning.projects AS p
+          ON p.entity_id = b.project_id AND p.tenant_id = b.tenant_id
+        WHERE b.entity_id = :rid
+    """,
+    "GateDecision": """
+        SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
+        FROM project_planning.gate_decisions AS g
+        JOIN project_planning.projects AS p
+          ON p.entity_id = g.project_id AND p.tenant_id = g.tenant_id
+        WHERE g.entity_id = :rid
+    """,
 }
 
 

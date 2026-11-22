@@ -52,6 +52,16 @@ implemented:
   ASSET.VERSION.CREATE:
     route: "POST /assets"
     module: services/asset_service/api/asset_routes.py
+  QC.TASK.ENQUEUE:
+    route: POST /qc-tasks
+    module: services/qc_governance/api/qc_task_routes.py
+  QC.TASK.PROCESS:
+    route: POST /qc-tasks/{entity_id}/lease
+    module: services/qc_governance/api/qc_task_routes.py
+    extra_routes:
+    - POST /qc-tasks/{entity_id}/lease/renew
+    - POST /qc-tasks/{entity_id}/lease/release
+    - POST /qc-tasks/{entity_id}/finish
   QC.REPORT.CREATE:
     route: "POST /assets/{asset_version_id}/qc-reports"
     module: services/asset_service/api/asset_routes.py
@@ -134,33 +144,54 @@ implemented:
   CONSTRAINT.PACK.LOCK:
     route: "POST /constraint-packs/{entity_id}/lock"
     module: services/project_planning/api/shot_planning_routes.py
+  CONSTRAINT.PACK.STATUS.CHANGE:
+    route: "POST /constraint-packs/{entity_id}/status"
+    module: services/project_planning/api/shot_planning_routes.py
+  # --- R16-D3：生产链与预算 MVP（6 动作补齐） ---
+  PRODUCTION.ROUTE.SELECT:
+    route: "POST /production-routes"
+    module: services/production_planning/api/production_routes.py
+    # 同一动作的第二个入口：撤销治理边（VERIFIED → REVOKED）在状态机里就归
+    # PRODUCTION.ROUTE.SELECT 所有，因此共用同一条准入凭据，不另造动作键。
+    extra_routes:
+      - "POST /production-routes/{entity_id}/revoke"
+  GENERATION.REQUEST:
+    route: "POST /generation-tasks"
+    module: services/production_planning/api/generation_routes.py
+  # Phase 2 §1：租约族的四条入口表达同一语义「推进一个已有任务」，因此共用
+  # 一个准入凭据 GENERATION.PROCESS；拆成四个 action 会让同一条边出现四个凭据。
+  GENERATION.PROCESS:
+    route: "POST /generation-tasks/{entity_id}/lease"
+    module: services/production_planning/api/generation_routes.py
+    extra_routes:
+      - "POST /generation-tasks/{entity_id}/lease/renew"
+      - "POST /generation-tasks/{entity_id}/lease/release"
+      - "POST /generation-tasks/{entity_id}/finish"
+  PRODUCTION.GATE.APPROVE:
+    route: "POST /gate-decisions"
+    module: services/qc_governance/api/gate_routes.py
+  BUDGET.SHOT.REQUEST:
+    route: "POST /shot-budget-requests"
+    module: services/budget_quota/api/budget_routes.py
+  BUDGET.SHOT.APPROVE:
+    route: "POST /shot-budget-requests/{entity_id}/approve"
+    module: services/budget_quota/api/budget_routes.py
+  # Phase 2 §2：账本结算族。释放与冲销都是「对某一条 RESERVE 流水追加反向流水」，
+  # 不修改原流水；动作键分开是因为审批语义不同（释放=未消耗额度，冲销=已结算额度）。
+  BUDGET.SHOT.RELEASE:
+    route: "POST /budget-ledger/{entity_id}/release"
+    module: services/budget_quota/api/budget_routes.py
+  BUDGET.SHOT.REFUND:
+    route: "POST /budget-ledger/{entity_id}/refund"
+    module: services/budget_quota/api/budget_routes.py
 
 # 以下 ACTIVE action 契约已启用、运行时尚未实现。每一项都是一条待排期的真实缺口。
 not_implemented:
-  # --- 镜头域（ConstraintPack 治理边）---
-  # 三条治理边（ACTIVE→REVOKED/STALE/SUPERSEDED）的状态机与责任动作都已存在，
-  # 但入口不实现：它们的下游消费者（生成路线选择、STALE 传播）尚未落地，
-  # 现在实现只能得到「能改状态、没人读」的边。逐边债务登记在
-  # state_machine_gaps.yaml，unblocks_when 写明解冻条件。
-  CONSTRAINT.PACK.STATUS.CHANGE:
-    reason: "治理边无下游消费者；撤销/失效/取代的语义须与生成路线选择一起落地"
-  # --- 生成与资产 ---
-  PRODUCTION.ROUTE.SELECT:
-    reason: "生产路线库（ProductionRoute）未建模；选路依据 rights/capability 尚不存在"
-  GENERATION.REQUEST:
-    reason: "生成任务表与预算/配额校验未落地；模型网关未接入"
-  PRODUCTION.GATE.APPROVE:
-    reason: "Gate 决策对象未建模；强制角色分离需 Gate 授权人体系"
   # --- 权利与 Canon ---
   CANON.CHANGE.APPROVE:
     reason: "CharacterCanon 未建模（services/rights_governance 为空壳）"
   RIGHTS.STATUS.CHANGE:
     reason: "权利案例/清单未建模；双人审批无落点"
-  # --- 预算 ---
-  BUDGET.SHOT.REQUEST:
-    reason: "预算账本未落地（services/budget_quota 为空壳）"
-  BUDGET.SHOT.APPROVE:
-    reason: "预算账本未落地；QualityReserve 用途校验依赖账户模型"
   # --- 社区展示 ---
   SHOWCASE.SNAPSHOT.CREATE:
     reason: "展示快照未建模；精确版本引用需 AssetVersion 先存在"

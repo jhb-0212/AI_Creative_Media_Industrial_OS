@@ -46,7 +46,10 @@ from services.project_planning.domain.constraint_pack import (
     normalize_id_set,
 )
 from services.project_planning.domain.enums import ConstraintPackStatus
-from services.project_planning.domain.state_machine import CONSTRAINT_PACK_LOCK_ACTION
+from services.project_planning.domain.state_machine import (
+    CONSTRAINT_PACK_LOCK_ACTION,
+    CONSTRAINT_PACK_STATUS_CHANGE_ACTION,
+)
 from services.project_planning.repository.project_repo import ProjectRepository
 from services.project_planning.repository.shot_planning_repositories import (
     ConstraintPackRepository,
@@ -362,6 +365,109 @@ class ConstraintPackService:
                 ),
             ) from exc
         return pack
+
+    async def change_status(
+        self,
+        *,
+        entity_id: str,
+        target_status: ConstraintPackStatus,
+        changed_by: str,
+        tenant_id: UUID,
+        revocation_basis_ref: str = "",
+        stale_source_ref: str = "",
+        superseding_pack_ref: str = "",
+    ) -> ConstraintPack:
+        """推进治理边（ACTIVE → REVOKED / STALE / SUPERSEDED）。
+
+        三条边各自必须有可追溯依据（7.9 + state_machine_gaps 的解除条件）：
+        - REVOKED：撤销依据（凭什么撤销）；
+        - STALE：失效源（哪个上游锁定维度/Previz 失效）；
+        - SUPERSEDED：新版本引用（被哪个新包取代）。
+
+        依据写进迁移事实的 ``authority_ref`` 并进入事件 payload，不新增包级字段——
+        这三件事都是「这一次推进」的证据，不是包的持久属性。
+        """
+        changed_by = changed_by.strip()
+        if not changed_by:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR, detail="changed_by 不能为空"
+            )
+        pack = await self._repository.get_by_id(entity_id)
+        if pack is None:
+            raise DomainError(
+                ErrorRegistry.NOT_FOUND, detail=f"约束包不存在: {entity_id}"
+            )
+
+        authority_ref, evidence_key = _governance_evidence(
+            target_status,
+            revocation_basis_ref=revocation_basis_ref,
+            stale_source_ref=stale_source_ref,
+            superseding_pack_ref=superseding_pack_ref,
+        )
+        extra: dict[str, Any] = {}
+        if evidence_key:
+            extra[evidence_key] = authority_ref
+
+        await advance_status(
+            pack,
+            target_status,
+            repository=self._repository,
+            outbox_writer=self._outbox_writer,
+            aggregate_type="ConstraintPack",
+            event_type="CONSTRAINT_PACK_STATUS_CHANGED",
+            tenant_id=tenant_id,
+            payload={
+                "constraint_pack_id": pack.constraint_pack_id,
+                "project_id": pack.project_id,
+                "version": pack.version,
+                **extra,
+            },
+            resource_type="ConstraintPack",
+            owner_action=CONSTRAINT_PACK_STATUS_CHANGE_ACTION,
+            conflict_detail="约束包并发冲突，请基于最新状态重试",
+            actor_field="changed_by",
+            actor=changed_by,
+            authority_ref=authority_ref,
+        )
+        return pack
+
+
+def _governance_evidence(
+    target_status: ConstraintPackStatus,
+    *,
+    revocation_basis_ref: str,
+    stale_source_ref: str,
+    superseding_pack_ref: str,
+) -> tuple[str, str]:
+    """治理边依据：目标状态决定哪个依据必填，返回 (authority_ref, payload_key)。"""
+    if target_status is ConstraintPackStatus.REVOKED:
+        if not revocation_basis_ref.strip():
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail="REVOKED 必须给出撤销依据（revocation_basis_ref）",
+            )
+        return revocation_basis_ref.strip(), "revocation_basis_ref"
+    if target_status is ConstraintPackStatus.STALE:
+        if not stale_source_ref.strip():
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail="STALE 必须指认失效源（stale_source_ref）",
+            )
+        return stale_source_ref.strip(), "stale_source_ref"
+    if target_status is ConstraintPackStatus.SUPERSEDED:
+        if not superseding_pack_ref.strip():
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail="SUPERSEDED 必须给出新版本引用（superseding_pack_ref）",
+            )
+        return superseding_pack_ref.strip(), "superseding_pack_ref"
+    raise DomainError(
+        ErrorRegistry.STATE_TRANSITION_DENIED,
+        detail=(
+            "CONSTRAINT.PACK.STATUS.CHANGE 只用于治理边"
+            f"（REVOKED/STALE/SUPERSEDED），不处理 {target_status.value}"
+        ),
+    )
 
 
 def _assert_same_request(

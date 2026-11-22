@@ -385,3 +385,215 @@ events:
       - to_status
       - tenant_id
     contract_ref: contracts/state_machines/state_machines.yaml#ConstraintPack
+  - event_type: CONSTRAINT_PACK_STATUS_CHANGED
+    aggregate_type: ConstraintPack
+    emitted_by: services/project_planning/service/constraint_pack_service.py
+    payload_required:
+      - constraint_pack_id
+      - project_id
+      - version
+      - changed_by
+      - from_status
+      - to_status
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#ConstraintPack
+  - event_type: PRODUCTION_ROUTE_SELECTED
+    aggregate_type: ProductionRoute
+    emitted_by: services/production_planning/service/production_route_service.py
+    payload_required:
+      - route_id
+      - project_id
+      - shot_id
+      - task_ref
+      - route_type
+      - capability_ref
+      - created_by
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#ProductionRoute
+  - event_type: PRODUCTION_ROUTE_REVOKED
+    aggregate_type: ProductionRoute
+    emitted_by: services/production_planning/service/production_route_service.py
+    payload_required:
+      - route_id
+      - project_id
+      - shot_id
+      - revocation_ref
+      - revoked_by
+      - tenant_id
+      - from_status
+      - to_status
+    contract_ref: contracts/state_machines/state_machines.yaml#ProductionRoute
+  # --- Phase 2 §1：租约族事件（归 GENERATION.PROCESS）---
+  - event_type: GENERATION_STARTED
+    aggregate_type: GenerationTask
+    emitted_by: services/production_planning/service/generation_service.py
+    contract_ref: contracts/action_registry/action_registry.yaml#GENERATION.PROCESS
+    payload_required:
+      - generation_task_id
+      - worker_id
+      - lease_expires_at
+      - attempt_count
+  - event_type: GENERATION_LEASE_RENEWED
+    aggregate_type: GenerationTask
+    emitted_by: services/production_planning/service/generation_service.py
+    contract_ref: contracts/action_registry/action_registry.yaml#GENERATION.PROCESS
+    payload_required:
+      - generation_task_id
+      - worker_id
+      - lease_expires_at
+      - attempt_count
+  - event_type: GENERATION_LEASE_EXPIRED
+    aggregate_type: GenerationTask
+    emitted_by: services/production_planning/service/generation_service.py
+    contract_ref: contracts/action_registry/action_registry.yaml#GENERATION.PROCESS
+    payload_required:
+      - generation_task_id
+      - worker_id
+      - attempt_count
+  - event_type: GENERATION_SUCCEEDED
+    aggregate_type: GenerationTask
+    emitted_by: services/production_planning/service/generation_service.py
+    contract_ref: contracts/action_registry/action_registry.yaml#GENERATION.PROCESS
+    payload_required:
+      - generation_task_id
+      - worker_id
+      - evidence_ref
+      - attempt_count
+  - event_type: GENERATION_FAILED
+    aggregate_type: GenerationTask
+    emitted_by: services/production_planning/service/generation_service.py
+    contract_ref: contracts/action_registry/action_registry.yaml#GENERATION.PROCESS
+    payload_required:
+      - generation_task_id
+      - worker_id
+      - evidence_ref
+      - attempt_count
+
+  - event_type: GENERATION_REQUESTED
+    aggregate_type: GenerationTask
+    emitted_by: services/production_planning/service/generation_service.py
+    payload_required:
+      - generation_task_id
+      - project_id
+      - shot_id
+      - shot_revision_id
+      - model_adapter_ref
+      - created_by
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#GenerationTask
+  - event_type: PRODUCTION_GATE_APPROVED
+    aggregate_type: GateDecision
+    emitted_by: services/qc_governance/service/gate_service.py
+    payload_required:
+      - gate_key
+      - project_id
+      - decision
+      - decided_by
+      - tenant_id
+    contract_ref: contracts/schemas/object_schemas.schema.json#GateDecision
+  # --- Phase 2 §2：账本结算族事件（归 BUDGET.SHOT.RELEASE / REFUND）---
+  - event_type: SHOT_BUDGET_RELEASED
+    aggregate_type: BudgetLedger
+    emitted_by: services/budget_quota/service/budget_service.py
+    contract_ref: contracts/action_registry/action_registry.yaml#BUDGET.SHOT.RELEASE
+    payload_required:
+      - reservation_ref
+      - transaction_kind
+      - amount
+      - idempotency_key
+      - actor
+      - reason
+  - event_type: SHOT_BUDGET_REFUNDED
+    aggregate_type: BudgetLedger
+    emitted_by: services/budget_quota/service/budget_service.py
+    contract_ref: contracts/action_registry/action_registry.yaml#BUDGET.SHOT.REFUND
+    payload_required:
+      - reservation_ref
+      - transaction_kind
+      - amount
+      - idempotency_key
+      - actor
+      - reason
+
+  - event_type: SHOT_BUDGET_REQUESTED
+    aggregate_type: ShotBudgetRequest
+    emitted_by: services/budget_quota/service/budget_service.py
+    payload_required:
+      - request_id
+      - project_id
+      - shot_id
+      - account_type
+      - amount_limit
+      - requested_by
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#ShotBudgetRequest
+  - event_type: SHOT_BUDGET_APPROVED
+    aggregate_type: ShotBudgetRequest
+    emitted_by: services/budget_quota/service/budget_service.py
+    payload_required:
+      - request_id
+      - project_id
+      - shot_id
+      - decision
+      - approver
+      - from_status
+      - to_status
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#ShotBudgetRequest
+  - event_type: QC_TASK_QUEUED
+    aggregate_type: QCTask
+    emitted_by: services/qc_governance/service/qc_task_service.py
+    payload_required:
+    - qc_task_id
+    - project_id
+    - asset_version_id
+    - generation_task_id
+    - quality_profile_version
+    - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#QCTask
+  - event_type: QC_TASK_STARTED
+    aggregate_type: QCTask
+    emitted_by: services/qc_governance/service/qc_task_service.py
+    payload_required:
+    - qc_task_id
+    - worker_id
+    - lease_expires_at
+    - attempt_count
+    contract_ref: contracts/state_machines/state_machines.yaml#QCTask
+  - event_type: QC_TASK_LEASE_RENEWED
+    aggregate_type: QCTask
+    emitted_by: services/qc_governance/service/qc_task_service.py
+    payload_required:
+    - qc_task_id
+    - worker_id
+    - lease_expires_at
+    - attempt_count
+    contract_ref: contracts/state_machines/state_machines.yaml#QCTask
+  - event_type: QC_TASK_PASSED
+    aggregate_type: QCTask
+    emitted_by: services/qc_governance/service/qc_task_service.py
+    payload_required:
+    - qc_task_id
+    - worker_id
+    - qc_report_id
+    - evidence_refs
+    - attempt_count
+    contract_ref: contracts/state_machines/state_machines.yaml#QCTask
+  - event_type: QC_TASK_REJECTED
+    aggregate_type: QCTask
+    emitted_by: services/qc_governance/service/qc_task_service.py
+    payload_required:
+    - qc_task_id
+    - worker_id
+    - qc_report_id
+    - evidence_refs
+    - attempt_count
+    contract_ref: contracts/state_machines/state_machines.yaml#QCTask
+  - event_type: QC_TASK_LEASE_EXPIRED
+    aggregate_type: QCTask
+    emitted_by: services/qc_governance/service/qc_task_service.py
+    payload_required:
+    - qc_task_id
+    - worker_id
+    - attempt_count
+    contract_ref: contracts/state_machines/state_machines.yaml#QCTask

@@ -93,6 +93,10 @@ objects:
   - {object: Task, class: lifecycle}
   - {object: TimelineDraft, class: lifecycle}
   - {object: ToolExchangeSession, class: lifecycle}
+  - {object: ProductionRoute, class: lifecycle}
+  - {object: GenerationTask, class: lifecycle}
+  - {object: QCTask, class: lifecycle}
+  - {object: ShotBudgetRequest, class: lifecycle}
 
   # ---------------- envelope_only：17 个无独立生命周期的对象 ----------------
   - object: ClientAnnotation
@@ -182,6 +186,18 @@ objects:
     reason: 镜头成本流水（transaction_id + amount + approval_id），追加式记账；与 BudgetLedgerTransaction 同理，记录本身就代表「已入账」。
     unblocks_when: >-
       正文为镜头流水给出与 BudgetLedgerTransaction 不同的生命周期并允许追加后改写；当前追加即不可变。
+  - object: BudgetLedger
+    class: envelope_only
+    basis: immutable_record
+    reason: >-
+      预算账本流水（transaction_id + account_type + amount + currency +
+      transaction_kind + idempotency_key + approval_ref）。BUDGET.SHOT.APPROVE 原子
+      追加，记录本身即代表「已入账」；余额由流水计算，不原地改写（与
+      BudgetLedgerTransaction 的 APPENDED 追加式不可变同口径）。transaction_kind
+      承载 Reserve/Commit/Release/Refund/Adjust 等流水类型，不是生命周期状态。
+    unblocks_when: >-
+      正文为预算账本本身引入独立于流水的生命周期（如账户启用/停用）并给出状态集；
+      当前账本余额派生自流水，流水本身追加即不可变。
   - object: MemoryRecord
     class: envelope_only
     basis: immutable_record

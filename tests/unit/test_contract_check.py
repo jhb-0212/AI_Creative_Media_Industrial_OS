@@ -636,10 +636,16 @@ def test_transition_entry_gaps_detects_dropped_entry(
 ) -> None:
     """删掉无入口边的债务条目 → 反向完备性必须报红（不能打印 PASS）。
 
-    当前契约里天然存在真实缺口：``ConstraintPack`` 的三条治理边由
-    ``CONSTRAINT.PACK.STATUS.CHANGE`` 拥有，而该动作只登记未实现。所以这条用例
-    不需要伪造任何状态——它验证的正是「边级判据能看见对象级判据看不见的缺口」。
+    R16 之后 ``CONSTRAINT.PACK.STATUS.CHANGE`` 已实现，真实缺口清零，本用例改为
+    自足构造：人为把该动作从运行时 implemented 台账摘掉，令其拥有的三条治理边
+    重新成为「可达但无入口」，再删掉其债务登记，验证「无登记 = 红」。
     """
+    original_impl = cc._implemented_action_keys
+    monkeypatch.setattr(
+        cc,
+        "_implemented_action_keys",
+        lambda: original_impl() - {"CONSTRAINT.PACK.STATUS.CHANGE"},
+    )
     monkeypatch.setattr(
         cc, "STATE_GAPS_PATH", _gaps_without("ConstraintPack", tmp_path=tmp_path)
     )
@@ -649,7 +655,18 @@ def test_transition_entry_gaps_detects_dropped_entry(
 def test_transition_entry_gaps_detects_missing_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """删掉整个债务文件 → 必须报红（反向完备性不接受「没有文件 = 没有债务」）。"""
+    """删掉整个债务文件、且仍存在无入口的边 → 必须报红。
+
+    R16 后所有真实边均已实现，单删文件不会产生缺口；这里人为把
+    ``CONSTRAINT.PACK.LOCK`` 从 implemented 台账摘掉，令 ``DRAFT→ACTIVE`` 重新
+    成为无入口的边，再指向不存在的债务文件，验证「没有文件 ≠ 没有债务」。
+    """
+    original_impl = cc._implemented_action_keys
+    monkeypatch.setattr(
+        cc,
+        "_implemented_action_keys",
+        lambda: original_impl() - {"CONSTRAINT.PACK.LOCK"},
+    )
     monkeypatch.setattr(cc, "STATE_GAPS_PATH", tmp_path / "does-not-exist.yaml")
     assert cc.check_transition_entry_gaps() is False
 

@@ -147,6 +147,49 @@ def build_asset_service_database_url(settings: Settings | None = None) -> str:
     )
 
 
+def build_production_planning_database_url(settings: Settings | None = None) -> str:
+    """构造 production_planning 域 DSN（角色 production_planning_role）。
+
+    该角色只持有 production_routes / generation_tasks 两张表的写权限、平台共享
+    表（audit/outbox/auth）与项目域三列的只读；它**没有**账本与 Gate 决策的任何
+    权限——「生产域顺手改一笔预算」在数据库层被拒绝。
+    """
+    cfg = _settings_or_default(settings)
+    return _build_url(
+        cfg.postgres_production_planning_user,
+        cfg.postgres_production_planning_password.get_secret_value(),
+        cfg,
+    )
+
+
+def build_budget_quota_database_url(settings: Settings | None = None) -> str:
+    """构造 budget_quota 域 DSN（角色 budget_quota_role）。
+
+    账本是追加式不可变事实：该角色对 budget_ledger 只有 SELECT/INSERT，物理上
+    不可能 UPDATE/DELETE 一笔已落库的金额——冲正只能新增流水。
+    """
+    cfg = _settings_or_default(settings)
+    return _build_url(
+        cfg.postgres_budget_quota_user,
+        cfg.postgres_budget_quota_password.get_secret_value(),
+        cfg,
+    )
+
+
+def build_qc_governance_database_url(settings: Settings | None = None) -> str:
+    """构造 qc_governance 域 DSN（角色 qc_governance_role）。
+
+    决策记录是证据：只 SELECT/INSERT，撤销 Gate 结论要记**新**决策，不能改写
+    历史（改写会让「当时凭什么放行」永久丢失）。
+    """
+    cfg = _settings_or_default(settings)
+    return _build_url(
+        cfg.postgres_qc_governance_user,
+        cfg.postgres_qc_governance_password.get_secret_value(),
+        cfg,
+    )
+
+
 def _make_engine(url: str) -> AsyncEngine:
     """按给定 DSN 创建异步引擎（连接池参数为高并发预留）。"""
     return create_async_engine(
@@ -177,6 +220,21 @@ def create_project_planning_engine() -> AsyncEngine:
 def create_asset_service_engine() -> AsyncEngine:
     """创建 asset_service 域引擎（角色 asset_service_role）。"""
     return _make_engine(build_asset_service_database_url())
+
+
+def create_production_planning_engine() -> AsyncEngine:
+    """创建 production_planning 域引擎（角色 production_planning_role）。"""
+    return _make_engine(build_production_planning_database_url())
+
+
+def create_budget_quota_engine() -> AsyncEngine:
+    """创建 budget_quota 域引擎（角色 budget_quota_role）。"""
+    return _make_engine(build_budget_quota_database_url())
+
+
+def create_qc_governance_engine() -> AsyncEngine:
+    """创建 qc_governance 域引擎（角色 qc_governance_role）。"""
+    return _make_engine(build_qc_governance_database_url())
 
 
 def create_relay_engine(settings: Settings | None = None) -> AsyncEngine:
@@ -225,7 +283,13 @@ async def probe_domain_databases(app: FastAPI) -> ReadinessResult:
     check 名，探针层的兜底只负责「检查函数自身崩溃/超时」这类真正意外。
     """
     checks: dict[str, str] = {}
-    for name in ("project_planning_sessionmaker", "asset_service_sessionmaker"):
+    for name in (
+        "project_planning_sessionmaker",
+        "asset_service_sessionmaker",
+        "production_planning_sessionmaker",
+        "budget_quota_sessionmaker",
+        "qc_governance_sessionmaker",
+    ):
         label = name.removesuffix("_sessionmaker") + "_database"
         try:
             async with getattr(app.state, name)() as session:
@@ -270,12 +334,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     project_engine = create_project_planning_engine()
     asset_engine = create_asset_service_engine()
+    production_engine = create_production_planning_engine()
+    budget_engine = create_budget_quota_engine()
+    qc_engine = create_qc_governance_engine()
     project_sessionmaker = create_sessionmaker(project_engine)
     asset_sessionmaker = create_sessionmaker(asset_engine)
     app.state.project_planning_engine = project_engine
     app.state.asset_service_engine = asset_engine
+    app.state.production_planning_engine = production_engine
+    app.state.budget_quota_engine = budget_engine
+    app.state.qc_governance_engine = qc_engine
     app.state.project_planning_sessionmaker = project_sessionmaker
     app.state.asset_service_sessionmaker = asset_sessionmaker
+    app.state.production_planning_sessionmaker = create_sessionmaker(production_engine)
+    app.state.budget_quota_sessionmaker = create_sessionmaker(budget_engine)
+    app.state.qc_governance_sessionmaker = create_sessionmaker(qc_engine)
     # 向后兼容别名：既有代码读 app.state.sessionmaker 时，落到
     # project_planning 域会话工厂（有 public.alembic_version 只读权限）。
     # /readyz 已不依赖此别名——池拆分后它显式探测两个域池（Codex P2）。
@@ -286,8 +359,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # 建池之后、接流量之前，是因为它必须用**即将用于业务查询的同一条连接**去问。
     # 生产环境失败即拒绝启动；开发环境降级为告警（本地用 postgres 连库是既有事实）。
     settings = get_settings()
+    # 逐池显式调用（而不是一个循环）：启动期「哪个池验过 RLS」必须能在代码里
+    # 一眼数出来，边界断言也是按调用点数（一个不接线的检查等于没有检查）。
     await verify_rls_enforcement(project_engine, app_env=settings.app_env)
     await verify_rls_enforcement(asset_engine, app_env=settings.app_env)
+    await verify_rls_enforcement(production_engine, app_env=settings.app_env)
+    await verify_rls_enforcement(budget_engine, app_env=settings.app_env)
+    await verify_rls_enforcement(qc_engine, app_env=settings.app_env)
     # 限流器与数据库同属「进程级基础设施」，生命周期统一在这里收口：
     # 漏关连接池比漏开更隐蔽，集中一处才不会各写一遍。
     app.state.rate_limiter = RateLimiter.from_settings()
@@ -304,5 +382,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # 先关闭 tracer（flush 缓冲 span），再释放限流与数据库连接池。
         await app.state.rate_limiter.aclose()
         shutdown_telemetry()
-        await project_engine.dispose()
-        await asset_engine.dispose()
+        for domain_engine in (
+            project_engine,
+            asset_engine,
+            production_engine,
+            budget_engine,
+            qc_engine,
+        ):
+            await domain_engine.dispose()
