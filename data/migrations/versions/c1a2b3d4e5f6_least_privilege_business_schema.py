@@ -66,7 +66,7 @@ from packages.shared.db_grants import (
 from packages.shared.db_roles import domain_role
 
 revision: str = "c1a2b3d4e5f6"
-down_revision: str | Sequence[str] | None = "e9f0a1b2c3d4"
+down_revision: str | Sequence[str] | None = "e0f1a2b3c4d5"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
