@@ -165,6 +165,23 @@ async def test_reclaim_after_release_increments_attempts() -> None:
     assert outbox.events[-1]["payload"]["attempt_count"] == 2
 
 
+async def test_act_gen_neg_002_finish_without_lease_is_rejected() -> None:
+    """ACT-GEN-NEG-002：没有租约（从未领取 / 已被回收）时不能终结任务。"""
+    service, _repo, outbox = _service()
+    task = await _requested(service)
+
+    with pytest.raises(DomainError):
+        await service.finish(
+            task_id=task.entity_id,
+            worker_id="worker-1",
+            result="SUCCEEDED",
+            evidence_ref="asset-1",
+        )
+
+    assert task.status is GenerationTaskStatus.REQUESTED
+    assert outbox.events == []
+
+
 async def test_to_dict_exposes_lease_fields() -> None:
     service, _repo, _outbox = _service()
     task = await _requested(service)

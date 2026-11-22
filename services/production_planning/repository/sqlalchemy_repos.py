@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -191,6 +193,28 @@ class SqlAlchemyGenerationTaskRepository:
         )
         model = result.scalar_one_or_none()
         return _task_to_domain(model) if model is not None else None
+
+    async def next_claimable(self) -> GenerationTask | None:
+        """最早创建的 REQUESTED 任务（FIFO，避免新任务插队把老任务饿死）。"""
+        result = await self._session.execute(
+            select(GenerationTaskModel)
+            .where(GenerationTaskModel.status == GenerationTaskStatus.REQUESTED.value)
+            .order_by(GenerationTaskModel.created_at.asc())
+            .limit(1)
+        )
+        model = result.scalar_one_or_none()
+        return _task_to_domain(model) if model is not None else None
+
+    async def list_expired(self, now: datetime) -> list[GenerationTask]:
+        """租约已过期但仍停在 RUNNING 的任务（崩溃 Worker 留下的）。"""
+        result = await self._session.execute(
+            select(GenerationTaskModel).where(
+                GenerationTaskModel.status == GenerationTaskStatus.RUNNING.value,
+                GenerationTaskModel.lease_expires_at.is_not(None),
+                GenerationTaskModel.lease_expires_at < now,
+            )
+        )
+        return [_task_to_domain(model) for model in result.scalars()]
 
 
 __all__ = [

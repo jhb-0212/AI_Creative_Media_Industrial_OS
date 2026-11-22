@@ -21,7 +21,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 #   relay              —— Outbox 投递进程：完全不碰身份密钥。
 #   outbox_maintenance —— Outbox 运维 CLI：用 postgres 超级用户做 DDL。
 #   identity           —— 身份签发服务：持私钥（+公钥）签发令牌。
-ProcessRole = Literal["api", "relay", "outbox_maintenance", "identity"]
+ProcessRole = Literal[
+    "api", "relay", "outbox_maintenance", "identity", "generation"
+]
 
 # 数据库角色配置项：环境变量名 → Settings 字段名（单一事实源）。
 # 启动校验与迁移取角色名都从这张表/对应属性取，任何地方都不得写字面量
@@ -219,6 +221,14 @@ class Settings(BaseSettings):
         "identity": (
             ("identity_private_key_pem", "IDENTITY_PRIVATE_KEY_PEM"),
             ("identity_public_key_pem", "IDENTITY_PUBLIC_KEY_PEM"),
+        ),
+        # 生成 Worker 只连 production_planning 域（任务表与租约都在那），
+        # 因此只需要这一个口令：多给一个就是多一份可被泄漏的凭证。
+        "generation": (
+            (
+                "postgres_production_planning_password",
+                "POSTGRES_PRODUCTION_PLANNING_PASSWORD",
+            ),
         ),
     }
 
