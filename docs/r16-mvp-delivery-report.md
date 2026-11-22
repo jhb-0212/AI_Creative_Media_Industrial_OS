@@ -160,10 +160,14 @@ Worker 为下一阶段。
 2. ~~独立域拆分~~ → **已完成**（`a0b1c2d3e4f5`，见 §2.6）：五表出 `project_planning`，
    各自 schema + 独立角色 + 独立连接池，一次性 cutover，不保留双份表。
 3. `workers/generation` **已落地**（`89c07fd`：常驻领取 / 心跳续租 / 终态回写 / 过期回收），
-   但执行器为占位（`UnconfiguredExecutor` 一律 FAILED）。`workers/qc` 仍为空目录：缺 QC
-   任务对象与待检队列（需新申请包），详见 §6 落地记录与 A25 `residual_risks`。
-4. `A24.source_commits` 为 `LOCAL-NO-GIT-PLACEHOLDER`，合入团队仓库时替换真实 SHA。
-5. API 镜像已重建并重启（新镜像含本轮全部端点，`/openapi.json` 已核对）；容器重建时需要
+   但执行器为占位（`UnconfiguredExecutor` 一律 FAILED）。
+4. ~~`workers/qc` 缺 QC 任务对象与待检队列~~ → **已签发并落地**（Owner 2026-11-22 选定 A 方案，
+   见 `docs/architecture/amendment-pack-r16-phase3-qc.md`）：新增 `QCTask`（第 89 个 schema 对象）
+   与 `QC.TASK.ENQUEUE` / `QC.TASK.PROCESS`（动作 103→105）、迁移 `f1a2b3c4d5e6`、`workers/qc`
+   本体与生成侧入队钩子（`a167495`）。真实检测器仍未接：`configured=False` 时 Worker 拒绝领取，
+   队列停在 `QUEUED`（A27 `residual_risks`）。
+5. `A24.source_commits` 为 `LOCAL-NO-GIT-PLACEHOLDER`，合入团队仓库时替换真实 SHA。
+6. API 镜像已重建并重启（新镜像含本轮全部端点，`/openapi.json` 已核对）；容器重建时需要
    `IDENTITY_PUBLIC_KEY_PEM`（本次从身份进程读取同一把公钥注入，属于宿主环境事实，
    建议写入 compose `.env` 以免下次重建再次缺失）。
 

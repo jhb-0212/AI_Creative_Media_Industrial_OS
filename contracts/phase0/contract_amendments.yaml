@@ -1292,6 +1292,45 @@ amendments:
     residual_risks:
       - 'RESERVE→RELEASE 的跨流水一致性由部分唯一索引保证「只能一次」，但「释放金额+已消耗金额 ≤ 预留金额」目前只校验单笔上限，多次部分释放的累计校验需消费者按 kind 汇总'
 
+  - id: 'V205-R15-A27'
+    title: 'Phase 3：QC 待检队列（QCTask 对象 + 入队/领取两动作 + 租约）'
+    retroactive: false
+    recorded_at: '2026-11-22'
+    discovered_by: 'docs/architecture/amendment-pack-r16-phase3-qc.md（Owner 2026-11-22 在 A/B/C 中选定 A 方案）'
+    reason: >-
+      QC.REPORT.CREATE 只回答「怎么登记一份报告」，不回答「哪一份产物还没被检」；
+      GenerationTask 又不携带产物引用，所以 workers/qc 无法在不臆造字段的前提下
+      把任务映射到待检资产（Phase 2 A25 已把这条缺口挂账）。本修订新增 QCTask
+      对象与待检队列：生成任务成功并携带 asset_version_id / quality_profile_version
+      时入队，QC Worker 租约领取后判定并回写报告。漏检从此表现为队列里可见的
+      QUEUED，而不是消失的调用。动作从 103 增至 105，schema 对象 88 增至 89。
+    adr: 'docs/architecture/amendment-pack-r16-phase3-qc.md'
+    approved_by: '项目所有者（2026-11-22 会话内选项「A」：新增 QC 任务对象 + 待检队列）'
+    approved_at: '2026-11-22'
+    source_commits:
+      - 'a167495'
+    additions:
+      schema_objects:
+        - object: 'QCTask'
+          why: 'QC 待检任务聚合根：资产引用、质量档案版本、租约三字段、qc_report_id'
+      state_machines:
+        - object: 'QCTask'
+          why: 'QUEUED→RUNNING（领取）、RUNNING→PASSED/REJECTED（判定）、RUNNING→QUEUED（过期回收），全部归 QC.TASK.PROCESS'
+      actions:
+        - action: 'QC.TASK.ENQUEUE'
+          why: '生成成功产物入队；同一 generation_task_id 唯一，重复入队返回 IDEMPOTENCY_CONFLICT'
+        - action: 'QC.TASK.PROCESS'
+          why: 'QC Worker 领取/续租/判定/到期回收共用一个准入凭据'
+    counts_after:
+      actions: 105
+      openapi_operations: 105
+      schema_objects: 89
+      state_machines: 48
+    residual_risks:
+      - 'workers/qc 真实检测器未接：UnconfiguredInspector 恒为 configured=False，生产队列会停在 QUEUED，不产生占位 PASS'
+      - 'quality_profile_version 仅作字符串记录，不校验质量档案是否存在，指向不存在档案也能入队'
+      - '生成侧入队为尽力语义：入队事务失败只记日志，生成终态已提交后崩溃的产物会漏入队，需后续对账扫描补齐'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——
