@@ -36,7 +36,11 @@ class GateDecisionModel(Base, EntityMixin):
             name="ck_gate_decisions_decision_controlled",
         ),
         Index("ix_qc_governance_gate_decisions_project_id", "project_id"),
-        Index("ix_qc_governance_gate_decisions_gate_key", "project_id", "gate_key"),
+        Index(
+            "ix_qc_governance_gate_decisions_project_id_gate_key",
+            "project_id",
+            "gate_key",
+        ),
         Index("ix_qc_governance_gate_decisions_tenant_id", "tenant_id"),
         status_check((s.value for s in NoLifecycleStatus), table="gate_decisions"),
         {"schema": SCHEMA_NAME},
