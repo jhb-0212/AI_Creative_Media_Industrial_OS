@@ -1,0 +1,74 @@
+{
+  "generated_at": "2026-11-21T01:21:18.318026+00:00",
+  "lab": "lab_parent_freeze_lock",
+  "template": "ai_film_industrial",
+  "verdict": "PASS",
+  "passed": 9,
+  "total": 9,
+  "na": [],
+  "cases": [
+    {
+      "id": "H1",
+      "title": "FOR KEY SHARE 不阻挡归档 UPDATE（初稿方案的反证）",
+      "status": "PASS",
+      "expect": "畅通 —— 若被阻挡，说明初稿的 FOR KEY SHARE 恰好有效，结论需改写",
+      "observed": "执行成功（未被阻塞）"
+    },
+    {
+      "id": "H2",
+      "title": "FOR SHARE 阻挡归档 UPDATE",
+      "status": "PASS",
+      "expect": "被阻塞（LOCK_TIMEOUT）",
+      "observed": "LockNotAvailable: canceling statement due to lock timeout"
+    },
+    {
+      "id": "H3",
+      "title": "FOR SHARE 阻挡乐观锁条件 UPDATE（WHERE entity_version=?）",
+      "status": "PASS",
+      "expect": "被阻塞 —— 条件里多版本列不改变结论",
+      "observed": "LockNotAvailable: canceling statement due to lock timeout"
+    },
+    {
+      "id": "H5",
+      "title": "两个创建方同时 FOR SHARE 互不阻塞",
+      "status": "PASS",
+      "expect": "畅通 —— 否则同项目并发创建被无谓串行化",
+      "observed": "执行成功（未被阻塞）"
+    },
+    {
+      "id": "H6",
+      "title": "FOR SHARE 不阻塞子表 INSERT（外键检查不冲突）",
+      "status": "PASS",
+      "expect": "畅通 —— SHARE 与 KEY SHARE 不冲突",
+      "observed": "执行成功（未被阻塞）"
+    },
+    {
+      "id": "H4",
+      "title": "READ COMMITTED：等锁后读到 ARCHIVED（重检）",
+      "status": "PASS",
+      "expect": "挂起后读到 ARCHIVED（新版本）",
+      "observed": "挂起=是；读到 ARCHIVED"
+    },
+    {
+      "id": "H7",
+      "title": "REPEATABLE READ：等锁后的行为（边界）",
+      "status": "PASS",
+      "expect": "读到 ARCHIVED；或 40001（fail-closed 亦可，但绝不得读到 ACTIVE）",
+      "observed": "挂起=是；SerializationError: could not serialize access due to concurrent update"
+    },
+    {
+      "id": "H8",
+      "title": "真实表+RLS+svc 角色：FOR SHARE 锁到 1 行并挡住归档",
+      "status": "PASS",
+      "expect": "锁定行数=1 且归档被阻塞",
+      "observed": "锁定行数=1；LockNotAvailable: canceling statement due to lock timeout"
+    },
+    {
+      "id": "H9",
+      "title": "错误租户上下文：FOR SHARE 返回 0 行且不报错（静默不锁）",
+      "status": "PASS",
+      "expect": "0 行 —— 故 service 必须把『父行查不到』判为拒绝，不得跳过冻结检查",
+      "observed": "锁定行数=0"
+    }
+  ]
+}

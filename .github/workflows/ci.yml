@@ -1,0 +1,221 @@
+name: CI
+
+# 版本与镜像口径（防止「绿但带告警」的慢性腐烂）：
+# - action 一律用 node24 运行时（checkout v7 / setup-python v7 /
+#   setup-uv v10.3.3）。v4/v5 会被 runner 强制降级并持续产生 Node20 弃用告警；
+#   setup-uv 不发浮动大版本标签，必须写精确版本，否则 job 在解析 action 阶段直接失败。
+# - runs-on 固定 ubuntu-24.04 而非 ubuntu-latest，避免镜像标签漂移导致
+#   「今天能跑、明天挂」的不可复现失败。
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ai_film_industrial
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+
+      - name: Install dependencies (uv sync, 锁文件可复现)
+        run: uv sync --frozen --extra dev
+
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
+      - name: Type check (mypy)
+        # 只检查当前有代码的目录；agents/adapters 仍为占位（仅 .gitkeep），
+        # 待其落地 .py 后纳入本步骤，避免 mypy 对空目录报 "no .py files" 而误判失败。
+        run: uv run mypy packages services apps workers
+
+      - name: Wait for PostgreSQL
+        # GitHub Actions 的 service 容器 health check 不会阻塞主 job 步骤，
+        # 需主动等待端口就绪，否则后续 alembic/pytest 会因连接被拒而失败。
+        run: |
+          for i in $(seq 1 30); do
+            if bash -c "</dev/tcp/localhost/5432" 2>/dev/null; then
+              echo "PostgreSQL is ready"
+              exit 0
+            fi
+            echo "waiting for PostgreSQL... ($i/30)"
+            sleep 2
+          done
+          echo "PostgreSQL not ready after 60s" >&2
+          exit 1
+
+      - name: Apply migrations
+        # 数据库集成测试依赖真实表结构，必须先建表（全新空库），再跑测试。
+        run: uv run alembic upgrade head
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ai_film_industrial
+
+      - name: Tests (unit / integration / architecture / permission)
+        # 口径与 README 一致：`pytest tests` 一次性跑全部已有测试套件。
+        # 此前只列三个目录，与 README 宣称的 `pytest tests` 不一致（第三轮审查 F6）；
+        # 空的 tests/e2e、tests/resilience、tests/contract 已删除，不再有空壳目录。
+        run: uv run pytest tests -q
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ai_film_industrial
+          REDIS_URL: redis://localhost:6379/0
+
+      - name: Migrations sync check (alembic check)
+        run: uv run alembic check
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ai_film_industrial
+
+      - name: Migration downgrade roundtrip
+        # 只做 upgrade head 时，downgrade 的正确性没有任何运行时证据：删索引、删表、
+        # 删约束的顺序错了，只有真库回滚才会报错（clean install 永远走 upgrade）。
+        # 回滚再升级还顺带证明「rollback 之后这张库还能重新建成 head 形态」。
+        run: |
+          uv run alembic downgrade -1
+          uv run alembic upgrade head
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ai_film_industrial
+
+  contract-check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --frozen --extra dev
+      - name: Contract freeze check (基线未变 + 产物哈希 + 演进有据)
+        # 第三轮审查 F1：contract_check 只能证明派生文件互相一致（81↔81），
+        # 不能证明仍符合 V2.0.5 基线（75/75/76/35）。本步骤补上基线一致性判定：
+        # 基线正文哈希、十一类产物哈希、以及「实际 == 基线 ∪ 已批准修订」。
+        run: uv run python scripts/freeze_manifest.py --check
+      - name: Contract consistency check (派生之间交叉一致性)
+        run: uv run python scripts/contract_check.py
+      - name: Layering check (铁律 1：依赖方向 + 服务间直连 + 导入期循环)
+        run: uv run python scripts/architecture_check.py
+      - name: Merge readiness (静默覆盖缺陷 + 覆盖面防呆，闸门自身的负向测试见 tests/engineering)
+        # 多分支整合的教训机械化：字典重复键/同名顶层定义会静默覆盖、不报任何错；
+        # 覆盖面防呆防止新代码目录天然免疫闸门。轻量模式不含 --git（PR 分支落后
+        # main 是正常的）与 --full（本 job 已逐项跑过 ruff/mypy/contract/arch/freeze）。
+        run: uv run python scripts/merge_readiness.py
+      - name: Secret scan (交付包密钥，生产准入条件之一)
+        # 第三轮审查 P1-2：交付包密钥扫描此前未实现。高置信规则 + 可机检豁免
+        # （陈旧豁免会报红），负向测试见 tests/unit/test_secret_scan.py。
+        # 挂在已 required 的 contract-check job 内，自动受分支保护约束。
+        run: uv run python scripts/secret_scan.py
+
+  permission-negative-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --frozen --extra dev
+      - name: Permission negative tests
+        run: uv run pytest tests/permission -q
+
+  # 发布链路的构建闸门：镜像必须能构建、且能真正 import 应用。
+  # 这里不推送镜像（推送由发布流程单独授权），只保证「构建可复现且可运行」，
+  # 避免镜像问题等到上线才暴露。
+  image-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build API image
+        run: docker build -f infra/docker/Dockerfile.api -t ai-film-api:ci .
+
+      - name: Smoke test imported app inside image
+        # 验签方 fail-closed：API 进程无 IDENTITY_PUBLIC_KEY_PEM 时必须拒绝启动
+        # （这是设计，不是缺陷）。冒烟因此**现场生成一把临时公钥**并用镜像自身
+        # 的密钥工具导出——仓库里不留任何密钥材料（.gitignore 已忽略 *.pem），
+        # 同时顺带证明镜像内的密钥生成可用。
+        # 绝不能为了让冒烟通过而放宽「无公钥即拒绝」：那等于把生产密钥缺失
+        # 变成静默放行。
+        run: |
+          PUBLIC_PEM="$(docker run --rm ai-film-api:ci python -c \
+            'from packages.identity.keys import generate_signing_key as g; print(g().public_pem.decode())')"
+          test -n "$PUBLIC_PEM"
+          docker run --rm \
+            -e APP_ENV=development \
+            -e IDENTITY_PUBLIC_KEY_PEM="$PUBLIC_PEM" \
+            ai-film-api:ci python -c "import apps.api.main; print('import ok')"
+
+      - name: Smoke test identity process inside image
+        # 身份进程（workers/identity）持私钥并对外发 JWKS。这里只验证入口
+        # 与路由可加载（开发环境自行生成密钥），真正监听端口留给编排。
+        run: |
+          docker run --rm \
+            -e APP_ENV=development \
+            ai-film-api:ci python -c "import workers.identity.app; print('identity import ok')"
+
+      - name: Smoke test migration entrypoint inside image
+        run: docker run --rm ai-film-api:ci alembic --version
+
+      # relay 与 api 同镜像、不同入口命令。镜像漏拷 workers/ 时这一步立刻失败，
+      # 不会等到编排起来才发现容器永远重启。
+      - name: Smoke test relay entrypoint inside image
+        run: docker run --rm ai-film-api:ci python -c "import workers.relay.__main__; print('relay import ok')"
+
+      # 分区维护 CLI 同样在 workers/ 下，且依赖迁移 DSN 构造；入口能 import、
+      # 参数能解析即可证明镜像侧可用（真正执行留给运维显式触发）。
+      - name: Smoke test outbox maintenance CLI inside image
+        run: docker run --rm ai-film-api:ci python -m workers.outbox_maintenance --help

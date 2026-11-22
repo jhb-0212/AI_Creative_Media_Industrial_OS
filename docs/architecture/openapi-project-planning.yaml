@@ -1,0 +1,254 @@
+# ============================================================================
+# AI 影视工业化生产平台 V2.0.5 —— Phase 1 Project Planning 主链 API 契约
+# 依据：docs/adr-arch-refactor-v1.md 决策 1（Pydantic v2 Code-First）
+# 说明：本文件为「三剑客」设计稿，明确路由与 Request/Response 形状。
+#       最终 JSON Schema / OpenAPI 由 FastAPI app.openapi() 从 Pydantic 模型派生，
+#       本文件仅作为实现前的契约锚点，避免前后端字段拼写不一致。
+# ============================================================================
+openapi: 3.1.0
+info:
+  title: AI Creative Media Industrial OS - Project Planning
+  version: 2.0.5
+  description: Phase 1 主链 API（Project → Episode → ScriptRevision）
+servers:
+  - url: /api/v1
+
+paths:
+  # ---- Project ----
+  /projects:
+    post:
+      operationId: project.create
+      summary: 创建项目（幂等）
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProjectRequest"
+      responses:
+        "201":
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectEnvelope"
+        "409":
+          description: 并发/幂等冲突
+  /projects/{entity_id}:
+    get:
+      operationId: project.get
+      summary: 查询项目
+      parameters:
+        - name: entity_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectEnvelope"
+        "404":
+          description: 不存在
+
+  # ---- Episode ----
+  /episodes:
+    post:
+      operationId: episode.create
+      summary: 登记集数（幂等，归属 Project）
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEpisodeRequest"
+      responses:
+        "201":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EpisodeEnvelope"
+
+  # ---- ScriptRevision ----
+  /scripts/import:
+    post:
+      operationId: script.import
+      summary: 导入剧本版本（幂等，产出 DRAFT）
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportScriptRequest"
+      responses:
+        "201":
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScriptRevisionEnvelope"
+  /scripts/{entity_id}/lock:
+    post:
+      operationId: script.lock.approve
+      summary: 锁定剧本版本（SCRIPT.LOCK.APPROVE，职责分离）
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: entity_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LockScriptRequest"
+      responses:
+        "200":
+          description: 锁定成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScriptRevisionEnvelope"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: RS256 签名的 JWT，公钥通过 JWKS 获取
+
+  schemas:
+    # ---- 通用信封（C.3.1）----
+    EntityEnvelope:
+      type: object
+      required: [entity_id, entity_type, schema_version, entity_version, status, owner_module, created_at, created_by, updated_at]
+      properties:
+        entity_id:
+          type: string
+        entity_type:
+          type: string
+        schema_version:
+          type: integer
+        entity_version:
+          type: integer
+        status:
+          type: string
+        owner_module:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        created_by:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+        audit_ref:
+          type: [string, "null"]
+
+    ProjectEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EntityEnvelope"
+        - type: object
+          required: [project_name, project_tier]
+          properties:
+            project_name:
+              type: string
+            project_tier:
+              type: string
+              enum: [S, A, B]
+
+    EpisodeEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EntityEnvelope"
+        - type: object
+          required: [project_id, episode_ref, title]
+          properties:
+            project_id:
+              type: string
+            episode_ref:
+              type: string
+            title:
+              type: string
+
+    ScriptRevisionEnvelope:
+      allOf:
+        - $ref: "#/components/schemas/EntityEnvelope"
+        - type: object
+          required: [project_id, episode_ref, title]
+          properties:
+            project_id:
+              type: string
+            episode_ref:
+              type: string
+            title:
+              type: string
+
+    # ---- 请求体 ----
+    CreateProjectRequest:
+      type: object
+      required: [project_name, project_tier, created_by]
+      properties:
+        project_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        project_tier:
+          type: string
+          enum: [S, A, B]
+        created_by:
+          type: string
+        entity_id:
+          type: string
+          description: 可选，幂等键
+
+    CreateEpisodeRequest:
+      type: object
+      required: [project_id, episode_ref, title, created_by]
+      properties:
+        project_id:
+          type: string
+        episode_ref:
+          type: string
+        title:
+          type: string
+        created_by:
+          type: string
+
+    ImportScriptRequest:
+      type: object
+      required: [project_id, episode_ref, title, created_by]
+      properties:
+        project_id:
+          type: string
+        episode_ref:
+          type: string
+        title:
+          type: string
+        created_by:
+          type: string
+        entity_id:
+          type: string
+          description: 可选，幂等键
+
+    LockScriptRequest:
+      type: object
+      required: [approved_by]
+      properties:
+        approved_by:
+          type: string
+          description: 审批人真实身份（从认证上下文解析，非客户端自由填）

@@ -1,0 +1,43 @@
+
+## main（34 个迁移文件）
+
+head: c1a2b3d4e5f6
+链长 34：8d8d59a91012 → e22d6fd3e8d3 → facd8d42d07f → 0fcaf4db4573 → 6a7b8c9d0e1f → 7c8d9e0f1a2b → 8f2a1b3c4d5e → 9e3b4c5d6e7f → b2c3d4e5f6a7 → d4e5f6a7b8c9 → e5f6a7b8c9d0 → f6a7b8c9d1e2 → b8c9d1e2f3a4 → c1d2e3f4a5b6 → b7c8d9e0f1a2 → d1e2f3a4b5c6 → e2f3a4b5c6d7 → f3a4b5c6d7e8 → a4b5c6d7e8f9 → b5c6d7e8f9a0 → c6d7e8f9a0b1 → a1b2c3d4e5f6 → 9f1a2b3c4d5e6 → 7a8b9c0d1e2f → 8f3b2c1d4e5a → ae8724980e0b → b9e1c2d3f4a5 → c1f2e3d4a5b6 → d2e3f4a5b6c7 → b3c4d5e6f7a8 → c7d8e9f0a1b2 → d8e9f0a1b2c3 → e9f0a1b2c3d4 → c1a2b3d4e5f6
+
+## origin/feat/identity-data-ownership（40 个迁移文件）
+
+head: c4e5f6a7b8d9
+链长 40：8d8d59a91012 → e22d6fd3e8d3 → facd8d42d07f → 0fcaf4db4573 → 6a7b8c9d0e1f → 7c8d9e0f1a2b → 8f2a1b3c4d5e → 9e3b4c5d6e7f → b2c3d4e5f6a7 → d4e5f6a7b8c9 → e5f6a7b8c9d0 → f6a7b8c9d1e2 → b8c9d1e2f3a4 → c1d2e3f4a5b6 → b7c8d9e0f1a2 → d1e2f3a4b5c6 → e2f3a4b5c6d7 → f3a4b5c6d7e8 → a4b5c6d7e8f9 → b5c6d7e8f9a0 → c6d7e8f9a0b1 → a1b2c3d4e5f6 → c2d3e4f5a6b7 → d3e4f5a6b7c8 → e7f8a9b0c1d2 → b3c4d5e6f7a8 → d6e7f8a9b0c1 → e8f9a0b1c2d3 → f0a1b2c3d4e5 → a2b3c4d5e6f7 → b1a2c3d4e5f6 → d5e6f7a8b9c0 → a5b6c7d8e9f0 → b8c9d0e1f2a3 → c9d0e1f2a3b4 → d0e1f2a3b4c5 → e1f2a3b4c5d6 → f1a2b3c4d5e6 → a9f1c2e3d4b5 → c4e5f6a7b8d9
+
+## 两支 ID 差异
+
+仅 main：['7a8b9c0d1e2f', '8f3b2c1d4e5a', '9f1a2b3c4d5e6', 'ae8724980e0b', 'b9e1c2d3f4a5', 'c1a2b3d4e5f6', 'c1f2e3d4a5b6', 'c7d8e9f0a1b2', 'd2e3f4a5b6c7', 'd8e9f0a1b2c3', 'e9f0a1b2c3d4']
+仅 origin/feat/identity-data-ownership：['a2b3c4d5e6f7', 'a5b6c7d8e9f0', 'a9f1c2e3d4b5', 'b1a2c3d4e5f6', 'b8c9d0e1f2a3', 'c2d3e4f5a6b7', 'c4e5f6a7b8d9', 'c9d0e1f2a3b4', 'd0e1f2a3b4c5', 'd3e4f5a6b7c8', 'd5e6f7a8b9c0', 'd6e7f8a9b0c1', 'e1f2a3b4c5d6', 'e7f8a9b0c1d2', 'e8f9a0b1c2d3', 'f0a1b2c3d4e5', 'f1a2b3c4d5e6']
+
+## 同 ID 对照（文件名 / 内容哈希）
+
+| revision | 左文件名 | 右文件名 | 文件名相同 | 内容相同 | 判定 |
+| --- | --- | --- | --- | --- | --- |
+| `0fcaf4db4573` | 0fcaf4db4573_create_episodes_table.py | 0fcaf4db4573_create_episodes_table.py | 是 | 是 | 一致 |
+| `6a7b8c9d0e1f` | 6a7b8c9d0e1f_add_script_episode_composite_fk.py | 6a7b8c9d0e1f_add_script_episode_composite_fk.py | 是 | 是 | 一致 |
+| `7c8d9e0f1a2b` | 7c8d9e0f1a2b_create_outbox_events_table.py | 7c8d9e0f1a2b_create_outbox_events_table.py | 是 | 是 | 一致 |
+| `8d8d59a91012` | 8d8d59a91012_create_project_planning_projects_table.py | 8d8d59a91012_create_project_planning_projects_table.py | 是 | 是 | 一致 |
+| `8f2a1b3c4d5e` | 8f2a1b3c4d5e_add_tenant_id_and_rls.py | 8f2a1b3c4d5e_add_tenant_id_and_rls.py | 是 | 是 | 一致 |
+| `9e3b4c5d6e7f` | 9e3b4c5d6e7f_create_app_role_and_grants.py | 9e3b4c5d6e7f_create_app_role_and_grants.py | 是 | 否 | 同名但内容不同（需逐句对账） |
+| `a1b2c3d4e5f6` | a1b2c3d4e5f6_fix_outbox_backlog_exclude_dead.py | a1b2c3d4e5f6_fix_outbox_backlog_exclude_dead.py | 是 | 否 | 同名但内容不同（需逐句对账） |
+| `a4b5c6d7e8f9` | a4b5c6d7e8f9_cleanup_uow_test_events.py | a4b5c6d7e8f9_cleanup_uow_test_events.py | 是 | 是 | 一致 |
+| `b2c3d4e5f6a7` | b2c3d4e5f6a7_add_tenant_id_to_outbox_events.py | b2c3d4e5f6a7_add_tenant_id_to_outbox_events.py | 是 | 是 | 一致 |
+| `b3c4d5e6f7a8` | b3c4d5e6f7a8_asset_project_ownership.py | b3c4d5e6f7a8_asset_status_transitions.py | 否 | 否 | **语义不同（硬冲突）** |
+| `b5c6d7e8f9a0` | b5c6d7e8f9a0_revoke_maintenance_runs_from_app_role.py | b5c6d7e8f9a0_revoke_maintenance_runs_from_app_role.py | 是 | 否 | 同名但内容不同（需逐句对账） |
+| `b7c8d9e0f1a2` | b7c8d9e0f1a2_partition_protection_and_grant_baseline.py | b7c8d9e0f1a2_partition_protection_and_grant_baseline.py | 是 | 否 | 同名但内容不同（需逐句对账） |
+| `b8c9d1e2f3a4` | b8c9d1e2f3a4_create_maintenance_runs.py | b8c9d1e2f3a4_create_maintenance_runs.py | 是 | 是 | 一致 |
+| `c1d2e3f4a5b6` | c1d2e3f4a5b6_create_asset_service_tables.py | c1d2e3f4a5b6_create_asset_service_tables.py | 是 | 否 | 同名但内容不同（需逐句对账） |
+| `c6d7e8f9a0b1` | c6d7e8f9a0b1_create_auth_revoked_tokens.py | c6d7e8f9a0b1_create_auth_revoked_tokens.py | 是 | 否 | 同名但内容不同（需逐句对账） |
+| `d1e2f3a4b5c6` | d1e2f3a4b5c6_asset_immutability_triggers.py | d1e2f3a4b5c6_asset_immutability_triggers.py | 是 | 是 | 一致 |
+| `d4e5f6a7b8c9` | d4e5f6a7b8c9_restrict_outbox_grants.py | d4e5f6a7b8c9_restrict_outbox_grants.py | 是 | 否 | 同名但内容不同（需逐句对账） |
+| `e22d6fd3e8d3` | e22d6fd3e8d3_create_script_revisions_table.py | e22d6fd3e8d3_create_script_revisions_table.py | 是 | 是 | 一致 |
+| `e2f3a4b5c6d7` | e2f3a4b5c6d7_qc_report_deviation_intent_ref.py | e2f3a4b5c6d7_qc_report_deviation_intent_ref.py | 是 | 是 | 一致 |
+| `e5f6a7b8c9d0` | e5f6a7b8c9d0_add_outbox_tenant_enumeration_function.py | e5f6a7b8c9d0_add_outbox_tenant_enumeration_function.py | 是 | 否 | 同名但内容不同（需逐句对账） |
+| `f3a4b5c6d7e8` | f3a4b5c6d7e8_outbox_relay_retry_columns.py | f3a4b5c6d7e8_outbox_relay_retry_columns.py | 是 | 是 | 一致 |
+| `f6a7b8c9d1e2` | f6a7b8c9d1e2_partition_outbox_events.py | f6a7b8c9d1e2_partition_outbox_events.py | 是 | 否 | 同名但内容不同（需逐句对账） |
+| `facd8d42d07f` | facd8d42d07f_add_script_active_version_unique_index.py | facd8d42d07f_add_script_active_version_unique_index.py | 是 | 是 | 一致 |

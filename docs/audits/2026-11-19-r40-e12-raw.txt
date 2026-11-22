@@ -1,0 +1,1184 @@
+ADR-R40 v1.4.2 / E12 只读取证原始输出（机器可读存档）
+
+采集：2026-11-19，PostgreSQL 16.15 (Debian)，127.0.0.1:15432，用户 postgres（超级用户，仅读 pg_catalog 与业务表）
+性质：纯 SELECT。未执行 INSERT/UPDATE/DELETE/DDL/GRANT/REVOKE/SET ROLE/upgrade/downgrade。
+格式：纯文本，按 '=' 分隔小节；每节开头标注对应 E12.x 与目的。
+用途：支撑 ADR-R40 §4.2 / §5.3(INV) / C.5.2 / C.5.3 ⑨⑬⑭⑮ / §7.0.4 的独立复核。
+
+====================================================================================================
+# E12.1 集群级：基础设施角色属性核查（含 role_exists）
+# 目的：INV-9/INV-10/INV-10b 的属性面；关键列 role_exists
+====================================================================================================
+   rolname    | role_exists | canlogin | super | bypassrls | createdb | createrole | inherit_attr | member_of_count | is_granted_to_count | admin_edges_held 
+--------------+-------------+----------+-------+-----------+----------+------------+--------------+-----------------+---------------------+------------------
+ ops_admin    | f           | f        | f     | f         | f        | f          | f            |               0 |                   0 |                0
+ afs_owner    | f           | f        | f     | f         | f        | f          | f            |               0 |                   0 |                0
+ afs_migrator | f           | f        | f     | f         | f        | f          | f            |               0 |                   0 |                0
+(3 rows)
+
+====================================================================================================
+# E12.2 集群级：INV-10b 合取式判定（输出 PASS/FAIL）
+# 目的：消除「0 行=通过」的真空真；角色不存在必须输出 FAIL
+====================================================================================================
+                      inv_10b                       | role_exists | offending_edges 
+----------------------------------------------------+-------------+-----------------
+ FAIL: afs_owner 不存在（真空真陷阱，禁止记为通过） | f           |               0
+(1 row)
+
+====================================================================================================
+# E12.3 集群级：原始违规边查询（对比用，展示真空真）
+# 目的：同一事实的原始形态；此查询在角色不存在时返回 0 行，不可单独作为通过依据
+====================================================================================================
+ granted_role | member_role | admin_option | member_is_super 
+--------------+-------------+--------------+-----------------
+(0 rows)
+
+====================================================================================================
+# E12.4 集群级：递归成员关系传递闭包
+# 目的：INV-6b/INV-10 的多层证据；原始边列表不构成闭包
+====================================================================================================
+ granted_role | member_role | depth | admin | inherit_opt | set_opt | grantor | is_cycle | chain 
+--------------+-------------+-------+-------+-------------+---------+---------+----------+-------
+(0 rows)
+
+====================================================================================================
+# E12.5 [ai_film_industrial] ⑨ 全量有效权限（relkind IN ('r','p')）
+# 目的：复现分区父表差异（v1.4.1 用 relkind='r' 时看不到父表）
+====================================================================================================
+        rolname        |              object               | privs | relkind 
+-----------------------+-----------------------------------+-------+---------
+ app_role              | outbox.outbox_events              | S     | p
+ asset_service_role    | asset_service.asset_versions      | SIU   | r
+ asset_service_role    | asset_service.qc_reports          | SI    | r
+ asset_service_role    | audit.status_transitions          | SI    | r
+ asset_service_role    | auth.revoked_tokens               | S     | r
+ asset_service_role    | outbox.outbox_events              | SI    | p
+ asset_service_role    | outbox.outbox_events_default      | SI    | r
+ asset_service_role    | outbox.outbox_events_y202611      | SI    | r
+ asset_service_role    | outbox.outbox_events_y202612      | SI    | r
+ asset_service_role    | public.alembic_version            | S     | r
+ outbox_relay_role     | outbox.outbox_events              | S     | p
+ outbox_relay_role     | outbox.outbox_events_default      | S     | r
+ outbox_relay_role     | outbox.outbox_events_y202611      | S     | r
+ outbox_relay_role     | outbox.outbox_events_y202612      | S     | r
+ project_planning_role | audit.status_transitions          | SI    | r
+ project_planning_role | auth.revoked_tokens               | S     | r
+ project_planning_role | outbox.outbox_events              | SI    | p
+ project_planning_role | outbox.outbox_events_default      | SI    | r
+ project_planning_role | outbox.outbox_events_y202611      | SI    | r
+ project_planning_role | outbox.outbox_events_y202612      | SI    | r
+ project_planning_role | project_planning.episodes         | SIU   | r
+ project_planning_role | project_planning.organizations    | S     | r
+ project_planning_role | project_planning.projects         | SIU   | r
+ project_planning_role | project_planning.script_revisions | SIU   | r
+ project_planning_role | public.alembic_version            | S     | r
+(25 rows)
+
+====================================================================================================
+# E12.6 [ai_film_verify] ⑨ 全量有效权限（relkind IN ('r','p')）
+====================================================================================================
+        rolname        |              object               | privs | relkind 
+-----------------------+-----------------------------------+-------+---------
+ app_role              | outbox.outbox_events              | S     | p
+ asset_service_role    | asset_service.asset_versions      | SIU   | r
+ asset_service_role    | asset_service.qc_reports          | SI    | r
+ asset_service_role    | auth.revoked_tokens               | S     | r
+ asset_service_role    | outbox.outbox_events              | SI    | p
+ asset_service_role    | outbox.outbox_events_default      | SI    | r
+ asset_service_role    | outbox.outbox_events_y202611      | SI    | r
+ asset_service_role    | outbox.outbox_events_y202612      | SI    | r
+ asset_service_role    | public.alembic_version            | S     | r
+ outbox_relay_role     | outbox.outbox_events              | S     | p
+ outbox_relay_role     | outbox.outbox_events_default      | S     | r
+ outbox_relay_role     | outbox.outbox_events_y202611      | S     | r
+ outbox_relay_role     | outbox.outbox_events_y202612      | S     | r
+ project_planning_role | auth.revoked_tokens               | S     | r
+ project_planning_role | outbox.outbox_events              | SI    | p
+ project_planning_role | outbox.outbox_events_default      | SI    | r
+ project_planning_role | outbox.outbox_events_y202611      | SI    | r
+ project_planning_role | outbox.outbox_events_y202612      | SI    | r
+ project_planning_role | project_planning.episodes         | SIUD  | r
+ project_planning_role | project_planning.organizations    | SIUD  | r
+ project_planning_role | project_planning.projects         | SIUD  | r
+ project_planning_role | project_planning.script_revisions | SIUD  | r
+ project_planning_role | public.alembic_version            | S     | r
+(23 rows)
+
+====================================================================================================
+# E12.7 [ai_film_industrial] ⑬ 分区父子 ACL 对照
+# 目的：父表 vs 三分区逐项对照；app_role_select 列直接给出 t/f
+====================================================================================================
+        parent        |            object            | relkind |        grantee        | privilege_type | app_role_select | asset_service_role_select 
+----------------------+------------------------------+---------+-----------------------+----------------+-----------------+---------------------------
+ <parent>             | outbox.outbox_events         | p       | app_role              | SELECT         | t               | t
+ <parent>             | outbox.outbox_events         | p       | asset_service_role    | INSERT         | t               | t
+ <parent>             | outbox.outbox_events         | p       | asset_service_role    | SELECT         | t               | t
+ <parent>             | outbox.outbox_events         | p       | outbox_relay_role     | SELECT         | t               | t
+ <parent>             | outbox.outbox_events         | p       | postgres              | DELETE         | t               | t
+ <parent>             | outbox.outbox_events         | p       | postgres              | INSERT         | t               | t
+ <parent>             | outbox.outbox_events         | p       | postgres              | REFERENCES     | t               | t
+ <parent>             | outbox.outbox_events         | p       | postgres              | SELECT         | t               | t
+ <parent>             | outbox.outbox_events         | p       | postgres              | TRIGGER        | t               | t
+ <parent>             | outbox.outbox_events         | p       | postgres              | TRUNCATE       | t               | t
+ <parent>             | outbox.outbox_events         | p       | postgres              | UPDATE         | t               | t
+ <parent>             | outbox.outbox_events         | p       | project_planning_role | INSERT         | t               | t
+ <parent>             | outbox.outbox_events         | p       | project_planning_role | SELECT         | t               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | asset_service_role    | INSERT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | asset_service_role    | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | outbox_relay_role     | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | postgres              | DELETE         | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | postgres              | INSERT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | postgres              | REFERENCES     | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | postgres              | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | postgres              | TRIGGER        | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | postgres              | TRUNCATE       | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | postgres              | UPDATE         | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | project_planning_role | INSERT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | project_planning_role | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | asset_service_role    | INSERT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | asset_service_role    | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | outbox_relay_role     | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | postgres              | DELETE         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | postgres              | INSERT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | postgres              | REFERENCES     | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | postgres              | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | postgres              | TRIGGER        | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | postgres              | TRUNCATE       | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | postgres              | UPDATE         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | project_planning_role | INSERT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | project_planning_role | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | asset_service_role    | INSERT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | asset_service_role    | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | outbox_relay_role     | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | postgres              | DELETE         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | postgres              | INSERT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | postgres              | REFERENCES     | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | postgres              | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | postgres              | TRIGGER        | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | postgres              | TRUNCATE       | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | postgres              | UPDATE         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | project_planning_role | INSERT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | project_planning_role | SELECT         | f               | t
+(49 rows)
+
+====================================================================================================
+# E12.8 [ai_film_verify] ⑬ 分区父子 ACL 对照
+====================================================================================================
+        parent        |            object            | relkind |        grantee        | privilege_type | app_role_select | asset_service_role_select 
+----------------------+------------------------------+---------+-----------------------+----------------+-----------------+---------------------------
+ <parent>             | outbox.outbox_events         | p       | app_role              | SELECT         | t               | t
+ <parent>             | outbox.outbox_events         | p       | asset_service_role    | INSERT         | t               | t
+ <parent>             | outbox.outbox_events         | p       | asset_service_role    | SELECT         | t               | t
+ <parent>             | outbox.outbox_events         | p       | outbox_relay_role     | SELECT         | t               | t
+ <parent>             | outbox.outbox_events         | p       | postgres              | DELETE         | t               | t
+ <parent>             | outbox.outbox_events         | p       | postgres              | INSERT         | t               | t
+ <parent>             | outbox.outbox_events         | p       | postgres              | REFERENCES     | t               | t
+ <parent>             | outbox.outbox_events         | p       | postgres              | SELECT         | t               | t
+ <parent>             | outbox.outbox_events         | p       | postgres              | TRIGGER        | t               | t
+ <parent>             | outbox.outbox_events         | p       | postgres              | TRUNCATE       | t               | t
+ <parent>             | outbox.outbox_events         | p       | postgres              | UPDATE         | t               | t
+ <parent>             | outbox.outbox_events         | p       | project_planning_role | INSERT         | t               | t
+ <parent>             | outbox.outbox_events         | p       | project_planning_role | SELECT         | t               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | asset_service_role    | INSERT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | asset_service_role    | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | outbox_relay_role     | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | postgres              | DELETE         | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | postgres              | INSERT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | postgres              | REFERENCES     | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | postgres              | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | postgres              | TRIGGER        | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | postgres              | TRUNCATE       | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | postgres              | UPDATE         | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | project_planning_role | INSERT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_default | r       | project_planning_role | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | asset_service_role    | INSERT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | asset_service_role    | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | outbox_relay_role     | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | postgres              | DELETE         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | postgres              | INSERT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | postgres              | REFERENCES     | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | postgres              | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | postgres              | TRIGGER        | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | postgres              | TRUNCATE       | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | postgres              | UPDATE         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | project_planning_role | INSERT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202611 | r       | project_planning_role | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | asset_service_role    | INSERT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | asset_service_role    | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | outbox_relay_role     | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | postgres              | DELETE         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | postgres              | INSERT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | postgres              | REFERENCES     | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | postgres              | SELECT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | postgres              | TRIGGER        | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | postgres              | TRUNCATE       | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | postgres              | UPDATE         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | project_planning_role | INSERT         | f               | t
+ outbox.outbox_events | outbox.outbox_events_y202612 | r       | project_planning_role | SELECT         | f               | t
+(49 rows)
+
+====================================================================================================
+# E12.9 [ai_film_industrial] ⑭ 全对象类型最终有效权限
+# 目的：SCHEMA/TABLE/PARTITION/VIEW/SEQUENCE/FUNCTION/DATABASE 六类对象
+====================================================================================================
+     objtype     |         rolname          |                 object                 | privs 
+-----------------+--------------------------+----------------------------------------+-------
+ DATABASE        | app_role                 | ai_film_industrial                     | CT
+ DATABASE        | asset_service_role       | ai_film_industrial                     | CT
+ DATABASE        | outbox_relay_role        | ai_film_industrial                     | CT
+ DATABASE        | project_planning_role    | ai_film_industrial                     | CT
+ DATABASE        | svc_asset                | ai_film_industrial                     | CT
+ DATABASE        | svc_generation_execution | ai_film_industrial                     | CT
+ DATABASE        | svc_identity             | ai_film_industrial                     | CT
+ DATABASE        | svc_outbox_relay         | ai_film_industrial                     | CT
+ DATABASE        | svc_project_planning     | ai_film_industrial                     | CT
+ DATABASE        | svc_qc_governance        | ai_film_industrial                     | CT
+ DATABASE        | svc_shot_planning        | ai_film_industrial                     | CT
+ DATABASE        | svc_workflow             | ai_film_industrial                     | CT
+ FUNCTION        | app_role                 | asset_service.asset_versions_guard()   | X
+ FUNCTION        | app_role                 | asset_service.qc_reports_guard()       | X
+ FUNCTION        | app_role                 | audit.assert_transition_event_exists() | X
+ FUNCTION        | app_role                 | audit.reject_mutation()                | X
+ FUNCTION        | app_role                 | audit.reject_truncate()                | X
+ FUNCTION        | app_role                 | outbox.list_active_tenants()           | X
+ FUNCTION        | asset_service_role       | asset_service.asset_versions_guard()   | X
+ FUNCTION        | asset_service_role       | asset_service.qc_reports_guard()       | X
+ FUNCTION        | asset_service_role       | audit.assert_transition_event_exists() | X
+ FUNCTION        | asset_service_role       | audit.reject_mutation()                | X
+ FUNCTION        | asset_service_role       | audit.reject_truncate()                | X
+ FUNCTION        | asset_service_role       | outbox.list_active_tenants()           | 
+ FUNCTION        | outbox_relay_role        | asset_service.asset_versions_guard()   | X
+ FUNCTION        | outbox_relay_role        | asset_service.qc_reports_guard()       | X
+ FUNCTION        | outbox_relay_role        | audit.assert_transition_event_exists() | X
+ FUNCTION        | outbox_relay_role        | audit.reject_mutation()                | X
+ FUNCTION        | outbox_relay_role        | audit.reject_truncate()                | X
+ FUNCTION        | outbox_relay_role        | outbox.list_active_tenants()           | X
+ FUNCTION        | project_planning_role    | asset_service.asset_versions_guard()   | X
+ FUNCTION        | project_planning_role    | asset_service.qc_reports_guard()       | X
+ FUNCTION        | project_planning_role    | audit.assert_transition_event_exists() | X
+ FUNCTION        | project_planning_role    | audit.reject_mutation()                | X
+ FUNCTION        | project_planning_role    | audit.reject_truncate()                | X
+ FUNCTION        | project_planning_role    | outbox.list_active_tenants()           | 
+ FUNCTION        | svc_asset                | asset_service.asset_versions_guard()   | X
+ FUNCTION        | svc_asset                | asset_service.qc_reports_guard()       | X
+ FUNCTION        | svc_asset                | audit.assert_transition_event_exists() | X
+ FUNCTION        | svc_asset                | audit.reject_mutation()                | X
+ FUNCTION        | svc_asset                | audit.reject_truncate()                | X
+ FUNCTION        | svc_asset                | outbox.list_active_tenants()           | 
+ FUNCTION        | svc_generation_execution | asset_service.asset_versions_guard()   | X
+ FUNCTION        | svc_generation_execution | asset_service.qc_reports_guard()       | X
+ FUNCTION        | svc_generation_execution | audit.assert_transition_event_exists() | X
+ FUNCTION        | svc_generation_execution | audit.reject_mutation()                | X
+ FUNCTION        | svc_generation_execution | audit.reject_truncate()                | X
+ FUNCTION        | svc_generation_execution | outbox.list_active_tenants()           | 
+ FUNCTION        | svc_identity             | asset_service.asset_versions_guard()   | X
+ FUNCTION        | svc_identity             | asset_service.qc_reports_guard()       | X
+ FUNCTION        | svc_identity             | audit.assert_transition_event_exists() | X
+ FUNCTION        | svc_identity             | audit.reject_mutation()                | X
+ FUNCTION        | svc_identity             | audit.reject_truncate()                | X
+ FUNCTION        | svc_identity             | outbox.list_active_tenants()           | 
+ FUNCTION        | svc_outbox_relay         | asset_service.asset_versions_guard()   | X
+ FUNCTION        | svc_outbox_relay         | asset_service.qc_reports_guard()       | X
+ FUNCTION        | svc_outbox_relay         | audit.assert_transition_event_exists() | X
+ FUNCTION        | svc_outbox_relay         | audit.reject_mutation()                | X
+ FUNCTION        | svc_outbox_relay         | audit.reject_truncate()                | X
+ FUNCTION        | svc_outbox_relay         | outbox.list_active_tenants()           | 
+ FUNCTION        | svc_project_planning     | asset_service.asset_versions_guard()   | X
+ FUNCTION        | svc_project_planning     | asset_service.qc_reports_guard()       | X
+ FUNCTION        | svc_project_planning     | audit.assert_transition_event_exists() | X
+ FUNCTION        | svc_project_planning     | audit.reject_mutation()                | X
+ FUNCTION        | svc_project_planning     | audit.reject_truncate()                | X
+ FUNCTION        | svc_project_planning     | outbox.list_active_tenants()           | 
+ FUNCTION        | svc_qc_governance        | asset_service.asset_versions_guard()   | X
+ FUNCTION        | svc_qc_governance        | asset_service.qc_reports_guard()       | X
+ FUNCTION        | svc_qc_governance        | audit.assert_transition_event_exists() | X
+ FUNCTION        | svc_qc_governance        | audit.reject_mutation()                | X
+ FUNCTION        | svc_qc_governance        | audit.reject_truncate()                | X
+ FUNCTION        | svc_qc_governance        | outbox.list_active_tenants()           | 
+ FUNCTION        | svc_shot_planning        | asset_service.asset_versions_guard()   | X
+ FUNCTION        | svc_shot_planning        | asset_service.qc_reports_guard()       | X
+ FUNCTION        | svc_shot_planning        | audit.assert_transition_event_exists() | X
+ FUNCTION        | svc_shot_planning        | audit.reject_mutation()                | X
+ FUNCTION        | svc_shot_planning        | audit.reject_truncate()                | X
+ FUNCTION        | svc_shot_planning        | outbox.list_active_tenants()           | 
+ FUNCTION        | svc_workflow             | asset_service.asset_versions_guard()   | X
+ FUNCTION        | svc_workflow             | asset_service.qc_reports_guard()       | X
+ FUNCTION        | svc_workflow             | audit.assert_transition_event_exists() | X
+ FUNCTION        | svc_workflow             | audit.reject_mutation()                | X
+ FUNCTION        | svc_workflow             | audit.reject_truncate()                | X
+ FUNCTION        | svc_workflow             | outbox.list_active_tenants()           | 
+ SCHEMA          | app_role                 | asset_service                          | 
+ SCHEMA          | app_role                 | audit                                  | 
+ SCHEMA          | app_role                 | auth                                   | 
+ SCHEMA          | app_role                 | outbox                                 | U
+ SCHEMA          | app_role                 | project_planning                       | 
+ SCHEMA          | app_role                 | public                                 | U
+ SCHEMA          | asset_service_role       | asset_service                          | U
+ SCHEMA          | asset_service_role       | audit                                  | U
+ SCHEMA          | asset_service_role       | auth                                   | U
+ SCHEMA          | asset_service_role       | outbox                                 | U
+ SCHEMA          | asset_service_role       | project_planning                       | U
+ SCHEMA          | asset_service_role       | public                                 | U
+ SCHEMA          | outbox_relay_role        | asset_service                          | 
+ SCHEMA          | outbox_relay_role        | audit                                  | 
+ SCHEMA          | outbox_relay_role        | auth                                   | 
+ SCHEMA          | outbox_relay_role        | outbox                                 | U
+ SCHEMA          | outbox_relay_role        | project_planning                       | 
+ SCHEMA          | outbox_relay_role        | public                                 | U
+ SCHEMA          | project_planning_role    | asset_service                          | 
+ SCHEMA          | project_planning_role    | audit                                  | U
+ SCHEMA          | project_planning_role    | auth                                   | U
+ SCHEMA          | project_planning_role    | outbox                                 | U
+ SCHEMA          | project_planning_role    | project_planning                       | U
+ SCHEMA          | project_planning_role    | public                                 | U
+ SCHEMA          | svc_asset                | asset_service                          | 
+ SCHEMA          | svc_asset                | audit                                  | 
+ SCHEMA          | svc_asset                | auth                                   | 
+ SCHEMA          | svc_asset                | outbox                                 | 
+ SCHEMA          | svc_asset                | project_planning                       | 
+ SCHEMA          | svc_asset                | public                                 | U
+ SCHEMA          | svc_generation_execution | asset_service                          | 
+ SCHEMA          | svc_generation_execution | audit                                  | 
+ SCHEMA          | svc_generation_execution | auth                                   | 
+ SCHEMA          | svc_generation_execution | outbox                                 | 
+ SCHEMA          | svc_generation_execution | project_planning                       | 
+ SCHEMA          | svc_generation_execution | public                                 | U
+ SCHEMA          | svc_identity             | asset_service                          | 
+ SCHEMA          | svc_identity             | audit                                  | 
+ SCHEMA          | svc_identity             | auth                                   | 
+ SCHEMA          | svc_identity             | outbox                                 | 
+ SCHEMA          | svc_identity             | project_planning                       | 
+ SCHEMA          | svc_identity             | public                                 | U
+ SCHEMA          | svc_outbox_relay         | asset_service                          | 
+ SCHEMA          | svc_outbox_relay         | audit                                  | 
+ SCHEMA          | svc_outbox_relay         | auth                                   | 
+ SCHEMA          | svc_outbox_relay         | outbox                                 | 
+ SCHEMA          | svc_outbox_relay         | project_planning                       | 
+ SCHEMA          | svc_outbox_relay         | public                                 | U
+ SCHEMA          | svc_project_planning     | asset_service                          | 
+ SCHEMA          | svc_project_planning     | audit                                  | 
+ SCHEMA          | svc_project_planning     | auth                                   | 
+ SCHEMA          | svc_project_planning     | outbox                                 | 
+ SCHEMA          | svc_project_planning     | project_planning                       | 
+ SCHEMA          | svc_project_planning     | public                                 | U
+ SCHEMA          | svc_qc_governance        | asset_service                          | 
+ SCHEMA          | svc_qc_governance        | audit                                  | 
+ SCHEMA          | svc_qc_governance        | auth                                   | 
+ SCHEMA          | svc_qc_governance        | outbox                                 | 
+ SCHEMA          | svc_qc_governance        | project_planning                       | 
+ SCHEMA          | svc_qc_governance        | public                                 | U
+ SCHEMA          | svc_shot_planning        | asset_service                          | 
+ SCHEMA          | svc_shot_planning        | audit                                  | 
+ SCHEMA          | svc_shot_planning        | auth                                   | 
+ SCHEMA          | svc_shot_planning        | outbox                                 | 
+ SCHEMA          | svc_shot_planning        | project_planning                       | 
+ SCHEMA          | svc_shot_planning        | public                                 | U
+ SCHEMA          | svc_workflow             | asset_service                          | 
+ SCHEMA          | svc_workflow             | audit                                  | 
+ SCHEMA          | svc_workflow             | auth                                   | 
+ SCHEMA          | svc_workflow             | outbox                                 | 
+ SCHEMA          | svc_workflow             | project_planning                       | 
+ SCHEMA          | svc_workflow             | public                                 | U
+ SEQUENCE        | app_role                 | outbox.maintenance_runs_id_seq         | US
+ SEQUENCE        | asset_service_role       | outbox.maintenance_runs_id_seq         | U
+ SEQUENCE        | outbox_relay_role        | outbox.maintenance_runs_id_seq         | U
+ SEQUENCE        | project_planning_role    | outbox.maintenance_runs_id_seq         | U
+ SEQUENCE        | svc_asset                | outbox.maintenance_runs_id_seq         | 
+ SEQUENCE        | svc_generation_execution | outbox.maintenance_runs_id_seq         | 
+ SEQUENCE        | svc_identity             | outbox.maintenance_runs_id_seq         | 
+ SEQUENCE        | svc_outbox_relay         | outbox.maintenance_runs_id_seq         | 
+ SEQUENCE        | svc_project_planning     | outbox.maintenance_runs_id_seq         | 
+ SEQUENCE        | svc_qc_governance        | outbox.maintenance_runs_id_seq         | 
+ SEQUENCE        | svc_shot_planning        | outbox.maintenance_runs_id_seq         | 
+ SEQUENCE        | svc_workflow             | outbox.maintenance_runs_id_seq         | 
+ TABLE/PARTITION | app_role                 | asset_service.asset_versions           | 
+ TABLE/PARTITION | app_role                 | asset_service.qc_reports               | 
+ TABLE/PARTITION | app_role                 | audit.status_transitions               | 
+ TABLE/PARTITION | app_role                 | auth.revoked_tokens                    | 
+ TABLE/PARTITION | app_role                 | outbox.maintenance_runs                | 
+ TABLE/PARTITION | app_role                 | outbox.outbox_events                   | S
+ TABLE/PARTITION | app_role                 | outbox.outbox_events_default           | 
+ TABLE/PARTITION | app_role                 | outbox.outbox_events_y202611           | 
+ TABLE/PARTITION | app_role                 | outbox.outbox_events_y202612           | 
+ TABLE/PARTITION | app_role                 | project_planning.episodes              | 
+ TABLE/PARTITION | app_role                 | project_planning.organizations         | 
+ TABLE/PARTITION | app_role                 | project_planning.projects              | 
+ TABLE/PARTITION | app_role                 | project_planning.script_revisions      | 
+ TABLE/PARTITION | app_role                 | public.alembic_version                 | 
+ TABLE/PARTITION | asset_service_role       | asset_service.asset_versions           | SIU
+ TABLE/PARTITION | asset_service_role       | asset_service.qc_reports               | SI
+ TABLE/PARTITION | asset_service_role       | audit.status_transitions               | SI
+ TABLE/PARTITION | asset_service_role       | auth.revoked_tokens                    | S
+ TABLE/PARTITION | asset_service_role       | outbox.maintenance_runs                | 
+ TABLE/PARTITION | asset_service_role       | outbox.outbox_events                   | SI
+ TABLE/PARTITION | asset_service_role       | outbox.outbox_events_default           | SI
+ TABLE/PARTITION | asset_service_role       | outbox.outbox_events_y202611           | SI
+ TABLE/PARTITION | asset_service_role       | outbox.outbox_events_y202612           | SI
+ TABLE/PARTITION | asset_service_role       | project_planning.episodes              | 
+ TABLE/PARTITION | asset_service_role       | project_planning.organizations         | 
+ TABLE/PARTITION | asset_service_role       | project_planning.projects              | 
+ TABLE/PARTITION | asset_service_role       | project_planning.script_revisions      | 
+ TABLE/PARTITION | asset_service_role       | public.alembic_version                 | S
+ TABLE/PARTITION | outbox_relay_role        | asset_service.asset_versions           | 
+ TABLE/PARTITION | outbox_relay_role        | asset_service.qc_reports               | 
+ TABLE/PARTITION | outbox_relay_role        | audit.status_transitions               | 
+ TABLE/PARTITION | outbox_relay_role        | auth.revoked_tokens                    | 
+ TABLE/PARTITION | outbox_relay_role        | outbox.maintenance_runs                | 
+ TABLE/PARTITION | outbox_relay_role        | outbox.outbox_events                   | S
+ TABLE/PARTITION | outbox_relay_role        | outbox.outbox_events_default           | S
+ TABLE/PARTITION | outbox_relay_role        | outbox.outbox_events_y202611           | S
+ TABLE/PARTITION | outbox_relay_role        | outbox.outbox_events_y202612           | S
+ TABLE/PARTITION | outbox_relay_role        | project_planning.episodes              | 
+ TABLE/PARTITION | outbox_relay_role        | project_planning.organizations         | 
+ TABLE/PARTITION | outbox_relay_role        | project_planning.projects              | 
+ TABLE/PARTITION | outbox_relay_role        | project_planning.script_revisions      | 
+ TABLE/PARTITION | outbox_relay_role        | public.alembic_version                 | 
+ TABLE/PARTITION | project_planning_role    | asset_service.asset_versions           | 
+ TABLE/PARTITION | project_planning_role    | asset_service.qc_reports               | 
+ TABLE/PARTITION | project_planning_role    | audit.status_transitions               | SI
+ TABLE/PARTITION | project_planning_role    | auth.revoked_tokens                    | S
+ TABLE/PARTITION | project_planning_role    | outbox.maintenance_runs                | 
+ TABLE/PARTITION | project_planning_role    | outbox.outbox_events                   | SI
+ TABLE/PARTITION | project_planning_role    | outbox.outbox_events_default           | SI
+ TABLE/PARTITION | project_planning_role    | outbox.outbox_events_y202611           | SI
+ TABLE/PARTITION | project_planning_role    | outbox.outbox_events_y202612           | SI
+ TABLE/PARTITION | project_planning_role    | project_planning.episodes              | SIU
+ TABLE/PARTITION | project_planning_role    | project_planning.organizations         | S
+ TABLE/PARTITION | project_planning_role    | project_planning.projects              | SIU
+ TABLE/PARTITION | project_planning_role    | project_planning.script_revisions      | SIU
+ TABLE/PARTITION | project_planning_role    | public.alembic_version                 | S
+ TABLE/PARTITION | svc_asset                | asset_service.asset_versions           | 
+ TABLE/PARTITION | svc_asset                | asset_service.qc_reports               | 
+ TABLE/PARTITION | svc_asset                | audit.status_transitions               | 
+ TABLE/PARTITION | svc_asset                | auth.revoked_tokens                    | 
+ TABLE/PARTITION | svc_asset                | outbox.maintenance_runs                | 
+ TABLE/PARTITION | svc_asset                | outbox.outbox_events                   | 
+ TABLE/PARTITION | svc_asset                | outbox.outbox_events_default           | 
+ TABLE/PARTITION | svc_asset                | outbox.outbox_events_y202611           | 
+ TABLE/PARTITION | svc_asset                | outbox.outbox_events_y202612           | 
+ TABLE/PARTITION | svc_asset                | project_planning.episodes              | 
+ TABLE/PARTITION | svc_asset                | project_planning.organizations         | 
+ TABLE/PARTITION | svc_asset                | project_planning.projects              | 
+ TABLE/PARTITION | svc_asset                | project_planning.script_revisions      | 
+ TABLE/PARTITION | svc_asset                | public.alembic_version                 | 
+ TABLE/PARTITION | svc_generation_execution | asset_service.asset_versions           | 
+ TABLE/PARTITION | svc_generation_execution | asset_service.qc_reports               | 
+ TABLE/PARTITION | svc_generation_execution | audit.status_transitions               | 
+ TABLE/PARTITION | svc_generation_execution | auth.revoked_tokens                    | 
+ TABLE/PARTITION | svc_generation_execution | outbox.maintenance_runs                | 
+ TABLE/PARTITION | svc_generation_execution | outbox.outbox_events                   | 
+ TABLE/PARTITION | svc_generation_execution | outbox.outbox_events_default           | 
+ TABLE/PARTITION | svc_generation_execution | outbox.outbox_events_y202611           | 
+ TABLE/PARTITION | svc_generation_execution | outbox.outbox_events_y202612           | 
+ TABLE/PARTITION | svc_generation_execution | project_planning.episodes              | 
+ TABLE/PARTITION | svc_generation_execution | project_planning.organizations         | 
+ TABLE/PARTITION | svc_generation_execution | project_planning.projects              | 
+ TABLE/PARTITION | svc_generation_execution | project_planning.script_revisions      | 
+ TABLE/PARTITION | svc_generation_execution | public.alembic_version                 | 
+ TABLE/PARTITION | svc_identity             | asset_service.asset_versions           | 
+ TABLE/PARTITION | svc_identity             | asset_service.qc_reports               | 
+ TABLE/PARTITION | svc_identity             | audit.status_transitions               | 
+ TABLE/PARTITION | svc_identity             | auth.revoked_tokens                    | 
+ TABLE/PARTITION | svc_identity             | outbox.maintenance_runs                | 
+ TABLE/PARTITION | svc_identity             | outbox.outbox_events                   | 
+ TABLE/PARTITION | svc_identity             | outbox.outbox_events_default           | 
+ TABLE/PARTITION | svc_identity             | outbox.outbox_events_y202611           | 
+ TABLE/PARTITION | svc_identity             | outbox.outbox_events_y202612           | 
+ TABLE/PARTITION | svc_identity             | project_planning.episodes              | 
+ TABLE/PARTITION | svc_identity             | project_planning.organizations         | 
+ TABLE/PARTITION | svc_identity             | project_planning.projects              | 
+ TABLE/PARTITION | svc_identity             | project_planning.script_revisions      | 
+ TABLE/PARTITION | svc_identity             | public.alembic_version                 | 
+ TABLE/PARTITION | svc_outbox_relay         | asset_service.asset_versions           | 
+ TABLE/PARTITION | svc_outbox_relay         | asset_service.qc_reports               | 
+ TABLE/PARTITION | svc_outbox_relay         | audit.status_transitions               | 
+ TABLE/PARTITION | svc_outbox_relay         | auth.revoked_tokens                    | 
+ TABLE/PARTITION | svc_outbox_relay         | outbox.maintenance_runs                | 
+ TABLE/PARTITION | svc_outbox_relay         | outbox.outbox_events                   | 
+ TABLE/PARTITION | svc_outbox_relay         | outbox.outbox_events_default           | 
+ TABLE/PARTITION | svc_outbox_relay         | outbox.outbox_events_y202611           | 
+ TABLE/PARTITION | svc_outbox_relay         | outbox.outbox_events_y202612           | 
+ TABLE/PARTITION | svc_outbox_relay         | project_planning.episodes              | 
+ TABLE/PARTITION | svc_outbox_relay         | project_planning.organizations         | 
+ TABLE/PARTITION | svc_outbox_relay         | project_planning.projects              | 
+ TABLE/PARTITION | svc_outbox_relay         | project_planning.script_revisions      | 
+ TABLE/PARTITION | svc_outbox_relay         | public.alembic_version                 | 
+ TABLE/PARTITION | svc_project_planning     | asset_service.asset_versions           | 
+ TABLE/PARTITION | svc_project_planning     | asset_service.qc_reports               | 
+ TABLE/PARTITION | svc_project_planning     | audit.status_transitions               | 
+ TABLE/PARTITION | svc_project_planning     | auth.revoked_tokens                    | 
+ TABLE/PARTITION | svc_project_planning     | outbox.maintenance_runs                | 
+ TABLE/PARTITION | svc_project_planning     | outbox.outbox_events                   | 
+ TABLE/PARTITION | svc_project_planning     | outbox.outbox_events_default           | 
+ TABLE/PARTITION | svc_project_planning     | outbox.outbox_events_y202611           | 
+ TABLE/PARTITION | svc_project_planning     | outbox.outbox_events_y202612           | 
+ TABLE/PARTITION | svc_project_planning     | project_planning.episodes              | 
+ TABLE/PARTITION | svc_project_planning     | project_planning.organizations         | 
+ TABLE/PARTITION | svc_project_planning     | project_planning.projects              | 
+ TABLE/PARTITION | svc_project_planning     | project_planning.script_revisions      | 
+ TABLE/PARTITION | svc_project_planning     | public.alembic_version                 | 
+ TABLE/PARTITION | svc_qc_governance        | asset_service.asset_versions           | 
+ TABLE/PARTITION | svc_qc_governance        | asset_service.qc_reports               | 
+ TABLE/PARTITION | svc_qc_governance        | audit.status_transitions               | 
+ TABLE/PARTITION | svc_qc_governance        | auth.revoked_tokens                    | 
+ TABLE/PARTITION | svc_qc_governance        | outbox.maintenance_runs                | 
+ TABLE/PARTITION | svc_qc_governance        | outbox.outbox_events                   | 
+ TABLE/PARTITION | svc_qc_governance        | outbox.outbox_events_default           | 
+ TABLE/PARTITION | svc_qc_governance        | outbox.outbox_events_y202611           | 
+ TABLE/PARTITION | svc_qc_governance        | outbox.outbox_events_y202612           | 
+ TABLE/PARTITION | svc_qc_governance        | project_planning.episodes              | 
+ TABLE/PARTITION | svc_qc_governance        | project_planning.organizations         | 
+ TABLE/PARTITION | svc_qc_governance        | project_planning.projects              | 
+ TABLE/PARTITION | svc_qc_governance        | project_planning.script_revisions      | 
+ TABLE/PARTITION | svc_qc_governance        | public.alembic_version                 | 
+ TABLE/PARTITION | svc_shot_planning        | asset_service.asset_versions           | 
+ TABLE/PARTITION | svc_shot_planning        | asset_service.qc_reports               | 
+ TABLE/PARTITION | svc_shot_planning        | audit.status_transitions               | 
+ TABLE/PARTITION | svc_shot_planning        | auth.revoked_tokens                    | 
+ TABLE/PARTITION | svc_shot_planning        | outbox.maintenance_runs                | 
+ TABLE/PARTITION | svc_shot_planning        | outbox.outbox_events                   | 
+ TABLE/PARTITION | svc_shot_planning        | outbox.outbox_events_default           | 
+ TABLE/PARTITION | svc_shot_planning        | outbox.outbox_events_y202611           | 
+ TABLE/PARTITION | svc_shot_planning        | outbox.outbox_events_y202612           | 
+ TABLE/PARTITION | svc_shot_planning        | project_planning.episodes              | 
+ TABLE/PARTITION | svc_shot_planning        | project_planning.organizations         | 
+ TABLE/PARTITION | svc_shot_planning        | project_planning.projects              | 
+ TABLE/PARTITION | svc_shot_planning        | project_planning.script_revisions      | 
+ TABLE/PARTITION | svc_shot_planning        | public.alembic_version                 | 
+ TABLE/PARTITION | svc_workflow             | asset_service.asset_versions           | 
+ TABLE/PARTITION | svc_workflow             | asset_service.qc_reports               | 
+ TABLE/PARTITION | svc_workflow             | audit.status_transitions               | 
+ TABLE/PARTITION | svc_workflow             | auth.revoked_tokens                    | 
+ TABLE/PARTITION | svc_workflow             | outbox.maintenance_runs                | 
+ TABLE/PARTITION | svc_workflow             | outbox.outbox_events                   | 
+ TABLE/PARTITION | svc_workflow             | outbox.outbox_events_default           | 
+ TABLE/PARTITION | svc_workflow             | outbox.outbox_events_y202611           | 
+ TABLE/PARTITION | svc_workflow             | outbox.outbox_events_y202612           | 
+ TABLE/PARTITION | svc_workflow             | project_planning.episodes              | 
+ TABLE/PARTITION | svc_workflow             | project_planning.organizations         | 
+ TABLE/PARTITION | svc_workflow             | project_planning.projects              | 
+ TABLE/PARTITION | svc_workflow             | project_planning.script_revisions      | 
+ TABLE/PARTITION | svc_workflow             | public.alembic_version                 | 
+(336 rows)
+
+====================================================================================================
+# E12.10 [ai_film_verify] ⑭ 全对象类型最终有效权限
+====================================================================================================
+     objtype     |         rolname          |                object                | privs 
+-----------------+--------------------------+--------------------------------------+-------
+ DATABASE        | app_role                 | ai_film_verify                       | CT
+ DATABASE        | asset_service_role       | ai_film_verify                       | CT
+ DATABASE        | outbox_relay_role        | ai_film_verify                       | CT
+ DATABASE        | project_planning_role    | ai_film_verify                       | CT
+ DATABASE        | svc_asset                | ai_film_verify                       | CT
+ DATABASE        | svc_generation_execution | ai_film_verify                       | CT
+ DATABASE        | svc_identity             | ai_film_verify                       | CT
+ DATABASE        | svc_outbox_relay         | ai_film_verify                       | CT
+ DATABASE        | svc_project_planning     | ai_film_verify                       | CT
+ DATABASE        | svc_qc_governance        | ai_film_verify                       | CT
+ DATABASE        | svc_shot_planning        | ai_film_verify                       | CT
+ DATABASE        | svc_workflow             | ai_film_verify                       | CT
+ FUNCTION        | app_role                 | asset_service.asset_versions_guard() | X
+ FUNCTION        | app_role                 | asset_service.qc_reports_guard()     | X
+ FUNCTION        | app_role                 | outbox.list_active_tenants()         | X
+ FUNCTION        | asset_service_role       | asset_service.asset_versions_guard() | X
+ FUNCTION        | asset_service_role       | asset_service.qc_reports_guard()     | X
+ FUNCTION        | asset_service_role       | outbox.list_active_tenants()         | 
+ FUNCTION        | outbox_relay_role        | asset_service.asset_versions_guard() | X
+ FUNCTION        | outbox_relay_role        | asset_service.qc_reports_guard()     | X
+ FUNCTION        | outbox_relay_role        | outbox.list_active_tenants()         | X
+ FUNCTION        | project_planning_role    | asset_service.asset_versions_guard() | X
+ FUNCTION        | project_planning_role    | asset_service.qc_reports_guard()     | X
+ FUNCTION        | project_planning_role    | outbox.list_active_tenants()         | 
+ FUNCTION        | svc_asset                | asset_service.asset_versions_guard() | X
+ FUNCTION        | svc_asset                | asset_service.qc_reports_guard()     | X
+ FUNCTION        | svc_asset                | outbox.list_active_tenants()         | 
+ FUNCTION        | svc_generation_execution | asset_service.asset_versions_guard() | X
+ FUNCTION        | svc_generation_execution | asset_service.qc_reports_guard()     | X
+ FUNCTION        | svc_generation_execution | outbox.list_active_tenants()         | 
+ FUNCTION        | svc_identity             | asset_service.asset_versions_guard() | X
+ FUNCTION        | svc_identity             | asset_service.qc_reports_guard()     | X
+ FUNCTION        | svc_identity             | outbox.list_active_tenants()         | 
+ FUNCTION        | svc_outbox_relay         | asset_service.asset_versions_guard() | X
+ FUNCTION        | svc_outbox_relay         | asset_service.qc_reports_guard()     | X
+ FUNCTION        | svc_outbox_relay         | outbox.list_active_tenants()         | 
+ FUNCTION        | svc_project_planning     | asset_service.asset_versions_guard() | X
+ FUNCTION        | svc_project_planning     | asset_service.qc_reports_guard()     | X
+ FUNCTION        | svc_project_planning     | outbox.list_active_tenants()         | 
+ FUNCTION        | svc_qc_governance        | asset_service.asset_versions_guard() | X
+ FUNCTION        | svc_qc_governance        | asset_service.qc_reports_guard()     | X
+ FUNCTION        | svc_qc_governance        | outbox.list_active_tenants()         | 
+ FUNCTION        | svc_shot_planning        | asset_service.asset_versions_guard() | X
+ FUNCTION        | svc_shot_planning        | asset_service.qc_reports_guard()     | X
+ FUNCTION        | svc_shot_planning        | outbox.list_active_tenants()         | 
+ FUNCTION        | svc_workflow             | asset_service.asset_versions_guard() | X
+ FUNCTION        | svc_workflow             | asset_service.qc_reports_guard()     | X
+ FUNCTION        | svc_workflow             | outbox.list_active_tenants()         | 
+ SCHEMA          | app_role                 | asset_service                        | 
+ SCHEMA          | app_role                 | auth                                 | 
+ SCHEMA          | app_role                 | outbox                               | U
+ SCHEMA          | app_role                 | project_planning                     | 
+ SCHEMA          | app_role                 | public                               | U
+ SCHEMA          | asset_service_role       | asset_service                        | U
+ SCHEMA          | asset_service_role       | auth                                 | U
+ SCHEMA          | asset_service_role       | outbox                               | U
+ SCHEMA          | asset_service_role       | project_planning                     | U
+ SCHEMA          | asset_service_role       | public                               | U
+ SCHEMA          | outbox_relay_role        | asset_service                        | 
+ SCHEMA          | outbox_relay_role        | auth                                 | 
+ SCHEMA          | outbox_relay_role        | outbox                               | U
+ SCHEMA          | outbox_relay_role        | project_planning                     | 
+ SCHEMA          | outbox_relay_role        | public                               | U
+ SCHEMA          | project_planning_role    | asset_service                        | 
+ SCHEMA          | project_planning_role    | auth                                 | U
+ SCHEMA          | project_planning_role    | outbox                               | U
+ SCHEMA          | project_planning_role    | project_planning                     | U
+ SCHEMA          | project_planning_role    | public                               | U
+ SCHEMA          | svc_asset                | asset_service                        | 
+ SCHEMA          | svc_asset                | auth                                 | 
+ SCHEMA          | svc_asset                | outbox                               | 
+ SCHEMA          | svc_asset                | project_planning                     | 
+ SCHEMA          | svc_asset                | public                               | U
+ SCHEMA          | svc_generation_execution | asset_service                        | 
+ SCHEMA          | svc_generation_execution | auth                                 | 
+ SCHEMA          | svc_generation_execution | outbox                               | 
+ SCHEMA          | svc_generation_execution | project_planning                     | 
+ SCHEMA          | svc_generation_execution | public                               | U
+ SCHEMA          | svc_identity             | asset_service                        | 
+ SCHEMA          | svc_identity             | auth                                 | 
+ SCHEMA          | svc_identity             | outbox                               | 
+ SCHEMA          | svc_identity             | project_planning                     | 
+ SCHEMA          | svc_identity             | public                               | U
+ SCHEMA          | svc_outbox_relay         | asset_service                        | 
+ SCHEMA          | svc_outbox_relay         | auth                                 | 
+ SCHEMA          | svc_outbox_relay         | outbox                               | 
+ SCHEMA          | svc_outbox_relay         | project_planning                     | 
+ SCHEMA          | svc_outbox_relay         | public                               | U
+ SCHEMA          | svc_project_planning     | asset_service                        | 
+ SCHEMA          | svc_project_planning     | auth                                 | 
+ SCHEMA          | svc_project_planning     | outbox                               | 
+ SCHEMA          | svc_project_planning     | project_planning                     | 
+ SCHEMA          | svc_project_planning     | public                               | U
+ SCHEMA          | svc_qc_governance        | asset_service                        | 
+ SCHEMA          | svc_qc_governance        | auth                                 | 
+ SCHEMA          | svc_qc_governance        | outbox                               | 
+ SCHEMA          | svc_qc_governance        | project_planning                     | 
+ SCHEMA          | svc_qc_governance        | public                               | U
+ SCHEMA          | svc_shot_planning        | asset_service                        | 
+ SCHEMA          | svc_shot_planning        | auth                                 | 
+ SCHEMA          | svc_shot_planning        | outbox                               | 
+ SCHEMA          | svc_shot_planning        | project_planning                     | 
+ SCHEMA          | svc_shot_planning        | public                               | U
+ SCHEMA          | svc_workflow             | asset_service                        | 
+ SCHEMA          | svc_workflow             | auth                                 | 
+ SCHEMA          | svc_workflow             | outbox                               | 
+ SCHEMA          | svc_workflow             | project_planning                     | 
+ SCHEMA          | svc_workflow             | public                               | U
+ SEQUENCE        | app_role                 | outbox.maintenance_runs_id_seq       | US
+ SEQUENCE        | asset_service_role       | outbox.maintenance_runs_id_seq       | U
+ SEQUENCE        | outbox_relay_role        | outbox.maintenance_runs_id_seq       | U
+ SEQUENCE        | project_planning_role    | outbox.maintenance_runs_id_seq       | U
+ SEQUENCE        | svc_asset                | outbox.maintenance_runs_id_seq       | 
+ SEQUENCE        | svc_generation_execution | outbox.maintenance_runs_id_seq       | 
+ SEQUENCE        | svc_identity             | outbox.maintenance_runs_id_seq       | 
+ SEQUENCE        | svc_outbox_relay         | outbox.maintenance_runs_id_seq       | 
+ SEQUENCE        | svc_project_planning     | outbox.maintenance_runs_id_seq       | 
+ SEQUENCE        | svc_qc_governance        | outbox.maintenance_runs_id_seq       | 
+ SEQUENCE        | svc_shot_planning        | outbox.maintenance_runs_id_seq       | 
+ SEQUENCE        | svc_workflow             | outbox.maintenance_runs_id_seq       | 
+ TABLE/PARTITION | app_role                 | asset_service.asset_versions         | 
+ TABLE/PARTITION | app_role                 | asset_service.qc_reports             | 
+ TABLE/PARTITION | app_role                 | auth.revoked_tokens                  | 
+ TABLE/PARTITION | app_role                 | outbox.maintenance_runs              | 
+ TABLE/PARTITION | app_role                 | outbox.outbox_events                 | S
+ TABLE/PARTITION | app_role                 | outbox.outbox_events_default         | 
+ TABLE/PARTITION | app_role                 | outbox.outbox_events_y202611         | 
+ TABLE/PARTITION | app_role                 | outbox.outbox_events_y202612         | 
+ TABLE/PARTITION | app_role                 | project_planning.episodes            | 
+ TABLE/PARTITION | app_role                 | project_planning.organizations       | 
+ TABLE/PARTITION | app_role                 | project_planning.projects            | 
+ TABLE/PARTITION | app_role                 | project_planning.script_revisions    | 
+ TABLE/PARTITION | app_role                 | public.alembic_version               | 
+ TABLE/PARTITION | asset_service_role       | asset_service.asset_versions         | SIU
+ TABLE/PARTITION | asset_service_role       | asset_service.qc_reports             | SI
+ TABLE/PARTITION | asset_service_role       | auth.revoked_tokens                  | S
+ TABLE/PARTITION | asset_service_role       | outbox.maintenance_runs              | 
+ TABLE/PARTITION | asset_service_role       | outbox.outbox_events                 | SI
+ TABLE/PARTITION | asset_service_role       | outbox.outbox_events_default         | SI
+ TABLE/PARTITION | asset_service_role       | outbox.outbox_events_y202611         | SI
+ TABLE/PARTITION | asset_service_role       | outbox.outbox_events_y202612         | SI
+ TABLE/PARTITION | asset_service_role       | project_planning.episodes            | 
+ TABLE/PARTITION | asset_service_role       | project_planning.organizations       | 
+ TABLE/PARTITION | asset_service_role       | project_planning.projects            | 
+ TABLE/PARTITION | asset_service_role       | project_planning.script_revisions    | 
+ TABLE/PARTITION | asset_service_role       | public.alembic_version               | S
+ TABLE/PARTITION | outbox_relay_role        | asset_service.asset_versions         | 
+ TABLE/PARTITION | outbox_relay_role        | asset_service.qc_reports             | 
+ TABLE/PARTITION | outbox_relay_role        | auth.revoked_tokens                  | 
+ TABLE/PARTITION | outbox_relay_role        | outbox.maintenance_runs              | 
+ TABLE/PARTITION | outbox_relay_role        | outbox.outbox_events                 | S
+ TABLE/PARTITION | outbox_relay_role        | outbox.outbox_events_default         | S
+ TABLE/PARTITION | outbox_relay_role        | outbox.outbox_events_y202611         | S
+ TABLE/PARTITION | outbox_relay_role        | outbox.outbox_events_y202612         | S
+ TABLE/PARTITION | outbox_relay_role        | project_planning.episodes            | 
+ TABLE/PARTITION | outbox_relay_role        | project_planning.organizations       | 
+ TABLE/PARTITION | outbox_relay_role        | project_planning.projects            | 
+ TABLE/PARTITION | outbox_relay_role        | project_planning.script_revisions    | 
+ TABLE/PARTITION | outbox_relay_role        | public.alembic_version               | 
+ TABLE/PARTITION | project_planning_role    | asset_service.asset_versions         | 
+ TABLE/PARTITION | project_planning_role    | asset_service.qc_reports             | 
+ TABLE/PARTITION | project_planning_role    | auth.revoked_tokens                  | S
+ TABLE/PARTITION | project_planning_role    | outbox.maintenance_runs              | 
+ TABLE/PARTITION | project_planning_role    | outbox.outbox_events                 | SI
+ TABLE/PARTITION | project_planning_role    | outbox.outbox_events_default         | SI
+ TABLE/PARTITION | project_planning_role    | outbox.outbox_events_y202611         | SI
+ TABLE/PARTITION | project_planning_role    | outbox.outbox_events_y202612         | SI
+ TABLE/PARTITION | project_planning_role    | project_planning.episodes            | SIUD
+ TABLE/PARTITION | project_planning_role    | project_planning.organizations       | SIUD
+ TABLE/PARTITION | project_planning_role    | project_planning.projects            | SIUD
+ TABLE/PARTITION | project_planning_role    | project_planning.script_revisions    | SIUD
+ TABLE/PARTITION | project_planning_role    | public.alembic_version               | S
+ TABLE/PARTITION | svc_asset                | asset_service.asset_versions         | 
+ TABLE/PARTITION | svc_asset                | asset_service.qc_reports             | 
+ TABLE/PARTITION | svc_asset                | auth.revoked_tokens                  | 
+ TABLE/PARTITION | svc_asset                | outbox.maintenance_runs              | 
+ TABLE/PARTITION | svc_asset                | outbox.outbox_events                 | 
+ TABLE/PARTITION | svc_asset                | outbox.outbox_events_default         | 
+ TABLE/PARTITION | svc_asset                | outbox.outbox_events_y202611         | 
+ TABLE/PARTITION | svc_asset                | outbox.outbox_events_y202612         | 
+ TABLE/PARTITION | svc_asset                | project_planning.episodes            | 
+ TABLE/PARTITION | svc_asset                | project_planning.organizations       | 
+ TABLE/PARTITION | svc_asset                | project_planning.projects            | 
+ TABLE/PARTITION | svc_asset                | project_planning.script_revisions    | 
+ TABLE/PARTITION | svc_asset                | public.alembic_version               | 
+ TABLE/PARTITION | svc_generation_execution | asset_service.asset_versions         | 
+ TABLE/PARTITION | svc_generation_execution | asset_service.qc_reports             | 
+ TABLE/PARTITION | svc_generation_execution | auth.revoked_tokens                  | 
+ TABLE/PARTITION | svc_generation_execution | outbox.maintenance_runs              | 
+ TABLE/PARTITION | svc_generation_execution | outbox.outbox_events                 | 
+ TABLE/PARTITION | svc_generation_execution | outbox.outbox_events_default         | 
+ TABLE/PARTITION | svc_generation_execution | outbox.outbox_events_y202611         | 
+ TABLE/PARTITION | svc_generation_execution | outbox.outbox_events_y202612         | 
+ TABLE/PARTITION | svc_generation_execution | project_planning.episodes            | 
+ TABLE/PARTITION | svc_generation_execution | project_planning.organizations       | 
+ TABLE/PARTITION | svc_generation_execution | project_planning.projects            | 
+ TABLE/PARTITION | svc_generation_execution | project_planning.script_revisions    | 
+ TABLE/PARTITION | svc_generation_execution | public.alembic_version               | 
+ TABLE/PARTITION | svc_identity             | asset_service.asset_versions         | 
+ TABLE/PARTITION | svc_identity             | asset_service.qc_reports             | 
+ TABLE/PARTITION | svc_identity             | auth.revoked_tokens                  | 
+ TABLE/PARTITION | svc_identity             | outbox.maintenance_runs              | 
+ TABLE/PARTITION | svc_identity             | outbox.outbox_events                 | 
+ TABLE/PARTITION | svc_identity             | outbox.outbox_events_default         | 
+ TABLE/PARTITION | svc_identity             | outbox.outbox_events_y202611         | 
+ TABLE/PARTITION | svc_identity             | outbox.outbox_events_y202612         | 
+ TABLE/PARTITION | svc_identity             | project_planning.episodes            | 
+ TABLE/PARTITION | svc_identity             | project_planning.organizations       | 
+ TABLE/PARTITION | svc_identity             | project_planning.projects            | 
+ TABLE/PARTITION | svc_identity             | project_planning.script_revisions    | 
+ TABLE/PARTITION | svc_identity             | public.alembic_version               | 
+ TABLE/PARTITION | svc_outbox_relay         | asset_service.asset_versions         | 
+ TABLE/PARTITION | svc_outbox_relay         | asset_service.qc_reports             | 
+ TABLE/PARTITION | svc_outbox_relay         | auth.revoked_tokens                  | 
+ TABLE/PARTITION | svc_outbox_relay         | outbox.maintenance_runs              | 
+ TABLE/PARTITION | svc_outbox_relay         | outbox.outbox_events                 | 
+ TABLE/PARTITION | svc_outbox_relay         | outbox.outbox_events_default         | 
+ TABLE/PARTITION | svc_outbox_relay         | outbox.outbox_events_y202611         | 
+ TABLE/PARTITION | svc_outbox_relay         | outbox.outbox_events_y202612         | 
+ TABLE/PARTITION | svc_outbox_relay         | project_planning.episodes            | 
+ TABLE/PARTITION | svc_outbox_relay         | project_planning.organizations       | 
+ TABLE/PARTITION | svc_outbox_relay         | project_planning.projects            | 
+ TABLE/PARTITION | svc_outbox_relay         | project_planning.script_revisions    | 
+ TABLE/PARTITION | svc_outbox_relay         | public.alembic_version               | 
+ TABLE/PARTITION | svc_project_planning     | asset_service.asset_versions         | 
+ TABLE/PARTITION | svc_project_planning     | asset_service.qc_reports             | 
+ TABLE/PARTITION | svc_project_planning     | auth.revoked_tokens                  | 
+ TABLE/PARTITION | svc_project_planning     | outbox.maintenance_runs              | 
+ TABLE/PARTITION | svc_project_planning     | outbox.outbox_events                 | 
+ TABLE/PARTITION | svc_project_planning     | outbox.outbox_events_default         | 
+ TABLE/PARTITION | svc_project_planning     | outbox.outbox_events_y202611         | 
+ TABLE/PARTITION | svc_project_planning     | outbox.outbox_events_y202612         | 
+ TABLE/PARTITION | svc_project_planning     | project_planning.episodes            | 
+ TABLE/PARTITION | svc_project_planning     | project_planning.organizations       | 
+ TABLE/PARTITION | svc_project_planning     | project_planning.projects            | 
+ TABLE/PARTITION | svc_project_planning     | project_planning.script_revisions    | 
+ TABLE/PARTITION | svc_project_planning     | public.alembic_version               | 
+ TABLE/PARTITION | svc_qc_governance        | asset_service.asset_versions         | 
+ TABLE/PARTITION | svc_qc_governance        | asset_service.qc_reports             | 
+ TABLE/PARTITION | svc_qc_governance        | auth.revoked_tokens                  | 
+ TABLE/PARTITION | svc_qc_governance        | outbox.maintenance_runs              | 
+ TABLE/PARTITION | svc_qc_governance        | outbox.outbox_events                 | 
+ TABLE/PARTITION | svc_qc_governance        | outbox.outbox_events_default         | 
+ TABLE/PARTITION | svc_qc_governance        | outbox.outbox_events_y202611         | 
+ TABLE/PARTITION | svc_qc_governance        | outbox.outbox_events_y202612         | 
+ TABLE/PARTITION | svc_qc_governance        | project_planning.episodes            | 
+ TABLE/PARTITION | svc_qc_governance        | project_planning.organizations       | 
+ TABLE/PARTITION | svc_qc_governance        | project_planning.projects            | 
+ TABLE/PARTITION | svc_qc_governance        | project_planning.script_revisions    | 
+ TABLE/PARTITION | svc_qc_governance        | public.alembic_version               | 
+ TABLE/PARTITION | svc_shot_planning        | asset_service.asset_versions         | 
+ TABLE/PARTITION | svc_shot_planning        | asset_service.qc_reports             | 
+ TABLE/PARTITION | svc_shot_planning        | auth.revoked_tokens                  | 
+ TABLE/PARTITION | svc_shot_planning        | outbox.maintenance_runs              | 
+ TABLE/PARTITION | svc_shot_planning        | outbox.outbox_events                 | 
+ TABLE/PARTITION | svc_shot_planning        | outbox.outbox_events_default         | 
+ TABLE/PARTITION | svc_shot_planning        | outbox.outbox_events_y202611         | 
+ TABLE/PARTITION | svc_shot_planning        | outbox.outbox_events_y202612         | 
+ TABLE/PARTITION | svc_shot_planning        | project_planning.episodes            | 
+ TABLE/PARTITION | svc_shot_planning        | project_planning.organizations       | 
+ TABLE/PARTITION | svc_shot_planning        | project_planning.projects            | 
+ TABLE/PARTITION | svc_shot_planning        | project_planning.script_revisions    | 
+ TABLE/PARTITION | svc_shot_planning        | public.alembic_version               | 
+ TABLE/PARTITION | svc_workflow             | asset_service.asset_versions         | 
+ TABLE/PARTITION | svc_workflow             | asset_service.qc_reports             | 
+ TABLE/PARTITION | svc_workflow             | auth.revoked_tokens                  | 
+ TABLE/PARTITION | svc_workflow             | outbox.maintenance_runs              | 
+ TABLE/PARTITION | svc_workflow             | outbox.outbox_events                 | 
+ TABLE/PARTITION | svc_workflow             | outbox.outbox_events_default         | 
+ TABLE/PARTITION | svc_workflow             | outbox.outbox_events_y202611         | 
+ TABLE/PARTITION | svc_workflow             | outbox.outbox_events_y202612         | 
+ TABLE/PARTITION | svc_workflow             | project_planning.episodes            | 
+ TABLE/PARTITION | svc_workflow             | project_planning.organizations       | 
+ TABLE/PARTITION | svc_workflow             | project_planning.projects            | 
+ TABLE/PARTITION | svc_workflow             | project_planning.script_revisions    | 
+ TABLE/PARTITION | svc_workflow             | public.alembic_version               | 
+(276 rows)
+
+====================================================================================================
+# E12.11 [ai_film_industrial] ⑮ 零权限补集布尔矩阵
+# 目的：显式 f/t 矩阵，可证明「某角色在某对象为零」
+====================================================================================================
+         rolname          |              object               | sel | ins | upd | del | trun | ref | trg 
+--------------------------+-----------------------------------+-----+-----+-----+-----+------+-----+-----
+ app_role                 | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ app_role                 | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ app_role                 | audit.status_transitions          | f   | f   | f   | f   | f    | f   | f
+ app_role                 | auth.revoked_tokens               | f   | f   | f   | f   | f    | f   | f
+ app_role                 | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ app_role                 | outbox.outbox_events              | t   | f   | f   | f   | f    | f   | f
+ app_role                 | outbox.outbox_events_default      | f   | f   | f   | f   | f    | f   | f
+ app_role                 | outbox.outbox_events_y202611      | f   | f   | f   | f   | f    | f   | f
+ app_role                 | outbox.outbox_events_y202612      | f   | f   | f   | f   | f    | f   | f
+ app_role                 | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ app_role                 | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ app_role                 | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ app_role                 | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ app_role                 | public.alembic_version            | f   | f   | f   | f   | f    | f   | f
+ asset_service_role       | asset_service.asset_versions      | t   | t   | t   | f   | f    | f   | f
+ asset_service_role       | asset_service.qc_reports          | t   | t   | f   | f   | f    | f   | f
+ asset_service_role       | audit.status_transitions          | t   | t   | f   | f   | f    | f   | f
+ asset_service_role       | auth.revoked_tokens               | t   | f   | f   | f   | f    | f   | f
+ asset_service_role       | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ asset_service_role       | outbox.outbox_events              | t   | t   | f   | f   | f    | f   | f
+ asset_service_role       | outbox.outbox_events_default      | t   | t   | f   | f   | f    | f   | f
+ asset_service_role       | outbox.outbox_events_y202611      | t   | t   | f   | f   | f    | f   | f
+ asset_service_role       | outbox.outbox_events_y202612      | t   | t   | f   | f   | f    | f   | f
+ asset_service_role       | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ asset_service_role       | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ asset_service_role       | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ asset_service_role       | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ asset_service_role       | public.alembic_version            | t   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | audit.status_transitions          | f   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | auth.revoked_tokens               | f   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | outbox.outbox_events              | t   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | outbox.outbox_events_default      | t   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | outbox.outbox_events_y202611      | t   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | outbox.outbox_events_y202612      | t   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | public.alembic_version            | f   | f   | f   | f   | f    | f   | f
+ project_planning_role    | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ project_planning_role    | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ project_planning_role    | audit.status_transitions          | t   | t   | f   | f   | f    | f   | f
+ project_planning_role    | auth.revoked_tokens               | t   | f   | f   | f   | f    | f   | f
+ project_planning_role    | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ project_planning_role    | outbox.outbox_events              | t   | t   | f   | f   | f    | f   | f
+ project_planning_role    | outbox.outbox_events_default      | t   | t   | f   | f   | f    | f   | f
+ project_planning_role    | outbox.outbox_events_y202611      | t   | t   | f   | f   | f    | f   | f
+ project_planning_role    | outbox.outbox_events_y202612      | t   | t   | f   | f   | f    | f   | f
+ project_planning_role    | project_planning.episodes         | t   | t   | t   | f   | f    | f   | f
+ project_planning_role    | project_planning.organizations    | t   | f   | f   | f   | f    | f   | f
+ project_planning_role    | project_planning.projects         | t   | t   | t   | f   | f    | f   | f
+ project_planning_role    | project_planning.script_revisions | t   | t   | t   | f   | f    | f   | f
+ project_planning_role    | public.alembic_version            | t   | f   | f   | f   | f    | f   | f
+ svc_asset                | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | audit.status_transitions          | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | auth.revoked_tokens               | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | outbox.outbox_events              | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | outbox.outbox_events_default      | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | outbox.outbox_events_y202611      | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | outbox.outbox_events_y202612      | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | public.alembic_version            | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | audit.status_transitions          | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | auth.revoked_tokens               | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | outbox.outbox_events              | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | outbox.outbox_events_default      | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | outbox.outbox_events_y202611      | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | outbox.outbox_events_y202612      | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | public.alembic_version            | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | audit.status_transitions          | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | auth.revoked_tokens               | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | outbox.outbox_events              | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | outbox.outbox_events_default      | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | outbox.outbox_events_y202611      | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | outbox.outbox_events_y202612      | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | public.alembic_version            | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | audit.status_transitions          | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | auth.revoked_tokens               | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | outbox.outbox_events              | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | outbox.outbox_events_default      | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | outbox.outbox_events_y202611      | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | outbox.outbox_events_y202612      | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | public.alembic_version            | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | audit.status_transitions          | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | auth.revoked_tokens               | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | outbox.outbox_events              | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | outbox.outbox_events_default      | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | outbox.outbox_events_y202611      | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | outbox.outbox_events_y202612      | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | public.alembic_version            | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | audit.status_transitions          | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | auth.revoked_tokens               | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | outbox.outbox_events              | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | outbox.outbox_events_default      | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | outbox.outbox_events_y202611      | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | outbox.outbox_events_y202612      | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | public.alembic_version            | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | audit.status_transitions          | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | auth.revoked_tokens               | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | outbox.outbox_events              | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | outbox.outbox_events_default      | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | outbox.outbox_events_y202611      | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | outbox.outbox_events_y202612      | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | public.alembic_version            | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | audit.status_transitions          | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | auth.revoked_tokens               | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | outbox.outbox_events              | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | outbox.outbox_events_default      | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | outbox.outbox_events_y202611      | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | outbox.outbox_events_y202612      | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | public.alembic_version            | f   | f   | f   | f   | f    | f   | f
+(168 rows)
+
+====================================================================================================
+# E12.12 [ai_film_verify] ⑮ 零权限补集布尔矩阵
+====================================================================================================
+         rolname          |              object               | sel | ins | upd | del | trun | ref | trg 
+--------------------------+-----------------------------------+-----+-----+-----+-----+------+-----+-----
+ app_role                 | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ app_role                 | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ app_role                 | auth.revoked_tokens               | f   | f   | f   | f   | f    | f   | f
+ app_role                 | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ app_role                 | outbox.outbox_events              | t   | f   | f   | f   | f    | f   | f
+ app_role                 | outbox.outbox_events_default      | f   | f   | f   | f   | f    | f   | f
+ app_role                 | outbox.outbox_events_y202611      | f   | f   | f   | f   | f    | f   | f
+ app_role                 | outbox.outbox_events_y202612      | f   | f   | f   | f   | f    | f   | f
+ app_role                 | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ app_role                 | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ app_role                 | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ app_role                 | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ app_role                 | public.alembic_version            | f   | f   | f   | f   | f    | f   | f
+ asset_service_role       | asset_service.asset_versions      | t   | t   | t   | f   | f    | f   | f
+ asset_service_role       | asset_service.qc_reports          | t   | t   | f   | f   | f    | f   | f
+ asset_service_role       | auth.revoked_tokens               | t   | f   | f   | f   | f    | f   | f
+ asset_service_role       | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ asset_service_role       | outbox.outbox_events              | t   | t   | f   | f   | f    | f   | f
+ asset_service_role       | outbox.outbox_events_default      | t   | t   | f   | f   | f    | f   | f
+ asset_service_role       | outbox.outbox_events_y202611      | t   | t   | f   | f   | f    | f   | f
+ asset_service_role       | outbox.outbox_events_y202612      | t   | t   | f   | f   | f    | f   | f
+ asset_service_role       | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ asset_service_role       | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ asset_service_role       | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ asset_service_role       | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ asset_service_role       | public.alembic_version            | t   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | auth.revoked_tokens               | f   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | outbox.outbox_events              | t   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | outbox.outbox_events_default      | t   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | outbox.outbox_events_y202611      | t   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | outbox.outbox_events_y202612      | t   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ outbox_relay_role        | public.alembic_version            | f   | f   | f   | f   | f    | f   | f
+ project_planning_role    | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ project_planning_role    | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ project_planning_role    | auth.revoked_tokens               | t   | f   | f   | f   | f    | f   | f
+ project_planning_role    | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ project_planning_role    | outbox.outbox_events              | t   | t   | f   | f   | f    | f   | f
+ project_planning_role    | outbox.outbox_events_default      | t   | t   | f   | f   | f    | f   | f
+ project_planning_role    | outbox.outbox_events_y202611      | t   | t   | f   | f   | f    | f   | f
+ project_planning_role    | outbox.outbox_events_y202612      | t   | t   | f   | f   | f    | f   | f
+ project_planning_role    | project_planning.episodes         | t   | t   | t   | t   | f    | f   | f
+ project_planning_role    | project_planning.organizations    | t   | t   | t   | t   | f    | f   | f
+ project_planning_role    | project_planning.projects         | t   | t   | t   | t   | f    | f   | f
+ project_planning_role    | project_planning.script_revisions | t   | t   | t   | t   | f    | f   | f
+ project_planning_role    | public.alembic_version            | t   | f   | f   | f   | f    | f   | f
+ svc_asset                | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | auth.revoked_tokens               | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | outbox.outbox_events              | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | outbox.outbox_events_default      | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | outbox.outbox_events_y202611      | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | outbox.outbox_events_y202612      | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ svc_asset                | public.alembic_version            | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | auth.revoked_tokens               | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | outbox.outbox_events              | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | outbox.outbox_events_default      | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | outbox.outbox_events_y202611      | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | outbox.outbox_events_y202612      | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ svc_generation_execution | public.alembic_version            | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | auth.revoked_tokens               | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | outbox.outbox_events              | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | outbox.outbox_events_default      | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | outbox.outbox_events_y202611      | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | outbox.outbox_events_y202612      | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ svc_identity             | public.alembic_version            | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | auth.revoked_tokens               | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | outbox.outbox_events              | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | outbox.outbox_events_default      | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | outbox.outbox_events_y202611      | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | outbox.outbox_events_y202612      | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ svc_outbox_relay         | public.alembic_version            | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | auth.revoked_tokens               | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | outbox.outbox_events              | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | outbox.outbox_events_default      | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | outbox.outbox_events_y202611      | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | outbox.outbox_events_y202612      | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ svc_project_planning     | public.alembic_version            | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | auth.revoked_tokens               | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | outbox.outbox_events              | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | outbox.outbox_events_default      | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | outbox.outbox_events_y202611      | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | outbox.outbox_events_y202612      | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ svc_qc_governance        | public.alembic_version            | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | auth.revoked_tokens               | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | outbox.outbox_events              | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | outbox.outbox_events_default      | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | outbox.outbox_events_y202611      | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | outbox.outbox_events_y202612      | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ svc_shot_planning        | public.alembic_version            | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | asset_service.asset_versions      | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | asset_service.qc_reports          | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | auth.revoked_tokens               | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | outbox.maintenance_runs           | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | outbox.outbox_events              | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | outbox.outbox_events_default      | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | outbox.outbox_events_y202611      | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | outbox.outbox_events_y202612      | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | project_planning.episodes         | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | project_planning.organizations    | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | project_planning.projects         | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | project_planning.script_revisions | f   | f   | f   | f   | f    | f   | f
+ svc_workflow             | public.alembic_version            | f   | f   | f   | f   | f    | f   | f
+(156 rows)

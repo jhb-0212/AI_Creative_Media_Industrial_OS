@@ -1,0 +1,240 @@
+"""Episode 应用服务（用例编排层）。
+
+职责：
+- 编排领域模型与仓储，实现「集数登记」用例。
+- 归属验证：Episode 必须挂到真实存在的 Project（通过注入 ProjectRepository）。
+- 幂等：同一 entity_id 重复登记返回既有集数；内容不一致则 409（P3-1）。
+- 登记与 EPISODE_CREATED 事件同事务写入（P2-1）。
+- 抛出结构化 DomainError，不泄漏内部实现细节。
+
+契约对齐：
+- 8.1 核心实体：Episode 归属于 Project（Project → Episode 一对多）。
+- 集数登记是剧本导入（SCRIPT.IMPORT）的前置——必须先有归属项目的
+  Episode，才能挂载剧本版本。
+"""
+
+from __future__ import annotations
+
+import uuid
+from uuid import UUID
+
+from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.outbox_writer import OutboxWriter
+from packages.shared.port_errors import DuplicateEntityError, ReferentialIntegrityError
+from services.project_planning.domain.enums import EpisodeStatus
+from services.project_planning.domain.episode import Episode
+from services.project_planning.domain.state_machine import (
+    EPISODE_STATUS_CHANGE_ACTION,
+    PROJECT_LIFECYCLE,
+)
+from services.project_planning.repository.episode_repo import EpisodeRepository
+from services.project_planning.repository.project_repo import ProjectRepository
+from services.project_planning.service.transition import advance_status
+
+
+class EpisodeService:
+    """集数登记与查询用例。"""
+
+    def __init__(
+        self,
+        repository: EpisodeRepository,
+        project_repository: ProjectRepository,
+        outbox_writer: OutboxWriter,
+    ) -> None:
+        self._repository = repository
+        self._project_repository = project_repository
+        self._outbox_writer = outbox_writer
+
+    async def create_episode(
+        self,
+        *,
+        project_id: str,
+        episode_ref: str,
+        title: str,
+        created_by: str,
+        tenant_id: UUID,
+        entity_id: str | None = None,
+    ) -> Episode:
+        """登记集数（幂等，归属 Project）。
+
+        契约要求：
+        - episode 必须归属真实存在的 project（归属验证）。
+        - 同项目内 episode_ref 唯一（数据库唯一约束兜底）。
+        - 输入统一 strip。
+        - tenant_id 来自可信身份上下文（Principal），是 RLS 隔离键。
+        """
+        project_id = project_id.strip()
+        episode_ref = episode_ref.strip()
+        title = title.strip()
+        created_by = created_by.strip()
+
+        if not project_id:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR, detail="project_id 不能为空"
+            )
+        if not episode_ref:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR, detail="episode_ref 不能为空"
+            )
+        if not title:
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="title 不能为空")
+        if not created_by:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR, detail="created_by 不能为空"
+            )
+
+        # 归属验证 + 父状态判定：**先锁、再判、后写**，三步同一事务。
+        # 用带共享锁的读（FOR SHARE）而不是普通读，因为「项目已归档则不得再登记集数」
+        # 这条不变量若无锁就只是「查的瞬间成立」——插入的那一刻项目可能已被归档，
+        # 而数据库不会拒绝（它不知道这次插入与那次归档有语义冲突）。
+        project = await self._project_repository.get_by_id_for_child_write(project_id)
+        if project is None:
+            raise DomainError(
+                ErrorRegistry.NOT_FOUND,
+                detail=f"项目不存在: {project_id}",
+            )
+
+        # 幂等：已存在同 id 直接返回。
+        # 刻意排在冻结判定**之前**：归档后重放一个「当时成功过」的创建请求，
+        # 语义是重试而非新建，必须返回原结果；若先判冻结，正常重试会变成 409，
+        # 调用方将永远无法确认自己那次创建到底有没有生效。
+        if entity_id is not None:
+            existing = await self._repository.get_by_id(entity_id)
+            if existing is not None:
+                _assert_same_request(existing, project_id, episode_ref, title)
+                return existing
+
+        # 冻结判定：项目处于冻结态（当前为 ARCHIVED）时不得再长出新集数。
+        # 判定从 PROJECT_LIFECYCLE 派生，不在这里写 `if project.status == ...`——
+        # 同一规则还要服务于「集数下建场次」「场次下建镜头」，写在各自的服务里
+        # 就是同一规则的第 2、3、4 份实现，漏掉的那份不会报错。
+        PROJECT_LIFECYCLE.assert_child_creation_allowed(
+            project.status, child_object="Episode"
+        )
+
+        episode = Episode(
+            entity_id=entity_id or uuid.uuid4().hex,
+            project_id=project_id,
+            episode_ref=episode_ref,
+            title=title,
+            created_by=created_by,
+            tenant_id=tenant_id,
+        )
+
+        # INSERT 语义新增；并发下唯一约束兜底（显式 id 与项目内唯一两条路径）。
+        try:
+            await self._repository.add(episode)
+        except ReferentialIntegrityError as exc:
+            # 归属项目在并发窗口里被删除 / 值违反 CHECK：引用不成立，不可幂等。
+            raise DomainError(
+                ErrorRegistry.CONCURRENT_MODIFICATION,
+                detail="集数归属的项目已变化，请基于最新数据重试",
+            ) from exc
+        except DuplicateEntityError as exc:
+            # 显式 entity_id：冲突只可能是同一 id 并发创建，回读即幂等返回；
+            # 无显式 id：冲突来自 (project_id, episode_ref) 唯一约束。
+            existing = (
+                await self._repository.get_by_id(entity_id)
+                if entity_id is not None
+                else await self._repository.get_by_project_ref(
+                    project_id, episode_ref
+                )
+            )
+            if existing is not None:
+                _assert_same_request(existing, project_id, episode_ref, title)
+                return existing
+            raise DomainError(
+                ErrorRegistry.INTERNAL_ERROR, detail="集数写入冲突"
+            ) from exc
+
+        # 与登记同事务写 EPISODE_CREATED（P2-1：集数诞生必须可被订阅）。
+        self._outbox_writer.record(
+            aggregate_type="Episode",
+            aggregate_id=episode.entity_id,
+            event_type="EPISODE_CREATED",
+            tenant_id=tenant_id,
+            payload={
+                "episode_id": episode.entity_id,
+                "project_id": project_id,
+                "episode_ref": episode_ref,
+                "title": title,
+                "created_by": created_by,
+                "tenant_id": str(tenant_id),
+                "status": episode.status.value,
+            },
+        )
+
+        return episode
+
+    async def get_episode(self, entity_id: str) -> Episode:
+        """查询集数，不存在抛 NOT_FOUND。"""
+        episode = await self._repository.get_by_id(entity_id)
+        if episode is None:
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"集数不存在: {entity_id}")
+        return episode
+
+    async def change_status(
+        self,
+        *,
+        entity_id: str,
+        target_status: EpisodeStatus,
+        changed_by: str,
+        tenant_id: UUID,
+    ) -> Episode:
+        """推进集数状态（EPISODE.STATUS.CHANGE）。
+
+        契约要求：
+        - 目标状态作参数，转移合法性由 domain/state_machine.py 的单一权威
+          转移表校验（未登记转移一律拒绝，31.5）。
+        - 终态 ARCHIVED 不可原地复活（红线）。
+        - 乐观锁：读取时捕获 entity_version，条件更新；并发冲突抛
+          ConcurrentModificationError。
+        - 状态变更与 EPISODE_STATUS_CHANGED 事件同事务写入（R07/P2-1）。
+        """
+        changed_by = changed_by.strip()
+        if not changed_by:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR, detail="changed_by 不能为空"
+            )
+
+        episode = await self._repository.get_by_id(entity_id)
+        if episode is None:
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"集数不存在: {entity_id}")
+
+        # 唯一推进路径（ADR-R23 §D2-b），与项目/剧本共用同一序列。
+        await advance_status(
+            episode,
+            target_status,
+            repository=self._repository,
+            outbox_writer=self._outbox_writer,
+            aggregate_type="Episode",
+            event_type="EPISODE_STATUS_CHANGED",
+            tenant_id=tenant_id,
+            payload={
+                "episode_id": episode.entity_id,
+                "project_id": episode.project_id,
+            },
+            resource_type="Episode",
+            owner_action=EPISODE_STATUS_CHANGE_ACTION,
+            conflict_detail="集数状态并发冲突，请基于最新状态重试",
+            actor_field="changed_by",
+            actor=changed_by,
+        )
+        return episode
+
+
+def _assert_same_request(
+    existing: Episode, project_id: str, episode_ref: str, title: str
+) -> None:
+    """幂等键复用必须是同一请求：内容不一致一律 409（P3-1）。"""
+    if (
+        existing.project_id != project_id
+        or existing.episode_ref != episode_ref
+        or existing.title != title
+    ):
+        raise DomainError(
+            ErrorRegistry.IDEMPOTENCY_CONFLICT,
+            detail=(
+                "同一 entity_id 已存在且内容不同：幂等键不能复用于另一个请求"
+            ),
+        )

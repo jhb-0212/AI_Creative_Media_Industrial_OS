@@ -1,0 +1,1238 @@
+# 契约修订登记（Phase 0 冻结后的唯一合法变更入口）
+#
+# 为什么需要这个文件
+# ----------------
+# 基线 V2.0.5 冻结时 Action=75 / OpenAPI=75 / Schema=76 / 状态机=35。
+# 此后为 Phase 1 主链增加了 6 个 Action、3 个对象、3 个状态机——这些增量本身
+# 是业务需要的，但**没有任何一条走过修订流程**：派生文件被直接改，
+# 冻结清单没有重新生成，于是出现「contract_check 内部 81↔81 自洽通过，
+# 却无法证明仍符合 V2.0.5」的局面（第三轮审查 F1）。
+#
+# 本文件补的就是这条断掉的权威链：
+#
+#   V2.0.5 主文档（权威源，哈希见 frozen_inventory.yaml）
+#          +
+#   本文件登记的已批准修订
+#          ↓
+#   当前契约全集（必须逐名称精确等于「基线 ∪ 修订」）
+#
+# 它不引入第二套事实源：基线名称全集在 frozen_inventory.yaml，
+# 本文件只登记「相对基线的增删及其理由」，判定逻辑唯一实现在
+# scripts/freeze_manifest.py。
+#
+# 写入口径（违反即闸门报红）
+# ------------------------
+# 1. 新增/删除任何 Action、Schema 对象、状态机，必须先改基线文档（新修订）
+#    或在此登记修订，再改派生文件；顺序反了就是「先斩后奏」，闸门会拦住。
+# 2. 每条修订的必填字段以 scripts/freeze_manifest.py::_REQUIRED_AMENDMENT_FIELDS 为
+#    唯一权威（本文件不复制该清单，抄一份必然与判据漂移）。缺任一项即 FAIL，
+#    唯一的例外是 `traceability_debt` 显式登记的历史条目缺 source_commits——
+#    登记清单被双向校验：缺了没登记报红，登记了却已补齐也报红。
+#    **新增条目必须自带 source_commits，不得再往债务清单里加。**
+# 3. 修订只能追加，不得改写历史条目；撤销一条修订用新的 `revocations` 记录，
+#    保留原始痕迹。
+# 4. 补登记（retroactive: true）必须如实标注——事后追认不等于当时合规，
+#    记录里要写清「何时发现、由哪一轮审查发现」。
+#
+# 禁止事项
+# --------
+# - 不得为了让闸门变绿而把实际增量删掉（会破坏已上线的读写接口）；
+# - 不得把「未实现」的契约登记为已批准修订来凑数；
+# - 不得在此文件里写授权规则/角色/预算口径（那些归 permission_matrix.yaml）。
+
+schema_version: '1.0'
+baseline_ref:
+  inventory: contracts/phase0/frozen_inventory.yaml
+  document: docs/baseline/AI影视工业化生产平台V2.0.5.md
+  revision: 'V205-R15'
+
+amendments:
+  - id: 'V205-R14-A1'
+    title: 'Phase 1 主链落地所必需的对象与读写契约增补'
+    retroactive: true
+    recorded_at: '2026-11-16'
+    discovered_by: 'docs/audits/2026-11-16-review-round3.md（第三轮深度审查，F1）'
+    reason: >-
+      基线只冻结到 Phase 0 契约，未包含 Phase 1 主链的第一段可执行闭环
+      （项目创建 → 集数登记 → 剧本版本导入与锁定）。实现这段闭环必须有
+      Project / Episode / ScriptRevision 三个对象及其状态机，以及对应的
+      READ / CREATE 动作；否则 API 无法落地。增量本身是基线遗漏，不是越权扩展，
+      因此以修订方式追认，而不是删除已上线的读写接口。
+    adr: 'docs/adr/ADR-R15-contract-freeze-lifecycle.md'
+    approved_by: '项目所有者（本次审查应答）'
+    approved_at: '2026-11-16'
+    source_commits:
+      - '41816f5'  # feat: 实现 Phase 1 主链第一环——项目创建领域模型
+      - '3bc8d90'  # feat: 端点接入 RBAC，运行时执行角色级授权
+      - '52dbd4a'  # feat(security): 读接口接入 RBAC 与生产密钥防呆
+      - '98a8917'  # R08b: 资产读能力（ASSET.VERSION.READ）
+    additions:
+      actions:
+        - action_key: 'EPISODE.CREATE'
+          why: '集数登记是主链第二环，缺失则 Script 无法归属集数'
+        - action_key: 'SCRIPT.LOCK.REQUEST'
+          why: '剧本锁定申请是人工确认环节的入口，与 SCRIPT.LOCK.APPROVE 职责分离'
+        - action_key: 'PROJECT.READ'
+          why: '项目读取接口已上线，无对应 Action 即无法做角色授权与审计'
+        - action_key: 'EPISODE.READ'
+          why: '集数读取接口已上线，同上'
+        - action_key: 'SCRIPT.READ'
+          why: '剧本读取接口已上线，同上'
+        - action_key: 'ASSET.VERSION.READ'
+          why: '资产版本读取是 QC 与交付链路的必要读能力'
+      schema_objects:
+        - object: 'Project'
+          why: '主链起点对象；基线 8.x 有字段契约但未纳入 76 对象冻结范围'
+        - object: 'Episode'
+          why: '主链第二环对象，Script 的归属单元'
+        - object: 'ScriptRevision'
+          why: '剧本版本对象，锁定与审批的载体'
+      state_machines:
+        - object: 'Project'
+          why: '项目生命周期（DRAFT→ACTIVE→ARCHIVED）需要显式状态机约束'
+        - object: 'Episode'
+          why: '集数生命周期随项目推进'
+        - object: 'ScriptRevision'
+          why: '剧本版本锁定/审批状态必须可机读校验'
+    counts_after:
+      actions: 81
+      openapi_operations: 81
+      schema_objects: 79
+      state_machines: 38
+    residual_risks:
+      - '本修订为事后追认，冻结期内确实存在「派生文件先于权威记录变更」的窗口'
+      - 'Project/Episode/ScriptRevision 的权限矩阵条目仍需在包 B（身份与数据所有权）中补齐资源范围授权'
+
+  - id: 'V205-R14-A2'
+    title: 'Phase 6 状态推进入口——Project/Episode 生命周期状态变更动作'
+    retroactive: false
+    recorded_at: '2026-11-17'
+    discovered_by: 'docs/audits/2026-11-16-review-round3.md（第三轮深度审查，F01）'
+    reason: >-
+      基线（含 A1 修订）只给了 Project/Episode 的 CREATE/READ 动作，域状态机
+      已有转移表（Project 7 条边、Episode 3 条边），但没有任何 action 能触发
+      这些转移——项目创建后停在 DRAFT，平台无法推进到生产态（审计 P2-1、
+      F01「状态推进入口缺失」）。本修订补登记两个状态变更动作，把已冻结的
+      状态机转移边暴露为可执行入口。动作粒度采用「单一 STATUS.CHANGE」，
+      目标状态作为参数，转移合法性由 state_machines.yaml 的转移表在运行时
+      校验（未登记转移一律拒绝），不按转移逐条拆分动作以避免与状态机表
+      重复维护。此为正文口径的正式落地（解除 ADR-R12「需等正文口径」约束）。
+    adr: 'docs/adr/ADR-R12-contract-gates-outbox-deadletter-and-token-revocation.md'
+    approved_by: '项目所有者（本次 Phase 6 应答）'
+    approved_at: '2026-11-17'
+    source_commits: ['a262a45']
+    additions:
+      actions:
+        - action_key: 'PROJECT.STATUS.CHANGE'
+          why: '项目生命周期推进入口；目标状态作参数，运行时按 Project 转移表校验，终态 ARCHIVED 不可原地复活'
+        - action_key: 'EPISODE.STATUS.CHANGE'
+          why: '集数生命周期推进入口；目标状态作参数，运行时按 Episode 转移表校验'
+    counts_after:
+      actions: 83
+      openapi_operations: 83
+      schema_objects: 79
+      state_machines: 38
+    residual_risks:
+      - '主文档 31.6 主表工作副本在 A1 后未同步 6 个 Phase 1 动作（PROJECT.READ/EPISODE.CREATE/EPISODE.READ/SCRIPT.READ/SCRIPT.LOCK.REQUEST/ASSET.VERSION.READ），本修订一并补齐，使工作副本与派生视图完全一致'
+      - '状态变更入口的 DB 迁移（若涉及新列）与真实 PG 环境验证未执行，已在 residual_risk 标注'
+
+  - id: 'V205-R14-A3'
+    title: '资产状态推进入口——AssetVersion 的 APPROVED→GOLD 授权闭环'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: 'docs/audits/2026-11-16-review-round3.md（第三轮深度审查，F06「资产状态不变量未完整落地」）'
+    reason: >-
+      AssetVersion 状态机转移表登记了 APPROVED→GOLD 这条边（契约 8.5 明示
+      GOLD 为黄金标准资产终态，note 要求「QUARANTINED 不得直接转 GOLD，必须
+      补齐证据并经授权复核」），但资产域没有任何 action 能触发这条边——
+      ASSET.VERSION.APPROVE 只覆盖 TECHNICAL_QC→HUMAN_REVIEW→APPROVED 的推进，
+      GENERATED→TECHNICAL_QC 由 QC.REPORT.CREATE 的副作用推进，唯独
+      APPROVED→GOLD 是「有转移边、无入口」的静默缺口（F06）。本修订补登记
+      ASSET.STATUS.CHANGE 动作，目标状态作参数，转移合法性由 AssetVersion
+      转移表运行时校验；进入 GOLD 强制前置证据（APPROVED 前置 + 权利证据 +
+      QC 证据），与 ASSET.VERSION.APPROVE 的证据口径一致，不新增第二套证据规则。
+    adr: 'docs/adr/ADR-R15-contract-freeze-lifecycle.md'
+    approved_by: '项目所有者（本次 F06 应答）'
+    approved_at: '2026-11-18'
+    source_commits: ['8de1215']
+    additions:
+      actions:
+        - action_key: 'ASSET.STATUS.CHANGE'
+          why: '资产状态推进入口；目标状态作参数，运行时按 AssetVersion 转移表校验；进入 GOLD 须 APPROVED 前置 + 权利/QC 证据，终态不可原地复活'
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 79
+      state_machines: 38
+    residual_risks:
+      - 'APPROVED→GOLD 之外，GENERATED→TECHNICAL_QC 仍由 QC.REPORT.CREATE 副作用推进（语义正确：登记首份 QC 报告即进入技术 QC），不属缺口，本修订不强行改为独立动作'
+      - '状态变更入口的 DB 迁移（若涉及新列）与真实 PG 环境验证未执行'
+
+  - id: 'V205-R14-A4'
+    title: '拆镜草案对象契约——ShotBreakdownDraft（含五态状态机）'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: 'docs/adr/ADR-R07-shot-draft-contract-gap.md（镜头域契约缺口）；2026-11-18 主链核对确认拆镜段整段无对象契约'
+    reason: >-
+      Phase 1 主链「剧本导入 → AI 拆镜草案 → 人工确认 → ShotSpec」在拆镜处整段断开，根因是
+      草案对象从来没有契约：SHOT.DRAFT.CREATE 声明 resource_type=ShotDraft，而 object_schemas
+      里从未定义该对象（ADR-R07 已钉死，resource_schema_gaps 也登记了债务）。ADR-R07 当初拒绝
+      补契约的理由是「正文没有字段表，猜就是返工」，该理由成立，所以缺口一直挂着。现在项目
+      所有者直接给出了《拆镜草案字段设计》，权威来源问题解除，可按所有者口径落地。
+      落地形态与 ADR-R07 草案不同：由「一行一个镜头」改为文档级聚合根 ShotBreakdownDraft，
+      理由是逐行模型无法表达人工的合并/拆分，也无法承载版本快照（详见 ADR-R16）。
+      同时把该对象的五个状态值登记进状态机与枚举注册表，避免实现时自创第六个状态。
+    adr: 'docs/adr/ADR-R16-shot-breakdown-draft-contract.md'
+    approved_by: '项目所有者（本次拆镜契约应答）'
+    approved_at: '2026-11-18'
+    source_commits: ['f79a40c']
+    additions:
+      schema_objects:
+        - object: 'ShotBreakdownDraft'
+          why: '拆镜草案聚合根；三层结构（场次→剧情节拍→镜头草案）+ 版本链，是 SHOT.DRAFT.CREATE 的资源类型与人工确认的载体'
+      state_machines:
+        - object: 'ShotBreakdownDraft'
+          why: '五态 PENDING_CONFIRM / IN_REVIEW / CONFIRMED / RETURNED / DISCARDED；终态不原地复活，恢复走新建版本'
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 80
+      state_machines: 39
+    residual_risks:
+      - '字段口径来自项目所有者设计（2026-11-18），非基线正文原文：正文 8.x 尚未给出拆镜条款，下一版正文须吸收本契约，否则「正文缺失、契约先行」的差异会长期存在'
+      - '正文 31.6 主表的 SHOT.DRAFT.CREATE 行仍写 resource_type=ShotDraft，与派生契约的 ShotBreakdownDraft 不一致；本次不改基线正文（改正文等于改所有者文档指纹），差异在此登记，下一版正文修订时一并改正'
+      - 'SHOT.DRAFT.CREATE 的 resource_type 由 ShotDraft 改名为 ShotBreakdownDraft：冻结闸门按名称集合判定增删，识别不了「同名 action 指向不同对象」，此处显式记录'
+      - 'SHOT.DRAFT.CONFIRM / SHOT.DRAFT.RETURN / SHOT.DRAFT.DISCARD 三个状态推进动作尚未登记，五态状态机目前无运行时入口（与 A2/A3 同类缺口，按「先开入口、再写守卫」另行处理）'
+      - 'ShotRevision 仍无 object schema；草案确认产出的 confirmed_shot_revision_refs 指向一个尚未建模的对象'
+      - '九条对象不变量中七条为 RUNTIME_PENDING，只有 SBD-2（草案不越权定约束）与 SBD-8（节拍单一方向）可由 schema 表达，不得视为已落地'
+
+  - id: 'V205-R14-A5'
+    title: '镜头内容修订对象契约——ShotRevision（含两态状态机）'
+    reason: >-
+      ADR-R16 留下的断点：草案确认要产出 confirmed_shot_revision_refs，而 ShotRevision 从未建模，
+      链路是「一头有契约、一头是引用字符串」；ShotSpec 的 required.shot_revision_id 同样指向一个不存在的对象。
+      本轮按正文 8.1/8.2/8.3/8.8 + 2.3/4.1 + 19.3 + 31.6 + Gate 1-A 推导字段，把这一环补齐。
+      状态集只登记两态（ACTIVE / SUPERSEDED）：正文未为 ShotRevision 单列状态机，虚构审核或生产进度状态
+      会与 Shot 生命周期混为一谈，故只保留「不可变版本被取代」这一最小必要集，并显式标注为派生而非原文。
+    adr: 'docs/adr/ADR-R17-shot-revision-contract.md'
+    approved_by: '项目所有者（会话内授权「按你的来」：按正文推导，不猜）'
+    approved_at: '2026-11-18'
+    recorded_at: '2026-11-18'
+    discovered_by: 'docs/adr/ADR-R16-shot-breakdown-draft-contract.md 残余风险第 3 条；contracts/runtime/resource_schema_gaps.yaml 的 ShotRevision 条目'
+    retroactive: false
+    source_commits: ['2192af9']
+    additions:
+      schema_objects:
+        - object: 'ShotRevision'
+          why: '不可变的镜头内容版本快照；SHOT.REVISION.CONFIRM 的资源类型，也是 ShotSpec / PrevizVersion / 生成任务的固定输入版本'
+      state_machines:
+        - object: 'ShotRevision'
+          why: 'ACTIVE→SUPERSEDED；确认即产生正式版本（无 DRAFT 态），被更高 revision_no 取代后终态不复活'
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 81
+      state_machines: 40
+    residual_risks:
+      - '关闭 A4 残余风险「ShotRevision 仍无 object schema」：本修订补上该对象，草案确认产出的引用不再悬空'
+      - 'Shot 本身仍未建模：8.3 是 Shot 与 ShotRevision 的合并示例，正文没有给 Shot 的状态集，字段拆分归属需所有者裁定；当前以 shot_id 为稳定身份键 + 父级不漂移（SR-5）保证一致性，不依赖一张不存在的表'
+      - '契约把 shot_code（业务短编号）与 IN_PRODUCTION（生产进度）划归 Shot 而非修订，与正文 8.3 合并示例不一致；不改基线正文，差异在此登记，待下一版正文明确字段边界'
+      - 'SHOT.REVISION.CONFIRM 未实现：修订表、revision_no 分配、版本冲突拒绝、ACTIVE→SUPERSEDED 推进均无运行时落点，两态状态机目前只是钉住的契约'
+      - '十条不变量中仅 SR-4（版本链闭合）与 SR-6（不越权定约束）可由 schema 表达，其余八条标 RUNTIME_PENDING，不得视为已落地'
+      - '确认事实由 confirmed_by/confirmed_at + 信封 audit_ref 承载，审批仍无独立对象；与 AUTH-3 累积式会签同源（缺审批事实契约），刻意不在此另造审批子对象，避免第三份审批事实源'
+      - 'quality_profile 收窄为单值 UNIFIED_HIGH_QUALITY（4.1 统一基线、ADR-023 支撑资产质量分离）；若将来引入镜头级质量档需走契约修订扩展枚举'
+
+  - id: 'V205-R14-A6'
+    title: '稳定逻辑镜头对象契约——Shot（含五态状态机与转移守卫）'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: 'docs/adr/ADR-R17-shot-revision-contract.md 残余风险第 1 条（Shot 未建模）；contracts/phase0/contract_amendments.yaml 的 V205-R14-A5 残余风险第 2 条'
+    reason: >-
+      A5 把 Shot 留成显式缺口，理由是「8.3 是合并示例、正文没给状态集、字段归属需裁定」。
+      项目所有者 2026-11-18 给出正式口径：Shot 独立建模，负责镜头身份、业务编号与粗粒度生产进度；
+      ShotRevision 负责内容与版本历史；首次人工确认 ShotDraft 时在同一事务创建 Shot 与首个 ShotRevision。
+      前置条件解除，按「不猜契约」落地。一次落四处：对象 schema、五态状态机（含 6 条转移守卫）、
+      枚举登记、动作资源类型。不能只补一个 JSON Schema 就宣布镜头域闭合——那只补了壳。
+      同时把 SHOT.REVISION.CONFIRM 的 resource_type 由 ShotRevision 改为 Shot/ShotRevision：
+      首次确认原子创建两个对象，只声明修订会让新建的 Shot 逃过 schema 校验。
+    adr: 'docs/adr/ADR-R18-shot-entity-contract.md'
+    approved_by: '项目所有者（会话内正式裁定「选方案 1：Shot 必须独立建模」）'
+    approved_at: '2026-11-18'
+    source_commits: ['07951cc']
+    additions:
+      schema_objects:
+        - object: 'Shot'
+          why: '稳定逻辑镜头实体；承载 shot_id / shot_code / status / 当前版本指针与状态证据，是 ShotRevision 的归属锚点'
+      state_machines:
+        - object: 'Shot'
+          why: '五态 NOT_STARTED / IN_PRODUCTION / BLOCKED / PRODUCTION_COMPLETE / CANCELLED，10 条转移，CANCELLED 终态；6 条转移守卫钉在 schema 字段上'
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 82
+      state_machines: 41
+    residual_risks:
+      - 'Scene 仍未建模：Shot.scene_id 指向一个没有 object schema 的对象（与 ShotRevision.scene_id 同一既有缺口），scene_id→Project 的归属一致性只能靠运行时复合外键，属 SH-2 的 RUNTIME_PENDING'
+      - 'Shot 无运行时、无镜头表：原子创建、版本指针前移、状态推进、shot_code 项目内唯一约束均无落点；八条不变量只有 SH-5 与 SH-8 可由 schema 表达'
+      - 'shot_code 未加 pattern：不同项目编号习惯不同（EP001-SC003-SH012 仅是示例），强行正则属于过约束；唯一性依靠数据库 (project_id, shot_code) 唯一索引'
+      - 'duration_ms / timecode 归属冲突：所有者本轮口径为「时长与时间码归 ShotSpec」，但 ADR-R17 已把两者放进 ShotRevision 并冻结；本轮不改已冻结契约，差异与两条迁移路径见 ADR-R18「待裁定差异」'
+      - '五态是所有者设计决策、非正文原文：下一版正文若给出不同状态集，须走契约修订对齐，不得让实现与契约各自解释'
+      - '冻结闸门按名称集合判定增删，识别不了「同名 action 指向不同对象」：SHOT.REVISION.CONFIRM 的 resource_type 由 ShotRevision 改为 Shot/ShotRevision 属同名改写，登记在案而非靠闸门发现'
+      - '审批事实仍无独立对象：cancellation_ref / rework_basis_ref 指向授权记录，但「谁在什么授权下批准了什么」无专用对象，与 AUTH-3 累积式会签同源；刻意不另造审批子对象，避免第三份审批事实源'
+
+  - id: 'V205-R14-A7'
+    title: '镜头字段归属裁决——时长归 ShotSpec、时间线位置归 TimelineDraft（ShotRevision 退役两字段）'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: 'V205-R14-A6 残余风险第 4 条（duration_ms / timecode 归属冲突）；docs/adr/ADR-R18-shot-entity-contract.md「待裁定差异」'
+    reason: >-
+      项目所有者 2026-11-18 正式裁决：duration_ms 归 ShotSpec，timecode 归 TimelineDraft 的镜头时间线条目，
+      两者都不再属于 ShotRevision；A、B 两条路径均不采用。决定性依据是 8.12「ShotSpec 是镜头结构化描述的
+      单一数据源，不应分别维护冲突的镜头时长或切点」与 33.2 的入出点字段组（clip_in_frame / clip_out_frame）。
+      落点有一处修正：timecode 迁入 clip_in_frame / clip_out_frame，而非新增 start_frame / end_frame
+      作为镜头条目字段——后者与 33.2 的入出点构成同型重复，等于把刚消除的双事实源换个字段名再建一遍。
+      同时把承接方（ShotSpec / TimelineDraft）的空壳字段做实：迁入无约束的 type: string 是质量暗降，
+      双事实源会退化为单一无约束事实。帧区间统一左闭右开，避免 end 是否含末帧在剪辑、字幕、音频、
+      导出四处各有解释。
+    adr: 'docs/adr/ADR-R18-shot-entity-contract.md'
+    approved_by: '项目所有者（会话内正式裁决「duration_ms → ShotSpec，timecode → TimelineDraft」）'
+    approved_at: '2026-11-18'
+    source_commits: ['74a7497']
+    additions: {}
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 82
+      state_machines: 41
+    residual_risks:
+      - '本修订无名称级增删（对象/动作/状态机数量不变），只做字段级收敛：冻结闸门按名称集合判定，识别不了字段退役，须靠 schema_field_signatures 的字段级 diff 配合本条目'
+      - '跨对象时长换算未定取整与容差口径：8.12 示例自身不严格（4200 ms @ 24/1 = 100.8 帧，切点末点为 100），实现方不得用严格相等校验，SS-3 与 TL-3 暂只校验对象内部一致性'
+      - 'ShotSpec 与 TimelineDraft 仍为部分空壳：本轮只做实与裁决直接相关的字段；TimelineDraft 的 required 混入子条目字段与 duration_per_shot_frames{} 这类带花括号键名，属既有结构缺陷，独立整改'
+      - '基线 8.3 示例把 duration_ms / timecode 与 Shot 身份字段混在一段 JSON 里，应分对象呈现；基线文档已冻结哈希（489607 字节 / 9a9940c5…），本轮不私改，登记为基线待修订项'
+      - 'Scene 仍未建模：Shot.scene_id 与 ShotRevision.scene_id 同指一个无 schema 的对象，归属一致性只能靠运行时复合外键 (project_id, scene_id) 与 (project_id, shot_code) 唯一索引'
+      - '批注类对象的 timecode 仍是字符串：ReverseKeyframeRef / ClientAnnotation / ReviewAnnotation / QCIssue 用它做单点定位，不构成区间事实，但与正文 3836 行「不得只用字符串时间码」的要求相抵；属独立质量问题，本轮不动'
+      - '本修订解除 A6 残余风险第 4 条（归属冲突）与 ADR-R18「待裁定差异」，其它残余风险不变'
+
+  - id: 'V205-R14-A8'
+    title: '场次对象契约——Scene（归属锚点建模 + 引用目标闸门 + 枚举覆盖闸门）'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: 'V205-R14-A7 残余风险第 5 条（Scene 仍未建模）；项目所有者 2026-11-18 裁决要求数据库以 FOREIGN KEY (project_id, scene_id) REFERENCES scene(project_id, scene_id) 锁死归属'
+    reason: >-
+      Shot.scene_id 与 ShotRevision.scene_id 一直指向 Scene，而 Scene 没有任何 schema——三闸门却全绿。
+      根因不是「忘了写」，而是没有任何机制能发现它被忘了：既有闸门只校验 action_registry.resource_type
+      引用的类型，字段级「对象指向对象」从未被检查；resource_schema_gaps.yaml 也只按 resource_type 记账，
+      所以 Scene 连「缺口」都不是，是「不存在」。只补一个 schema 只解决前一半，后一半会在下一个对象上重演
+      （GateInstance、AuditEvent 已经排队），故本修订同时新增引用目标闸门。
+      字段边界按「不猜契约」执行：正文对 Scene 只有 8.1 的层级关系一句话，没有任何字段表，因此只建模身份
+      （scene_id）、业务编号（scene_code，8.2 仅用于展示 + 8.3 的 SC003 证据）、归属（episode_id）与作用域
+      （project_id，复合外键成员列）+ C.3.1 十项信封；场次名/地点/日夜/目标/进出状态一律不进本对象，它们已有落点
+      （ShotBreakdownDraft.scene_breakdowns[]）。状态集镜像 Episode（DRAFT/ACTIVE/ARCHIVED），理由不是照抄，
+      而是同层级聚合不各造一套命名；同时拒绝裸 string——C.3.1 要求未知枚举值必须拒绝，裸 string 等于任何值都接受。
+      Scene 作为新对象从第一天就用 additionalProperties=false，使「内容不越权」成为真正的 SCHEMA 级不变量。
+      另外补登 enum_registry 缺失的 Project / Episode / ScriptRevision 三条（实测状态机 41 vs 枚举 38，
+      派生文件早已与权威源脱钩），并新增枚举覆盖闸门防止下次再漏。
+    adr: 'docs/adr/ADR-R19-scene-entity-contract.md'
+    approved_by: '项目所有者（会话内指令「按你的来」，授权按上一轮建议顺序继续推进未闭合项，首项为 Scene 对象契约）'
+    approved_at: '2026-11-18'
+    source_commits: ['73ec613']
+    additions:
+      schema_objects:
+        - object: 'Scene'
+          why: '场次聚合根；是 Shot.scene_id / ShotRevision.scene_id 的引用目标与复合外键 (project_id, scene_id) 的被引用对象。14 属性 / 14 必填，additionalProperties=false'
+      state_machines:
+        - object: 'Scene'
+          why: 'DRAFT→ACTIVE / ACTIVE→ARCHIVED / DRAFT→ARCHIVED，ARCHIVED 终态；状态集镜像 Episode（source_kind: derived_from_parent_lifecycle），非正文原文'
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 83
+      state_machines: 42
+    residual_risks:
+      - 'Scene 运行时全无：无 ORM、无迁移、无 service、无 action。所有者要求的 FOREIGN KEY (project_id, scene_id) 与 UNIQUE (project_id, shot_code) 仍是纸面约束，八条不变量全部 RUNTIME_PENDING'
+      - '创建入口未定：本轮刻意未把 SHOT.REVISION.CONFIRM 的 resource_type 扩为 Shot/ShotRevision/Scene——那等于替所有者裁定「确认拆镜即建立正式场次」，须在 Scene 运行时设计时一并裁定'
+      - '稳定场次是否应持有描述性内容、是否需要 SceneRevision：正文未定义，待裁定；当前内容只在 ShotBreakdownDraft 的场次层'
+      - '32 个有状态机的对象 status 仍是裸 string（实测 41 个中仅 9 个收 enum）：Scene 收 enum 而 Project / Episode 未收，口径差异已在 ADR-R19 说明，需一次独立迁移，本轮不夹带'
+      - '引用目标闸门只覆盖 4 个对象 24 条声明：全 schema 475 个引用类字段中 456 个未声明；按命名自动推导会产生 393 条误报（entity_id / audit_ref 等非对象引用），故不做，覆盖边界写进 PASS 输出'
+      - 'GateInstance 与 AuditEvent 仍无 schema：后者被信封 audit_ref 在 82 个对象上引用，是下一个同型缺口'
+      - '本修订解除 A7 残余风险第 5 条（Scene 未建模），其它残余风险不变'
+
+  - id: 'V205-R14-A9'
+    title: '状态枚举统一迁移——allowed_states 与转移图分离、枚举派生、四层一致性闸门'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: 'V205-R14-A8 残余风险第 4 条（32 个对象 status 仍是裸 string）；项目所有者 2026-11-18 复核 main 时指出 A8 的 32/9 口径已过期且 enum_registry 只比对象名不比状态集，批准本项作为独立任务立项'
+    reason: >-
+      状态集合此前有三份手写副本：state_machines 的文本状态链、enum_registry 的状态列表、
+      Schema 的 status.enum。三份各自手改，于是同时存在三种漂移而闸门全绿：
+      state_machines 有状态而 Schema 是裸 string（76 个 status 中 70 个）、
+      enum_registry 有状态而 state_machines 没有（PG0 / PG3 / PMS / PASS / PUBLISHED）、
+      Schema 有 enum 而权威集合没有（BudgetTransferRequest 的 8 个值）。
+      根因不是「谁忘了改」，而是**没有一条规则把三处连起来**：旧闸门只比对对象名集合，
+      且注释明写「刻意不比状态集」，所以任何一处状态漂移都不可见。
+      本修订做三件事：(1) 把状态机从自由文本改成 allowed_states + transitions 两个结构字段，
+      让「允许出现哪些值」与「已授权哪些边」各自可校验——旁支状态（AssetVersion 的
+      QUARANTINED、Task 的 WAITING_FOR_PROVIDER）允许存在但可以没有入边，旧文本结构
+      无法表达这一点，导致枚举要么漏掉合法值、要么从备注里乱抓；(2) 让 enum_registry 与
+      Schema 的 status.enum 都由 allowed_states 生成（scripts/gen_status_contracts.py），
+      并用「重算一遍比字节」的闸门禁止任何手改派生文件；(3) 新增 status 字段分类台账
+      （status_field_taxonomy.yaml），把 76 个 status 字段落成 39 个 lifecycle + 18 个
+      envelope_only + 19 个 lifecycle_gap——没有权威状态集的对象不编造枚举，但必须留下
+      带 reason/contract_ref/unblocks_when 的缺口债务，删条目不能让闸门变绿。
+      清单口径同时修正：CharacterCard 与 CharacterAppearance 由 C.7 一条合并登记拆成两条
+      （两者共享同一状态集，C.3 未列 REJECTED/QUARANTINED 属描述省略，按 CharacterCanon /
+      ShotVisualPlan 同一裁决口径）；TimelineFlowStatus 是 UI 进度投影而非持久化对象，
+      移入 projections 分区且不进枚举注册表；BudgetTransferRequest 的孤儿枚举反向补登为
+      状态机（transitions 留空——正文只写了人工申请→人工审批→原子记账，未给边，
+      Phase 2 启用前不得推定）。运行时只对已落库的四张表收口：Domain Enum 与 status CHECK
+      约束都由契约状态集生成，闸门逐字比对，未实现的对象不提前造 ORM 或假约束。
+    adr: 'docs/adr/ADR-R20-status-enum-single-source.md'
+    approved_by: '项目所有者（会话内立项指令：「状态枚举统一迁移，批准立项。第一步不是直接修改 32 个对象，而是从当前 main 重新生成准确的状态枚举清单」）'
+    approved_at: '2026-11-18'
+    source_commits: ['f81850a']
+    additions:
+      state_machines:
+        - object: 'BudgetTransferRequest'
+          why: '对象在 object_schemas 里已有 status.enum（8 个值）却从未登记状态机，属「Schema 有状态、权威集合没有」的孤儿枚举。本轮按既有 schema 枚举反向补登 allowed_states，transitions 留空（正文未给边），registration_status: PENDING_PHASE2_REVIEW，Phase 2 启用前须所有者复核'
+        - object: 'CharacterAppearance'
+          why: 'C.7 原文以「CharacterCard / CharacterAppearance」一条状态机登记两个对象。拆成两条后两个对象各有独立条目、共享同一状态集（8 态），消除「一个对象两条/零条权威」的歧义'
+    removals:
+      state_machines:
+        - object: 'CharacterCard / CharacterAppearance'
+          why: '合并条目被上一条的拆分取代：该键不是合法对象名（object_schemas 里没有斜杠命名的对象），保留它会让「状态机对象集」与「Schema 对象集」永远无法逐名比对'
+        - object: 'TimelineFlowStatus（UI 投影）'
+          why: '33.3 的 TimelineFlowStatus 是 UI 进度投影（由 TimelineDraft.status 与 ToolExchangeSession 事件拼成），不是持久化领域对象。它进对象状态机清单等于把派生视图当实体，draft 的 status.enum 也会被要求收 IMPORTED/RETURNED 这种只来自事件的值。已移入 state_machines.projections 分区，不计入对象数、不进枚举注册表'
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 83
+      state_machines: 42
+    residual_risks:
+      - '19 个对象的 status 仍是裸 string（lifecycle_gap）：BlockingAsset / CameraRig / CharacterReferenceSet / CharacterVoiceProfile / ContinuityConstraint / ControlSignalAsset / CreativeProposal / DeliverySpec / EscapeReport / ExternalToolArtifact / IntentContract / ProjectProductionProfile / Report / ShotProductionProfile / ShotResourceAllocation / ShotSpec / ShotTierChangeRequest / TimelineManifest / ToolExchangePackage。逐个给出 reason/contract_ref/unblocks_when，闸门双向校验，但「有债务」不等于「已约束」——这些字段目前仍接受任意字符串'
+      - '18 个对象的 status 被判定为 envelope_only（无独立生命周期）：其中 4 个是 status_split（ExternalToolAdapterManifest.lifecycle_status、ModelInvocation 的 submission/result/billing_status、PrevizVersion 的 approved_at+ purity_check_status、QCIssue 的 disposition），这批对象存在「两个 status 事实」的结构问题，按 R4 应合并而非并存，但合并属契约修订，本轮只显式登记不擅自动手'
+      - 'Pattern 与 PatternRecord 状态链逐字相同而只有后者有 schema：是否同一对象尚未裁定，暂以 schema_gaps 条目登记，不擅自合并（合并会掩盖两章命名差异，不合并则缺一条 schema）'
+      - 'PublicationReview / CreatorShareLink 仍无 object schema（状态机有、字段无处校验），已登记 schema_gaps；PublicationReview 的「审核人与提交人分离」目前只有状态机 note 一句话，没有字段级约束'
+      - 'BudgetTransferRequest 的 allowed_states 取自既有 schema 枚举而非正文：正文只写「人工申请→人工审批→原子记账」。这属反向补登，Phase 2 启用前须所有者复核，否则等于让既有实现定义了契约'
+      - '运行时只收口四张已落库表（projects / episodes / script_revisions / asset_versions）：其余 38 个对象没有 ORM、没有表、没有 CHECK，契约层级约束已成立但运行时不可执行（如实标记，不提前建空表）'
+      - 'object_schemas 中既有 5 个 enum（Scene / Shot / ShotBreakdownDraft / ShotRevision / Task）的书写顺序同步为字母序：语义不变（闸门按集合比对），但评审时会看到纯顺序 diff'
+      - '本修订解除 A8 残余风险第 4 条（32 个对象裸 string），并修正其 32/9 统计口径（实测 76 个 status 中 70 裸 / 6 收 enum）；其余残余风险不变'
+
+  - id: 'V205-R14-A10'
+    title: '双 status 字段权威归属与信封哨兵（ADR-R21）'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: '项目所有者 2026-11-18 评审 ADR-R20：认可 19 lifecycle_gap / 18 envelope_only 作为不同性质显式债务保留，要求先裁定四个双 status 对象的权威归属，并指出 envelope_only 不能成为永久兜底、不能一边承认无生命周期一边允许任意字符串写入'
+    reason: >-
+      A9 把 18 个 status 字段归为 envelope_only，其中 4 个是 status_split，但只登记了
+      「存在两个事实」，没有裁定哪个字段可写——实现方仍可二选一，最终出现两个互不相认的
+      事实源。同时 envelope_only 对象保留裸 string，等于允许任意字符串写入，违反 C.3.1。
+      本修订按所有者三条口径逐项裁定：ExternalToolAdapterManifest 的权威为 lifecycle_status；
+      ModelInvocation 的提交/结果/计费三个正交字段各自保留，不合并成线性链；PrevizVersion
+      的 8.13 正文已给出六态权威集，归位为 lifecycle（purity_check_status 与审批字段是证据/检查
+      维度而非第二套生命周期）；QCIssue 的权威为 human_decision + disposition。信封 status
+      对前三个对象退役为 status_layers 哨兵 NO_LIFECYCLE，17 个 envelope_only 对象全部收单值
+      enum，且每个条目新增 unblocks_when 写明销项所需的领域决策。
+    adr: 'docs/adr/ADR-R21-status-field-authority.md'
+    approved_by: '项目所有者（会话内评审指令：「允许债务存在，不允许债务隐形；允许暂时不定义状态，不允许多个事实源同时拥有状态」）'
+    approved_at: '2026-11-18'
+    source_commits: ['91215fd']
+    additions:
+      enums:
+        - file: 'contracts/enums/field_authority.yaml'
+          why: '四个双 status 对象的权威写入位置、裁定理由与 unblocks_when；闸门校验字段真实存在且权威/非权威集合不重叠'
+        - file: 'contracts/enums/status_layers.yaml → envelope_only_sentinel'
+          why: 'NO_LIFECYCLE 作为无生命周期对象的唯一合法 status 值，堵住裸 string'
+      state_machines:
+        - object: 'PrevizVersion'
+          why: '8.13 明确给出 DRAFT/GEOMETRY_VALID/RENDERED/APPROVED/LOCKED/SUPERSEDED 六态；此前误判为 status_split。只登记正文明确的 APPROVED→LOCKED 边，其余边写入 transitions_gap，不推定'
+    removals:
+      status_field_taxonomy:
+        - object: 'PrevizVersion（envelope_only/status_split 条目）'
+          why: '归位 lifecycle；继续留在占位分类会让正文已有的六态权威集继续隐形'
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 83
+      state_machines: 43
+    residual_risks:
+      - '19 个 lifecycle_gap 仍是带债务字段的裸 string（A9 已登记，未在本轮迁移）；本修订只把它们与 envelope_only 的边界钉清'
+      - '17 个 envelope_only 对象的权威字段值集大多仍待所有者裁定：field_authority.unblocks_when 已逐项写明销项条件'
+      - 'PrevizVersion 的 5 条未授权转移边登记在 transitions_gap，未登记前按 31.5 一律拒绝'
+      - '缺失 Schema 对象（PublicationReview / CreatorShareLink / Pattern / SharedReferenceAsset）继续单列 schema_gaps，不因不在枚举迁移范围而视为已闭合'
+      - '本修订修正评审表格的统计口径：迁移前既有 enum 是 5，当前 57 个 status.enum = 40 生命周期 + 17 哨兵；42 个状态机对象与 76 个带 status 的 schema 对象不是同一集合'
+
+  - id: 'V205-R14-A11'
+    title: '状态机转移边迁移遗漏补齐 + basis 封闭枚举闸门（PR #14 评审）'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: 'PR #14 chatgpt-codex-connector 自动评审（6 条 review thread）；逐条比对基线正文后裁定'
+    reason: >-
+      A9/A10 把状态机从自由文本状态链迁到 allowed_states + transitions 结构化形式时，
+      transitions 只抄了正文里画成箭头的链，漏抄了正文以自然语言授权的边，造成
+      「契约声明的状态」与「可执行的状态转移」脱节。逐条比对基线正文后确认四类漏抄：
+      31.5「CommunityPost 发布后可 UNLISTED/TAKEN_DOWN/ARCHIVED」3 条边、
+      34.8「CreatorRelease 发布后可 UNLISTED/TAKEN_DOWN/REVOKED/ARCHIVED」4 条边、
+      33.3「TimelineDraft 旧版本 → SUPERSEDED/STALE/ARCHIVED」中 DRAFT 侧漏抄的
+      DRAFT→STALE / DRAFT→ARCHIVED 2 条边、8.6「READY/QUEUED 允许取消」2 条边，
+      共补齐 11 条正文明确授权的边。这些不是新增契约，是恢复正文原有语义。
+      另有一条评审指出 status_field_taxonomy 的 basis 只校验非空、未校验是否属于
+      basis_kinds 封闭枚举——拼错的类别会静默通过，台账自称的封闭枚举形同虚设，
+      故把闸门升级为封闭枚举校验并补两个负向测试。
+      ReworkTask 的 VERIFYING→IN_PROGRESS 与进入 REJECTED 的边：7.6 正文只给 status
+      枚举、未画转移图，不能凭评审措辞推定授权，故按「不猜契约」登记 transitions_gap
+      显式债务（含 unblocks_when），待所有者补登边的 owner_action 与前置条件后再写入 transitions。
+      推送后审查器第二轮又指出三处同类问题，逐条比对正文确认后一并修复：26.3/31.5
+      「RIGHTS_CHECK → APPROVED / REJECTED」明示的 ReuseRequest→REJECTED 边、
+      C.3 states_text 与 conflict_ruling 明示的 ShotVisualPlan REVIEW→REJECTED 边（两条漏抄），
+      以及 field_authority 闸门只校验已登记条目、不校验全部 status_split 对象都有裁定的
+      预防性漏洞——现已加双向完备性校验：台账里每个 basis=status_split 对象必须有一条
+      field_authority 裁定，防「两个事实源」再次隐形。第二轮的两条边同样进回归测试锁定。
+    adr: 'docs/adr/ADR-R20-status-enum-single-source.md'
+    approved_by: '项目所有者（会话内裁定「修复后合并」：修复已证实缺陷、待正文的登记显式债务，再合并 PR #14）'
+    approved_at: '2026-11-18'
+    source_commits: ['0af85f7', '37aee5f']
+    additions: {}
+    removals: {}
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 83
+      state_machines: 43
+    residual_risks:
+      - '本修订无名称级增删，只改已有状态机的转移边、ReworkTask 的 transitions_gap 债务字段与闸门校验逻辑；冻结闸门按内容哈希判定状态机变更，须随本修订重签清单'
+      - 'ReworkTask 的 REJECTED 仍是「合法但无授权入口」的旁支状态，VERIFYING→IN_PROGRESS 回流边未登记，按 31.5 一律拒绝，销项条件写在 transitions_gap.unblocks_when'
+      - '补齐的 13 条边只达契约层；相关对象均无运行时状态机（PENDING_PHASE1_REVIEW 或纯契约态），边目前不可执行，待各自运行时落地时按此转移表实现'
+      - '本轮两轮正则审计（note + other_definitions.states_text + conflict_rulings）覆盖全部 43 个对象，误报两类已人工排除：QCReviewSession 的 RESOLVED→CLOSED 是 ruling 明令禁止的跳关边、TimelineDraft 的 DRAFT→DRAFT 是正则跨字段错配；除 PrevizVersion（已有 transitions_gap 债务）外无真实遗漏。中文措辞授权（如「发布后可」）正则不覆盖，已逐条人工核对 26.3/31.5/33.3/34.8/8.6 正文'
+
+  - id: 'V205-R14-A12'
+    title: '状态迁移事实对象契约——StatusTransition（审批可追溯的第一类事实）'
+    retroactive: false
+    recorded_at: '2026-11-18'
+    discovered_by: 'docs/audits/2026-11-18-full-repo-baseline-and-root-cause-audit.md §7 N-02；docs/adr/ADR-R23-status-transition-fact-table.md'
+    reason: >-
+      审批与状态迁移此前只有两处落点：每次迁移被覆盖的实体 audit_ref，与按保留期
+      DETACH 的 outbox 分区。于是审计事实的生命周期由**传输机制**的保留策略决定，
+      「谁在什么证据下批准了什么」在保留期之后不可查询，AUTH-5 累积式会签因此不是
+      排期问题而是模型里没有落点（结构性缺口）。本修订补上这个事实对象：
+      append-only、不设保留期，并与状态变更同事务写入；event_id 互指使 outbox
+      降级为「通知下游」，不再被要求承担历史职责。
+      对象不含生命周期状态字段（from_status/to_status 是事实属性，不是当前态），
+      故不配状态机——本修订 schema_objects +1、state_machines 不变。
+    adr: 'docs/adr/ADR-R23-status-transition-fact-table.md'
+    approved_by: '项目所有者（会话内「按你的节奏来」授权 D1 合并后开 D2）'
+    approved_at: '2026-11-18'
+    source_commits: ['db7038d']
+    additions:
+      schema_objects:
+        - object: 'StatusTransition'
+          why: >-
+            一次状态推进的事实记录。唯一约束绑 (tenant_id, resource_type, resource_id,
+            entity_version)，把乐观锁抬成结构约束；只存 evidence_refs 不存快照；
+            CHECK(from_status <> to_status) 使「用 no-op 行冒充会签」结构上不可表达
+    counts_after:
+      actions: 84
+      openapi_operations: 84
+      schema_objects: 84
+      state_machines: 43
+    residual_risks:
+      - '不回填历史：迁移前发生的推进没有事实行，遗留 audit_ref 按 ADR-R23 §D2-c 标记 legacy 而非反推 transition；假历史比缺历史更有害'
+      - '组织维度 RLS 待 D3：本对象当前只有租户维度策略；organization_id 只落值、不参与策略，跨组织可见性仍由应用层保证'
+      - '读接口与会签事实未立项：AUDIT.STATUS.HISTORY.READ 与 audit.approval_signatures 属 D2b，需所有者裁定新动作；在此之前会签动作保持 fail-closed'
+      - '既有 append_only 两表（asset_service.qc_reports / asset_versions）的 TRUNCATE 守卫随本批迁移补齐，属同型缺口修复，不单列修订'
+
+  - id: 'V205-R14-A13'
+    title: 'Scene / Shot / ShotRevision / ShotBreakdownDraft / ReworkTask 运行时入口'
+    retroactive: false
+    recorded_at: '2026-11-20'
+    discovered_by: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md；ADR-R19 §121（Scene 创建入口未定）、ADR-R18 §12（首次确认原子创建 Shot + ShotRevision）、A12 残余风险第 2 条（审批事实无独立对象）'
+    reason: >-
+      契约侧四份 ADR 已把对象钉死，运行时一行代码都没有，且存在一条首尾相接的阻塞链：
+      Shot.required 含 shot_revision_id → 需要 ShotRevision → 唯一创建入口是
+      SHOT.REVISION.CONFIRM → 其输入是 ShotBreakdownDraft → 唯一入口是
+      SHOT.DRAFT.CREATE。任何一环单独实现都会立刻撞上下一环。同时 Shot 的 10 条转移边
+      中 6 条带守卫，守卫依赖的 ReworkTask（无表）与授权记录（无契约对象）都不存在。
+      本修订把整条链一次接通，避免留下三处半成品；动作增量 10 个，对象与状态机均已存在，
+      故 schema_objects / state_machines 不变。四项裁定见 ADR-R28 §2：ReworkTask 随批建表、
+      授权记录用 authority_ref 字符串承载、表 + API + 动作全出、4 条无入口边与入口同时开放。
+    adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
+    approved_by: '项目所有者（2026-11-20 会话内逐条裁定四项决定）'
+    approved_at: '2026-11-20'
+    source_commits: ['29b842a']
+    additions:
+      actions:
+        - action_key: 'SCENE.CREATE'
+          why: '场次登记。与 EPISODE.CREATE 同型：同层级、同归属校验、同幂等语义。刻意不让 SHOT.REVISION.CONFIRM 隐式建场次——ADR-R19 §121 已拒绝替所有者裁定「确认拆镜即建立正式场次」。'
+        - action_key: 'SCENE.READ'
+          why: '场次读取。组织边界由统一授权入口判定，租户边界由 RLS 保证。'
+        - action_key: 'SCENE.STATUS.CHANGE'
+          why: '拥有 Scene 的全部 3 条边（DRAFT→ACTIVE、DRAFT→ARCHIVED、ACTIVE→ARCHIVED）。ARCHIVED 为终态，不可原地复活。'
+        - action_key: 'SHOT.READ'
+          why: '镜头读取。'
+        - action_key: 'SHOT.STATUS.CHANGE'
+          why: '拥有 Shot 的全部 10 条边，其中 6 条带守卫：blocked_reason（进入 BLOCKED 两条）、rework_basis_ref（返工回退一条）、cancellation_ref + cancelled_at（取消三条）。守卫在领域层求值，库层 CHECK 兜底。'
+        - action_key: 'SHOT.DRAFT.CONFIRM'
+          why: '拥有 ShotBreakdownDraft 的 2 条边（PENDING_CONFIRM→IN_REVIEW 认领、IN_REVIEW→CONFIRMED 确认）。两跳同一事务、同一 owner_action，写两条迁移事实；认领跳不单独发事件。'
+        - action_key: 'SHOT.DRAFT.RETURN'
+          why: '拥有 IN_REVIEW→RETURNED。RETURNED 是版本终态，修改走新版本，不回退到 PENDING_CONFIRM。'
+        - action_key: 'SHOT.DRAFT.DISCARD'
+          why: '拥有 PENDING_CONFIRM→DISCARDED 与 IN_REVIEW→DISCARDED。'
+        - action_key: 'REWORK.TASK.CREATE'
+          why: '返工任务登记。归属 project_planning 域：Shot.rework_basis_ref 的守卫需要同域校验，跨域会退化为字符串非空，守卫名存实亡（ADR-R28 §3.3）。'
+        - action_key: 'REWORK.TASK.STATUS.CHANGE'
+          why: '拥有 ReworkTask 已登记的 4 条边（OPEN→IN_PROGRESS→DONE→VERIFYING→CLOSED）。REJECTED 无入边，契约已登记「合法但当前无授权入口」，本批不擅自补边。'
+        - action_key: 'SHOT.DRAFT.READ'
+          why: '草案读取。不能复用 SHOT.DRAFT.CREATE 做读授权：那会把「能读」与「能创建」绑成一个能力，读取方（如 QC 审核人）将被迫获得创建权。'
+        - action_key: 'REWORK.TASK.READ'
+          why: '返工任务读取。同理不能复用 CREATE：QC 与制片需要查看返工依据，但不应因此获得登记权。'
+    counts_after:
+      actions: 96
+      openapi_operations: 96
+      schema_objects: 84
+      state_machines: 43
+    residual_risks:
+      - 'affected_asset_version_ids 是跨域 ID 数组，只能值引用不能加外键：资产删除后引用悬空，消费方只做展示与追溯，不做存在性强校验'
+      - 'cancellation_ref 是字符串，无法在库层证明它指向一次真实授权（D2 的直接代价）：缓解是把同一值同时写入 audit.status_transitions.authority_ref 与 evidence_refs，由审计侧按前缀路由到签发系统'
+      - 'ReworkTask.REJECTED 无入边：契约已登记该状态合法但无授权入口，补边需所有者给出「谁有权驳回返工」的口径'
+      - 'ShotRevision 每 Shot 一个 ACTIVE 依赖部分唯一索引兜底并发确认；正确性需真实 PostgreSQL 负测证明，当前环境未验证'
+
+  - id: 'V205-R14-A14'
+    title: 'A13 定级复核：编号唯一域收敛为项目内、身份单一下沉库层、SC-5 归档前置条件补齐'
+    retroactive: false
+    recorded_at: '2026-11-20'
+    discovered_by: >-
+      A13 交付后的逐条复核：把 SC-1/SC-2/SC-3/SC-5、SH-1/SH-3/SH-6/SH-7、SR-1/SR-10
+      逐条对照契约原文与真实实现，发现两处静默偏离与一处遗漏。
+    reason: >-
+      三件事都属于「实现与契约不一致」，契约文本本身不改：
+      ① 编号唯一域——契约 SC-3 / SH-3 明文要求「编号在**项目内**唯一」，实现却是
+      (project_id, episode_id, scene_code) 与 (project_id, scene_id, shot_code) 的父级唯一，
+      跨集/跨场可重名，弱于契约。实现服从契约，唯一约束改为 (project_id, scene_code) 与
+      (project_id, shot_code)；幂等回读键与冲突解释同步改口径（跨集撞号报「编号被占用」，
+      不再报成「幂等键复用」——两者都是 409，但修复方向相反）。
+      ② 身份单一——SC-1 / SH-1 / SR-1 原先只有领域层校验，绕过 Service 直连 DB 仍能造出
+      两套 ID。补 ck_scenes_identity_single / ck_shots_identity_single /
+      ck_shot_revisions_identity_single，让不变量落在最可靠层。
+      ③ SC-5 归档前置条件——A13 只落了「ARCHIVED 无出边」，遗漏「归档前必须确认其下不存在
+      IN_PRODUCTION 的 Shot」。该遗漏已在本修订补齐（SceneService 归档分支同事务判定），
+      A13 residual_risks 中对应条目同时删除，避免陈旧债务留在台账上。
+      随之把 10 条已被运行时真实强制的不变量从 RUNTIME_PENDING 改判为 RUNTIME_ENFORCED，
+      并给不变量定级词汇表补第三档——此前只有 SCHEMA / RUNTIME_PENDING，交付完成后定级
+      只能继续说谎。
+    adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
+    approved_by: '项目所有者（2026-11-20 会话内三项逐条裁定：实现服从契约 / 本轮实现前置条件 / 加 DB CHECK）'
+    approved_at: '2026-11-20'
+    source_commits: ['29b842a']
+    modifications:
+      invariants:
+        - object: 'Scene'
+          ids: ['SC-1', 'SC-2', 'SC-3', 'SC-5']
+          from: 'RUNTIME_PENDING'
+          to: 'RUNTIME_ENFORCED'
+          why: 'SC-1 领域校验 + CHECK；SC-2 复合外键 fk_scenes_episode；SC-3 uq_scene_code_per_project；SC-5 无出边 + 归档前置条件。'
+        - object: 'Shot'
+          ids: ['SH-1', 'SH-3', 'SH-6', 'SH-7']
+          from: 'RUNTIME_PENDING'
+          to: 'RUNTIME_ENFORCED'
+          why: 'SH-1 CHECK；SH-3 uq_shot_code_per_project；SH-6 领域守卫 + rework_basis_ref 外键；SH-7 CANCELLED 无出边。'
+        - object: 'ShotRevision'
+          ids: ['SR-1', 'SR-10']
+          from: 'RUNTIME_PENDING'
+          to: 'RUNTIME_ENFORCED'
+          why: 'SR-1 CHECK；SR-10 SUPERSEDED 无出边（仅 ACTIVE→SUPERSEDED 一条边）。'
+      constraints:
+        replaced:
+          - 'uq_scene_code_per_episode (project_id, episode_id, scene_code) → uq_scene_code_per_project (project_id, scene_code)'
+          - 'uq_shot_code_per_scene (project_id, scene_id, shot_code) → uq_shot_code_per_project (project_id, shot_code)'
+        added:
+          - 'ck_scenes_identity_single: CHECK (scene_id = entity_id)'
+          - 'ck_shots_identity_single: CHECK (shot_id = entity_id)'
+          - 'ck_shot_revisions_identity_single: CHECK (shot_revision_id = entity_id)'
+    counts_after:
+      actions: 96
+      openapi_operations: 96
+      schema_objects: 84
+      state_machines: 43
+    residual_risks:
+      - 'SH-2 后半句「Shot 与同一 shot_id 的全部修订父级（project/episode/scene）完全一致」仍无复合外键承载：shot_revisions 只有 (project_id, shot_id) 一条外键，修订的 episode_id / scene_id 与 Shot 是否一致由服务写入时保证，属已登记缺口，不改判 ENFORCED'
+      - 'SH-4「shot_revision_id 必须指向存在且 ACTIVE 的修订」在库层无约束（该列不是外键），只有服务层保证；补外键会与「Shot 首次确认时先建修订、后落 Shot」的写入顺序冲突，需单独设计'
+      - '编号唯一域改为项目内后，跨集重名会在登记时被拒：若未来确认业务上允许跨集同名，需另立修订放宽 SC-3 / SH-3，而不是在实现里悄悄松绑'
+
+  - id: 'V205-R14-A15'
+    title: 'SC-5 并发窗口根治（父行锁协议）；23505 映射逐路径核对'
+    retroactive: false
+    recorded_at: '2026-11-21'
+    discovered_by: >-
+      A14 交付后逐条复核剩余风险，两项被要求「要么实现、要么说清为什么不做」：
+      ① SC-5 归档前置条件只做到「同事务查询 + 拒绝」，查询与写入之间的并发窗口仍在；
+      ② A13 债务第 7 条指出 23505 未翻译成统一 409，需逐路径核对。
+    reason: >-
+      两项都不改契约文本（SC-5 的陈述本身已包含两侧语义），改的是**实现强度**。
+      ① 归档前置条件从「查一次」升级为成对的行锁协议：父侧持排他行锁重判，子侧
+      （镜头进入 IN_PRODUCTION）持同一行的共享锁后确认父场次未归档。这不是加兜底
+      而是消除结构性缺陷——唯一索引表达不了「子行集合里不得存在某状态」，延迟约束
+      在 READ COMMITTED 下是 write skew（双方都看不到对方未提交的改写），
+      SERIALIZABLE 要全库所有写路径付序列化重试代价。代价是写入协议多一条不变量：
+      加锁顺序必须父→子。
+      前置条件声明挂在 Transition 边上（ParentPrecondition / ChildPrecondition），
+      触发条件由边表派生而非服务层手写分支：进入在产的边有三条、进入归档的边有
+      两条，手写 if 只覆盖作者当时想到的那一条，漏掉的那条不会让任何闸门变红。
+      ② 五个对象的八条写入路径逐条核对 23505 的来源与映射，修掉三条会冒 500 的
+      分支（场景登记的 entity_id 分支、拆镜确认的 shot / shot_revision 插入）。
+      保留 500 的三处是「代码缺陷」的失败形态（uuid 主键冲突、库层 CHECK 被穿透），
+      把它们伪装成 409 会让真实故障看起来像用户输入错误。
+    adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
+    approved_by: '项目所有者（2026-11-21 会话内逐条指示：归档走行锁重查、异常映射逐路径核对）'
+    approved_at: '2026-11-21'
+    source_commits: ['460f1be']
+    modifications:
+      invariants:
+        - object: 'Scene'
+          ids: ['SC-5']
+          from: 'RUNTIME_ENFORCED'
+          to: 'RUNTIME_ENFORCED'
+          why: >-
+            定级不变，强制强度提高：归档侧由「同事务查询」改为「排他行锁内重判」，
+            子侧（Shot → IN_PRODUCTION）取同一行共享锁，并发窗口关闭。
+    counts_after:
+      actions: 96
+      openapi_operations: 96
+      schema_objects: 84
+      state_machines: 43
+    resolved_residual_risks:
+      - 'SC-5 归档前置条件的并发窗口：已由父行锁协议关闭（ADR-R28 §6.3），对应条目自 A14 residual_risks 删除，避免陈旧债务留在台账上'
+    residual_risks:
+      - '「加锁顺序必须父→子」成为跨聚合写入的前提：新增涉及父子两行的前置条件时必须遵守同一顺序，否则引入死锁。当前无自动判据，靠评审与本 ADR 约束'
+      - 'translate_write_error 不透出约束名（constraint 参数恒为空），服务层区分 23505 成因靠回读数据，多一次往返；约束名可由驱动异常直接取得，属可做未做'
+      - 'SC-5 的并发用例需真实 PostgreSQL：本机无容器环境，仅在 CI 上执行（test_scene_archive_concurrency.py）'
+
+  - id: 'V205-R14-A16'
+    title: 'Scene 运行时入口——创建、读取与状态推进三个动作'
+    retroactive: true  # 合并自分叉归属链：动作已被 A13 覆盖，保留决策理由与治理增量
+    recorded_at: '2026-11-21'
+    discovered_by: 'ADR-R27 草案（docs/adr/ADR-R27-scene-shot-runtime-entry.PROPOSED.md）；批次五建表后发现「约束已就位、闭环为 0」'
+    reason: >-
+      批次五（i9d0e1f2a3b4）已把 scenes / shots 两张表、12 条外键与 RLS 全部建好，
+      但契约里 SCENE.* 一个动作都没有（84 个动作中零命中），于是这两张表只能读
+      （直连 SQL），任何服务层写入都没有入口。硬阻塞链是结构性的：
+      Scene 无创建入口 → scenes 无行可插 → shots.scene_id NOT NULL 无合法值 →
+      6 条接边外键无目标可指 → 镜头域整段不可推进。本次补的是链条第一环。
+      三个动作的裁定与边界：① SCENE.CREATE 镜像 EPISODE.CREATE，而不是扩展
+      SHOT.REVISION.CONFIRM 的 resource_type（那会让「有镜头确认权的人」自动获得
+      「建场次权」，两个角色集不同，混淆即丢失职责分离，ADR-R19 已先一步拒绝）；
+      ② SCENE.READ 不在 ADR-R27 草案的三条清单内，本次补入：只开创建不开读取会
+      得到一个写进去再也查不到的域，与 EPISODE.READ 也不对称——这不是范围扩张，
+      是让入口自洽；③ SCENE.STATUS.CHANGE 采用「单动作 + 目标状态作参数」，
+      与 A2/A3 先例（PROJECT/EPISODE.STATUS.CHANGE）同形，转移合法性由
+      state_machines.yaml 的 Scene 转移表在运行时校验，不按边拆分动作。
+      **ADR-R27/Q4 的 SHOT.STATUS.CHANGE 本次不登记**，理由是可验证的：
+      shots 表 shot_revision_id NOT NULL 且指向 shot_revisions，而 SHOT.REVISION.CONFIRM
+      在 action_implementations 中仍是 not_implemented ⇒ 镜头行在运行期无法产生。
+      此时登记 SHOT.STATUS.CHANGE 会得到一个「永远 404 的已实现动作」，
+      台账将声称有一项能力而实际不可达——那正是本项目反复禁止的「静态不可达被
+      说成已完成」。镜头域应作为整体（CONFIRM + STATUS.CHANGE）在下一批落地，
+      已登记在 action_implementations 的 not_implemented 里保持可见。
+      本次不新增对象与状态机：Scene 的 schema 与三态转移表此前已经存在
+      （state_machines.yaml#Scene，registration_status=PENDING_PHASE1_REVIEW）。
+    adr: 'docs/adr/ADR-R27-scene-shot-runtime-entry.md'
+    approved_by: '项目所有者（会话内裁定「按工程铁律改就行」）'
+    approved_at: '2026-11-21'
+    source_commits: ['279fcf1']
+    additions:
+      actions:
+        - action_key: 'SCENE.CREATE'
+          why: >-
+            场次登记是镜头域的第一环：缺它则 shots.scene_id 无合法值可填，
+            批次五建的 12 条外键与 RLS 全部空转
+        - action_key: 'SCENE.READ'
+          why: >-
+            与 EPISODE.READ 对称；只写不读的对象无法被任何后续流程使用，
+            也无法在故障时被观察
+        - action_key: 'SCENE.STATUS.CHANGE'
+          why: >-
+            Scene 的三态三条边此前零动作可触发；不补则场次永远停在 DRAFT，
+            ACTIVE（可挂载镜头）与 ARCHIVED（不可复活）都无法到达
+      schema_invariants:
+        - id: 'SC-1'
+          status: 'RUNTIME_ENFORCED'
+          why: >-
+            领域模型把 scene_id 做成 entity_id 的只读投影，批次五 ORM/迁移再以
+            CHECK (entity_id = scene_id) 兜底，已不是待实现缺口
+        - id: 'SC-2'
+          status: 'RUNTIME_ENFORCED'
+          why: >-
+            批次五建立 (project_id, episode_id) 与 (project_id, scene_id) 复合外键，
+            verify_batch5 对真实库做了引用校验；不再只停留在契约文字
+        - id: 'SC-3'
+          status: 'RUNTIME_ENFORCED'
+          why: >-
+            uq_scenes_project_code 与非空校验已在 ORM/迁移落地，内存仓储与真实库
+            同语义拒绝重复编号
+        - id: 'SC-5'
+          status: 'RUNTIME_ENFORCED'
+          why: >-
+            SCENE_LIFECYCLE 无 ARCHIVED 出边；批次六/七的数据库守卫在归档时检查
+            在制镜头，终态不可复活与归档前置条件均有运行时执行点
+    counts_after:
+      actions: 96
+      openapi_operations: 96
+      schema_objects: 84
+      state_machines: 43
+    residual_risks:
+      - 'SHOT.STATUS.CHANGE 与 SHOT.REVISION.CONFIRM 未登记/未实现，镜头域仍不可推进；两者必须成对落地，否则状态推进没有可作用的对象（已在 action_implementations 显式登记）'
+      - 'Scene 的 registration_status 仍为 PENDING_PHASE1_REVIEW：本次只补入口，不改状态集；PENDING 的固化要等 Phase 1 验收，届时若正文仍未定义 Scene 状态，需所有者重新裁定'
+      - 'SCENE.CREATE 的幂等键沿用 entity_id 与 (project_id, scene_code) 唯一约束；跨集重复编号会被唯一约束拒绝而非幂等返回，调用方需以 409 语义处理'
+      - '归档守卫依赖 fk_shots_scene_project 的可见性论证（批次六注释）：该外键若被降级或删除，A 侧的「同项目可见」前提失效，必须重做论证'
+
+  - id: 'V205-R14-A17'
+    title: 'Shot 域闭环——修订确认转正与镜头状态推进两个动作'
+    retroactive: true  # 合并自分叉归属链：动作已被 A13 覆盖，保留决策理由与治理增量
+    recorded_at: '2026-11-21'
+    discovered_by: 'ADR-R27；批次十/十一实库核对确认修订表缺 20 个契约字段、三条引用边无外键'
+    reason: >-
+      批次十已让 shot_revisions 对齐契约，批次十一已为三条真实引用边建复合外键，
+      但 SHOT.REVISION.CONFIRM 仍在 action_implementations 的 not_implemented，
+      镜头行无法产生；ADR-R27/Q4 明确要求 CONFIRM 与 SHOT.STATUS.CHANGE 成对落地，
+      否则登记状态推进只会得到一个永远 404 的已实现动作。本次一次补齐两件事：
+      ① CONFIRM 作为唯一正式写入口（首次确认原子创建 Shot + 首个 ShotRevision，
+      后续修订只新增修订并前移指针、旧版转 SUPERSEDED），不开 SHOT.CREATE 后门；
+      ② SHOT.STATUS.CHANGE 采用单动作 + 目标状态作参数的既有形态，转移合法性由
+      Shot 五态边表在运行时判定。取消授权记录对象仍未建模，因此 CANCELLED 三条边
+      在运行时 fail-closed 拒绝，不把不可解析的引用当成成功事实。
+    adr: 'docs/adr/ADR-R27-scene-shot-runtime-entry.md'
+    approved_by: '项目所有者（会话内裁定「按工程铁律改就行」）'
+    approved_at: '2026-11-21'
+    source_commits: ['f7c0486']
+    additions:
+      actions:
+        - action_key: 'SHOT.STATUS.CHANGE'
+          why: >-
+            Shot 五态十条边此前零动作可触发；不补则镜头即使被确认也只能停在
+            NOT_STARTED，生产进度、阻塞、返工与终态全部不可达。与 CONFIRM 必须
+            同批登记，避免出现「有对象、无入口」或「有入口、无对象」两种假闭环。
+      schema_invariants:
+        - id: 'SH-1'
+          status: 'RUNTIME_ENFORCED'
+          why: >-
+            Shot.shot_id 做成 entity_id 的只读投影，数据库 ck_shots_single_identity
+            与 ShotRevision 的身份投影共同保证一个镜头只有一套身份
+        - id: 'SH-2'
+          status: 'RUNTIME_ENFORCED'
+          why: >-
+            服务层从 Scene 读 project_id / episode_id / organization_id，批次五复合外键
+            (project_id, scene_id) → scenes 与批次十一三条四列外键在数据库层再兜一次
+        - id: 'SH-4'
+          status: 'RUNTIME_ENFORCED'
+          why: >-
+            CONFIRM 携带 expected_shot_revision_id 做版本冲突拒绝；后续修订在旧版
+            ACTIVE→SUPERSEDED 与 Shot 指针前移上使用乐观锁，同一事务提交
+        - id: 'SH-5'
+          status: 'RUNTIME_ENFORCED'
+          why: >-
+            Shot 聚合根按边校验 blocked_reason / rework_basis_ref / cancellation_ref，
+            数据库 ck_shots_blocked_reason / ck_shots_cancelled 双向 CHECK 再兜底
+        - id: 'SH-7'
+          status: 'RUNTIME_ENFORCED'
+          why: >-
+            CANCELLED 在 SHOT_LIFECYCLE 中无出边；终态复活由边表结构直接拒绝
+    counts_after:
+      actions: 96
+      openapi_operations: 96
+      schema_objects: 84
+      state_machines: 43
+    residual_risks:
+      - 'CANCELLED 的可解析授权记录对象仍未建模；运行时显式拒绝带 cancellation_ref 的推进，不把不可解析引用写进正式对象'
+      - 'SHOT / ShotRevision 状态机 registration_status 仍为 PENDING_PHASE1_REVIEW：本次补入口，不改状态集'
+      - '运行时仓储使用注入的 UnitOfWork；镜头域独立连接池与 svc_shot_planning 写权限需随部署拓扑另行收敛，当前验收以端口语义与数据库守卫为准'
+
+
+  - id: 'V205-R14-A18'
+    title: '第二轮审查整改——ADR 编号去歧义与三个 P1 业务不变量根治'
+    retroactive: true  # 编号治理 + 既有裁定的代码落地，不新增/删除动作
+    recorded_at: '2026-11-21'
+    discovered_by: '第二轮工程审查（GitHub 仓库只读复核）；A14 residual_risks 的 CANCELLED fail-closed 裁定；a13b0 单列外键与 pending m3b4 复合外键的边界差异'
+    reason: >-
+      第二轮审查发现三类必须根治的问题：① ADR-R40 编号被两份不同决策共用，
+      同一编号下 §2/§3.3/§6.3 指 Scene/Shot 运行时、附录 D.x 指统一授权模型，
+      引用无法仅凭编号消歧；② Shot 取消授权：代码采信任意 cancellation_ref
+      字符串写入 authority_ref，违背 A14 已登记的「运行时显式拒绝」裁定；
+      ③ ReworkTask 执行人 owner 来自请求体，与可信 Principal 的复核人比较时
+      可被自报值绕过职责分离；④ Shot 返工依据在正式链 a13b0 是单列外键，
+      同租户多项目下可借用他项目返工授权。本次依次：把 scene-shot ADR 重编号
+      为 R28 并集中更新 5+ 处引用（R40 专属授权模型）；取消引用在服务层入口
+      与领域守卫双层 fail-closed、审计事实不再写不可解析引用；owner 改由可信
+      created_by 派生（认领制）且职责分离统一走 identity 单一判定；正式链新增
+      b1c2d3e4f5a6 迁移把 rework_basis_ref 升级为复合外键并真库验证跨项目拒绝。
+      未新增动作/对象/状态机，故计数不变。
+    adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
+    approved_by: '项目所有者（会话内逐条裁定四项整改方案）'
+    approved_at: '2026-11-21'
+    source_commits: ['8dfe25c']
+    additions:
+      actions: []
+      openapi_operations: []
+      schema_objects: []
+      state_machines: []
+    counts_after:
+      actions: 96
+      openapi_operations: 96
+      schema_objects: 84
+      state_machines: 43
+    residual_risks:
+      - 'CANCELLED 三条边在可解析授权记录对象建模前保持 fail-closed 不可用；新对象建模需另立修订'
+      - '正式链 project_planning 与 pending 归属链 shot_planning/workflow 两套 schema 并存；本修订只统一正式链的返工引用归属，未合并两套结构'
+      - 'ADR-R28 为 scene-shot 运行时入口的唯一标识；R40 专属统一授权模型（仍为 PROPOSED 目标架构）'
+
+  - id: 'V205-R14-A19'
+    title: '归档即冻结子集合——四条创建路径接线、两条寻址线合一、闸门完备性判据'
+    retroactive: false
+    recorded_at: '2026-11-21'
+    discovered_by: >-
+      A15 residual_risks 的最后一条（「归档之后仍可在其下新增镜头」）经所有者裁定
+      「写进契约」后，核对全部创建路径发现这是三层同构的缺口而非一处：EPISODE.CREATE
+      （父 Project）、SCENE.CREATE（父 Episode）、SCRIPT.IMPORT（父 Episode）、
+      SHOT.DRAFT.CONFIRM（父 Scene）四条路径没有一条看父对象状态。进一步核对发现
+      SCENE.CREATE 的 A13 正式链（episode_id 寻址）注释声称「父链冻结与组织隔离由
+      数据库守卫/RLS 承担」，而库中既无触发器也无带状态谓词的 RLS 策略——那句话
+      没有对应物，是文档说有、实际没有的缺口形态。
+    reason: >-
+      「归档即冻结子集合」不是四条 if，而是状态语义：它说的是 Project / Episode /
+      Scene 处于某状态时的性质。因此落点是 Lifecycle.frozen_states（A16 已引入）
+      加上「判定从状态派生」，而不是在调用点写四个 if——手写分支只覆盖作者当时
+      想到的那条路径，第五张子表接入时不会让任何闸门变红。
+
+      本次补齐三件事：
+      ① SCENE.CREATE 的两条寻址线合一：A13 正式链此前只校验集数归属、把冻结
+      推给不存在的库层守卫。现在两条线都走 Project → Episode 带锁读 + 逐级
+      assert_child_creation_allowed。固定锁序与归属治理线一致，否则两条线互相
+      死锁。正式链需两跳读（先按 entity_id 探业务键、再按 (project_id, episode_ref)
+      带锁读），前提是 ux_episode_ref_per_project 保证业务键项目内唯一，已核实。
+      ② SHOT.DRAFT.CONFIRM 在**建行之前**一次性按 scene_id 全序锁定全部父场次并
+      判冻结。排序是为了消除等待环（环只可能由顺序不一致产生）；一次性是为了
+      避免「锁了 A、去锁 B 时 A 已变」的窗口——那种半串行化比不加锁更危险。
+      ③ 守卫依赖从「可选 + 运行期 fail-closed」改为构造期必需。原先 shot_repository
+      / project_repository 可缺省，靠调用点 if None: raise 兜底；这种写法防不住真正
+      的失效模式——生产装配漏传时构造照常成功，直到某次归档或登记才在运行期 500。
+      本轮就抓到了这个实例：装配点确实没传 project_repository，改完即刻全路径失败。
+      改为必需后「构造成功 ⇒ 两个不变量都有执行者」成为类型系统前提。
+      ④ 闸门新增 check_child_creation_freeze_coverage()：从 ORM metadata 派生
+      「有子表引用的父表」全集，要求每张父表要么映射到声明了 frozen_states 的
+      Lifecycle，要么在豁免表里写明理由；三向完备性（未登记→红、登记不存在→红、
+      豁免已无子表引用→红）。应检集合按 schema 过滤，不随 import 顺序变化——
+      同一判据在不同入口下给出不同结果是最糟的判据形态。
+
+      未新增动作/对象/状态机，计数不变。SC-5 的定级（RUNTIME_ENFORCED）不变，
+      本次补的是它另一侧的强制。
+    adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
+    approved_by: '项目所有者（2026-11-21 会话内裁定「归档即冻结子集合写进契约」，并选择继续做完而非回滚）'
+    approved_at: '2026-11-21'
+    source_commits: ['07e304c']
+    additions:
+      actions: []
+      openapi_operations: []
+      schema_objects: []
+      state_machines: []
+    counts_after:
+      actions: 96
+      openapi_operations: 96
+      schema_objects: 84
+      state_machines: 43
+    resolved_residual_risks:
+      - 'A15 的「归档之后仍可在其下新增镜头」：已由 Lifecycle.frozen_states + 四条创建路径接线关闭，对应条目自 A15 residual_risks 删除'
+    residual_risks:
+      - '冻结判定依赖父行锁（FOR SHARE）才能并发正确：四条创建路径都先取父行锁再判定，加锁顺序固定为 Project → Episode → Scene。该顺序当前无自动判据，靠评审与本 ADR 约束'
+      - '闸门的冻结豁免表（organizations / rework_tasks / shots）目前是显式登记而非派生：新增父表时必须表态，但豁免理由的正确性仍需人工判断'
+
+  - id: 'V205-R14-A20'
+    title: '冻结策略进入状态机契约——COMPLETED 语义裁定，冻结态从「代码里的判断」变成「契约事实」'
+    retroactive: false
+    recorded_at: '2026-11-21'
+    discovered_by: >-
+      A19 residual_risks 的第一条：Project 的 frozen_states 含 COMPLETED，是否应冻结属
+      语义裁定；并明确指出「闸门不会替你发现这个判断变化，它只检查有没有声明」。
+      所有者以「按最优的来」授权按最优方案处置，不再停留在待确认状态。
+    reason: >-
+      裁定一：COMPLETED 继续冻结子集合（不移出元组）。理由不是偏好，而是转移图上的
+      事实——Project 从 COMPLETED 只有一条出边（→ARCHIVED），没有任何回到 ACTIVE /
+      DRAFT 的路。因此在该状态下登记的子对象会合法落库，却永远无法伴随父对象回到可
+      推进的状态；而 COMPLETED 同时是「交付范围已固化」的事实，事后追加会改写已成立
+      的交付记录，且不留任何状态变更痕迹。反过来，「交付后补录」这个需求也不该靠把
+      COMPLETED 移出冻结集来实现：那会让补录绕过状态变更事实与审计。正确路径是另行
+      登记重开边（COMPLETED→ACTIVE）与专属动作，让补录以一次可审计的状态变更开始；
+      当前契约未登记该边，故本项目尚不支持该流程，冻结不减少任何已支持的能力。
+
+      裁定二：把冻结策略搬进契约（state_machines.yaml 每个已实现对象的 frozen_states）。
+      在此之前它是唯一不受契约治理的生命周期事实：改一行元组就能让归档项目重新接受
+      新集数，而四道闸门全绿——A19 的覆盖判据只回答「有没有声明」，不回答「声明的是
+      哪几个状态」。搬迁后，判断变化有三处可见痕迹：代码与契约不一致→新增判据
+      check_frozen_state_contract() 红；契约文件哈希变化→freeze_manifest --check 红；
+      重新签清单→需要一条已批准的修订登记。三步都要求人看见「冻结语义变了」，而不是
+      让一行 diff 混在别的改动里。
+
+      「没声明」与「声明为空」在运行期同形，因此 9 个已实现对象一律显式写出该字段
+      （不冻结写 []），并由判据双向比对（缺失→红、未声明状态→红、重复→红、两侧集合
+      不等→红、有 Lifecycle 未登记→红）。未新增动作/对象/状态机，计数不变。
+    adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
+    approved_by: '项目所有者（2026-11-21 会话内「按最优的来」授权按最优方案处置 A19 剩余语义裁定）'
+    approved_at: '2026-11-21'
+    source_commits: ['84940ef']
+    additions:
+      actions: []
+      openapi_operations: []
+      schema_objects: []
+      state_machines: []
+    counts_after:
+      actions: 96
+      openapi_operations: 96
+      schema_objects: 84
+      state_machines: 43
+    resolved_residual_risks:
+      - 'A19 的「Project 的 frozen_states 含 COMPLETED 是否应冻结属语义裁定」：已裁定保留冻结（COMPLETED 无回到 ACTIVE/DRAFT 的路，且交付事实已固化），并把冻结态提升为契约事实，对应条目自 A19 删除'
+      - 'A19 的「Shot 的 frozen_states 为空若变化，闸门不会自动发现」：已由契约↔实现一致性判据 + 契约哈希闭环，对应条目自 A19 删除'
+    residual_risks:
+      - '加锁顺序（Project → Episode → Scene）仍无自动判据，靠评审与本 ADR 约束（承自 A19）'
+      - '冻结豁免表（organizations / rework_tasks / shots）的理由正确性仍需人工判断（承自 A19）'
+      - '契约中的 frozen_states 只对 9 个已实现状态机强制：其余 34 个 text_authority_only 对象尚未表态冻结策略，实现时须补登，否则新判据会以「找不到条目/缺字段」报红'
+      - '「交付后补录」若成为真实业务需求，正确落点是登记 COMPLETED→ACTIVE 重开边与专属动作（含审批与事件），而不是把 COMPLETED 移出 frozen_states；该边当前未登记，属未支持流程而非缺口'
+
+  - id: 'V205-R14-A21'
+    title: 'ShotSpec 契约补全——状态机、创建入口与 status 枚举归位'
+    retroactive: false
+    recorded_at: '2026-11-21'
+    discovered_by: >-
+      实现 Phase 1 主链下一环（人工确认 → ShotSpec → ConstraintPack）时的契约核对，
+      发现三处缺口叠在同一个对象上：object_schemas 有 ShotSpec 定义，但 status 是裸
+      string 且无状态机；state_machines.yaml 根本没有该对象；Action Registry 只有
+      SHOTSPEC.LOCK，没有任何创建入口——于是「锁定」这个动作没有对象可锁。
+      status_field_taxonomy.yaml 早已把 ShotSpec 记为 lifecycle_gap，解除条件写明
+      「须与 ShotVisualPlan 的 PARTIALLY_LOCKED/LOCKED 对齐，不得自创第二套锁定命名」。
+    reason: >-
+      一、状态集取 DRAFT / LOCKED 两态（所有者裁定，正文未给）。三个边界都是刻意的：
+      ① 不设 PARTIALLY_LOCKED——ShotVisualPlan 的该状态依赖一套「必锁维度全集」，而
+      8.12 只给 locked_dimensions 字段、没给全集；没有全集，「部分」锁定到哪为止不可
+      判定，等于把一个不可验证的判断塞进状态机。部分锁定的事实仍由 locked_dimensions
+      记录，不丢信息。② 不设 SUPERSEDED——规格随修订版本化（SS-2 要求绑定精确
+      shot_revision_id），换版发生在 ShotRevision 层：新修订要有新规格，旧规格对其
+      修订仍然有效，没有「被取代」的语义。③ LOCKED 为终态：改规格必须新修订 + 新规格，
+      不得原地解锁（红线「终态不可原地复活」）。命名共享 DRAFT/LOCKED，不引入第二套
+      锁定词汇。
+
+      二、新增 SHOTSPEC.CREATE（MEDIUM / Agent·TD·导演 / audit_event
+      SHOTSPEC_CREATED / 负测 ACT-SPEC-NEG-002 跨修订或跨项目绑定拒绝）。
+      为什么不让 SHOTSPEC.LOCK 兼做创建：LOCK 是 HIGH 风险动作，它的语义是「为已有规格
+      的锁定维度、依据与审批事件盖章」；让它在对象不存在时顺手写入一份新规格，等于把
+      一次未受创建侧校验的写入藏在审批动作里。创建与确认分离是本项目既有口径
+      （SHOT.DRAFT.CREATE 与 SHOT.DRAFT.CONFIRM 就是两个动作）。
+
+      三、status 归位 lifecycle 类：enum_registry 与 schema 的 status.enum 由
+      state_machines.allowed_states 派生（scripts/gen_status_contracts.py），
+      taxonomy 的 lifecycle_gap 债务条目随之删除（陈旧债务会被闸门报红）。
+
+      本修订只补契约，不动运行时：SHOTSPEC.CREATE / SHOTSPEC.LOCK 均登记为
+      not_implemented，端点与表在下一批实现；SS-3（切点单调）仍为 RUNTIME_PENDING，
+      待实现时与代码同批定级。
+    adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
+    approved_by: '项目所有者（2026-11-21 会话内选择「ShotSpec 契约+实现」，授权契约先行）'
+    approved_at: '2026-11-21'
+    source_commits: ['f064fb5']
+    additions:
+      actions:
+        - action_key: 'SHOTSPEC.CREATE'
+          why: 'ShotSpec 此前没有创建入口，SHOTSPEC.LOCK 无对象可锁；创建与锁定必须分离，避免 HIGH 风险动作静默写入新事实'
+      state_machines:
+        - object: 'ShotSpec'
+          why: '8.12 未给状态集；DRAFT/LOCKED 两态把「已锁定不可原地修改」变成可机读事实，并为 SHOTSPEC.LOCK 提供唯一合法边'
+    counts_after:
+      actions: 97
+      openapi_operations: 97
+      schema_objects: 84
+      state_machines: 44
+    residual_risks:
+      - 'ShotSpec 的状态集属所有者新增建模，8.12 未给；若正文后续补锁定口径（尤其是否需要 PARTIALLY_LOCKED），须改状态机并另立修订'
+
+  - id: 'V205-R14-A22'
+    title: 'ShotSpec 运行时落地：SS-3 定级为 RUNTIME_ENFORCED，补读取入口'
+    retroactive: false
+    recorded_at: '2026-11-21'
+    discovered_by: >-
+      A21 补齐 ShotSpec 契约时把两条动作登记为 not_implemented、SS-3 留在
+      RUNTIME_PENDING。本批实现这一环，按既定准则「定级必须与实现同批，否则是
+      虚假声明」处置。
+    reason: >-
+      一、SS-3 由 RUNTIME_PENDING 改判 RUNTIME_ENFORCED，三层同时成立：领域
+      ShotSpec.__post_init__ 拒绝自相矛盾的规格；库层 ck_shot_specs_cut_points 用
+      IMMUTABLE 函数判严格递增、用整数除法判末点上限（与领域 total_frames() 同一
+      算式）；服务层在建规格时先行校验以给出更早、更可读的错误。整数运算不是风格
+      偏好——浮点换算会把 30000/1001 变成 29.97 再取整，与任何一侧都可能差一帧。
+      二、新增 SHOTSPEC.READ（LOW）。A21 只登记了 CREATE / LOCK，「规格建立后按
+      id 读取」没有任何落点：端点无法暴露（本项目要求 Action Registry ↔ OpenAPI
+      ↔ 运行时三方一致），锁定用例也无从取得当前状态。读取不改状态，故不登记
+      审计事件（与 SCENE.READ / SHOT.READ 同口径）。
+      三、库层新增 uq_shot_revisions_entity_project，作为复合外键
+      fk_shot_specs_revision (project_id, shot_revision_id) 的引用目标，使「规格与
+      修订必须同项目」（负测 ACT-SPEC-NEG-002）在数据库层成立，而不是只靠服务层
+      比对 project_id。
+    adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
+    approved_by: '项目所有者（2026-11-21 会话内「开」：按主链顺序推进 ShotSpec 实现）'
+    approved_at: '2026-11-21'
+    source_commits: ['20be170']
+    additions:
+      actions:
+        - action_key: SHOTSPEC.READ
+          why: 规格建立后必须能按 id 读取；缺 READ 时端点无法暴露，锁定用例也无从取得当前状态
+    modifications:
+      invariants:
+        - object: 'ShotSpec'
+          ids: ['SS-3']
+          from: 'RUNTIME_PENDING'
+          to: 'RUNTIME_ENFORCED'
+          why: '领域构造校验 + 库层 ck_shot_specs_cut_points（递增性用 IMMUTABLE 函数、末点上限用整数除法）+ 服务层创建前校验，三层同算式。'
+      constraints:
+        added:
+          - 'uq_shot_revisions_entity_project (project_id, entity_id)：fk_shot_specs_revision 的引用目标'
+          - 'uq_shot_spec_per_revision (shot_revision_id)：同一修订至多一份规格'
+          - 'fk_shot_specs_revision (project_id, shot_revision_id) → shot_revisions(project_id, entity_id)'
+          - 'ck_shot_specs_cut_points：SS-3 的库层形态（首点为 0、严格递增、末点 < 换算帧数）'
+          - 'ck_shot_specs_identity_single / ck_shot_specs_duration_positive / ck_shot_specs_fps_positive'
+    counts_after:
+      actions: 98
+      openapi_operations: 98
+      schema_objects: 84
+      state_machines: 44
+    residual_risks:
+      - '规格的冻结屏障只判直接父对象（ShotRevision.SUPERSEDED）。上游（Project / Scene / Shot）已封存而修订仍 ACTIVE 时仍可补登规格——与 A13 既有子表同形态（只判直接父）；若要收紧，须先统一「深层父链冻结」的判定与锁协议，属独立修订'
+      - 'locked_dimensions 在契约里是字符串而非数组，维度也没有受控词汇表（契约未给「必锁维度全集」，这正是 A21 不设 PARTIALLY_LOCKED 的原因）。服务层只做「逗号/顿号切分 + 排序去重」的形态规范化，不校验维度名是否属于某个集合'
+      - '迁移里建的 ck_*_status 与模型声明之间没有逐字比对（runtime_status_problems 只读 ORM 元数据）。本批把 A13 五对象与 ShotSpec 一并回填到该判据的应检集合，但「迁移文本 vs 模型文本」的一致仍无判据，属既有缺口'
+  - id: 'V205-R14-A23'
+    title: 'ConstraintPack 运行时落地：七条不变量定级、补读取与治理入口登记'
+    retroactive: false
+    recorded_at: '2026-11-21'
+    discovered_by: >-
+      7.9 早已给出 ConstraintPack 的完整字段契约（包级 12 字段 + 条目 8 必填字段）、
+      五状态四边，31.6 也登记了 CONSTRAINT.PACK.CREATE / LOCK，但库里没有任何对应物，
+      两条动作一直是 not_implemented。本批按主链顺序（ShotSpec → ConstraintPack）
+      把它补成四层一致，并在补的过程中发现契约本身缺一个治理入口。
+    reason: >-
+      一、新增 CONSTRAINT.PACK.READ（LOW）。CREATE / LOCK 之外没有任何读取入口，
+      「包建好了」在 API 层面不可见，锁定用例也无从取得当前状态。读取不改状态，
+      故不登记审计事件（与 SCENE.READ / SHOT.READ / SHOTSPEC.READ 同口径）。
+
+      二、新增 CONSTRAINT.PACK.STATUS.CHANGE（HIGH，导演/授权 TD）。7.9 画了三条治理边
+      （ACTIVE→REVOKED / STALE / SUPERSEDED），但 31.6 没有任何动作拥有它们——这是一个
+      真实的契约缺口：有了边却没有人负责走。不能把三条边塞给 CONSTRAINT.PACK.LOCK：
+      LOCK 回答「这份包的锁定义务已尽」，治理边回答「这份包此后还能不能被用」，
+      共用一个入口会让「锁一份新包」与「撤销一份已生效的包」成为同一种通行证
+      （正是 N-07 修掉的形态）。本批只登记动作、不实现入口——三条边的下游消费者
+      （生成路线选择、STALE 传播）尚未落地，现在实现只能得到「能改状态、没人读」的边。
+      逐边债务登记在 contracts/runtime/state_machine_gaps.yaml。
+
+      三、七条不变量定级（CP-1…CP-7）。7.9 的字段契约里写着若干「必须/不得」，此前
+      只活在文档里：applicability 与内容自洽（CP-1）、锁定维度受控七值（CP-2）、
+      条目八字段必填与 id 包内唯一（CP-3）、作用镜头真实且同项目（CP-4）、
+      包与项目同租户（CP-5）、同包至多一个 ACTIVE 版本（CP-6）——六条都由领域校验 +
+      库层约束双层成立，定级 RUNTIME_ENFORCED。CP-7「只有 ACTIVE 可作生成输入」保持
+      RUNTIME_PENDING：生成域尚无消费者，定级 ENFORCED 就是虚假声明。
+
+      四、库层约束（见 constraints.added）。数组元素无法用外键表达，shot_ids 的归属
+      用触发器而不是关联表：关联表会让契约字段 shot_ids 降级成派生投影，库里同时存在
+      「数组」与「关联行」两份事实。触发器的 ERRCODE 取 23503，与真外键共用同一条
+      错误映射，不为它新增翻译分支。
+    adr: 'docs/adr/ADR-R28-scene-shot-rework-runtime-entry.md'
+    approved_by: '项目所有者（2026-11-21 会话内「继续」：按主链顺序推进 ConstraintPack 实现）'
+    approved_at: '2026-11-21'
+    source_commits: ['8f5033b']
+    additions:
+      actions:
+        - action_key: 'CONSTRAINT.PACK.READ'
+          why: '约束包建立后必须能按 id 读取；缺 READ 时端点无法暴露（Action Registry ↔ OpenAPI ↔ 运行时三方一致），锁定用例也无从取得当前状态'
+        - action_key: 'CONSTRAINT.PACK.STATUS.CHANGE'
+          why: '7.9 的三条治理边此前没有任何责任动作；登记它是为了让「谁有权撤销/标记失效/取代」有答案，本批不实现入口并登记逐边债务'
+    modifications:
+      invariants:
+        - object: 'ConstraintPack'
+          ids: ['CP-1', 'CP-2', 'CP-3', 'CP-4', 'CP-5', 'CP-6']
+          from: 'ABSENT'
+          to: 'RUNTIME_ENFORCED'
+          why: '领域构造校验（applicability 自洽、七维度词表、条目八字段与 id 唯一）+ 库层 CHECK / 复合外键 / 部分唯一索引 / 触发器；两层同一不变量，绕过服务的写入也写不进去。'
+      constraints:
+        added:
+          - 'fk_constraint_packs_project_tenant (project_id, tenant_id) → projects(entity_id, tenant_id)：包与项目必须同租户'
+          - 'uq_constraint_pack_version (constraint_pack_id, version)：同版本内唯一，变更新建版本'
+          - 'uq_constraint_pack_single_active (constraint_pack_id) WHERE status = ACTIVE：同一逻辑包至多一个生效版本'
+          - 'ck_constraint_packs_shot_ids_present / ck_constraint_packs_shot_ids_unique / ck_constraint_packs_shot_groups_unique：作用范围非空且元素不重复'
+          - 'ck_constraint_packs_dimensions_known：locked_dimensions 必须包含于 7.9 的七个受控值'
+          - 'ck_constraint_packs_entries：条目八字段必填且 constraint_id 包内唯一（IMMUTABLE 函数）'
+          - 'ck_constraint_packs_not_applicable_empty / ck_constraint_packs_applicability / ck_constraint_packs_version_positive'
+          - '身份分层（刻意不加 CHECK）：entity_id 标识版本行、constraint_pack_id 标识逻辑包（缺省取 entity_id）。若加 constraint_pack_id = entity_id 的 CHECK，uq_constraint_pack_version 与 uq_constraint_pack_single_active 会退化为结构上恒真——同一行的两列不可能在同一行内冲突两次，CP-6 就成了 ENFORCED 的虚假声明'
+          - 'trg_constraint_packs_shots：shot_ids 每个元素必须指向同项目的 Shot（数组无法外键，以触发器在库层强制，ERRCODE 23503）'
+    counts_after:
+      actions: 100
+      openapi_operations: 100
+      schema_objects: 84
+      state_machines: 44
+    residual_risks:
+      - '三条治理边（ACTIVE→REVOKED / STALE / SUPERSEDED）无运行时入口：责任动作 CONSTRAINT.PACK.STATUS.CHANGE 已登记但未实现，逐边债务在 state_machine_gaps.yaml。此期间「撤销一份已生效的包」只能靠人工改库，而改库不会留下 audit.status_transitions 事实'
+      - 'source_previz_revision 的「EXPLORATORY 型不得填入」未校验：判定需要 PrevizVersion 对象与其 exploration 类型，该对象尚未建模。当前只校验字段长度，无法区分 BASELINE 与 EXPLORATORY 来源'
+      - 'shot_group_ids 无对应对象（ShotGroup 未建模），是自由引用：无法校验取值是否为真实镜头组，也无法校验其成员是否属于本项目。与 shot_ids 的差异是刻意的——有对象才做归属校验，为不存在的对象编一套校验只会造出假约束'
+      - 'shot_ids 归属用触发器而非外键：存在「校验通过后镜头被删」的窗口。Shot 创建即绑定项目且项目归属不可迁移，该窗口不构成新的不变量缺口，但严格意义上弱于复合外键'
+      - 'CP-7（只有 ACTIVE 可作生成输入）保持 RUNTIME_PENDING：生成域尚未落地，无消费者可校验；定级必须与实现同批'
+
+  - id: 'V205-R15-A24'
+    title: 'R16-D3 生产链与预算 MVP：ProductionRoute / GenerationTask / ShotBudgetRequest / BudgetLedger 对象与状态机增补'
+    retroactive: false
+    recorded_at: '2026-11-22'
+    discovered_by: 'docs/architecture/decision-register-r16.md（R16-D3 生产链与预算 MVP 架构决策）'
+    reason: >-
+      V1.0 MVP 的六个动作里，PRODUCTION.ROUTE.SELECT / GENERATION.REQUEST /
+      PRODUCTION.GATE.APPROVE / BUDGET.SHOT.REQUEST / BUDGET.SHOT.APPROVE 在
+      Action Registry 均为 ACTIVE，但它们的资源对象 ProductionRoute / GenerationTask /
+      ShotBudgetRequest / BudgetLedger 无 schema，前三者亦无状态机，运行时无法落地
+      （此前分别登记在 resource_schema_gaps.yaml 与 action_implementations.yaml 的
+      not_implemented 分区）。本修订按用户「架构设计全部按最优最好」的授权，将四个
+      对象的 schema 与三个生命周期状态机补入冻结契约。GateDecision 为既有
+      envelope_only 对象（NO_LIFECYCLE 哨兵），不新增。五个动作已在冻结名集内
+      （A1…A23 已登记），本修订不重复增补动作。
+    adr: 'docs/architecture/decision-register-r16.md'
+    approved_by: '项目所有者（2026-11-22 会话内「按完整方案全部做完」：D3 决策先执行、留待复核）'
+    approved_at: '2026-11-22'
+    source_commits:
+      - 'LOCAL-NO-GIT-PLACEHOLDER'
+    additions:
+      schema_objects:
+        - object: 'ProductionRoute'
+          why: '生产路线选择记录的落点；PRODUCTION.ROUTE.SELECT 的 resource_type'
+        - object: 'GenerationTask'
+          why: '生成任务记录的落点；GENERATION.REQUEST 的 resource_type'
+        - object: 'ShotBudgetRequest'
+          why: '单镜头预算申请记录的落点；BUDGET.SHOT.REQUEST / BUDGET.SHOT.APPROVE 的 resource_type'
+        - object: 'BudgetLedger'
+          why: '预算账本流水的落点；BUDGET.SHOT.APPROVE 原子记账的 resource_type'
+      state_machines:
+        - object: 'ProductionRoute'
+          why: '路线选择 VERIFIED→REVOKED 生命周期'
+        - object: 'GenerationTask'
+          why: '生成任务 REQUESTED→SUCCEEDED/FAILED 生命周期（MVP 同步执行，RUNNING 归 Phase 2/3 Worker）'
+        - object: 'ShotBudgetRequest'
+          why: '预算申请 DRAFT→APPROVED/REJECTED 两步审批生命周期'
+    counts_after:
+      actions: 100
+      openapi_operations: 100
+      schema_objects: 88
+      state_machines: 47
+    residual_risks:
+      - 'source_commits 为本地占位（本地目录无 .git，无法提供真实提交号）；团队合并时须替换为真实 SHA 后再回填追溯矩阵'
+
+# 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
+#
+# 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——
+# 比缺失更糟。挂账保留「这里缺一条追溯」这个事实，且被 freeze_manifest 双向校验：
+#   缺了没登记 → FAIL（有人改了台账却没登记债务）；
+#   登记了却已补齐 → FAIL（陈旧债务会掩盖真实缺口，必须删条目）。
+# 新增修订不得再进本清单：必须自带 source_commits（A23 起已如此）。
+#
+# 状态（2026-11-22）：21 条历史追溯债务已通过 git 历史逐条定位真实落地提交并回填
+# source_commits（见 docs/audits/2026-11-22-amendment-traceability-matrix.md），
+# 本清单清零。回溯依据是提交消息明文 + diff 内容 + 时间线三重验证，非推断。
+traceability_debt: []
+
+# 撤销登记（当前为空）。撤销一条修订时在此追加，保留原条目不动。
+revocations: []

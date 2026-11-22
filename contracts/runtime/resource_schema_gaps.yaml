@@ -1,0 +1,40 @@
+# ACTIVE 动作的资源类型缺 schema（显式债务登记）
+#
+# 为什么需要这个文件：
+# - scripts/contract_check.py 原先只校验**已实现**动作的资源类型有 schema；
+#   ACTIVE 但未实现的动作既不在 schema 检查里、又有 reason 台账兜底，于是形成
+#   双向盲区：业务对象缺 schema 却能全绿通过 CI（最初实测 9 个：ShotDraft /
+#   ShotRevision / ShotBudgetRequest / BudgetLedger / GenerationTask /
+#   ProductionRoute / CanonRevision / RightsCase / RightsManifest）。
+# - 补 schema 必须依据权威口径；按「不猜契约」原则，不能拿提案草案冒充正文定义。
+# - 因此把缺口登记成显式债务：CI 变绿的前提是每一个缺口都写清「谁在引用它、
+#   卡在哪一条、什么条件解开」。闸门会双向校验，缺口不会静默增长或永久豁免。
+#
+# 2026-11-18 变更：ShotDraft 已由 ShotBreakdownDraft 取代（对象契约按项目所有者
+# 同日：ShotRevision 已按正文 8.1/8.2/8.3/8.8 + 19.3 + 31.6 补 schema（ADR-R17），
+# 条目删除。剩余 7 个类型仍为真实缺口，不是豁免。
+# 真实缺口，不是豁免。
+#
+# 写入口径：
+# - 键为资源类型名（与 action_registry.resource_type 完全一致，组合类型按 / 拆开分别登记）；
+# - referenced_by 必须与当前 ACTIVE 动作的引用关系一致（闸门会核对）；
+# - 正文补齐对象定义并写入 object_schemas.schema.json 后，必须删除对应条目，
+#   否则闸门以「陈旧债务」报红；
+# - 本文件不是豁免清单：豁免只留给核心信封对象（见 resource_schema_exemptions.yaml）。
+
+gaps:
+  CanonRevision:
+    referenced_by: ["CANON.CHANGE.APPROVE"]
+    reason: "设定变更对象无 schema：Canon 事实变更的授权链与冲突标记无法机器校验"
+    contract_ref: "contracts/state_machines/state_machines.yaml（CharacterCanon 条目）"
+    unblocks_when: "正文 Canon 章节给出变更字段与冲突复核口径后补 schema"
+  RightsCase:
+    referenced_by: ["RIGHTS.STATUS.CHANGE"]
+    reason: "权利案件对象无 schema：权利状态变更缺少案件主体与证据引用字段"
+    contract_ref: "contracts/action_registry/action_registry.yaml（RIGHTS.STATUS.CHANGE 条目）"
+    unblocks_when: "正文权利章节给出案件字段与状态枚举后补 schema"
+  RightsManifest:
+    referenced_by: ["RIGHTS.STATUS.CHANGE"]
+    reason: "权利清单对象无 schema：资产审批强制的 rights_manifest_ref 指向一个未被契约定义的对象"
+    contract_ref: "services/asset_service/service/asset_service.py（批准前强制 rights_manifest_ref）"
+    unblocks_when: "正文权利清单章节给出清单字段与授权范围口径后补 schema"

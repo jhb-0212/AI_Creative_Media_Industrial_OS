@@ -1,0 +1,184 @@
+"""ScriptRevision API 路由（薄层，只做协议适配与 DTO 转换）。
+
+契约对齐：
+- SCRIPT.IMPORT action：导入剧本版本，产出 DRAFT 态。
+- SCRIPT.LOCK.REQUEST：申请人提交锁定申请（DRAFT→LOCK_PENDING）。
+- SCRIPT.LOCK.APPROVE：批准人批准（LOCK_PENDING→LOCKED），职责分离。
+- 请求/响应走统一信封与错误信封。
+- 业务逻辑下沉到 ScriptService，本层不写业务。
+- 身份从可信 Principal 解析（created_by / requested_by / approved_by 均来自 JWT）。
+
+两步审批流（身份治理单元）：
+- 申请：requested_by = 当前 Principal（调用者本人）。
+- 批准：approved_by = 当前 Principal（另一个主体），服务层做职责分离比对。
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from packages.shared.contract_models import contract_model
+from packages.shared.unit_of_work import UnitOfWork
+from services.identity_access.deps import (
+    Principal,
+    authorize_on_parent,
+    get_project_tenant_uow,
+    get_read_project_tenant_uow,
+    require_resource_role,
+    require_role,
+)
+from services.project_planning.repository.episode_sqlalchemy_repo import (
+    SqlAlchemyEpisodeRepository,
+)
+from services.project_planning.repository.script_sqlalchemy_repo import (
+    SqlAlchemyScriptRepository,
+)
+from services.project_planning.repository.sqlalchemy_outbox_writer import (
+    SqlAlchemyOutboxWriter,
+)
+from services.project_planning.repository.sqlalchemy_repo import (
+    SqlAlchemyProjectRepository,
+)
+from services.project_planning.service.script_service import ScriptService
+
+router = APIRouter(prefix="/scripts", tags=["script-management"])
+
+# 响应模型由契约定义生成（R3）：字段集恒等于 object_schemas 的 ScriptRevision 定义。
+# 锁定申请/批准的响应仍是 ScriptRevision（requested_by 反映职责分离状态）。
+_ScriptRevisionResponse = contract_model("ScriptRevision")
+
+
+class ImportScriptRequest(BaseModel):
+    """剧本导入请求体（SCRIPT.IMPORT）。身份由 Principal 提供。"""
+
+    project_id: str = Field(..., min_length=1, max_length=64)
+    episode_ref: str = Field(..., min_length=1, max_length=64)
+    title: str = Field(..., min_length=1, max_length=200)
+    entity_id: str | None = None
+
+
+def _build_service(session: AsyncSession) -> ScriptService:
+    """服务装配：RLS 会话 + 三个仓储端口 + Outbox 写入端口注入。
+
+    归属验证需要 ProjectRepository（验证项目存在）与 EpisodeRepository
+    （验证集数归属）；审计事件经 OutboxWriter 端口与状态变更同事务写入。
+    """
+    script_repository = SqlAlchemyScriptRepository(session)
+    project_repository = SqlAlchemyProjectRepository(session)
+    episode_repository = SqlAlchemyEpisodeRepository(session)
+    outbox_writer = SqlAlchemyOutboxWriter(session)
+    return ScriptService(
+        script_repository,
+        project_repository,
+        episode_repository,
+        outbox_writer,
+    )
+
+
+def _get_service(uow: UnitOfWork = Depends(get_project_tenant_uow)) -> ScriptService:
+    """写用例服务装配（提交点由路由显式控制）。"""
+    return _build_service(uow.session)
+
+
+def _get_read_service(uow: UnitOfWork = Depends(get_read_project_tenant_uow)) -> ScriptService:
+    """只读用例服务装配（只读事务，数据库层拒绝写入）。"""
+    return _build_service(uow.session)
+
+
+@router.post("/import", status_code=201, response_model=_ScriptRevisionResponse)
+async def import_script(
+    body: ImportScriptRequest,
+    principal: Principal = Depends(require_role("SCRIPT.IMPORT")),
+    uow: UnitOfWork = Depends(get_project_tenant_uow),
+    service: ScriptService = Depends(_get_service),
+) -> dict[str, Any]:
+    """导入剧本版本（幂等，产出 DRAFT 态）。created_by / tenant_id 来自 Principal。
+
+    归属判定：剧本版本尚不存在，判定对象是父项目——避免先往别人的项目里写
+    剧本版本再借后续读路径访问（写入即越权）。
+    """
+    await authorize_on_parent(
+        "SCRIPT.IMPORT",
+        principal,
+        uow.session,
+        parent_type="Project",
+        parent_id=body.project_id,
+    )
+    script = await service.import_script(
+        project_id=body.project_id,
+        episode_ref=body.episode_ref,
+        title=body.title,
+        principal=principal,
+        entity_id=body.entity_id,
+    )
+    # 状态变更与 Outbox 事件在同一工作单元内提交，先落库再返回响应。
+    await uow.commit()
+    return script.to_dict()
+
+
+@router.post("/{entity_id}/lock/request", response_model=_ScriptRevisionResponse)
+async def request_lock(
+    entity_id: str,
+    principal: Principal = Depends(
+        require_resource_role(
+            "SCRIPT.LOCK.REQUEST",
+            resource_type="ScriptRevision",
+            param_name="entity_id",
+            uow_dep=get_project_tenant_uow,
+        )
+    ),
+    uow: UnitOfWork = Depends(get_project_tenant_uow),
+    service: ScriptService = Depends(_get_service),
+) -> dict[str, Any]:
+    """提交锁定申请（SCRIPT.LOCK.REQUEST，DRAFT→LOCK_PENDING）。
+
+    requested_by = 当前 Principal（调用者本人），非客户端字符串。
+    """
+    script = await service.request_lock(entity_id=entity_id, principal=principal)
+    await uow.commit()
+    return script.to_dict()
+
+
+@router.post("/{entity_id}/lock/approve", response_model=_ScriptRevisionResponse)
+async def approve_lock(
+    entity_id: str,
+    principal: Principal = Depends(
+        require_resource_role(
+            "SCRIPT.LOCK.APPROVE",
+            resource_type="ScriptRevision",
+            param_name="entity_id",
+            uow_dep=get_project_tenant_uow,
+        )
+    ),
+    uow: UnitOfWork = Depends(get_project_tenant_uow),
+    service: ScriptService = Depends(_get_service),
+) -> dict[str, Any]:
+    """批准锁定（SCRIPT.LOCK.APPROVE，LOCK_PENDING→LOCKED）。
+
+    approved_by = 当前 Principal，服务层做职责分离比对（批准人 != 申请人）。
+    """
+    script = await service.approve_lock(entity_id=entity_id, principal=principal)
+    await uow.commit()
+    return script.to_dict()
+
+
+@router.get("/{entity_id}", response_model=_ScriptRevisionResponse)
+async def get_script(
+    entity_id: str,
+    _principal: Principal = Depends(
+        require_resource_role(
+            "SCRIPT.READ",
+            resource_type="ScriptRevision",
+            param_name="entity_id",
+            uow_dep=get_read_project_tenant_uow,
+        )
+    ),
+    service: ScriptService = Depends(_get_read_service),
+) -> dict[str, Any]:
+    """按 id 查询剧本版本（需 SCRIPT.READ 授权；租户边界由 RLS 保证）。"""
+    script = await service.get_script(entity_id)
+    return script.to_dict()

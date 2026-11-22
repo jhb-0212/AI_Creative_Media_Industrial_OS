@@ -1,0 +1,866 @@
+# 由 AFS-ARCH-MASTER-V2.0.5 正文派生
+# 同号重复与编号缺口在 duplicate_ids / number_gaps 中列出
+source: AFS-ARCH-MASTER-V2.0.5 全文 ADR 编号索引（由正文派生）
+rule: 编号唯一、标题与决策不得同号异义；同一编号多次出现时须合并或以一处为权威、其余标引用。
+total_registered: 118
+range: ADR-001 … ADR-118
+duplicate_ids:
+- id: ADR-101
+  occurrences:
+  - line: 53
+    section: 0. 执行摘要
+  - line: 4034
+    section: 33.15 架构决策记录（ADR-101～105、113～116）
+  - line: 4038
+    section: 33.15 架构决策记录（ADR-101～105、113～116）
+  - line: 4354
+    section: 附录 A：统一术语表
+  same_wording: true
+  decision_variants: []
+- id: ADR-001
+  occurrences:
+  - line: 66
+    section: 目录与章节导航（完整主文档，含内嵌附件 A—D）
+  - line: 1975
+    section: ADR-001：统一高品质基线
+  - line: 2533
+    section: 17.14 架构决策记录（ADR）
+  same_wording: true
+  decision_variants: []
+- id: ADR-021
+  occurrences:
+  - line: 1768
+    section: Phase 0：架构基线与基础设施契约（P0）
+  - line: 1816
+    section: 白模能力增量的工作量评估说明
+  - line: 2135
+    section: ADR-021：白模是跨路线控制信号层，不是单一生成路线
+  - line: 4374
+    section: 附录 B：版本修订记录
+  same_wording: true
+  decision_variants: []
+- id: ADR-024
+  occurrences:
+  - line: 2159
+    section: ADR-024：白模预算分类和路线能力声明必须显式化
+  - line: 2533
+    section: 17.14 架构决策记录（ADR）
+  same_wording: true
+  decision_variants: []
+- id: ADR-025
+  occurrences:
+  - line: 2521
+    section: 17.14 架构决策记录（ADR）
+  - line: 2533
+    section: 17.14 架构决策记录（ADR）
+  same_wording: true
+  decision_variants: []
+- id: ADR-028
+  occurrences:
+  - line: 2524
+    section: 17.14 架构决策记录（ADR）
+  - line: 2533
+    section: 17.14 架构决策记录（ADR）
+  same_wording: true
+  decision_variants: []
+- id: ADR-086
+  occurrences:
+  - line: 2525
+    section: 17.14 架构决策记录（ADR）
+  - line: 3547
+    section: 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  same_wording: true
+  decision_variants: []
+- id: ADR-052
+  occurrences:
+  - line: 2898
+    section: 24.10 新增架构决策记录（ADR-052～061）
+  - line: 2902
+    section: 24.10 新增架构决策记录（ADR-052～061）
+  - line: 4324
+    section: 附录 A：统一术语表
+  same_wording: true
+  decision_variants: []
+- id: ADR-062
+  occurrences:
+  - line: 3233
+    section: 30.7 新增架构决策记录（ADR-062～073）
+  - line: 3237
+    section: 30.7 新增架构决策记录（ADR-062～073）
+  same_wording: true
+  decision_variants: []
+- id: ADR-074
+  occurrences:
+  - line: 3547
+    section: 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  - line: 3551
+    section: 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  same_wording: true
+  decision_variants: []
+- id: ADR-093
+  occurrences:
+  - line: 3842
+    section: 32.13 架构决策记录（ADR-093～100）
+  - line: 3848
+    section: 32.13 架构决策记录（ADR-093～100）
+  - line: 4380
+    section: 附录 B：版本修订记录
+  same_wording: true
+  decision_variants: []
+- id: ADR-113
+  occurrences:
+  - line: 3856
+    section: 32.13 架构决策记录（ADR-093～100）
+  - line: 4043
+    section: 33.15 架构决策记录（ADR-101～105、113～116）
+  same_wording: false
+  decision_variants:
+  - TimelineDraft与ExportPackage/ToolExchangeSession使用分离状态机
+  - 见32.13（同一组决策此处仅作本章索引）
+- id: ADR-106
+  occurrences:
+  - line: 4216
+    section: 34.15 架构决策记录（ADR-106～112、117～118）
+  - line: 4220
+    section: 34.15 架构决策记录（ADR-106～112、117～118）
+  same_wording: true
+  decision_variants: []
+- id: ADR-037
+  occurrences:
+  - line: 4675
+    section: C.13 新增架构决策记录（ADR-037～044）
+  - line: 4679
+    section: C.13 新增架构决策记录（ADR-037～044）
+  same_wording: true
+  decision_variants: []
+- id: ADR-045
+  occurrences:
+  - line: 4919
+    section: D.12 ADR-045～051：产品实施与双模式计费决策
+  - line: 4923
+    section: D.12 ADR-045～051：产品实施与双模式计费决策
+  same_wording: true
+  decision_variants: []
+duplicate_count: 15
+number_gaps: []
+entries:
+- id: ADR-001
+  primary_section: 目录与章节导航（完整主文档，含内嵌附件 A—D）
+  decision: ''
+  appears_in:
+  - 17.14 架构决策记录（ADR）
+  - ADR-001：统一高品质基线
+  - 目录与章节导航（完整主文档，含内嵌附件 A—D）
+  occurrence_count: 3
+- id: ADR-002
+  primary_section: ADR-002：硬约束与创意自由分离
+  decision: ''
+  appears_in:
+  - ADR-002：硬约束与创意自由分离
+  occurrence_count: 1
+- id: ADR-003
+  primary_section: ADR-003：创意自主权按镜头授权且不等于审批权限
+  decision: ''
+  appears_in:
+  - ADR-003：创意自主权按镜头授权且不等于审批权限
+  occurrence_count: 1
+- id: ADR-004
+  primary_section: ADR-004：艺术质量不由单一自动分数裁决
+  decision: ''
+  appears_in:
+  - ADR-004：艺术质量不由单一自动分数裁决
+  occurrence_count: 1
+- id: ADR-005
+  primary_section: ADR-005：创意疲劳与治理命中分流
+  decision: ''
+  appears_in:
+  - ADR-005：创意疲劳与治理命中分流
+  occurrence_count: 1
+- id: ADR-006
+  primary_section: ADR-006：镜头风险驱动资源调度
+  decision: ''
+  appears_in:
+  - ADR-006：镜头风险驱动资源调度
+  occurrence_count: 1
+- id: ADR-007
+  primary_section: ADR-007：Pattern 是建议，不是硬模板
+  decision: ''
+  appears_in:
+  - ADR-007：Pattern 是建议，不是硬模板
+  occurrence_count: 1
+- id: ADR-008
+  primary_section: ADR-008：业务状态、执行状态和外部调用状态分层
+  decision: ''
+  appears_in:
+  - ADR-008：业务状态、执行状态和外部调用状态分层
+  occurrence_count: 1
+- id: ADR-009
+  primary_section: ADR-009：模块化单体优先，数据所有权先行
+  decision: ''
+  appears_in:
+  - ADR-009：模块化单体优先，数据所有权先行
+  occurrence_count: 1
+- id: ADR-010
+  primary_section: ADR-010：导演意图先结构化
+  decision: ''
+  appears_in:
+  - ADR-010：导演意图先结构化
+  occurrence_count: 1
+- id: ADR-011
+  primary_section: ADR-011：检测器必须经基准验证后才能升级决策权限
+  decision: ''
+  appears_in:
+  - ADR-011：检测器必须经基准验证后才能升级决策权限
+  occurrence_count: 1
+- id: ADR-012
+  primary_section: ADR-012：Override 透明化并接受累积治理
+  decision: ''
+  appears_in:
+  - ADR-012：Override 透明化并接受累积治理
+  occurrence_count: 1
+- id: ADR-013
+  primary_section: ADR-013：L4 自主权与探索资源强度分离
+  decision: ''
+  appears_in:
+  - ADR-013：L4 自主权与探索资源强度分离
+  occurrence_count: 1
+- id: ADR-014
+  primary_section: ADR-014：STALE 传播分级并按影响最小化返工
+  decision: ''
+  appears_in:
+  - ADR-014：STALE 传播分级并按影响最小化返工
+  occurrence_count: 1
+- id: ADR-015
+  primary_section: ADR-015：外部模型调用防重复计费
+  decision: ''
+  appears_in:
+  - ADR-015：外部模型调用防重复计费
+  occurrence_count: 1
+- id: ADR-016
+  primary_section: ADR-016：Memory 先做权威过滤再语义排序
+  decision: ''
+  appears_in:
+  - ADR-016：Memory 先做权威过滤再语义排序
+  occurrence_count: 1
+- id: ADR-017
+  primary_section: ADR-017：成本预测必须支持冷启动
+  decision: ''
+  appears_in:
+  - ADR-017：成本预测必须支持冷启动
+  occurrence_count: 1
+- id: ADR-018
+  primary_section: ADR-018：Agent 采用独立授权服务与 Task 级 Token
+  decision: ''
+  appears_in:
+  - ADR-018：Agent 采用独立授权服务与 Task 级 Token
+  occurrence_count: 1
+- id: ADR-019
+  primary_section: ADR-019：RCA 与学习结果可追溯、可复测、可回滚
+  decision: ''
+  appears_in:
+  - ADR-019：RCA 与学习结果可追溯、可复测、可回滚
+  occurrence_count: 1
+- id: ADR-020
+  primary_section: ADR-020：可靠性目标按组件定义并演练
+  decision: ''
+  appears_in:
+  - ADR-020：可靠性目标按组件定义并演练
+  occurrence_count: 1
+- id: ADR-021
+  primary_section: Phase 0：架构基线与基础设施契约（P0）
+  decision: ''
+  appears_in:
+  - ADR-021：白模是跨路线控制信号层，不是单一生成路线
+  - Phase 0：架构基线与基础设施契约（P0）
+  - 白模能力增量的工作量评估说明
+  - 附录 B：版本修订记录
+  occurrence_count: 4
+- id: ADR-022
+  primary_section: ADR-022：探索型 Previz 与基线型 Previz 分离
+  decision: ''
+  appears_in:
+  - ADR-022：探索型 Previz 与基线型 Previz 分离
+  occurrence_count: 1
+- id: ADR-023
+  primary_section: ADR-023：支撑资产质量与成片质量分离，控制质量单独评估
+  decision: ''
+  appears_in:
+  - ADR-023：支撑资产质量与成片质量分离，控制质量单独评估
+  occurrence_count: 1
+- id: ADR-024
+  primary_section: ADR-024：白模预算分类和路线能力声明必须显式化
+  decision: ''
+  appears_in:
+  - 17.14 架构决策记录（ADR）
+  - ADR-024：白模预算分类和路线能力声明必须显式化
+  occurrence_count: 2
+- id: ADR-025
+  primary_section: 17.14 架构决策记录（ADR）
+  decision: 项目级与镜头级生产策略解耦
+  appears_in:
+  - 17.14 架构决策记录（ADR）
+  occurrence_count: 2
+- id: ADR-026
+  primary_section: 17.14 架构决策记录（ADR）
+  decision: 生产策略字段级解析
+  appears_in:
+  - 17.14 架构决策记录（ADR）
+  occurrence_count: 1
+- id: ADR-027
+  primary_section: 17.14 架构决策记录（ADR）
+  decision: 镜头级资源分配与预算账本
+  appears_in:
+  - 17.14 架构决策记录（ADR）
+  occurrence_count: 1
+- id: ADR-028
+  primary_section: 17.14 架构决策记录（ADR）
+  decision: 镜头等级变更与 DAG 最小化 STALE
+  appears_in:
+  - 17.14 架构决策记录（ADR）
+  occurrence_count: 2
+- id: ADR-029
+  primary_section: 23.2 新增 ADR
+  decision: 导演工作台与 Agent Skill API 双入口、单一领域事实源
+  appears_in:
+  - 23.2 新增 ADR
+  occurrence_count: 1
+- id: ADR-030
+  primary_section: 23.2 新增 ADR
+  decision: CharacterCard 与 CharacterCanon 分离
+  appears_in:
+  - 23.2 新增 ADR
+  occurrence_count: 1
+- id: ADR-031
+  primary_section: 23.2 新增 ADR
+  decision: ShotVisualPlan 结构化但不锁死创意表达
+  appears_in:
+  - 23.2 新增 ADR
+  occurrence_count: 1
+- id: ADR-032
+  primary_section: 23.2 新增 ADR
+  decision: AI 剧本拆镜输出默认是草案
+  appears_in:
+  - 23.2 新增 ADR
+  occurrence_count: 1
+- id: ADR-033
+  primary_section: 23.2 新增 ADR
+  decision: ExplorationReserve 与 Quality Reserve 独立
+  appears_in:
+  - 23.2 新增 ADR
+  occurrence_count: 1
+- id: ADR-034
+  primary_section: 23.2 新增 ADR
+  decision: CEE 候选数动态决策且默认不自动多分支
+  appears_in:
+  - 23.2 新增 ADR
+  occurrence_count: 1
+- id: ADR-035
+  primary_section: 23.2 新增 ADR
+  decision: 人机双轨 QC 采用证据定位与人工意图裁决
+  appears_in:
+  - 23.2 新增 ADR
+  occurrence_count: 1
+- id: ADR-036
+  primary_section: 23.2 新增 ADR
+  decision: P0/P1/P2 与 Phase 0—4 分离管理
+  appears_in:
+  - 23.2 新增 ADR
+  occurrence_count: 1
+- id: ADR-037
+  primary_section: C.13 新增架构决策记录（ADR-037～044）
+  decision: 四类预算账户用途唯一、质量储备不可挪作探索
+  appears_in:
+  - C.13 新增架构决策记录（ADR-037～044）
+  occurrence_count: 2
+- id: ADR-038
+  primary_section: C.13 新增架构决策记录（ADR-037～044）
+  decision: 新增领域对象统一 Schema 信封和数据所有权
+  appears_in:
+  - C.13 新增架构决策记录（ADR-037～044）
+  occurrence_count: 1
+- id: ADR-039
+  primary_section: C.13 新增架构决策记录（ADR-037～044）
+  decision: DAG/Gate 对正式轨道和探索分支强隔离
+  appears_in:
+  - C.13 新增架构决策记录（ADR-037～044）
+  occurrence_count: 1
+- id: ADR-040
+  primary_section: C.13 新增架构决策记录（ADR-037～044）
+  decision: RBAC + ABAC + Capability Token 与职责分离统一执行
+  appears_in:
+  - C.13 新增架构决策记录（ADR-037～044）
+  occurrence_count: 1
+- id: ADR-041
+  primary_section: C.13 新增架构决策记录（ADR-037～044）
+  decision: 预算账本、CostLedger、QuotaReservation 分离且关联
+  appears_in:
+  - C.13 新增架构决策记录（ADR-037～044）
+  occurrence_count: 1
+- id: ADR-042
+  primary_section: C.13 新增架构决策记录（ADR-037～044）
+  decision: 角色、视觉计划、探索分支、QC 会话状态机显式化
+  appears_in:
+  - C.13 新增架构决策记录（ADR-037～044）
+  occurrence_count: 1
+- id: ADR-043
+  primary_section: C.13 新增架构决策记录（ADR-037～044）
+  decision: 四个核心 SKILL 与细粒度 Skills/服务代码分层
+  appears_in:
+  - C.13 新增架构决策记录（ADR-037～044）
+  occurrence_count: 1
+- id: ADR-044
+  primary_section: C.13 新增架构决策记录（ADR-037～044）
+  decision: 外部 Skill API 延后到受控 P1，第三方生态为 P2
+  appears_in:
+  - C.13 新增架构决策记录（ADR-037～044）
+  occurrence_count: 1
+- id: ADR-045
+  primary_section: D.12 ADR-045～051：产品实施与双模式计费决策
+  decision: USER_OWN_KEY 是默认且必须可用的 P0 模式。
+  appears_in:
+  - D.12 ADR-045～051：产品实施与双模式计费决策
+  occurrence_count: 2
+- id: ADR-046
+  primary_section: D.12 ADR-045～051：产品实施与双模式计费决策
+  decision: Model Gateway 使用 billing_mode 双模式抽象。
+  appears_in:
+  - D.12 ADR-045～051：产品实施与双模式计费决策
+  occurrence_count: 1
+- id: ADR-047
+  primary_section: D.12 ADR-045～051：产品实施与双模式计费决策
+  decision: CostLedger 区分 settlement_type 与估算/实际成本。
+  appears_in:
+  - D.12 ADR-045～051：产品实施与双模式计费决策
+  occurrence_count: 1
+- id: ADR-048
+  primary_section: D.12 ADR-045～051：产品实施与双模式计费决策
+  decision: PLATFORM_PAID 商业结算模块独立隔离，真实功能列为 P2。
+  appears_in:
+  - D.12 ADR-045～051：产品实施与双模式计费决策
+  occurrence_count: 1
+- id: ADR-049
+  primary_section: D.12 ADR-045～051：产品实施与双模式计费决策
+  decision: OFFLINE_PRIVATE 强制 USER_OWN_KEY。
+  appears_in:
+  - D.12 ADR-045～051：产品实施与双模式计费决策
+  occurrence_count: 1
+- id: ADR-050
+  primary_section: D.12 ADR-045～051：产品实施与双模式计费决策
+  decision: MVP 预算产品端简化为项目预算池和成本标签。
+  appears_in:
+  - D.12 ADR-045～051：产品实施与双模式计费决策
+  occurrence_count: 1
+- id: ADR-051
+  primary_section: D.12 ADR-045～051：产品实施与双模式计费决策
+  decision: 优先采用模块化单体和可验证的生产闭环迭代。
+  appears_in:
+  - D.12 ADR-045～051：产品实施与双模式计费决策
+  occurrence_count: 1
+- id: ADR-052
+  primary_section: 24.10 新增架构决策记录（ADR-052～061）
+  decision: 社区发布与生产 Gate 解耦
+  appears_in:
+  - 24.10 新增架构决策记录（ADR-052～061）
+  - 附录 A：统一术语表
+  occurrence_count: 3
+- id: ADR-053
+  primary_section: 24.10 新增架构决策记录（ADR-052～061）
+  decision: ShowcaseSnapshot 采用不可变精确版本快照
+  appears_in:
+  - 24.10 新增架构决策记录（ADR-052～061）
+  occurrence_count: 1
+- id: ADR-054
+  primary_section: 24.10 新增架构决策记录（ADR-052～061）
+  decision: CommunityPost 与 ShowcaseSnapshot 分离
+  appears_in:
+  - 24.10 新增架构决策记录（ADR-052～061）
+  occurrence_count: 1
+- id: ADR-055
+  primary_section: 24.10 新增架构决策记录（ADR-052～061）
+  decision: Phase1 仅开放只读分享链接
+  appears_in:
+  - 24.10 新增架构决策记录（ADR-052～061）
+  occurrence_count: 1
+- id: ADR-056
+  primary_section: 24.10 新增架构决策记录（ADR-052～061）
+  decision: 独立 Publication Gate（PG0—PG3）
+  appears_in:
+  - 24.10 新增架构决策记录（ADR-052～061）
+  occurrence_count: 1
+- id: ADR-057
+  primary_section: 24.10 新增架构决策记录（ADR-052～061）
+  decision: 复用采用申请制，不提供直接 Fork
+  appears_in:
+  - 24.10 新增架构决策记录（ADR-052～061）
+  occurrence_count: 1
+- id: ADR-058
+  primary_section: 24.10 新增架构决策记录（ADR-052～061）
+  decision: 社区展示域拥有独立 STALE 与撤销规则
+  appears_in:
+  - 24.10 新增架构决策记录（ADR-052～061）
+  occurrence_count: 1
+- id: ADR-059
+  primary_section: 24.10 新增架构决策记录（ADR-052～061）
+  decision: 组织内社区提供水印、脱敏、审核与举报下架
+  appears_in:
+  - 24.10 新增架构决策记录（ADR-052～061）
+  occurrence_count: 1
+- id: ADR-060
+  primary_section: 24.10 新增架构决策记录（ADR-052～061）
+  decision: 公开社区和模板市场延后到 Phase3
+  appears_in:
+  - 24.10 新增架构决策记录（ADR-052～061）
+  occurrence_count: 1
+- id: ADR-061
+  primary_section: 24.10 新增架构决策记录（ADR-052～061）
+  decision: 社区推荐与 Pattern 治理协同并保护新颖性
+  appears_in:
+  - 24.10 新增架构决策记录（ADR-052～061）
+  occurrence_count: 1
+- id: ADR-062
+  primary_section: 30.7 新增架构决策记录（ADR-062～073）
+  decision: 视频反推输出默认 REFERENCE_ONLY
+  appears_in:
+  - 30.7 新增架构决策记录（ADR-062～073）
+  occurrence_count: 2
+- id: ADR-063
+  primary_section: 30.7 新增架构决策记录（ADR-062～073）
+  decision: 反推报告独立状态与失效治理
+  appears_in:
+  - 30.7 新增架构决策记录（ADR-062～073）
+  occurrence_count: 1
+- id: ADR-064
+  primary_section: 30.7 新增架构决策记录（ADR-062～073）
+  decision: 资产与知识中枢作为独立产品域
+  appears_in:
+  - 30.7 新增架构决策记录（ADR-062～073）
+  occurrence_count: 1
+- id: ADR-065
+  primary_section: 30.7 新增架构决策记录（ADR-062～073）
+  decision: 共享主体库不共享 CharacterCanon
+  appears_in:
+  - 30.7 新增架构决策记录（ADR-062～073）
+  occurrence_count: 1
+- id: ADR-066
+  primary_section: 30.7 新增架构决策记录（ADR-062～073）
+  decision: 客户审片与内部 QC 分离
+  appears_in:
+  - 30.7 新增架构决策记录（ADR-062～073）
+  occurrence_count: 1
+- id: ADR-067
+  primary_section: 30.7 新增架构决策记录（ADR-062～073）
+  decision: 交付 Manifest 必须可追溯且可重建
+  appears_in:
+  - 30.7 新增架构决策记录（ADR-062～073）
+  occurrence_count: 1
+- id: ADR-068
+  primary_section: 30.7 新增架构决策记录（ADR-062～073）
+  decision: 学习内容不自动获得生产模板权限
+  appears_in:
+  - 30.7 新增架构决策记录（ADR-062～073）
+  occurrence_count: 1
+- id: ADR-069
+  primary_section: 30.7 新增架构决策记录（ADR-062～073）
+  decision: 开放生态采用签名扩展包与沙箱能力
+  appears_in:
+  - 30.7 新增架构决策记录（ADR-062～073）
+  occurrence_count: 1
+- id: ADR-070
+  primary_section: 30.7 新增架构决策记录（ADR-062～073）
+  decision: 市场和收益交易与核心生产解耦
+  appears_in:
+  - 30.7 新增架构决策记录（ADR-062～073）
+  occurrence_count: 1
+- id: ADR-071
+  primary_section: 30.7 新增架构决策记录（ADR-062～073）
+  decision: 社区/反推/交付成本独立分类
+  appears_in:
+  - 30.7 新增架构决策记录（ADR-062～073）
+  occurrence_count: 1
+- id: ADR-072
+  primary_section: 30.7 新增架构决策记录（ADR-062～073）
+  decision: 跨项目基准必须归一化且保护隐私
+  appears_in:
+  - 30.7 新增架构决策记录（ADR-062～073）
+  occurrence_count: 1
+- id: ADR-073
+  primary_section: 30.7 新增架构决策记录（ADR-062～073）
+  decision: 社区热度不直接改变 Pattern/PMS 权威状态
+  appears_in:
+  - 30.7 新增架构决策记录（ADR-062～073）
+  occurrence_count: 1
+- id: ADR-074
+  primary_section: 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  decision: V2.0 统一阶段总表为全平台唯一阶段映射。
+  appears_in:
+  - 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  occurrence_count: 2
+- id: ADR-075
+  primary_section: 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  decision: Phase 1 核心生产闭环是唯一主硬门。
+  appears_in:
+  - 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  occurrence_count: 1
+- id: ADR-076
+  primary_section: 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  decision: 社区、快照、发布审核、申诉、分享和复用使用独立状态机。
+  appears_in:
+  - 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  occurrence_count: 1
+- id: ADR-077
+  primary_section: 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  decision: 统一 Action Registry 是所有入口权限判定的唯一来源。
+  appears_in:
+  - 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  occurrence_count: 1
+- id: ADR-078
+  primary_section: 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  decision: Agent 仅创建草案/候选，不掌握权威审批权。
+  appears_in:
+  - 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  occurrence_count: 1
+- id: ADR-079
+  primary_section: 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  decision: 产品预算池是四类预算分类的简化视图，不合并底层账本；Phase 1 不启用跨账户自动转拨。
+  appears_in:
+  - 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  occurrence_count: 1
+- id: ADR-080
+  primary_section: 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  decision: 分享 Viewer 与客户审片 Viewer 共用底层媒体能力但分离业务权限。
+  appears_in:
+  - 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  occurrence_count: 1
+- id: ADR-081
+  primary_section: 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  decision: 视频反推默认 REFERENCE_ONLY，只能产生新生产草案。
+  appears_in:
+  - 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  occurrence_count: 1
+- id: ADR-082
+  primary_section: 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  decision: 共享主体库不共享 CharacterCanon；Pattern 晋升独立治理。
+  appears_in:
+  - 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  occurrence_count: 1
+- id: ADR-083
+  primary_section: 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  decision: 交付 Manifest 必须可追溯、可校验、可重建。
+  appears_in:
+  - 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  occurrence_count: 1
+- id: ADR-084
+  primary_section: 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  decision: 社区/反推/客户审片成本独立分类。
+  appears_in:
+  - 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  occurrence_count: 1
+- id: ADR-085
+  primary_section: 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  decision: V2.0 以文档/契约/自动化证据作为正式冻结依据。
+  appears_in:
+  - 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  occurrence_count: 1
+- id: ADR-086
+  primary_section: 17.14 架构决策记录（ADR）
+  decision: 平台 Phase 0—4 只有第 31.2 节为权威阶段映射；其他章节和附录的阶段表均为非权威摘要或生产工序说明。
+  appears_in:
+  - 17.14 架构决策记录（ADR）
+  - 31.12 新增架构决策记录（ADR-074～092，其中 ADR-086～092 见 17.14）
+  occurrence_count: 2
+- id: ADR-087
+  primary_section: 17.14 架构决策记录（ADR）
+  decision: Phase 1 社区范围只包含只读分享、内部审核记录和组织内封闭灰度，不开放公开审核发布。
+  appears_in:
+  - 17.14 架构决策记录（ADR）
+  occurrence_count: 1
+- id: ADR-088
+  primary_section: 17.14 架构决策记录（ADR）
+  decision: ConstraintPack 是存在锁定约束时的核心生产有效输入；无锁定约束镜头显式标记 NOT_APPLICABLE。
+  appears_in:
+  - 17.14 架构决策记录（ADR）
+  occurrence_count: 1
+- id: ADR-089
+  primary_section: 17.14 架构决策记录（ADR）
+  decision: Action Registry 记录完整资源、作用域、风险、Token、审批、审计、负向测试和启用状态；历史动作名仅映射别名。
+  appears_in:
+  - 17.14 架构决策记录（ADR）
+  occurrence_count: 1
+- id: ADR-090
+  primary_section: 17.14 架构决策记录（ADR）
+  decision: CommunityPost、PublicationReview、Appeal、ReuseRequest、DeliveryManifest、Pattern 等对象状态机分别独立定义。
+  appears_in:
+  - 17.14 架构决策记录（ADR）
+  occurrence_count: 1
+- id: ADR-091
+  primary_section: 17.14 架构决策记录（ADR）
+  decision: Phase 1 不启用跨预算账户自动转拨；仅允许同一预算账户内经审批的额度重分配。
+  appears_in:
+  - 17.14 架构决策记录（ADR）
+  occurrence_count: 1
+- id: ADR-092
+  primary_section: 17.14 架构决策记录（ADR）
+  decision: 客户观看/批注统一使用“客户审片”术语；“审计”仅用于日志、证据链和权限追溯。
+  appears_in:
+  - 17.14 架构决策记录（ADR）
+  occurrence_count: 1
+- id: ADR-093
+  primary_section: 32.13 架构决策记录（ADR-093～100）
+  decision: 平台核心定位为工业化治理底座，不自研替代性专业剪辑/音频/3D/特效工具。
+  appears_in:
+  - 32.13 架构决策记录（ADR-093～100）
+  - 附录 B：版本修订记录
+  occurrence_count: 3
+- id: ADR-094
+  primary_section: 32.13 架构决策记录（ADR-093～100）
+  decision: ExternalToolAdapter 放置于现有 L3 执行层，保持 L1—L6 六层骨架不变。
+  appears_in:
+  - 32.13 架构决策记录（ADR-093～100）
+  occurrence_count: 1
+- id: ADR-095
+  primary_section: 32.13 架构决策记录（ADR-093～100）
+  decision: 外部工程文件、时间线、素材包和成片统一纳入 Asset Service。
+  appears_in:
+  - 32.13 架构决策记录（ADR-093～100）
+  occurrence_count: 1
+- id: ADR-096
+  primary_section: 32.13 架构决策记录（ADR-093～100）
+  decision: 外部工具按文件、元数据、插件、流程四级能力逐步接入。
+  appears_in:
+  - 32.13 架构决策记录（ADR-093～100）
+  occurrence_count: 1
+- id: ADR-097
+  primary_section: 32.13 架构决策记录（ADR-093～100）
+  decision: 外部执行不改变平台质量治理与审批权威。
+  appears_in:
+  - 32.13 架构决策记录（ADR-093～100）
+  occurrence_count: 1
+- id: ADR-098
+  primary_section: 32.13 架构决策记录（ADR-093～100）
+  decision: 外部工具接入按 Phase 0—4 渐进实施。
+  appears_in:
+  - 32.13 架构决策记录（ADR-093～100）
+  occurrence_count: 1
+- id: ADR-099
+  primary_section: 32.13 架构决策记录（ADR-093～100）
+  decision: 工具连接、导出、导入、同步、事件和撤销使用唯一 Action Registry 与 Capability Token。
+  appears_in:
+  - 32.13 架构决策记录（ADR-093～100）
+  occurrence_count: 1
+- id: ADR-100
+  primary_section: 32.13 架构决策记录（ADR-093～100）
+  decision: 标准交换格式按具体工具版本/Profile 验证，不承诺全功能无损互通。
+  appears_in:
+  - 32.13 架构决策记录（ADR-093～100）
+  occurrence_count: 1
+- id: ADR-101
+  primary_section: 0. 执行摘要
+  decision: 智能编排是元数据编排，不是剪辑内核。
+  appears_in:
+  - 0. 执行摘要
+  - 33.15 架构决策记录（ADR-101～105、113～116）
+  - 附录 A：统一术语表
+  occurrence_count: 4
+- id: ADR-102
+  primary_section: 33.15 架构决策记录（ADR-101～105、113～116）
+  decision: TimelineDraft 是唯一时间线权威对象。
+  appears_in:
+  - 33.15 架构决策记录（ADR-101～105、113～116）
+  occurrence_count: 1
+- id: ADR-103
+  primary_section: 33.15 架构决策记录（ADR-101～105、113～116）
+  decision: ExportPackage/ExportManifest 不等于 DeliveryManifest。
+  appears_in:
+  - 33.15 架构决策记录（ADR-101～105、113～116）
+  occurrence_count: 1
+- id: ADR-104
+  primary_section: 33.15 架构决策记录（ADR-101～105、113～116）
+  decision: ExternalToolAdapter 能力矩阵必须公开、版本化、实测。
+  appears_in:
+  - 33.15 架构决策记录（ADR-101～105、113～116）
+  occurrence_count: 1
+- id: ADR-105
+  primary_section: 33.15 架构决策记录（ADR-101～105、113～116）
+  decision: 平台预览只播放代理片段序列，不输出可下载成片。
+  appears_in:
+  - 33.15 架构决策记录（ADR-101～105、113～116）
+  occurrence_count: 1
+- id: ADR-106
+  primary_section: 34.15 架构决策记录（ADR-106～112、117～118）
+  decision: Creator Mode 采用“UI 降门槛，底层不降级”。
+  appears_in:
+  - 34.15 架构决策记录（ADR-106～112、117～118）
+  occurrence_count: 2
+- id: ADR-107
+  primary_section: 34.15 架构决策记录（ADR-106～112、117～118）
+  decision: CREATOR_GATE 与工业 Gate0—4 独立。
+  appears_in:
+  - 34.15 架构决策记录（ADR-106～112、117～118）
+  occurrence_count: 1
+- id: ADR-108
+  primary_section: 34.15 架构决策记录（ADR-106～112、117～118）
+  decision: 个人模式成本以 EXPLORATION + CREATOR_MODE_COST 子分类归集。
+  appears_in:
+  - 34.15 架构决策记录（ADR-106～112、117～118）
+  occurrence_count: 1
+- id: ADR-109
+  primary_section: 34.15 架构决策记录（ADR-106～112、117～118）
+  decision: 个人作品使用 CREATOR_DELIVERY / CREATOR_RELEASE。
+  appears_in:
+  - 34.15 架构决策记录（ADR-106～112、117～118）
+  occurrence_count: 1
+- id: ADR-110
+  primary_section: 34.15 架构决策记录（ADR-106～112、117～118）
+  decision: workspace_mode 创建后不可变；升级创建 FULL_MODE 后继工作区。
+  appears_in:
+  - 34.15 架构决策记录（ADR-106～112、117～118）
+  occurrence_count: 1
+- id: ADR-111
+  primary_section: 34.15 架构决策记录（ADR-106～112、117～118）
+  decision: Phase 0 冻结 Creator 契约，Phase 1 NOT_ENABLED，Phase 2 实现极简 UI。
+  appears_in:
+  - 34.15 架构决策记录（ADR-106～112、117～118）
+  occurrence_count: 1
+- id: ADR-112
+  primary_section: 34.15 架构决策记录（ADR-106～112、117～118）
+  decision: Creator Release 采用独立的发布资格检查。
+  appears_in:
+  - 34.15 架构决策记录（ADR-106～112、117～118）
+  occurrence_count: 1
+- id: ADR-113
+  primary_section: 32.13 架构决策记录（ADR-093～100）
+  decision: TimelineDraft 与 ExportPackage/ToolExchangeSession 使用分离状态机。
+  appears_in:
+  - 32.13 架构决策记录（ADR-093～100）
+  - 33.15 架构决策记录（ADR-101～105、113～116）
+  occurrence_count: 2
+- id: ADR-114
+  primary_section: 32.13 架构决策记录（ADR-093～100）
+  decision: 禁止任何模式在平台内执行 SimpleRender 或最终成片渲染。
+  appears_in:
+  - 32.13 架构决策记录（ADR-093～100）
+  occurrence_count: 1
+- id: ADR-115
+  primary_section: 32.13 架构决策记录（ADR-093～100）
+  decision: 工程包必须包含导入指引、Rights Notice 与 Usage Restrictions。
+  appears_in:
+  - 32.13 架构决策记录（ADR-093～100）
+  occurrence_count: 1
+- id: ADR-116
+  primary_section: 32.13 架构决策记录（ADR-093～100）
+  decision: 模板预设只提供可编辑元数据起点。
+  appears_in:
+  - 32.13 架构决策记录（ADR-093～100）
+  occurrence_count: 1
+- id: ADR-117
+  primary_section: 34.15 架构决策记录（ADR-106～112、117～118）
+  decision: Creator Release 公开发布采用“用户发起 + 自动检查 + 风险分流”。
+  appears_in:
+  - 34.15 架构决策记录（ADR-106～112、117～118）
+  occurrence_count: 1
+- id: ADR-118
+  primary_section: 34.15 架构决策记录（ADR-106～112、117～118）
+  decision: CreatorDeliveryManifest、CreatorPublicationCheck、CreatorRelease 使用独立状态机。
+  appears_in:
+  - 34.15 架构决策记录（ADR-106～112、117～118）
+  occurrence_count: 1

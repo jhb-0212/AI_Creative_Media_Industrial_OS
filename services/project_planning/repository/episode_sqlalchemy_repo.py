@@ -1,0 +1,141 @@
+"""Episode SQLAlchemy 仓储实现（数据所有权：project_planning 模块专属写入口）。
+
+设计要点：
+- 实现 EpisodeRepository 抽象接口，与内存实现可互换。
+- 领域模型 <-> ORM 模型的双向映射集中在此，隔离持久化细节。
+- 只经本仓储写 project_planning.episodes 表，其它模块禁止直写。
+"""
+
+from __future__ import annotations
+
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError, ProgrammingError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.port_errors import translate_write_error
+from services.project_planning.domain.enums import EpisodeStatus
+from services.project_planning.domain.episode import Episode
+from services.project_planning.repository._versioning import (
+    _orm_update_values,
+    conditional_update,
+)
+from services.project_planning.repository.episode_repo import EpisodeRepository
+from services.project_planning.repository.orm import EpisodeModel
+
+
+def _to_domain(model: EpisodeModel) -> Episode:
+    """ORM -> 领域模型。
+
+    枚举反序列化做防御：存量数据中若出现契约外的非法状态值，
+    降级为结构化 DomainError（数据一致性），而非裸 ValueError 导致 500。
+    """
+    try:
+        status = EpisodeStatus(model.status)
+    except ValueError as exc:
+        raise DomainError(
+            ErrorRegistry.INTERNAL_ERROR,
+            detail=f"episodes 存量状态非法: {model.status!r}",
+        ) from exc
+    return Episode(
+        entity_id=model.entity_id,
+        project_id=model.project_id,
+        episode_ref=model.episode_ref,
+        title=model.title,
+        created_by=model.created_by,
+        tenant_id=model.tenant_id,
+        status=status,
+        schema_version=model.schema_version,
+        entity_version=model.entity_version,
+        owner_module=model.owner_module,
+        created_at=model.created_at,
+        updated_at=model.updated_at,
+        audit_ref=model.audit_ref,
+    )
+
+
+def _to_orm(episode: Episode) -> EpisodeModel:
+    """领域模型 -> ORM。"""
+    return EpisodeModel(
+        entity_id=episode.entity_id,
+        entity_type=episode.ENTITY_TYPE,
+        schema_version=episode.schema_version,
+        entity_version=episode.entity_version,
+        status=episode.status.value,
+        owner_module=episode.owner_module,
+        tenant_id=episode.tenant_id,
+        created_at=episode.created_at,
+        created_by=episode.created_by,
+        updated_at=episode.updated_at,
+        audit_ref=episode.audit_ref,
+        project_id=episode.project_id,
+        episode_ref=episode.episode_ref,
+        title=episode.title,
+    )
+
+
+class SqlAlchemyEpisodeRepository(EpisodeRepository):
+    """基于 SQLAlchemy 异步会话的仓储实现。"""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, episode: Episode) -> None:
+        # INSERT 语义 + SAVEPOINT：并发重复插入由唯一约束捕获（幂等兜底）。
+        # 驱动异常在此翻译为端口契约：唯一冲突可幂等回读，引用失败必须上抛。
+        # 同时捕获 ProgrammingError：父项目不在当前组织作用域时 RLS 以 42501
+        # 拒绝写入（ADR-R24），它与外键冲突对调用方是同一事实——引用不成立。
+        try:
+            async with self._session.begin_nested():
+                self._session.add(_to_orm(episode))
+        except (IntegrityError, ProgrammingError) as exc:
+            translate_write_error(exc, entity_id=episode.entity_id)
+
+    async def save(self, episode: Episode, expected_version: int) -> None:
+        # 乐观锁条件更新（语义同 ScriptRepository.save）；仅登记变更，不 commit。
+        await conditional_update(
+            self._session,
+            EpisodeModel,
+            episode.entity_id,
+            expected_version,
+            _orm_update_values(_to_orm(episode)),
+        )
+
+    async def get_by_id(self, entity_id: str) -> Episode | None:
+        stmt = select(EpisodeModel).where(EpisodeModel.entity_id == entity_id)
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        return _to_domain(model) if model is not None else None
+
+    async def get_by_project_ref(
+        self, project_id: str, episode_ref: str
+    ) -> Episode | None:
+        """按项目 + 集数标识查询集数（归属验证核心查询）。"""
+        stmt = select(EpisodeModel).where(
+            EpisodeModel.project_id == project_id,
+            EpisodeModel.episode_ref == episode_ref,
+        )
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        return _to_domain(model) if model is not None else None
+
+    async def get_by_project_ref_for_child_write(
+        self, project_id: str, episode_ref: str
+    ) -> Episode | None:
+        """``FOR SHARE`` 读取父集数（导入剧本版本前用）。
+
+        ``with_for_update(read=True)`` 生成 ``FOR SHARE``。**不是** ``key_share=True``：
+        后者生成的 ``FOR KEY SHARE`` 只与改键值/删除冲突，挡不住归档的
+        ``UPDATE ... SET status``——实测见 ``verify_parent_freeze_lock.py`` 的 H1/H2。
+        """
+        stmt = (
+            select(EpisodeModel)
+            .where(
+                EpisodeModel.project_id == project_id,
+                EpisodeModel.episode_ref == episode_ref,
+            )
+            .with_for_update(read=True)
+        )
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        return _to_domain(model) if model is not None else None

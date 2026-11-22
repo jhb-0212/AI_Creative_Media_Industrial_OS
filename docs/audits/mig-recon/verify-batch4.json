@@ -1,0 +1,156 @@
+{
+  "at": "2026-11-21T12:10:35+08:00",
+  "passed": 21,
+  "failed": 0,
+  "not_applicable": 0,
+  "open_findings": [],
+  "results": [
+    {
+      "id": "P0",
+      "phase": "基线",
+      "desc": "回退到 g7b8c9d0e1f2 已应用（撤掉 6 层）",
+      "ok": true,
+      "detail": "m3b4c5d6e7f8/l2a3b4c5d6e7/k1f2a3b4c5d6/j0e1f2a3b4c5/i9d0e1f2a3b4/h8c9d0e1f2a3"
+    },
+    {
+      "id": "P1",
+      "phase": "前提",
+      "desc": "基线里批次四的约束均不存在（否则测的不是本迁移）",
+      "ok": true,
+      "detail": "命中 0 个"
+    },
+    {
+      "id": "P2",
+      "phase": "前提",
+      "desc": "取到同组织下两个真实项目",
+      "ok": true,
+      "detail": "A=proj-alpha B=proj-beta org=0011"
+    },
+    {
+      "id": "P3",
+      "phase": "前提",
+      "desc": "插入一行属于 A 的资产版本",
+      "ok": true,
+      "detail": "INSERT 0 1"
+    },
+    {
+      "id": "G1",
+      "phase": "对照",
+      "desc": "项目一致时可正常插入（约束未建前）",
+      "ok": true,
+      "detail": "INSERT 0 1"
+    },
+    {
+      "id": "C1",
+      "phase": "缺口",
+      "desc": "建约束前：报告挂在 A 的资产上、项目写成 B，依然插入成功",
+      "ok": true,
+      "detail": "INSERT 0 1"
+    },
+    {
+      "id": "U1",
+      "phase": "升级",
+      "desc": "执行 upgrade_steps()（18 步）",
+      "ok": true,
+      "detail": "无异常"
+    },
+    {
+      "id": "S1",
+      "phase": "结构",
+      "desc": "复合外键已建且为 NOT VALID（存量未扫）",
+      "ok": true,
+      "detail": "exists=True convalidated=False"
+    },
+    {
+      "id": "S2",
+      "phase": "结构",
+      "desc": "被取代的单列外键已删除（不是两条键并存）",
+      "ok": true,
+      "detail": "count=0"
+    },
+    {
+      "id": "S3",
+      "phase": "结构",
+      "desc": "父表四列唯一键已建（复合外键的可引用目标）",
+      "ok": true,
+      "detail": "count=1"
+    },
+    {
+      "id": "N1",
+      "phase": "拦截",
+      "desc": "约束建立后：跨项目挂载一律 23503",
+      "ok": true,
+      "detail": "23503: insert or update on table \"qc_reports\" violates foreign key constraint \"fk_qc_reports_asset_version_project\""
+    },
+    {
+      "id": "N2",
+      "phase": "拦截",
+      "desc": "同一约束不误伤项目一致的写入（否则 N1 是别的原因）",
+      "ok": true,
+      "detail": "INSERT 0 1"
+    },
+    {
+      "id": "V0",
+      "phase": "验证",
+      "desc": "存量中存在「真实但不一致」的行（VALIDATE 的必然后果）",
+      "ok": true,
+      "detail": "违规行 1 条"
+    },
+    {
+      "id": "V1",
+      "phase": "验证",
+      "desc": "有「真实但不一致」存量行时 VALIDATE 必须 23503",
+      "ok": true,
+      "detail": "23503: insert or update on table \"qc_reports\" violates foreign key constraint \"fk_qc_reports_asset_version_project\""
+    },
+    {
+      "id": "V3",
+      "phase": "验证",
+      "desc": "清掉脏行后 VALIDATE 通过（成功路径可达）",
+      "ok": true,
+      "detail": "VALIDATE OK"
+    },
+    {
+      "id": "I1",
+      "phase": "幂等",
+      "desc": "重复 ADD CONSTRAINT 必须失败（42P07/42710）",
+      "ok": true,
+      "detail": "42P07"
+    },
+    {
+      "id": "Q1",
+      "phase": "闸门",
+      "desc": "升级后一致闸门无 NO_FK / FK_NOT_COMPOSITE（DANGLING 不计）",
+      "ok": true,
+      "detail": "NO_FK=0 FK_NOT_COMPOSITE=0 PENDING=9 DANGLING=6"
+    },
+    {
+      "id": "D1",
+      "phase": "降级",
+      "desc": "执行 downgrade_steps()（20 步）",
+      "ok": true,
+      "detail": "无异常"
+    },
+    {
+      "id": "D2",
+      "phase": "降级",
+      "desc": "批次四的复合外键与父表唯一键已删净",
+      "ok": true,
+      "detail": "残留=0"
+    },
+    {
+      "id": "D3",
+      "phase": "降级",
+      "desc": "被取代的单列外键已恢复（回退到 g7b8 时刻等价）",
+      "ok": true,
+      "detail": "count=1"
+    },
+    {
+      "id": "D4",
+      "phase": "降级",
+      "desc": "降级后同一跨项目写入恢复成功（语义可逆）",
+      "ok": true,
+      "detail": "INSERT 0 1"
+    }
+  ]
+}

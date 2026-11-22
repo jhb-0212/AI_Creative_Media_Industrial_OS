@@ -1,0 +1,337 @@
+# 授权 Registry（Authorization Registry）—— 业务授权规则的唯一事实源
+#
+# 载体由 ADR-R40 附录 D.1 指定：contracts/authorization/authorization_registry.yaml。
+# 本文件不是说明文档，而是被真实执行的契约：
+#   - scripts/contract_check.py::check_authorization_registry 校验其语义（静态，无需数据库）；
+#   - packages/shared/authorization/ 从它派生 CREATE POLICY / GRANT / 测试预期；
+#   - 任何「同一条授权事实的第二份手写副本」都是缺陷（ADR-R40 §11 / 铁律 R1）。
+#
+# ---------------------------------------------------------------------------
+# 本文件当前是「目标态（target）」，不是数据库现状
+# ---------------------------------------------------------------------------
+# status: target 表示：这里写的是 IP-4 要收敛到的状态。当前数据库实测与目标的
+# 差距（11 条 FOR ALL + roles=public 的 tenant_isolation_* 策略、FORCE RLS 全未
+# 启用、8 个 svc_* 表权限全零）记录在 docs/audits/2026-11-19-r40-readonly-evidence.md。
+# 把 target 当 observed 读，会得出「隔离已成立」的错误结论——这正是 D.2.2 裁定 3
+# 要禁止的表述方式。
+#
+# ---------------------------------------------------------------------------
+# 实施偏差登记（design_delta）—— 实现时发现的设计缺口，须回写 ADR 正文
+# ---------------------------------------------------------------------------
+# 写在这里而不是悄悄按新写法实现：ADR 仍是 PROPOSED，偏离必须可被复审者一眼看到。
+# amend_required: true 表示需要一次 ADR 修订（v1.4.3），不是「实现细节」。
+design_delta:
+  - id: DD-1
+    what: >-
+      resources[].scope_dimensions 由「列名列表」改为「列名 → SQL 类型」映射。
+    why: >-
+      派生 policy SQL 时必须知道被比较列的 SQL 类型，才能生成
+      current_setting('app.current_tenant_id', true)::uuid 这类强类型表达式。
+      纯列名列表会迫使派生器猜类型（猜错即 22P02 或隐式转换），或去查数据库
+      （使静态闸门依赖活库）。类型必须与列一起声明，才谈得上「同一 helper 统一 cast」。
+    adr_ref: "ADR-R40 附录 D.2（原文示例为 scope_dimensions: [tenant_id, project_id]）"
+    amend_required: true
+  - id: DD-2
+    what: >-
+      permissions 段本轮不落地，改由 permissions_source 指向既有
+      packages/shared/db_grants.py，并在 debt 中登记接管条件。
+    why: >-
+      两个理由都指向「此刻不能写」：① db_grants.py 是历史迁移 c1a2b3d4e5f6 的
+      冻结输入（D.6.0b「历史迁移不可变」），改它的事实源等于改写已执行历史语义；
+      ② 若本文件同时声明同一批表对同一批域的操作集，就立刻形成两个事实源，
+      而「CI 校验两者一致」只是把矛盾推迟到 CI（D.2.1 已就同一问题裁定过）。
+      因此本文件只声明「没有任何其他载体」的事实：角色身份、域→角色映射、
+      RLS 语义、SECDEF 例外。
+    adr_ref: "ADR-R40 D.1（db_grants 应为 Registry 的投影）/ D.6.0b（历史迁移不可变）"
+    amend_required: false
+
+schema_version: "1.2"
+status: target
+
+# --------------------------------------------------------------------------- #
+# 1. 数据库逻辑 ID ⇄ 物理库名（D.3：资源标识前缀用逻辑 ID）
+# --------------------------------------------------------------------------- #
+databases:
+  industrial: { physical_name: ai_film_industrial, kind: business }
+  verify: { physical_name: ai_film_verify, kind: business }
+
+# --------------------------------------------------------------------------- #
+# 2. 域身份 + 域→运行时角色映射（D.2.1：唯一权威，不得再有第二处映射）
+# --------------------------------------------------------------------------- #
+# 恰好 8 项（E10.0）。runtime_role 与集群 pg_roles 的 svc_* 集合必须双向相等。
+# legacy_role 是 Expand 期的过渡角色名（§7.0），它**不是**第二个映射事实：
+# 它是同一个域的「当前物理角色」，与 runtime_role 一样属于本域记录的一部分。
+# 值为 null 表示该域尚无过渡角色（当前无历史包袱）。
+domains:
+  - { id: project_planning,     schema: project_planning, runtime_role: svc_project_planning,     legacy_role: project_planning_role }
+  - { id: shot_planning,        schema: shot_planning,    runtime_role: svc_shot_planning,        legacy_role: null }
+  - { id: generation_execution, schema: generation_execution, runtime_role: svc_generation_execution, legacy_role: null }
+  - { id: asset_service,        schema: asset_service,    runtime_role: svc_asset,                 legacy_role: asset_service_role }
+  - { id: qc_governance,        schema: qc_governance,    runtime_role: svc_qc_governance,        legacy_role: null }
+  - { id: workflow,             schema: workflow,         runtime_role: svc_workflow,              legacy_role: null }
+  - { id: outbox_relay,         schema: outbox,           runtime_role: svc_outbox_relay,          legacy_role: outbox_relay_role }
+  - { id: identity,             schema: auth,             runtime_role: svc_identity,              legacy_role: null }
+
+# --------------------------------------------------------------------------- #
+# 3. 基础设施角色（身份四层，§5.1 / §5.1.3）—— 只描述属性与成员关系选项
+# --------------------------------------------------------------------------- #
+# 域→业务角色映射不在此处（D.2.1 已删除 roles.mappings）。
+# 这三个角色当前**均不存在**（E12.1 实测 role_exists=f），本段声明的是目标态；
+# 建立它们属于 IP-4，且 INV-1/5/6/6b/8/9/10/10b 在它们存在之前只能判「未建立」。
+roles:
+  infrastructure_roles:
+    object_owner:
+      name: afs_owner
+      login: false
+      attributes: [NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE]
+      owner_membership: none
+    migration_executor:
+      name: afs_migrator
+      login: true
+      attributes: [NOSUPERUSER, NOBYPASSRLS, NOCREATEDB]
+      owner_membership: { mode: window_only, admin: false, inherit: false, set: true }
+      granted_by: bootstrap_superuser
+    ops_admin:
+      name: ops_admin
+      login: true
+      attributes: [NOCREATEROLE, NOCREATEDB, NOSUPERUSER, NOBYPASSRLS]
+      owner_membership: none
+      capabilities: [read_only_diagnostics, process_ops]
+
+# --------------------------------------------------------------------------- #
+# 4. 权限矩阵现状（DD-2：本轮不接管，避免与冻结的历史迁移输入形成双事实源）
+# --------------------------------------------------------------------------- #
+permissions_source:
+  module: packages/shared/db_grants.py
+  covers: [project_planning, asset_service]
+  phase: expand
+  authority: "legacy_roles_only"
+  # 本键存在时，本文件**不得**出现 permissions 段（闸门 V6 强制）。
+  unblocks_when: "IP-4 完成 svc_* 切换、冻结迁移退出历史窗口后，由本文件 permissions 段接管并删除本键"
+
+# --------------------------------------------------------------------------- #
+# 5. 资源与 RLS（D.2 / D.3 / D.6.0c）
+# --------------------------------------------------------------------------- #
+# 每条 Policy 的 using / with_check 是受限 AST，不接受自由文本。
+# 可用节点见 ADR-R40 D.2 表：all / any / not / eq / in / is_null 与值源 guc / guc_array / literal。
+# 命名规则 C.3.2：pol_<table>_<cmd>_<kind>，kind ∈ {scope(PERMISSIVE), guard(RESTRICTIVE)}。
+resources:
+  # ---- 项目级隔离（唯一承诺「项目级」的资源，D.2.2 裁定 3）----------------
+  - id: industrial.asset_service.table.asset_versions
+    database: industrial
+    schema: asset_service
+    object_type: table
+    object_name: asset_versions
+    domain: asset_service
+    # 本表**实际具备**的隔离维度（E10.11）：tenant_id uuid + project_id varchar，无 organization_id。
+    scope_dimensions:
+      tenant_id: uuid
+      project_id: text
+    rls:
+      enabled: true
+      force: true
+      policies:
+        - id: pol_asset_versions_select_scope
+          commands: [SELECT]
+          permissive: true
+          roles: [svc_asset]
+          using: &scope_asset
+            all:
+              - eq: { column: tenant_id, value: { guc: app.current_tenant_id } }
+              - in: { column: project_id, value: { guc_array: app.current_projects, element_type: text } }
+        - id: pol_asset_versions_insert_scope
+          commands: [INSERT]
+          permissive: true
+          roles: [svc_asset]
+          # 写入必须落在同一 scope（YAML 锚点引用同一 AST，不复制、不写别名）
+          with_check: *scope_asset
+        - id: pol_asset_versions_update_scope
+          commands: [UPDATE]
+          permissive: true
+          roles: [svc_asset]
+          using: *scope_asset
+          with_check: *scope_asset
+        # 无 DELETE 策略：append-only，无 permissive ⇒ 零行可删（纵深防御，不是遗漏）
+
+  # ---- 租户级 + 域 ACL（传输层表，无 project 维度，D.2.2 裁定 1）------------
+  # 父表与 3 个分区必须**分别**建策略：PG 对分区的直接访问只应用分区自身的 Policy。
+  - id: industrial.outbox.table.outbox_events
+    database: industrial
+    schema: outbox
+    object_type: table
+    object_name: outbox_events
+    domain: outbox_relay
+    partitioned: true
+    scope_dimensions:
+      tenant_id: uuid
+    rls: &rls_outbox
+      enabled: true
+      force: true
+      policies: &pol_outbox
+        - id: pol_outbox_events_select_scope
+          commands: [SELECT]
+          permissive: true
+          roles: [svc_project_planning, svc_asset, svc_outbox_relay]
+          using:
+            eq: { column: tenant_id, value: { guc: app.current_tenant_id } }
+        - id: pol_outbox_events_insert_scope
+          commands: [INSERT]
+          permissive: true
+          roles: [svc_project_planning, svc_asset]
+          with_check:
+            eq: { column: tenant_id, value: { guc: app.current_tenant_id } }
+        # 无 UPDATE/DELETE 策略：当前无任何业务角色持有该表的 UPDATE/DELETE（E10.5）。
+        # 若 IP-4 需 relay 回写投递状态，必须显式新增 pol_outbox_events_update_scope 并登记授权。
+
+  - id: industrial.outbox.partition.outbox_events_default
+    database: industrial
+    schema: outbox
+    object_type: partition
+    object_name: outbox_events_default
+    domain: outbox_relay
+    scope_dimensions: { tenant_id: uuid }
+    rls: *rls_outbox
+
+  - id: industrial.outbox.partition.outbox_events_y202611
+    database: industrial
+    schema: outbox
+    object_type: partition
+    object_name: outbox_events_y202611
+    domain: outbox_relay
+    scope_dimensions: { tenant_id: uuid }
+    rls: *rls_outbox
+
+  - id: industrial.outbox.partition.outbox_events_y202612
+    database: industrial
+    schema: outbox
+    object_type: partition
+    object_name: outbox_events_y202612
+    domain: outbox_relay
+    scope_dimensions: { tenant_id: uuid }
+    rls: *rls_outbox
+
+  # ---- 租户 + 组织级（合规台账，有意跨项目；D.2.2 裁定 2）------------------
+  - id: industrial.audit.table.status_transitions
+    database: industrial
+    schema: audit
+    object_type: table
+    object_name: status_transitions
+    domain: asset_service
+    scope_dimensions:
+      tenant_id: uuid
+      organization_id: uuid
+    rls: &rls_audit
+      enabled: true
+      force: true
+      policies: &pol_audit
+        - id: pol_status_transitions_select_scope
+          commands: [SELECT]
+          permissive: true
+          roles: [svc_project_planning, svc_asset]
+          using: &scope_tenant_org
+            all:
+              - eq: { column: tenant_id, value: { guc: app.current_tenant_id } }
+              - any:
+                  - is_null: { column: organization_id }
+                  - eq: { column: organization_id, value: { guc: app.current_organization_id } }
+        - id: pol_status_transitions_insert_scope
+          commands: [INSERT]
+          permissive: true
+          roles: [svc_project_planning, svc_asset]
+          with_check: *scope_tenant_org
+        # append-only：无 UPDATE/DELETE 策略（触发器 + 无表级权限双重保证）
+
+  # ---- 组织归属主体（租户 + 组织；资产域跨域只读）--------------------------
+  - id: industrial.project_planning.table.projects
+    database: industrial
+    schema: project_planning
+    object_type: table
+    object_name: projects
+    domain: project_planning
+    scope_dimensions:
+      tenant_id: uuid
+      organization_id: uuid
+    rls:
+      enabled: true
+      force: true
+      policies:
+        - id: pol_projects_select_scope
+          commands: [SELECT]
+          permissive: true
+          roles: [svc_project_planning, svc_asset]
+          using: *scope_tenant_org
+        - id: pol_projects_insert_scope
+          commands: [INSERT]
+          permissive: true
+          roles: [svc_project_planning]
+          with_check: *scope_tenant_org
+        - id: pol_projects_update_scope
+          commands: [UPDATE]
+          permissive: true
+          roles: [svc_project_planning]
+          using: *scope_tenant_org
+          with_check: *scope_tenant_org
+
+# --------------------------------------------------------------------------- #
+# 6. 显式例外（D.5：SECDEF 八字段，缺一即闸门报红）
+# --------------------------------------------------------------------------- #
+# effective_owner 是**目标**，observed_owner 是只读取证值，二者不得混写：
+# postgres 是超级用户，即使 FORCE RLS 也不受 RLS 约束，把它当目标等于作废安全承诺。
+# public_execute 的落地动作是迁移里先 REVOKE（D.6.0c 派生 1c），不是只写这个字段。
+exceptions:
+  - object: industrial.outbox.function.list_active_tenants()
+    kind: SECURITY_DEFINER
+    reason: "SECURITY DEFINER 提供租户枚举（当前实现）"
+    owner: platform-security
+    unblocks_when: "改为按 RLS 直接读取后移除"
+    expires_at: "2027-01-01"
+    execute_roles: [svc_identity]
+    effective_owner: afs_owner
+    observed_owner: postgres
+    search_path: "pg_catalog, pg_temp"
+    accessed_resources: [industrial.outbox.table.outbox_events]
+    privilege_scope: "仅读取租户枚举列"
+    security_test: "tests/integration/test_secdef_no_cross_tenant.py"
+    public_execute: false
+    observed_search_path: "outbox, pg_catalog"
+    observed_public_execute: false
+
+  - object: industrial.audit.function.assert_transition_event_exists()
+    kind: SECURITY_DEFINER
+    reason: "SECURITY DEFINER 校验迁移事件存在（当前实现）"
+    owner: platform-security
+    unblocks_when: "触发器内联校验后移除"
+    expires_at: "2027-01-01"
+    execute_roles: [svc_asset, svc_project_planning]
+    effective_owner: afs_owner
+    observed_owner: postgres
+    search_path: "pg_catalog, pg_temp"
+    accessed_resources: [industrial.outbox.table.outbox_events]
+    privilege_scope: "仅 existence 判定，不返回业务内容"
+    security_test: "tests/integration/test_secdef_no_cross_tenant.py"
+    public_execute: false
+    observed_search_path: "pg_catalog, outbox"
+    observed_public_execute: true
+
+# --------------------------------------------------------------------------- #
+# 7. 显式债务（未覆盖范围与接管条件）—— 不得用「没写」冒充「已覆盖」
+# --------------------------------------------------------------------------- #
+# 沿用 contracts/security_boundary.yaml 的债务机制：必须给 reason 与解除条件；
+# 解除后必须删除条目（陈旧债务同样是缺陷）。
+debt:
+  - id: AUTHZ-1
+    what: "permissions 段未接管（见 design_delta DD-2）"
+    reason: "db_grants.py 是冻结迁移的输入；两处同时声明即双事实源"
+    unblocks_when: "IP-4 完成 svc_* 切换"
+  - id: AUTHZ-2
+    what: "qc_reports / episodes / script_revisions / organizations 的 RLS 未纳入本文件"
+    reason: "本轮只覆盖 E1 断言涉及的 4 张表；其余表的策略仍由历史迁移 tenant_isolation_* 承担"
+    unblocks_when: "IP-4 第二批前向迁移"
+  - id: AUTHZ-3
+    what: "verify 库结构漂移未对账（project_planning 四表 verify 为 SIUD、industrial 为 SIU；verify 无 audit schema）"
+    reason: "两库已分叉（E12.7~E12.10），在 Registry 里按 industrial 声明，verify 需独立前向补齐"
+    unblocks_when: "IP-4 前向迁移把 verify 收敛到与 industrial 一致，再登记 verify.* 资源"
+  - id: AUTHZ-4
+    what: "未来 outbox 分区无策略"
+    reason: "分区按月动态创建，静态文件无法枚举；FORCE RLS 下无策略 = 零行（fail-closed，但功能不可用）"
+    unblocks_when: "partition_guard 从本文件的 outbox 策略派生新分区策略（单事实源），而非在矩阵里再列一遍"

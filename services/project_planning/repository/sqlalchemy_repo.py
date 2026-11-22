@@ -1,0 +1,133 @@
+"""Project SQLAlchemy 仓储实现（数据所有权：project_planning 模块专属写入口）。
+
+设计要点：
+- 实现 ProjectRepository 抽象接口，与内存实现可互换。
+- 领域模型 <-> ORM 模型的双向映射集中在此，隔离持久化细节。
+- 只经本仓储写 project_planning.projects 表，其它模块禁止直写。
+"""
+
+from __future__ import annotations
+
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError, ProgrammingError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.port_errors import translate_write_error
+from services.project_planning.domain.enums import ProjectStatus, ProjectTier
+from services.project_planning.domain.project import Project
+from services.project_planning.repository._versioning import (
+    _orm_update_values,
+    conditional_update,
+)
+from services.project_planning.repository.orm import ProjectModel
+from services.project_planning.repository.project_repo import ProjectRepository
+
+
+def _to_domain(model: ProjectModel) -> Project:
+    """ORM -> 领域模型。
+
+    枚举反序列化做防御：存量数据若出现契约外非法值，降级为结构化
+    DomainError（数据一致性），而非裸 ValueError 导致 500。
+    """
+    try:
+        tier = ProjectTier(model.project_tier)
+        status = ProjectStatus(model.status)
+    except ValueError as exc:
+        raise DomainError(
+            ErrorRegistry.INTERNAL_ERROR,
+            detail=(
+                f"projects 存量枚举非法: tier={model.project_tier!r}, "
+                f"status={model.status!r}"
+            ),
+        ) from exc
+    return Project(
+        entity_id=model.entity_id,
+        project_name=model.project_name,
+        project_tier=tier,
+        created_by=model.created_by,
+        tenant_id=model.tenant_id,
+        status=status,
+        schema_version=model.schema_version,
+        entity_version=model.entity_version,
+        owner_module=model.owner_module,
+        created_at=model.created_at,
+        updated_at=model.updated_at,
+        audit_ref=model.audit_ref,
+        organization_id=model.organization_id,
+    )
+
+
+def _to_orm(project: Project) -> ProjectModel:
+    """领域模型 -> ORM。"""
+    return ProjectModel(
+        entity_id=project.entity_id,
+        entity_type=project.ENTITY_TYPE,
+        schema_version=project.schema_version,
+        entity_version=project.entity_version,
+        status=project.status.value,
+        owner_module=project.owner_module,
+        tenant_id=project.tenant_id,
+        created_at=project.created_at,
+        created_by=project.created_by,
+        updated_at=project.updated_at,
+        audit_ref=project.audit_ref,
+        project_name=project.project_name,
+        project_tier=project.project_tier.value,
+        organization_id=project.organization_id,
+    )
+
+
+class SqlAlchemyProjectRepository(ProjectRepository):
+    """基于 SQLAlchemy 异步会话的仓储实现。"""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, project: Project) -> None:
+        # INSERT 语义 + SAVEPOINT：并发重复插入相同主键时由数据库唯一约束拒绝，
+        # 用嵌套事务隔离使 session 不进入 aborted 态，服务层可安全降级为幂等查询。
+        # 驱动异常在此翻译为端口契约（唯一冲突 / 引用失败），服务层不依赖 ORM。
+        # 必须同时捕获 ProgrammingError：组织维度的 RLS 把「归属不在当前作用域」
+        # 表达成 42501 而不是外键冲突（ADR-R24），只捕 IntegrityError 会让它
+        # 以未翻译的驱动异常冒到 API 层变成 500。
+        try:
+            async with self._session.begin_nested():
+                self._session.add(_to_orm(project))
+        except (IntegrityError, ProgrammingError) as exc:
+            translate_write_error(exc, entity_id=project.entity_id)
+
+    async def save(self, project: Project, expected_version: int) -> None:
+        # 乐观锁条件更新（语义同 ScriptRepository.save）；仅登记变更，不 commit。
+        await conditional_update(
+            self._session,
+            ProjectModel,
+            project.entity_id,
+            expected_version,
+            _orm_update_values(_to_orm(project)),
+        )
+
+    async def get_by_id(self, entity_id: str) -> Project | None:
+        stmt = select(ProjectModel).where(ProjectModel.entity_id == entity_id)
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        return _to_domain(model) if model is not None else None
+
+    async def get_by_id_for_child_write(self, entity_id: str) -> Project | None:
+        """``FOR SHARE`` 读取父行（创建子对象前用）。
+
+        ``with_for_update(read=True)`` 生成 ``FOR SHARE``，不是 ``FOR KEY SHARE``
+        （后者用 ``key_share=True``）——差别见端口文档：``FOR KEY SHARE`` 挡不住
+        ``UPDATE ... SET status``，而归档正是这种更新。
+
+        调用方必须已处于事务中；``FOR SHARE`` 在自动提交模式下不持有到语句之外，
+        会退化成无锁读。事务边界由应用层（请求作用域）保证。
+        """
+        stmt = (
+            select(ProjectModel)
+            .where(ProjectModel.entity_id == entity_id)
+            .with_for_update(read=True)
+        )
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        return _to_domain(model) if model is not None else None

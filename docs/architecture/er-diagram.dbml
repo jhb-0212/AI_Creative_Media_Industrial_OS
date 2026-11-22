@@ -1,0 +1,110 @@
+// ============================================================================
+// AI 影视工业化生产平台 V2.0.5 —— 数据模型 ER 图（DBML）
+// 范围：Phase 1 Project Planning 主链（Project → Episode → ScriptRevision）+ 审计/租户底座
+// 依据：docs/adr-arch-refactor-v1.md 六大决策
+//   - 决策2：复合主键/复合外键去冗余 project_id（3NF）
+//   - 决策3：Transactional Outbox 审计事件
+//   - 决策5：tenant_id + PostgreSQL RLS
+// 工具：dbdiagram.io / dbdocs.io
+// ============================================================================
+
+// ---- 通用实体信封（C.3.1，所有核心表继承，ORM 层用 mixin 实现）----
+// entity_id / entity_type / schema_version / entity_version / status /
+// owner_module / created_at / created_by / updated_at / audit_ref
+// （audit_ref 在决策3后降级为"最近一次转移的引用"，完整审计走 outbox_events）
+
+Table projects {
+  entity_id        varchar(64)  [pk]
+  tenant_id        uuid         [not null]                     // 决策5：租户隔离
+  entity_type      varchar(64)  [not null, default: `Project`]
+  schema_version   int          [not null]
+  entity_version   int          [not null]                     // 乐观锁版本号
+  status           varchar(32)  [not null]                     // DRAFT/ACTIVE/ON_HOLD/COMPLETED/ARCHIVED
+  owner_module     varchar(64)  [not null]
+  created_at       timestamptz  [not null]
+  created_by       varchar(64)  [not null]
+  updated_at       timestamptz  [not null]
+  audit_ref        varchar(128)
+  project_name     varchar(200) [not null]
+  project_tier     varchar(8)   [not null]                     // S/A/B
+
+  indexes {
+    tenant_id [name: `ix_projects_tenant_id`]
+    (tenant_id, entity_id) [unique, name: `ux_projects_tenant_entity`]
+  }
+}
+
+Table episodes {
+  project_id       varchar(64)  [not null, ref: > projects.entity_id]
+  episode_ref      varchar(64)  [not null]                     // EP001
+  tenant_id        uuid         [not null]                     // 决策5：租户隔离
+  entity_id        varchar(64)  [not null]
+  entity_type      varchar(64)  [not null, default: `Episode`]
+  schema_version   int          [not null]
+  entity_version   int          [not null]
+  status           varchar(32)  [not null]                     // DRAFT/ACTIVE/ARCHIVED
+  owner_module     varchar(64)  [not null]
+  created_at       timestamptz  [not null]
+  created_by       varchar(64)  [not null]
+  updated_at       timestamptz  [not null]
+  audit_ref        varchar(128)
+  title            varchar(200) [not null]
+
+  // 决策2：复合主键 (project_id, episode_ref)，锁死"同项目内 episode_ref 唯一"
+  indexes {
+    (project_id, episode_ref) [pk, name: `pk_episodes`]
+    tenant_id [name: `ix_episodes_tenant_id`]
+    entity_id [unique, name: `ux_episodes_entity_id`]
+  }
+}
+
+Table script_revisions {
+  episode_ref       varchar(64)  [not null]                    // 决策2：不冗余 project_id
+  project_id        varchar(64)  [not null]                    // 仅作复合外键的一部分
+  tenant_id         uuid         [not null]
+  entity_id         varchar(64)  [not null]
+  entity_type       varchar(64)  [not null, default: `ScriptRevision`]
+  schema_version    int          [not null]
+  entity_version    int          [not null]
+  status            varchar(32)  [not null]                    // DRAFT/LOCKED/SUPERSEDED
+  owner_module      varchar(64)  [not null]
+  created_at        timestamptz  [not null]
+  created_by        varchar(64)  [not null]
+  updated_at        timestamptz  [not null]
+  audit_ref         varchar(128)
+  title             varchar(200) [not null]
+
+  // 决策2：复合外键 (project_id, episode_ref) 强绑定 episodes 复合主键
+  //        数据库锁死"跨项目乱挂载"
+  indexes {
+    (project_id, episode_ref) [ref: > episodes.(project_id, episode_ref), name: `fk_script_episode`]
+    entity_id [pk, name: `pk_script_revisions`]
+    tenant_id [name: `ix_script_tenant_id`]
+    // 部分唯一索引：同 episode 下最多一个非 SUPERSEDED 活跃版本
+    (project_id, episode_ref) [unique, name: `ux_script_active_version`, note: `WHERE status <> 'SUPERSEDED'`]
+  }
+}
+
+// ---- Transactional Outbox（决策3：审计事件，append-only，不可变）----
+Table outbox_events {
+  event_id        uuid         [pk]                            // 事件唯一 ID
+  aggregate_type  varchar(64)  [not null]                      // Project/ScriptRevision/Episode
+  aggregate_id    varchar(64)  [not null]                      // 聚合根 entity_id
+  tenant_id       uuid         [not null]
+  event_type      varchar(64)  [not null]                      // SCRIPT_LOCKED/SCRIPT_SUPERSEDED/PROJECT_ARCHIVED...
+  payload         jsonb        [not null]                      // 事件负载（before/after 状态、操作主体等）
+  occurred_at     timestamptz  [not null]
+  published_at    timestamptz                                    // Worker 已消费标记（NULL=未消费）
+
+  indexes {
+    aggregate_id [name: `ix_outbox_aggregate`]
+    event_type [name: `ix_outbox_event_type`]
+    (published_at) [name: `ix_outbox_published`]
+    tenant_id [name: `ix_outbox_tenant_id`]
+  }
+}
+
+// ---- 关系（决策3：状态变更与事件同事务写入）----
+Ref: projects.entity_id < episodes.project_id
+Ref: episodes.(project_id, episode_ref) < script_revisions.(project_id, episode_ref)
+Ref: projects.entity_id < outbox_events.aggregate_id

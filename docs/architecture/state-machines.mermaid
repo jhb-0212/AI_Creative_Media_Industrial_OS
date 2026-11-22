@@ -1,0 +1,48 @@
+# ============================================================================
+# AI 影视工业化生产平台 V2.0.5 —— 核心实体状态机（Mermaid）
+# 依据：contracts/state_machines/state_machines.yaml
+# 原则：终态不可原地复活（红线「终态不可原地复活」）
+# ============================================================================
+
+# ---- Project ----
+```mermaid
+stateDiagram-v2
+    [*] --> DRAFT : PROJECT.CREATE
+    DRAFT --> ACTIVE : 进入生产
+    DRAFT --> ARCHIVED : 归档
+    ACTIVE --> ON_HOLD : 暂停
+    ACTIVE --> COMPLETED : 完成
+    ON_HOLD --> ACTIVE : 恢复
+    ON_HOLD --> ARCHIVED : 归档
+    COMPLETED --> ARCHIVED : 归档
+    ARCHIVED --> [*] : 终态（不可原地复活）
+```
+
+# ---- ScriptRevision ----
+```mermaid
+stateDiagram-v2
+    [*] --> DRAFT : SCRIPT.IMPORT
+    DRAFT --> LOCKED : SCRIPT.LOCK.APPROVE
+    DRAFT --> SUPERSEDED : 新版本导入取代
+    LOCKED --> SUPERSEDED : 新版本导入取代
+    SUPERSEDED --> [*] : 终态（不可原地复活）
+```
+
+# ---- Episode ----
+```mermaid
+stateDiagram-v2
+    [*] --> DRAFT : EPISODE.CREATE
+    DRAFT --> ACTIVE : 进入生产
+    DRAFT --> ARCHIVED : 归档
+    ACTIVE --> ARCHIVED : 归档
+    ARCHIVED --> [*] : 终态（不可原地复活）
+```
+
+# ---- 状态机权威定义（单一事实源映射）----
+# 契约 state_machines.yaml（权威，手写）：
+#   Project:        DRAFT→ACTIVE→ON_HOLD；ACTIVE→COMPLETED；ON_HOLD→ACTIVE；
+#                   DRAFT/ON_HOLD/COMPLETED→ARCHIVED
+#   ScriptRevision: DRAFT→LOCKED；DRAFT/LOCKED→SUPERSEDED
+#   Episode:        DRAFT→ACTIVE→ARCHIVED
+#
+# 实现 domain/state_machine.py（运行时加载/生成，标记"生成物勿手改"）。

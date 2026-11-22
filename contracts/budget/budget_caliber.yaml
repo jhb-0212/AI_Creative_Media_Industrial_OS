@@ -1,0 +1,33 @@
+# 由 AFS-ARCH-MASTER-V2.0.5 预算账户口径表派生
+source: AFS-ARCH-MASTER-V2.0.5 预算账户口径表与 Creator Mode 成本口径表
+note: 四类预算账户互不挪用；QualityReserve 受保护，任何模式不得以其作为探索资金来源。
+accounts:
+- account: Production Budget
+  allowed_usage: 正式生产、已批准路线调用、基础/基线 Previz、合成、后期、交付及其必要人力/算力
+  forbidden: 不得隐瞒超支；不得自动跨项目挪用
+  on_shortage: 暂停新增承诺，提出成本/周期/路线影响供授权人决策
+- account: Exploration Reserve
+  allowed_usage: CEE 提案、候选分支、关键帧探索、低清动态样片、探索型 Previz 和经批准的创意比较
+  forbidden: 不得承担 QC 缺陷修复或替代 Quality Reserve
+  on_shortage: 停止新增探索分支；保留已产出证据，不影响正式质量修复
+- account: Quality Reserve
+  allowed_usage: QC 缺陷修复、必要重生成、质量补偿、最终质量保障及经证据确认的返工
+  forbidden: 不得用于新创意分支、非必要风格尝试或多方案选优
+  on_shortage: 保留质量修复额度；不足时阻断交付并请求追加预算/缩小交付范围
+- account: Contingency Reserve
+  allowed_usage: 经批准的供应商故障恢复、不可预见事件和紧急变更
+  forbidden: 不得成为常规制作/探索的隐性资金池
+  on_shortage: 单独申请、说明事件、批准额度和事后审计
+creator_mode_cost_rules:
+- caliber: CostLedger
+  creator_mode_rule: cost_category=EXPLORATION；cost_subcategory=CREATOR_MODE_COST；绑定 workspace/task/asset/policy/price_version。
+  forbidden: 不得作为第五类预算账户；不得与 PRODUCTION/QUALITY_REPAIR/CONTINGENCY 混算。
+- caliber: BudgetLedger/QuotaReservation
+  creator_mode_rule: 沿用既有预算与配额；用户可见预计额度/本次消耗；超限停止、排队或提示明确选择。
+  forbidden: 不得隐藏资源差距或绕过用户/组织配额；未知供应商结果先查询再重试。
+- caliber: QualityReserve
+  creator_mode_rule: Creator Mode 不以 QualityReserve 作为探索资金来源；质量储备受保护。
+  forbidden: 任何 Creator Mode 成本不得扣减 QualityReserve，不得内部转拨伪装来源。
+- caliber: BYOK
+  creator_mode_rule: USER_OWN_KEY 仍由用户向供应商结算；平台只记录用量和估算成本。
+  forbidden: 不得因平台余额为零拦截 BYOK；不得静默回退 PLATFORM_PAID。

@@ -1,0 +1,16 @@
+# 行尾与字节策略
+#
+# 为什么需要这个文件：
+# 冻结包（contracts/）与基线正文（docs/baseline/）的完整性判定是**按字节比对
+# SHA-256**。仓库默认 core.autocrlf=true（Windows 检出转 CRLF），一旦发生行尾转换，
+# 同一份文件在 Windows 与 Linux 上哈希不同——冻结闸门就会随平台随机报红，
+# 而这种「偶发失败」最终会被当成噪声忽略，闸门随之失效。
+#
+# 因此这些路径标记为 -text：git 一律按原始字节存取，不做任何行尾归一化。
+# 修改这些文件后必须重跑 scripts/freeze_manifest.py --write，否则 --check 报红。
+
+# 基线正文：哈希写入 frozen_inventory.yaml
+docs/baseline/*.md -text
+
+# 十一类冻结产物：哈希写入 phase0_manifest.md
+contracts/** -text

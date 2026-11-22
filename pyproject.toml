@@ -1,0 +1,115 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ai-creative-media-industrial-os"
+version = "2.0.5"
+description = "AI 影视工业化生产平台（模块化单体 + 异步 Worker）"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+authors = [
+    { name = "AI Creative Media Industrial OS Team" },
+]
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    # 身份治理（P0-3）：RSA 密钥对（cryptography）+ RS256 令牌编解码（PyJWT）。
+    # 二者是 packages/identity 的运行时硬依赖，必须在声明层显式列出，
+    # 避免干净安装时缺失（旧环境靠历史残留掩盖了该缺口）。
+    "cryptography>=42.0",
+    "PyJWT>=2.8",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg>=0.29",
+    "alembic>=1.13",
+    "redis>=5.0",
+    "temporalio>=1.6",
+    "opentelemetry-api>=1.24",
+    "opentelemetry-sdk>=1.24",
+    "opentelemetry-instrumentation-fastapi>=0.45",
+    "opentelemetry-exporter-otlp>=1.24",
+    "structlog>=24.1",
+    "boto3>=1.34",
+    "pyyaml>=6.0",
+    # 指标暴露（/metrics）：Prometheus 文本格式，与 OTel 追踪分工明确——
+    # 追踪回答「这一次请求怎么了」，指标回答「整体在变好还是变坏」。
+    "prometheus-client>=0.20",
+    # Outbox relay 的外发投递（webhook 派发）用 httpx。它在生产路径上，
+    # 因此必须进主依赖；只放在 dev 组会让「干净安装 + 生产镜像」缺库。
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.4",
+    "mypy>=1.9",
+    # mypy 严格模式需要 yaml 的类型桩（action_registry.py 的 import yaml），
+    # 否则 CI 的 type check 步骤会因 import-untyped 失败。
+    "types-PyYAML>=6.0",
+    "pre-commit>=3.7",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "packages/shared",
+    "packages/errors",
+    "packages/telemetry",
+    "packages/identity",
+    "services",
+    "apps",
+]
+
+# 依赖源显式声明（F08 根治）：
+# 此前 uv.lock 把 pypi.tuna.tsinghua.edu.cn 镜像 URL 硬编码进每个包的下载地址
+# （1508 处），导致 GitHub Actions 海外 Runner 访问清华镜像超时、CI 主任务失败。
+# 这里显式声明官方 PyPI 为默认源，使「用哪个源」成为可追溯的权威配置，而非
+# 锁文件生成那一刻的环境偶发固化。国内开发如需加速，可用 UV_INDEX_URL 环境
+# 变量覆盖，不影响锁文件权威性。
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "ASYNC", "RUF"]
+ignore = [
+    "E501",
+    # 中文项目：docstring/注释/字符串中的全角标点（，。（）等）是合法且正确的，
+    # 不视为「歧义 Unicode 字符」。
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    # FastAPI 依赖注入约定：Depends(...) 必须写在默认参数位置，B008 属误报。
+    "B008",
+    # SQLAlchemy ORM 约定：__table_args__ = {"schema": ...} 是框架要求的类属性，
+    # RUF012「可变默认值」不适用。
+    "RUF012",
+    # str + Enum 组合是保留字符串值语义的标准写法（ErrorCategory/ProjectTier 等）。
+    "UP042",
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-ra -q"
+# 显式将项目根目录加入 sys.path，确保 services/apps 等顶层包在任意
+# 工作目录（含 CI 的 pip install -e 环境）下都能被 pytest 正确 import，
+# 不依赖 editable 安装的路径映射是否完整。
+pythonpath = ["."]
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"

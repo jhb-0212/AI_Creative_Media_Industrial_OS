@@ -1,0 +1,104 @@
+# 由 AFS-ARCH-MASTER-V2.0.5 C.5 权限矩阵与 31.6 Action Registry 派生
+# role_matrix 为关键操作角色摘要；action_matrix 为派生视图（不重复保存条目）
+source: AFS-ARCH-MASTER-V2.0.5 权限矩阵与动作主体
+note: role_matrix 为关键操作角色摘要；action_matrix 不再保存 action_key 级副本，统一由 action_registry.yaml 派生（单一事实源）。
+derived_from: action_registry.yaml
+role_matrix:
+  source_section: C.5 RBAC / ABAC / Capability Token 权限矩阵
+  roles:
+  - 导演/创作负责人
+  - 编剧
+  - 技术导演
+  - QC 审核人
+  - 制片/预算管理员
+  - 版权合规
+  - Agent/Worker
+  actions:
+  - action: 提交创意/镜头方案
+    grants:
+      导演/创作负责人: 允许
+      编剧: 允许
+      技术导演: 允许
+      QC 审核人: 只读建议
+      制片/预算管理员: 只读
+      版权合规: 只读
+      Agent/Worker: Token 范围内提交草案
+  - action: 确认 ScriptLock / ShotRevision
+    grants:
+      导演/创作负责人: 可批准授权范围
+      编剧: 可提交/编辑
+      技术导演: 技术校验
+      QC 审核人: 只读
+      制片/预算管理员: 只读
+      版权合规: 权利审查意见
+      Agent/Worker: 不得自批；只能请求确认
+  - action: 修改 CharacterCanon
+    grants:
+      导演/创作负责人: 提出/批准授权事实
+      编剧: 提出/编辑草案
+      技术导演: 不得修改事实
+      QC 审核人: 不得修改事实
+      制片/预算管理员: 不得修改事实
+      版权合规: 审查权利来源
+      Agent/Worker: 仅创建 Canon Draft
+  - action: 锁定 ShotVisualPlan 字段
+    grants:
+      导演/创作负责人: 批准创作字段
+      编剧: 提出建议
+      技术导演: 批准技术字段（授权范围）
+      QC 审核人: 只读
+      制片/预算管理员: 只读
+      版权合规: 只读
+      Agent/Worker: 不得锁定；可生成建议
+  - action: 批准镜头等级/策略变更
+    grants:
+      导演/创作负责人: 创作/策略审批范围
+      编剧: 无
+      技术导演: 技术可行性评估
+      QC 审核人: 无
+      制片/预算管理员: 预算审批/资源确认
+      版权合规: 合规审查
+      Agent/Worker: 仅提交申请
+  - action: 批准质量 Gate
+    grants:
+      导演/创作负责人: 不得代替 QC
+      编剧: 不得
+      技术导演: 仅限技术 Gate 职责且职责分离
+      QC 审核人: 批准 QC 职责范围
+      制片/预算管理员: 不得
+      版权合规: 批准合规 Gate 职责范围
+      Agent/Worker: 不得通过 Gate
+  - action: 预算预留/释放/调拨
+    grants:
+      导演/创作负责人: 申请或授权范围
+      编剧: 无
+      技术导演: 可申请技术资源
+      QC 审核人: 无
+      制片/预算管理员: 审批及账本管理
+      版权合规: 无
+      Agent/Worker: 仅限已签发 budget_scope
+  - action: 版权许可确认/隔离解除
+    grants:
+      导演/创作负责人: 提供创作来源
+      编剧: 提供来源
+      技术导演: 提供技术来源
+      QC 审核人: 发现并报告
+      制片/预算管理员: 无
+      版权合规: 唯一权威确认角色
+      Agent/Worker: 不得确认或解除隔离
+  - action: 系统配置/密钥/策略发布
+    grants:
+      导演/创作负责人: 无
+      编剧: 无
+      技术导演: 按运维授权
+      QC 审核人: 无
+      制片/预算管理员: 无
+      版权合规: 审计参与
+      Agent/Worker: Worker 最小权限；系统管理员操作全审计
+action_matrix:
+  source_section: 31.6 Action Registry 唯一注册表
+  generated_from: action_registry.yaml
+  total: 100
+separation_of_duty:
+  source_section: C.5.1 Capability Token 最小契约
+  rule: 申请人不得审批自己的预算/Canon/Gate 变更；预算管理员不得批准质量 Gate；QC 不得修改权利事实；版权角色不得代替导演决定艺术意图；Agent、Worker 和系统管理员不得通过技术权限绕过业务审批。系统管理员的紧急访问必须限时、双人授权并写入不可篡改审计。

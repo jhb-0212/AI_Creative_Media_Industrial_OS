@@ -1,0 +1,472 @@
+# 事件契约（Event Catalog）——跨模块事件的唯一登记处
+#
+# 为什么需要它：
+# - 事件名此前只活在代码字符串里，改名/改字段无人知道下游是否还在消费；
+# - 更危险的是「动作登记了 audit_event，但代码从不发」——声明自洽、事实缺失，
+#   这类缺口只有把事件也纳入契约才看得见。
+#
+# 校验规则（scripts/contract_check.py::check_event_catalog，双向）：
+# 1. 代码里出现的每个 event_type 必须在本文件登记（未登记发事件 = 私自发契约）；
+# 2. 本文件登记的每个 event_type 必须真被发出（陈旧条目 = 台账撒谎）；
+# 3. emitted_by 必须指向真正发出该事件的文件（路径漂移报红）；
+# 4. 已实现且非 READ 的 action，其 audit_event 必须已登记；确实还没落地的，
+#    在 contracts/runtime/event_emission_gaps.yaml 显式登记债务，不得静默。
+#
+# 维护规则：
+# 1. payload_required 是下游可依赖的最小字段集。删字段等于破坏契约，必须改契约；
+# 2. 一个 action 可以发多条事件（例如批准要先记录「进入人工复核」）；
+# 3. 事件与状态迁移同事务：不得先改状态再补事件，也不得先发事件再改状态。
+version: 1
+
+events:
+  - event_type: ASSET_VERSION_CREATED
+    aggregate_type: AssetVersion
+    emitted_by: services/asset_service/service/asset_service.py
+    payload_required:
+      - asset_version_id
+      - asset_type
+      - sha256
+      - storage_ref
+      - source_asset_version_ids
+      - rights_manifest_ref
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#AssetVersion
+
+  - event_type: QC_REPORT_CREATED
+    aggregate_type: AssetVersion
+    emitted_by: services/asset_service/service/asset_service.py
+    payload_required:
+      - qc_report_id
+      - asset_version_id
+      - quality_profile_version
+      - from_status
+      - to_status
+      - created_by
+      - tenant_id
+    contract_ref: contracts/schemas/object_schemas.schema.json#QCReport
+
+  - event_type: ASSET_VERSION_HUMAN_REVIEW_ENTERED
+    aggregate_type: AssetVersion
+    emitted_by: services/asset_service/service/asset_service.py
+    payload_required:
+      - asset_version_id
+      - from_status
+      - to_status
+      - reviewed_by
+      - qc_report_count
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#AssetVersion
+
+  - event_type: ASSET_VERSION_APPROVED
+    aggregate_type: AssetVersion
+    emitted_by: services/asset_service/service/asset_service.py
+    payload_required:
+      - asset_version_id
+      - from_status
+      - to_status
+      - approved_by
+      - created_by
+      - qc_report_count
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#AssetVersion
+
+  - event_type: ASSET_VERSION_STATUS_CHANGED
+    aggregate_type: AssetVersion
+    emitted_by: services/asset_service/service/asset_service.py
+    payload_required:
+      - asset_version_id
+      - from_status
+      - to_status
+      - changed_by
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#AssetVersion
+
+  - event_type: SCRIPT_IMPORTED
+    aggregate_type: ScriptRevision
+    emitted_by: services/project_planning/service/script_service.py
+    payload_required:
+      - project_id
+      - episode_ref
+      - title
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#ScriptRevision
+
+  - event_type: SCRIPT_LOCK_REQUESTED
+    aggregate_type: ScriptRevision
+    emitted_by: services/project_planning/service/script_service.py
+    payload_required:
+      - project_id
+      - episode_ref
+      - requested_by
+      - tenant_id
+      - from_status
+      - to_status
+    contract_ref: contracts/state_machines/state_machines.yaml#ScriptRevision
+
+  - event_type: SCRIPT_LOCK_APPROVED
+    aggregate_type: ScriptRevision
+    emitted_by: services/project_planning/service/script_service.py
+    payload_required:
+      - project_id
+      - episode_ref
+      - requested_by
+      - approved_by
+      - tenant_id
+      - from_status
+      - to_status
+    contract_ref: contracts/state_machines/state_machines.yaml#ScriptRevision
+
+  - event_type: SCRIPT_SUPERSEDED
+    aggregate_type: ScriptRevision
+    emitted_by: services/project_planning/service/script_service.py
+    payload_required:
+      - project_id
+      - episode_ref
+      - superseded_by
+      - from_status
+      - to_status
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#ScriptRevision
+
+  - event_type: PROJECT_CREATED
+    aggregate_type: Project
+    emitted_by: services/project_planning/service/project_service.py
+    payload_required:
+      - project_id
+      - project_name
+      - project_tier
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#Project
+
+  - event_type: PROJECT_STATUS_CHANGED
+    aggregate_type: Project
+    emitted_by: services/project_planning/service/project_service.py
+    payload_required:
+      - project_id
+      - from_status
+      - to_status
+      - changed_by
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#Project
+
+  - event_type: EPISODE_CREATED
+    aggregate_type: Episode
+    emitted_by: services/project_planning/service/episode_service.py
+    payload_required:
+      - episode_id
+      - project_id
+      - episode_ref
+      - title
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#Episode
+
+  - event_type: EPISODE_STATUS_CHANGED
+    aggregate_type: Episode
+    emitted_by: services/project_planning/service/episode_service.py
+    payload_required:
+      - episode_id
+      - project_id
+      - from_status
+      - to_status
+      - changed_by
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#Episode
+
+  # ------------------------------------------------------------------ #
+  # V205-R14-A13：Scene / Shot / ShotBreakdownDraft / ReworkTask
+  # 每个事件都在本批的运行时里真实发出（双向校验：登记=被发出）。
+  # SCENE_READ / SHOT_READ 是 READ 动作，按本文件头部规则不登记审计事件。
+  # ------------------------------------------------------------------ #
+  - event_type: SCENE_CREATED
+    aggregate_type: Scene
+    emitted_by: services/project_planning/service/scene_service.py
+    payload_required:
+      - scene_id
+      - project_id
+      - episode_id
+      - scene_code
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#Scene
+  - event_type: SCENE_STATUS_CHANGED
+    aggregate_type: Scene
+    emitted_by: services/project_planning/service/scene_service.py
+    payload_required:
+      - scene_id
+      - project_id
+      - from_status
+      - to_status
+      - changed_by
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#Scene
+  - event_type: SHOT_DRAFT_CREATED
+    aggregate_type: ShotBreakdownDraft
+    emitted_by: services/project_planning/service/shot_draft_service.py
+    payload_required:
+      - draft_id
+      - project_id
+      - basis_script_revision_id
+      - draft_version
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#ShotBreakdownDraft
+  - event_type: SHOT_DRAFT_CLAIMED
+    aggregate_type: ShotBreakdownDraft
+    emitted_by: services/project_planning/service/shot_draft_service.py
+    payload_required:
+      - draft_id
+      - project_id
+      - claimed_by
+      - from_status
+      - to_status
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#ShotBreakdownDraft
+  - event_type: SHOT_DRAFT_CONFIRMED
+    aggregate_type: ShotBreakdownDraft
+    emitted_by: services/project_planning/service/shot_draft_service.py
+    payload_required:
+      - draft_id
+      - project_id
+      - confirmed_by
+      - confirmed_shot_revision_refs
+      - from_status
+      - to_status
+      - tenant_id
+    contract_ref: contracts/schemas/object_schemas.schema.json#ShotBreakdownDraft
+  - event_type: SHOT_DRAFT_RETURNED
+    aggregate_type: ShotBreakdownDraft
+    emitted_by: services/project_planning/service/shot_draft_service.py
+    payload_required:
+      - draft_id
+      - project_id
+      - returned_by
+      - return_reason
+      - from_status
+      - to_status
+      - tenant_id
+    contract_ref: contracts/schemas/object_schemas.schema.json#ShotBreakdownDraft
+  - event_type: SHOT_DRAFT_DISCARDED
+    aggregate_type: ShotBreakdownDraft
+    emitted_by: services/project_planning/service/shot_draft_service.py
+    payload_required:
+      - draft_id
+      - project_id
+      - discarded_reason
+      - from_status
+      - to_status
+      - tenant_id
+    contract_ref: contracts/schemas/object_schemas.schema.json#ShotBreakdownDraft
+  - event_type: SHOT_CREATED
+    aggregate_type: Shot
+    emitted_by: services/project_planning/service/shot_draft_service.py
+    payload_required:
+      - shot_id
+      - project_id
+      - scene_id
+      - shot_code
+      - shot_revision_id
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#Shot
+  - event_type: SHOT_STATUS_CHANGED
+    aggregate_type: Shot
+    emitted_by: services/project_planning/service/shot_service.py
+    payload_required:
+      - shot_id
+      - project_id
+      - scene_id
+      - from_status
+      - to_status
+      - changed_by
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#Shot
+  - event_type: SHOT_REVISION_CONFIRMED
+    aggregate_type: ShotRevision
+    emitted_by: services/project_planning/service/shot_draft_service.py
+    payload_required:
+      - shot_revision_id
+      - shot_id
+      - project_id
+      - revision_no
+      - confirmed_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#ShotRevision
+  - event_type: REWORK_TASK_CREATED
+    aggregate_type: ReworkTask
+    emitted_by: services/project_planning/service/rework_task_service.py
+    payload_required:
+      - rework_task_id
+      - project_id
+      - target_ref
+      - owner
+      - severity
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#ReworkTask
+  - event_type: REWORK_TASK_STATUS_CHANGED
+    aggregate_type: ReworkTask
+    emitted_by: services/project_planning/service/rework_task_service.py
+    payload_required:
+      - rework_task_id
+      - project_id
+      - from_status
+      - to_status
+      - changed_by
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#ReworkTask
+  - event_type: SHOTSPEC_CREATED
+    aggregate_type: ShotSpec
+    emitted_by: services/project_planning/service/shot_spec_service.py
+    payload_required:
+      - shot_spec_id
+      - project_id
+      - shot_revision_id
+      - duration_ms
+      - cut_point_count
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#ShotSpec
+  - event_type: SHOTSPEC_LOCKED
+    aggregate_type: ShotSpec
+    emitted_by: services/project_planning/service/shot_spec_service.py
+    payload_required:
+      - shot_spec_id
+      - project_id
+      - shot_revision_id
+      - locked_dimensions
+      - lock_basis_ref
+      - from_status
+      - to_status
+      - locked_by
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#ShotSpec
+  - event_type: CONSTRAINT_PACK_CREATED
+    aggregate_type: ConstraintPack
+    emitted_by: services/project_planning/service/constraint_pack_service.py
+    payload_required:
+      - constraint_pack_id
+      - project_id
+      - applicability
+      - shot_count
+      - locked_dimension_count
+      - constraint_count
+      - version
+      - created_by
+      - tenant_id
+      - status
+    contract_ref: contracts/schemas/object_schemas.schema.json#ConstraintPack
+  - event_type: CONSTRAINT_PACK_LOCKED
+    aggregate_type: ConstraintPack
+    emitted_by: services/project_planning/service/constraint_pack_service.py
+    payload_required:
+      - constraint_pack_id
+      - project_id
+      - applicability
+      - locked_dimensions
+      - version
+      - lock_basis_ref
+      - approved_at
+      - approved_by
+      - from_status
+      - to_status
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#ConstraintPack
+  - event_type: CONSTRAINT_PACK_STATUS_CHANGED
+    aggregate_type: ConstraintPack
+    emitted_by: services/project_planning/service/constraint_pack_service.py
+    payload_required:
+      - constraint_pack_id
+      - project_id
+      - version
+      - changed_by
+      - from_status
+      - to_status
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#ConstraintPack
+  - event_type: PRODUCTION_ROUTE_SELECTED
+    aggregate_type: ProductionRoute
+    emitted_by: services/production_planning/service/production_route_service.py
+    payload_required:
+      - route_id
+      - project_id
+      - shot_id
+      - task_ref
+      - route_type
+      - capability_ref
+      - created_by
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#ProductionRoute
+  - event_type: PRODUCTION_ROUTE_REVOKED
+    aggregate_type: ProductionRoute
+    emitted_by: services/production_planning/service/production_route_service.py
+    payload_required:
+      - route_id
+      - project_id
+      - shot_id
+      - revocation_ref
+      - revoked_by
+      - tenant_id
+      - from_status
+      - to_status
+    contract_ref: contracts/state_machines/state_machines.yaml#ProductionRoute
+  - event_type: GENERATION_REQUESTED
+    aggregate_type: GenerationTask
+    emitted_by: services/production_planning/service/generation_service.py
+    payload_required:
+      - generation_task_id
+      - project_id
+      - shot_id
+      - shot_revision_id
+      - model_adapter_ref
+      - created_by
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#GenerationTask
+  - event_type: PRODUCTION_GATE_APPROVED
+    aggregate_type: GateDecision
+    emitted_by: services/qc_governance/service/gate_service.py
+    payload_required:
+      - gate_key
+      - project_id
+      - decision
+      - decided_by
+      - tenant_id
+    contract_ref: contracts/schemas/object_schemas.schema.json#GateDecision
+  - event_type: SHOT_BUDGET_REQUESTED
+    aggregate_type: ShotBudgetRequest
+    emitted_by: services/budget_quota/service/budget_service.py
+    payload_required:
+      - request_id
+      - project_id
+      - shot_id
+      - account_type
+      - amount_limit
+      - requested_by
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#ShotBudgetRequest
+  - event_type: SHOT_BUDGET_APPROVED
+    aggregate_type: ShotBudgetRequest
+    emitted_by: services/budget_quota/service/budget_service.py
+    payload_required:
+      - request_id
+      - project_id
+      - shot_id
+      - decision
+      - approver
+      - from_status
+      - to_status
+      - tenant_id
+    contract_ref: contracts/state_machines/state_machines.yaml#ShotBudgetRequest

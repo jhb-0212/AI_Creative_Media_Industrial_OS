@@ -1,0 +1,50 @@
+# Outbox 相关 Prometheus 告警规则（R06）
+#
+# 指标来源：API 进程的 /metrics（packages/shared/metrics.py）
+#   outbox_relay_backlog                当前未投递事件数
+#   outbox_relay_events_total           已投递事件累计数（按结果标签）
+#   outbox_relay_run_errors_total       relay 轮次失败累计数
+#
+# 明确边界：保留期维护的「新鲜度」不是 Prometheus 指标（维护进程独立于 API，
+# 没有 pushgateway）。它由 `outbox.maintenance_runs` 表提供，巡检 SQL 见
+# docs/runbooks/runbook-outbox-retention.md 第 1 节；不要用本规则文件假装覆盖了它。
+
+groups:
+  - name: outbox-retention
+    rules:
+      - alert: OutboxRelayBacklogHigh
+        expr: outbox_relay_backlog > 1000
+        for: 15m
+        labels:
+          severity: warning
+          component: outbox
+        annotations:
+          summary: "Outbox 未投递事件积压超过 1000（15 分钟）"
+          description: >-
+            relay 可能已停止或下游持续失败。先看 relay 容器状态与
+            outbox_relay_run_errors_total，再决定重启还是扩容；
+            积压期间不要执行保留期删除。
+
+      - alert: OutboxRelayErroring
+        expr: increase(outbox_relay_run_errors_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          component: outbox
+        annotations:
+          summary: "Outbox relay 在 15 分钟内出现轮次失败"
+          description: >-
+            单轮失败会被进程吞掉继续下一轮，因此必须靠此告警暴露；
+            查 relay 日志中的 outbox_relay_round_failed / handler_failed。
+
+      - alert: OutboxRelayStalled
+        expr: outbox_relay_backlog > 0 and increase(outbox_relay_events_total[10m]) == 0
+        for: 10m
+        labels:
+          severity: critical
+          component: outbox
+        annotations:
+          summary: "Outbox 有积压但 10 分钟内没有投递进展"
+          description: >-
+            有积压且零进展，比单纯积压更接近「消费者已死」；
+            确认 relay 进程存活与数据库连接，再判断是否为下游阻塞。

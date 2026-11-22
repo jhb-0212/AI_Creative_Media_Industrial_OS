@@ -1,0 +1,655 @@
+"""mig-recon 实验库公共装置：克隆、连接、执行、记录、出报告。
+
+为什么单独抽出来
+----------------
+`verify_exception.py`（受控例外行为）与 `verify_guard_coverage.py`（逐表覆盖矩阵）
+证明的是**两个不同命题**，判定必须各自写清楚；但「克隆一个用完即删的库」
+「失败即失败地执行一条 SQL」「指纹怎么算」是**机械动作**，不该有两份实现——
+两份装置一旦漂移，就会出现「A 脚本的库隔离有效、B 脚本其实连到了模板库」这类
+无法从报告里看出来的事故。
+
+边界：本模块**不做任何判定**，只返回 (是否符合预期, 说明)。
+判定的语义（期望 P0001 还是期望影响 1 行）留在各验证脚本里。
+"""
+
+from __future__ import annotations
+
+import hashlib
+import importlib.util
+import json
+import sys
+import uuid as _uuid
+from collections.abc import Iterable
+from datetime import UTC, datetime
+from datetime import date as _date
+from decimal import Decimal as _Decimal
+from pathlib import Path
+from typing import Any
+
+import asyncpg
+
+DEFAULT_HOST = "localhost"
+DEFAULT_PORT = 15444
+DEFAULT_USER = "postgres"
+DEFAULT_PASSWORD = "replay_super_pw"
+DEFAULT_TEMPLATE = "ai_film_industrial"
+
+
+# ---------------------------------------------------------------------------
+# 库生命周期
+# ---------------------------------------------------------------------------
+async def admin_conn(host: str, port: int, user: str, password: str) -> asyncpg.Connection:
+    return await asyncpg.connect(
+        host=host, port=port, user=user, password=password, database="postgres"
+    )
+
+
+async def fresh_clone(
+    admin: asyncpg.Connection, lab: str, template: str
+) -> None:
+    """重建实验库。克隆而非直连：任何 DDL/数据损坏都只影响一次性副本。"""
+    await admin.execute(f'DROP DATABASE IF EXISTS "{lab}" WITH (FORCE)')
+    await admin.execute(f'CREATE DATABASE "{lab}" TEMPLATE "{template}"')
+
+
+async def drop_lab(admin: asyncpg.Connection, lab: str) -> None:
+    await admin.execute(f'DROP DATABASE IF EXISTS "{lab}" WITH (FORCE)')
+
+
+async def lab_conn(
+    host: str, port: int, user: str, password: str, lab: str
+) -> asyncpg.Connection:
+    return await asyncpg.connect(
+        host=host, port=port, user=user, password=password, database=lab
+    )
+
+
+async def reset_role(admin: asyncpg.Connection, role: str, *, bypass_rls: bool = True) -> None:
+    """重建探针角色。
+
+    ``BYPASSRLS`` 是**测试夹具**属性，不是产品设计：目标表启用 RLS 时，普通角色
+    会在 RLS 层被静默过滤成 ``UPDATE 0``，测到的就不是守卫。加 BYPASSRLS 才能让
+    「守卫是否拦住」成为唯一变量。
+    """
+    await admin.execute(f"DROP ROLE IF EXISTS {role}")
+    suffix = " BYPASSRLS" if bypass_rls else ""
+    await admin.execute(f"CREATE ROLE {role} NOLOGIN{suffix}")
+
+
+async def drop_role(admin: asyncpg.Connection, role: str) -> bool:
+    """删除角色，返回是否真的删掉。
+
+    ``DROP ROLE`` 在角色于**任意**库持有权限时都会失败。归属五层迁移激活后，
+    `afs_data_repair` 已在目标库被正式授权（40+ 个依赖），因此它不再可删——
+    这不是产品缺陷，而是「角色已投入使用」的正常表现。把它当成错误处理会让
+    验证脚本在激活后全面不可用，那才是真问题（证据不可复现）。
+    所以这里统一吞掉该错误并**返回删除结果**，由调用方决定是否记录。
+    """
+    try:
+        await admin.execute(f"DROP ROLE IF EXISTS {role}")
+        return True
+    except asyncpg.DependentObjectsStillExistError:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# 迁移加载与执行
+# ---------------------------------------------------------------------------
+def load_migration(path: str | Path, module_name: str = "mig_under_test") -> Any:
+    spec = importlib.util.spec_from_file_location(module_name, str(path))
+    if spec is None or spec.loader is None:  # pragma: no cover - 只在路径写错时触发
+        raise RuntimeError(f"无法加载迁移：{path}")
+    mod = importlib.util.module_from_spec(spec)
+    # 必须先登记到 sys.modules 再 exec：`@dataclass` 在 exec 期会通过
+    # sys.modules[cls.__module__] 反查模块命名空间，未登记时抛
+    # AttributeError: 'NoneType' object has no attribute '__dict__'。
+    # 这不是迁移的问题，是动态导入的固有前提。
+    sys.modules[module_name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+async def apply_steps(conn: asyncpg.Connection, steps: Iterable[Any]) -> int:
+    n = 0
+    for step in steps:
+        await conn.execute(step.sql if hasattr(step, "sql") else str(step))
+        n += 1
+    return n
+
+
+# ---------------------------------------------------------------------------
+# 回到「激活前基线」
+# ---------------------------------------------------------------------------
+# 为什么需要显式回退，而不是给夹具补数据
+# --------------------------------------
+# 两个验证脚本证明的都是「从激活前基线出发，迁移被正确应用」这件事。
+# 激活一旦完成，模板库就停在 e3f4，于是同一份脚本会连到一个**已经建好外键、
+# 已经注入守卫**的库上：`verify_exception` 的 B1「升级前改归属列一律被拒」不再
+# 成立（守卫已被改造），`verify_guard_coverage` 的 U1 重放 upgrade 会被前置断言
+# 拒绝。此时若只在夹具里补一行 `projects` 让 23503 消失，脚本会「跑通」但在验证
+# 一个与被测迁移无关的库——这正是 `@dataclass` 那次事故的同一类错误：
+# 装置在对的地方修好了，被测命题却悄悄换掉了。
+#
+# 所以基线必须**由脚本自己重建并断言**，而不是假设模板库还停在原处。
+OWNERSHIP_STACK: tuple[str, ...] = (
+    "a9b8c7d6e5f4",
+    "b0c9d8e7f6a5",
+    "c1d2e3f4a5b7",
+    "d2e3f4a5b6c7",
+    "e3f4a5b6c7d8",
+    # 批次二：三张「有归属列却无归属外键」的表补三列外键。
+    # 它一旦应用，模板库就不再是「激活前基线」，回退必须一并撤掉；
+    # 漏掉这一层会让 assert_rewound 仍然全绿（它当时只数前两批），
+    # 于是基线静默偏离——这正是本函数存在的理由。
+    "f8a9b0c1d2e3",
+    # 批次三：`episodes` 的三列外键。由覆盖闸门抓出来的一张表——它有
+    # `project_scope_episodes`、有修数权限、有 RLS 旁路，唯独没有归属外键。
+    "g7b8c9d0e1f2",
+    # 批次四：I-1「一致」半边。前三批只保证「本行 project 指向真实项目」，
+    # 拦不住「本行 project 与父行不同」——`qc_reports` 唯一一行即实测反例。
+    # 本层加父表四列唯一键 + 复合外键，使「跨项目串归属」写不进去。
+    "h8c9d0e1f2a3",
+    # 批次五：把 `shots` / `scenes` 建起来，并把各域的 `shot_id` / `scene_id`
+    # 接上去。**这一层有反向依赖**：`shots.fk_shots_current_revision` 引用批次四
+    # 建的 `uq_shot_revisions_entity_project_tenant_org`，故回退必须先撤本层、
+    # 再撤批次四——漏掉本层时 `rewind_to` 会直接撞 `DependentObjectsStillExist`
+    # （对方报的是「批次四撤不动」，根因却是「批次五没进栈」）。
+    "i9d0e1f2a3b4",
+    # 批次六：归档场次「不得留下在制品」的双向守卫。它是**函数与触发器**，
+    # 不是表——回退时残留的函数不会让任何表级断言变红，只会在下次应用时
+    # 出现「CREATE OR REPLACE 静默覆盖旧实现」，于是测到的是上一版逻辑。
+    # 故这一层进栈，并在 assert_rewound 里单独数一次。
+    "j0e1f2a3b4c5",
+    # 批次七：把「哪些镜头状态算在制」收敛成一个函数，两个守卫与两个触发器的
+    # WHEN 子句都从它取值。同样是函数型迁移，同批次六的理由进栈；
+    # 另外它**改写**了批次六的两个函数，所以回退顺序必须严格 k1f2 → j0e1f2：
+    # 反了的话批次六的 downgrade 会 DROP 掉一个已经被批次七改过的函数体，
+    # 而批次七的 downgrade 随后又去引用不复存在的对象。
+    "k1f2a3b4c5d6",
+    # 批次八：`scenes` 的表级权限收敛到授权矩阵（去掉批次五手写的 DELETE）。
+    # 进栈的理由与批次六/七不同：它不是函数型迁移，而是**授权**迁移。但回退
+    # 顺序同样不能漏——它必须早于批次五的 `DROP TABLE`，否则 downgrade 里的
+    # `GRANT ... ON ... scenes` 会在表已消失后执行而报 42P01。
+    "l2a3b4c5d6e7",
+    # 批次九：建 `workflow.rework_tasks`，并给 `shots.rework_basis_ref`
+    # 挂上真实外键。回退顺序必须在本层：先撤 shots 外键、再撤目标表；
+    # 若把它排在批次五之前，DROP TABLE 会被 shots 的外键依赖挡住。
+    "m3b4c5d6e7f8",
+    # 批次十：shot_revisions 对齐契约 schema（补 23 列 / 退 3 草案列 / 12 CHECK）。
+    # 存量夹具的引用列用「legacy 哨兵 + 条件 CHECK」处理，不编造目标锚点。
+    "n4b5c6d7e8f9",
+    # 批次十一：三条真实引用边（剧本依据/约束包/上一版）的四列复合外键。
+    # 自引用边也在本层：回退必须在批次十之前，否则外键引用已删的列。
+    "o5c6d7e8f9a0",
+)
+
+
+def _resolve_revision(versions_dir: Path, rev: str) -> Path:
+    hits = sorted(versions_dir.glob(f"{rev}_*.py"))
+    if len(hits) != 1:
+        raise RuntimeError(f"revision {rev} 在 {versions_dir} 命中 {len(hits)} 个文件，无法确定迁移体")
+    return hits[0]
+
+
+def _downgrade_sqls(mod: Any) -> list[str]:
+    """取迁移的降级语句序列。两种写法（Steps / SQL 字符串）都支持。
+
+    刻意不在这里手写一遍 DROP：手抄的降级脚本会在迁移改动后静默漂移，
+    最后证明的是「我抄的那份」而不是「被测迁移」。
+    """
+    if hasattr(mod, "downgrade_sqls"):
+        raw = mod.downgrade_sqls()
+    elif hasattr(mod, "downgrade_steps"):
+        raw = mod.downgrade_steps()
+    else:  # pragma: no cover - 只在迁移缺 downgrade 时触发
+        raise RuntimeError(f"{mod.__name__} 没有 downgrade_sqls()/downgrade_steps()")
+    return [s.sql if hasattr(s, "sql") else str(s) for s in raw]
+
+
+def upgrade_sqls(mod: Any) -> list[str]:
+    """取迁移的升级语句序列（与 ``_downgrade_sqls`` 对称）。
+
+    归属栈里两种写法是**既成事实**：a9b8/f8a9 用 ``NamedTuple`` 的 steps，
+    b0c9/c1d2/d2e3/e3f4 用纯 SQL 字符串列表。调用方不该各写一遍 ``hasattr`` 分支——
+    那会把同一个适配器复制成 N 份，改动时漏改一处就静默半失败。
+    """
+    if hasattr(mod, "upgrade_sqls"):
+        raw = mod.upgrade_sqls()
+    elif hasattr(mod, "upgrade_steps"):
+        raw = mod.upgrade_steps()
+    else:  # pragma: no cover
+        raise RuntimeError(f"{mod.__name__} 没有 upgrade_sqls()/upgrade_steps()")
+    return [s.sql if hasattr(s, "sql") else str(s) for s in raw]
+
+
+async def rewind_ownership_stack(
+    conn: asyncpg.Connection, versions_dir: str | Path, stack: tuple[str, ...] = OWNERSHIP_STACK
+) -> list[str]:
+    """按逆序回退整个归属栈，使克隆库回到激活前基线。返回实际回退的 revision 顺序。
+
+    刻意不写「当前几层」：层数会随每一批增长，写死在 docstring 里就会在下一批
+    变成假陈述（本轮已经从五层涨到七层两次）。层数以 `OWNERSHIP_STACK` 为准。
+    """
+    vd = Path(versions_dir)
+    applied: list[str] = []
+    for rev in reversed(stack):
+        mod = load_migration(_resolve_revision(vd, rev), f"mig_rewind_{rev}")
+        for sql in _downgrade_sqls(mod):
+            await conn.execute(sql)
+        applied.append(rev)
+    return applied
+
+
+def applied_probe(mod: Any) -> str | None:
+    """取迁移自己声明的「本层是否已应用」探针 SQL（返回 bool 或计数）。
+
+    为什么探针必须由迁移层声明，而不是由本模块猜
+    --------------------------------------------
+    `rewind_to` 的语义是「把栈退到 keep 之后各层都未应用」。若某层**本来就没应用**，
+    执行它的 downgrade 不是「回退」而是「反向应用」——本轮真实撞上了：模板库停在
+    `g7b8`、批次四尚未应用，回退批次四的 downgrade 会去**重建**一条早已存在的
+    单列外键，报 `DuplicateObject`。
+
+    猜也不行：多数层的 downgrade 全是 `DROP ... IF EXISTS`，误执行看不出差别，
+    于是这个错误会潜伏到某一层恰含 `ADD CONSTRAINT` 时才炸。判据必须由**层自己**
+    给出——它知道自己的主对象是什么。没有声明的层按「已应用」处理，保持旧层语义
+    不变，不让本改动悄悄改变既有脚本的行为。
+    """
+    fn = getattr(mod, "applied_probe_sql", None)
+    return fn() if callable(fn) else None
+
+
+async def rewind_to(
+    conn: asyncpg.Connection,
+    versions_dir: str | Path,
+    keep: str,
+    stack: tuple[str, ...] = OWNERSHIP_STACK,
+) -> list[str]:
+    """把归属栈回退到「`keep` 已应用、其后各层未应用」的状态。返回被撤掉的 revision。
+
+    为什么需要「回退到某一层」而不是只有「回退到基线」
+    --------------------------------------------------
+    每一批迁移的**增量前提**不同：批次二的前提是 `e3f4` 已应用，批次三的前提是
+    `f8a9` 已应用。而模板库只可能停在**一个**状态（当前是最新 head）。于是
+    「直接克隆模板 + 断言约束不存在」这种写法必然在下一批应用后失效——它把
+    「模板此刻恰好在哪」当成了前提。本轮就真实撞上了：`verify_batch2` 的 P1
+    在新模板上一定失败。
+
+    正解是让每个脚本显式声明「我的前提是 keep 那一层」，由本函数负责把其后的
+    层全部撤掉。这样脚本表达的是**被测命题的前提**，而不是**环境的偶然状态**。
+
+    已应用性由各层自己声明的 `applied_probe_sql()` 决定：探针为假 ⇒ 跳过，
+    不计入返回值。返回值里的层数是「**真的**被撤掉的层数」，不是「本应撤掉的」——
+    两者混同会让「模板恰好已在该状态」看起来像「回退失败」。
+    """
+    vd = Path(versions_dir)
+    if keep not in stack:
+        raise ValueError(f"{keep} 不在归属栈中：{stack}")
+    applied: list[str] = []
+    for rev in reversed(stack[stack.index(keep) + 1:]):
+        mod = load_migration(_resolve_revision(vd, rev), f"mig_rewind_{rev}")
+        probe = applied_probe(mod)
+        if probe is not None and not await conn.fetchval(probe):
+            # 该层从未应用：跳过，而不是「反向应用」它的 downgrade。
+            print(f"  · 回退跳过 {rev}（探针为假：本层未应用）")
+            continue
+        for sql in _downgrade_sqls(mod):
+            await conn.execute(sql)
+        applied.append(rev)
+    return applied
+
+
+async def assert_rewound(conn: asyncpg.Connection) -> list[str]:
+    """断言基线真的回去了。
+
+    不做这件事，「回退失败但没报错」会让后续所有用例在一个混合状态的库上运行，
+    而且照样能跑出「通过」——静默的假基线比明确的失败危险得多。
+    返回 (检查项, 实测值) 列表，由调用方决定记 PASS 还是 FAIL。
+    """
+    checks = {
+        "归属三列外键": "SELECT count(*) FROM pg_constraint WHERE contype='f' "
+        "AND conname LIKE 'fk\\_%\\_project\\_tenant\\_org'",
+        "两列组织外键": "SELECT count(*) FROM pg_constraint WHERE contype='f' "
+        "AND conname = 'fk_production_routes_organization_tenant'",
+        "例外映射表": "SELECT (to_regclass('project_planning.ownership_repair_map') IS NOT NULL)::int",
+        "例外判定函数": "SELECT (to_regprocedure("
+        "'project_planning.ownership_repair_allows(regclass,jsonb,jsonb,text)') IS NOT NULL)::int",
+        "RLS 表达式备份表": "SELECT (to_regclass("
+        "'project_planning.rls_policy_backup') IS NOT NULL)::int",
+        # 批次二的三条单独列一项：聚合数已经能兜住（少了就非 0），
+        # 但报告里明确出现「批次二=0」才能让人看出**这一层**也被撤了，
+        # 而不是只看到一个总和。这一轮新增的迁移最容易在回退清单里被漏掉。
+        "批次二归属外键": "SELECT count(*) FROM pg_constraint WHERE contype='f' "
+        "AND conname IN ('fk_qc_reports_project_tenant_org',"
+        "'fk_shot_specs_project_tenant_org','fk_approval_steps_project_tenant_org')",
+        # 批次三同理单列。加这一项的直接理由：上一轮加批次二时只改了聚合口径，
+        # 差点让「回退清单漏一层」变成静默通过——每一层都要在报告里自己出现一次。
+        "批次三归属外键": "SELECT count(*) FROM pg_constraint WHERE contype='f' "
+        "AND conname = 'fk_episodes_project_tenant_org'",
+        "批次五新表": "SELECT (to_regclass('project_planning.scenes') IS NOT NULL)::int"
+        " + (to_regclass('shot_planning.shots') IS NOT NULL)::int",
+        "批次五收敛边": "SELECT count(*) FROM pg_constraint WHERE contype='f' "
+        "AND conname IN ('fk_shot_specs_shot_project','fk_shot_visual_plans_shot_project',"
+        "'fk_generation_tasks_shot_project','fk_shot_route_selections_shot_project',"
+        "'fk_constraint_packs_scene_project','fk_shot_revisions_shot_project')",
+        # 批次六是函数而非表。表级断言全绿也拦不住「函数没撤」——
+        # 而残留的函数会让下次 CREATE OR REPLACE 静默覆盖，测到旧实现。
+        "批次六归档守卫": "SELECT (to_regprocedure("
+        "'project_planning.scenes_archive_guard()') IS NOT NULL)::int"
+        " + (to_regprocedure('shot_planning.shots_parent_scene_guard()') IS NOT NULL)::int",
+        # 批次七同理单列，但断言的对象是「那个函数还在不在」，不是「守卫还在不在」——
+        # 守卫在批次七之后仍然存在（被 CREATE OR REPLACE 改写），所以只数守卫
+        # 会让批次七漏撤时算出一个看起来正常的 2。
+        "批次七阻断集合函数": "SELECT (to_regprocedure("
+        "'shot_planning.shot_archive_blocking_states()') IS NOT NULL)::int",
+        # 批次九两类对象分开数：目标表和 shots 侧外键。只数表会让外键漏撤
+        # 时照样算出 0（基线本来就没有表，残留的外键却会让下次建表失败）。
+        "批次九返工表": "SELECT (to_regclass('workflow.rework_tasks') IS NOT NULL)::int",
+        "批次九返工引用外键": "SELECT count(*) FROM pg_constraint WHERE contype='f' "
+        "AND conname = 'fk_shots_rework_basis'",
+        # 批次四单列两项：一批里有**两类**对象（父表唯一键、子表复合外键），
+        # 它们的回退方向相反且互不牵连。只记一个聚合数时，「唯一键撤了但外键没撤」
+        # 这种半回退会算出一个非零的、看起来正常的总数。
+        "批次四父表唯一键": "SELECT count(*) FROM pg_constraint WHERE contype='u' "
+        "AND conname IN ('uq_asset_versions_entity_project_tenant_org',"
+        "'uq_shot_revisions_entity_project_tenant_org',"
+        "'uq_qc_reports_id_project_tenant_org',"
+        "'uq_approval_flows_entity_project_tenant_org',"
+        "'uq_approval_tickets_entity_project_tenant_org',"
+        "'uq_production_routes_entity_org')",
+        "批次四复合外键": "SELECT count(*) FROM pg_constraint WHERE contype='f' "
+        "AND conname IN ('fk_qc_reports_asset_version_project',"
+        "'fk_qc_review_sessions_asset_version_project',"
+        "'fk_qc_review_sessions_qc_report_project',"
+        "'fk_shot_specs_shot_revision_project',"
+        "'fk_shot_drafts_episode_project',"
+        "'fk_shot_revisions_episode_project',"
+        "'fk_approval_tickets_flow_project',"
+        "'fk_approval_steps_ticket_project',"
+        "'fk_generation_tasks_route_org',"
+        "'fk_shot_route_selections_route_org')",
+    }
+    out: list[str] = []
+    for label, sql in checks.items():
+        val = await conn.fetchval(sql)
+        out.append(f"{label}={val}")
+    return out
+
+
+async def purge_business_rows(conn: asyncpg.Connection) -> str:
+    """清空克隆库的业务行，使回退可达。
+
+    为什么实验室里允许清数据，而不是把模板库当成干净的
+    --------------------------------------------------
+    归属五层迁移的激活演练是在模板库 `ai_film_industrial` 上做的，那一步已经把
+    一行 `asset_versions` 订正**指向了隔离项目**。而 `c1d2` 的降级按设计会在
+    「隔离项目仍被引用」时被外键拒绝（这是正确的：删掉隔离项目等于抹掉那行的
+    归属事实）。于是模板库不再是「激活前基线」。
+
+    实验室是一次性副本，被测命题只关心**结构**基线，因此在此清空业务行并如实
+    记录清空量——不这么做，就等于在脚本里悄悄假设「模板还干净」，而那个假设
+    已经失效了。`session_replication_role=replica` 是必需的：个别表装了
+    禁止 TRUNCATE 的触发器，正常模式下会拦下这次清理。
+    """
+    before_projects = await conn.fetchval("SELECT count(*) FROM project_planning.projects")
+    before_assets = await conn.fetchval("SELECT count(*) FROM asset_service.asset_versions")
+    await conn.execute("SET session_replication_role = replica")
+    try:
+        await conn.execute("TRUNCATE project_planning.organizations CASCADE")
+    finally:
+        await conn.execute("SET session_replication_role = origin")
+    after = await conn.fetchval("SELECT count(*) FROM project_planning.projects")
+    return f"projects {before_projects}→{after}，asset_versions {before_assets}→0"
+
+
+async def prepare_pre_activation_baseline(
+    conn: asyncpg.Connection, versions_dir: str | Path, stack: tuple[str, ...] = OWNERSHIP_STACK
+) -> tuple[str, list[str], list[str]]:
+    """清业务行 → 逆序回退归属栈 → 断言基线。返回 (清理说明, 回退顺序, 断言明细)。
+
+    三步必须绑在一起：只回退不清行会被外键拒绝；只清行不回退就还在激活后状态；
+    回退不断言则「回退失败但没报错」会让后续用例跑在混合库上并照样「通过」。
+    """
+    purge_detail = await purge_business_rows(conn)
+    order = await rewind_ownership_stack(conn, versions_dir, stack)
+    checks = await assert_rewound(conn)
+    return purge_detail, order, checks
+
+
+async def fn_hash(conn: asyncpg.Connection, schema: str, name: str) -> str:
+    body = await conn.fetchval(
+        "SELECT pg_get_functiondef(p.oid) FROM pg_proc p "
+        "JOIN pg_namespace n ON n.oid = p.pronamespace "
+        "WHERE n.nspname = $1 AND p.proname = $2",
+        schema,
+        name,
+    )
+    return hashlib.sha256((body or "").encode()).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# 造数据（派生列，不写死清单）
+# ---------------------------------------------------------------------------
+# 为什么从 `pg_attribute` 派生而不是在装置里手写 INSERT 列清单
+# ------------------------------------------------------------
+# 本项目已经三次栽在「清单只列当时用得上的」：`qc_reports` 漏列、`episodes`
+# 从未进判断、`OWNERSHIP_STACK` 漏第五层。造数用的列清单是同一形态——表加一列
+# 后，手写 INSERT 会在下次跑该装置时炸，而报错是 `null value in column ...`,
+# 看起来像「表结构变了」，实际是「清单没跟上」。派生则永远与库一致。
+#
+# 类型覆盖不到时**直接报错**，不猜：猜出来的值会让用例在某天静默进入错误分支。
+#
+# 占位值必须是 **Python 类型对象**而不是字符串：asyncpg 的二进制协议按类型
+# 编码，传 "2026-01-01T00:00:00+00:00" 给 timestamptz 会得到
+# `DataError: expected a datetime.date or datetime.datetime instance` ——
+# 看起来像「表结构不对」，实际是夹具给了错类型。
+_FALLBACK_BY_TYPE = {
+    "uuid": lambda name: _uuid.UUID(int=0),
+    "varchar": lambda name: f"probe-{name}",
+    "text": lambda name: f"probe-{name}",
+    "bpchar": lambda name: "x",
+    "int2": lambda name: 1,
+    "int4": lambda name: 1,
+    "int8": lambda name: 1,
+    "float4": lambda name: 0.0,
+    "float8": lambda name: 0.0,
+    "numeric": lambda name: _Decimal("0"),
+    "bool": lambda name: False,
+    "json": lambda name: "{}",
+    "jsonb": lambda name: "{}",
+    "timestamp": lambda name: datetime(2026, 1, 1),
+    "timestamptz": lambda name: datetime(2026, 1, 1, tzinfo=UTC),
+    "date": lambda name: _date(2026, 1, 1),
+}
+
+
+async def insert_minimal_row(
+    conn: asyncpg.Connection, table: str, **overrides: object
+) -> dict[str, object]:
+    """插入一行「只满足 NOT NULL」的记录，返回实际写入的列值。
+
+    ``overrides`` 覆盖任意列（含可空列）。未覆盖的 NOT NULL 无默认列按类型
+    填占位值；类型不在映射表内直接抛错。
+    """
+    rows = await conn.fetch(
+        """
+        SELECT a.attname,
+               t.typname,
+               a.attnotnull,
+               a.atthasdef,
+               a.attidentity <> '' AS is_identity,
+               a.attgenerated <> '' AS is_generated
+        FROM pg_attribute a
+        JOIN pg_type t ON t.oid = a.atttypid
+        WHERE a.attrelid = $1::regclass
+          AND a.attnum > 0
+          AND NOT a.attisdropped
+        ORDER BY a.attnum
+        """,
+        table,
+    )
+
+    values: dict[str, object] = {}
+    for row in rows:
+        name = row["attname"]
+        if row["is_identity"] or row["is_generated"]:
+            continue
+        if name in overrides:
+            values[name] = overrides[name]
+            continue
+        if not row["attnotnull"] or row["atthasdef"]:
+            continue
+        maker = _FALLBACK_BY_TYPE.get(row["typname"])
+        if maker is None:
+            raise RuntimeError(
+                f"{table}.{name} 的 NOT NULL 列类型 {row['typname']} 无占位规则，"
+                "请在 overrides 里显式给出"
+            )
+        values[name] = maker(name)
+
+    cols = ", ".join(values)
+    marks = ", ".join(f"${i}" for i in range(1, len(values) + 1))
+    await conn.execute(
+        f'INSERT INTO {table} ({cols}) VALUES ({marks})', *values.values()
+    )
+    return values
+
+
+# ---------------------------------------------------------------------------
+# 断言执行
+# ---------------------------------------------------------------------------
+async def case(
+    conn: asyncpg.Connection,
+    setup: list[str],
+    action: str,
+    *,
+    expect_state: str | None = None,
+    expect_changed: int | None = None,
+) -> tuple[bool, str]:
+    """在单事务内执行 setup + action，返回 (是否符合预期, 说明)。
+
+    ``expect_state`` 与 ``expect_changed`` 至少给一个，否则「没报错」会被当成通过——
+    这正是本项目反复出现的真空真陷阱。
+    """
+    try:
+        async with conn.transaction():
+            for s in setup:
+                await conn.execute(s)
+            status = await conn.execute(action)
+    except asyncpg.PostgresError as exc:
+        state = exc.sqlstate
+        msg = str(exc).split("\n")[0][:110]
+        if expect_state is None:
+            return False, f"意外报错 {state}: {msg}"
+        if state != expect_state:
+            return False, f"SQLSTATE 不符：期望 {expect_state} 实得 {state}: {msg}"
+        return True, f"{state}: {msg}"
+    except Exception as exc:
+        return False, f"脚本异常 {type(exc).__name__}: {exc}"
+
+    if expect_state is not None:
+        return False, f"期望 {expect_state} 但语句成功（{status}）"
+    if expect_changed is not None:
+        try:
+            n = int(status.split()[-1])
+        except (ValueError, IndexError):
+            n = -1
+        if n != expect_changed:
+            return False, f"影响行数 {n}，期望 {expect_changed}（静默 0 行不等于成功）"
+        return True, status
+    return True, status
+
+
+# ---------------------------------------------------------------------------
+# 记录与报告
+# ---------------------------------------------------------------------------
+class Recorder:
+    """三态记录器：PASS / FAIL / N/A。
+
+    为什么必须有 N/A
+    ----------------
+    「不适用」与「通过」是两件事。若把「该表按设计不建归属外键、故 N5 无从执行」
+    记成 PASS，通过率会虚高；记成 FAIL 又等于把设计决策说成缺陷。
+    两者都会让报告失去可读性，所以单列一态，且**不计入通过率**。
+    """
+
+    def __init__(self) -> None:
+        self.rows: list[dict[str, object]] = []
+        self.open_findings: list[dict[str, str]] = []
+
+    def rec(self, cid: str, phase: str, desc: str, ok: bool, detail: str = "") -> None:
+        self.rows.append({"id": cid, "phase": phase, "desc": desc, "ok": ok, "detail": detail})
+        print(f"[{'PASS' if ok else 'FAIL'}] {cid:<6} {desc}  {detail}")
+
+    def note(self, cid: str, phase: str, desc: str, detail: str) -> None:
+        """不适用：前置条件按设计不存在，用例无从执行。"""
+        self.rows.append({"id": cid, "phase": phase, "desc": desc, "ok": None, "detail": detail})
+        print(f"[N/A ] {cid:<6} {desc}  {detail}")
+
+    def finding(self, cid: str, desc: str, gap: str) -> None:
+        """把 N/A 背后的真实缺口显式登记，避免「不适用」变成「没人管」。"""
+        self.open_findings.append({"id": cid, "desc": desc, "gap": gap})
+        print(f"[OPEN] {cid:<6} {desc}  {gap}")
+
+    @property
+    def passed(self) -> int:
+        return sum(1 for r in self.rows if r["ok"] is True)
+
+    @property
+    def failed(self) -> int:
+        return sum(1 for r in self.rows if r["ok"] is False)
+
+    @property
+    def skipped(self) -> int:
+        return sum(1 for r in self.rows if r["ok"] is None)
+
+    @property
+    def total(self) -> int:
+        return self.passed + self.failed
+
+    def write_report(
+        self,
+        out_md: Path,
+        out_json: Path,
+        *,
+        title: str,
+        meta: list[str],
+        footer: list[str] | None = None,
+    ) -> str:
+        ts = datetime.now(UTC).astimezone().isoformat(timespec="seconds")
+        lines = [f"# {title}", "", f"- 执行时间：{ts}"]
+        lines += [f"- {m}" for m in meta]
+        summary = f"- 结果：**{self.passed}/{self.total}**"
+        if self.skipped:
+            summary += f"（另有 {self.skipped} 条 N/A，不计入通过率）"
+        lines += [summary, ""]
+        marks = {True: "PASS", False: "**FAIL**", None: "N/A"}
+        lines += ["| # | 阶段 | 用例 | 结果 | 说明 |", "| --- | --- | --- | --- | --- |"]
+        for r in self.rows:
+            lines.append(
+                f"| {r['id']} | {r['phase']} | {r['desc']} | {marks[r['ok']]} | {r['detail']} |"
+            )
+        if self.open_findings:
+            lines += ["", "## 待裁决缺口（N/A 背后的真实问题，不得并入下一轮「已修」）", ""]
+            lines += ["| # | 事项 | 缺口 |", "| --- | --- | --- |"]
+            for f in self.open_findings:
+                lines.append(f"| {f['id']} | {f['desc']} | {f['gap']} |")
+        if footer:
+            lines += ["", *footer]
+        out_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        out_json.write_text(
+            json.dumps(
+                {
+                    "at": ts,
+                    "passed": self.passed,
+                    "failed": self.failed,
+                    "not_applicable": self.skipped,
+                    "open_findings": self.open_findings,
+                    "results": self.rows,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        return ts

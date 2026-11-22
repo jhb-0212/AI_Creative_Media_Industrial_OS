@@ -1,0 +1,114 @@
+# 枚举注册表（派生文件，禁止手改）
+#
+# 本文件由 scripts/gen_status_contracts.py 从
+# contracts/state_machines/state_machines.yaml 的 allowed_states 生成。
+# 手改会在 `python scripts/gen_status_contracts.py --check` 下立刻报漂移，
+# 因为那条检查的实现就是「重新生成一遍，逐字节比对」。
+#
+# 为什么还要留这份「可以随时重算」的文件：
+# - phase0 冻结包（phase0_manifest.md 第 ⑨ 项）按字节登记它，删除会破坏冻结链；
+# - 人类评审时需要一份「只有对象与状态值」的清单，不必在千行状态机文件里翻。
+# 但它不承载任何独立信息：想改状态只能改 state_machines.yaml。
+#
+# 权威状态值的三层分离（权威 / 展示投影别名 / 跨域标记）已移到
+# contracts/enums/status_layers.yaml —— 那两层是手工裁定的语义，与派生文件混放
+# 正是上一版出现 PG0 / PMS / PASS 这类假状态的原因。
+
+generated_by: scripts/gen_status_contracts.py
+source: contracts/state_machines/state_machines.yaml
+object_count: 47
+objects:
+- object: Appeal
+  states: [CLOSED, DECISION_OVERTURNED, DECISION_UPHELD, IN_REVIEW, SUBMITTED]
+- object: AssetVersion
+  states: [APPROVED, ARCHIVED, GENERATED, GOLD, HUMAN_REVIEW, QUARANTINED, REJECTED, REWORK, SUPERSEDED, TECHNICAL_QC]
+- object: BudgetLedgerTransaction
+  states: [APPENDED]
+- object: BudgetTransferRequest
+  states: [APPROVED, DRAFT, EXECUTED, EXECUTING, FAILED, IN_REVIEW, REJECTED, SUBMITTED]
+- object: CharacterAppearance
+  states: [ACTIVE, APPROVED, DRAFT, IN_REVIEW, QUARANTINED, REJECTED, REVOKED, SUPERSEDED]
+- object: CharacterCanon
+  states: [ACTIVE, APPROVED, CONFLICT_REVIEW, DRAFT, IN_REVIEW, SUPERSEDED]
+- object: CharacterCard
+  states: [ACTIVE, APPROVED, DRAFT, IN_REVIEW, QUARANTINED, REJECTED, REVOKED, SUPERSEDED]
+- object: ClientReviewPortal
+  states: [APPROVED, CHANGES_REQUESTED, CLOSED, COMMENTED, DRAFT, IN_REVIEW, SENT]
+- object: CommunityPost
+  states: [APPROVED, ARCHIVED, DRAFT, PENDING_REVIEW, PUBLISHED, SUBMITTED, TAKEN_DOWN, UNLISTED]
+- object: ConstraintPack
+  states: [ACTIVE, DRAFT, REVOKED, STALE, SUPERSEDED]
+- object: CreatorDeliveryManifest
+  states: [DRAFT, REVOKED, STALE, SUPERSEDED, VALIDATED, VALIDATING]
+- object: CreatorGate
+  states: [BLOCKED, NEEDS_USER_INPUT, PASS, PENDING]
+- object: CreatorPublicationCheck
+  states: [BLOCKED, NEEDS_HUMAN_REVIEW, PASSED, PENDING]
+- object: CreatorRelease
+  states: [ARCHIVED, AUTO_CHECKING, BLOCKED, DRAFT, HELD_FOR_REVIEW, PUBLISHED, PUBLISH_REQUESTED, REVOKED, TAKEN_DOWN, UNLISTED]
+- object: CreatorShareLink
+  states: [ACTIVE, EXPIRED, REVOKED]
+- object: CreatorWorkspace
+  states: [ACTIVE, ARCHIVED, SUSPENDED]
+- object: DeliveryManifest
+  states: [DRAFT, INVALID, RELEASED, REVOKED, STALE, SUPERSEDED, VALIDATED, VALIDATING]
+- object: Episode
+  states: [ACTIVE, ARCHIVED, DRAFT]
+- object: ExplorationBranch
+  states: [CANDIDATES_READY, DRAFT, EXPIRED, FAILED, PROMOTED, REJECTED, REVIEW, RUNNING, STOPPED]
+- object: ExportPackage
+  states: [DRAFT, EXPIRED, EXPORTED, REJECTED, REVOKED, VALIDATED, VALIDATING]
+- object: ExternalToolConnection
+  states: [ACTIVE, DRAFT, REVOKED, SUSPENDED, VALIDATING]
+- object: GenerationTask
+  states: [FAILED, REQUESTED, SUCCEEDED]
+- object: Pattern
+  states: [DEPRECATED, EXPERIMENT_RECORD, FAILURE_CASE, IN_REVIEW, REJECTED, RETIRED, REUSABLE_PATTERN]
+- object: PatternRecord
+  states: [DEPRECATED, EXPERIMENT_RECORD, FAILURE_CASE, IN_REVIEW, REJECTED, RETIRED, REUSABLE_PATTERN]
+- object: PrevizVersion
+  states: [APPROVED, DRAFT, GEOMETRY_VALID, LOCKED, RENDERED, SUPERSEDED]
+- object: ProductionRoute
+  states: [REVOKED, VERIFIED]
+- object: Project
+  states: [ACTIVE, ARCHIVED, COMPLETED, DRAFT, ON_HOLD]
+- object: PublicationReview
+  states: [APPROVED, IN_REVIEW, QUEUED, REJECTED, RETURNED]
+- object: QCReviewSession
+  states: [CLOSED, DECISION_PENDING, GATE_ELIGIBLE, IN_REVIEW, OPEN, RESOLVED, WAIVE_WITH_AUTHORITY]
+- object: QuotaReservation
+  states: [COMMITTED, EXPIRED, FAILED, RELEASED, REQUESTED, RESERVED]
+- object: ReuseRequest
+  states: [APPROVED, CREATED, ELIGIBILITY_CHECK, EXECUTING, FAILED, REJECTED, REQUESTED, RIGHTS_CHECK, ROLLED_BACK]
+- object: ReverseAnalysisReport
+  states: [ANALYZED, ARCHIVED, CONFIRMED, DRAFT, NEEDS_HUMAN_CONFIRM, REJECTED]
+- object: ReworkTask
+  states: [CLOSED, DONE, IN_PROGRESS, OPEN, REJECTED, VERIFYING]
+- object: Scene
+  states: [ACTIVE, ARCHIVED, DRAFT]
+- object: ScriptRevision
+  states: [DRAFT, LOCKED, LOCK_PENDING, SUPERSEDED]
+- object: ShareLink
+  states: [ACTIVE, EXPIRED, REVOKED]
+- object: Shot
+  states: [BLOCKED, CANCELLED, IN_PRODUCTION, NOT_STARTED, PRODUCTION_COMPLETE]
+- object: ShotBreakdownDraft
+  states: [CONFIRMED, DISCARDED, IN_REVIEW, PENDING_CONFIRM, RETURNED]
+- object: ShotBudgetRequest
+  states: [APPROVED, DRAFT, REJECTED]
+- object: ShotRevision
+  states: [ACTIVE, SUPERSEDED]
+- object: ShotSpec
+  states: [DRAFT, LOCKED]
+- object: ShotVisualPlan
+  states: [APPROVED, DRAFT, LOCKED, PARTIALLY_LOCKED, REJECTED, REVIEW]
+- object: ShowcaseSnapshot
+  states: [EXPIRED, OUTDATED, PREPARING, READY, REFERENCED, REVOKED, TAKEN_DOWN]
+- object: SkillManifest
+  states: [DEPRECATED, DRAFT, PUBLISHED, REVOKED, VALIDATED]
+- object: Task
+  states: [BLOCKED, CANCELLED, CANCEL_REQUESTED, FAILED, NEEDS_REPLAN, QUEUED, READY, RETRY_WAIT, RUNNING, SUBMISSION_UNKNOWN, SUCCEEDED, WAITING_FOR_HUMAN, WAITING_FOR_PROVIDER, WAITING_FOR_RESOURCE]
+- object: TimelineDraft
+  states: [ARCHIVED, DRAFT, STALE, SUPERSEDED, VALIDATED]
+- object: ToolExchangeSession
+  states: [AUTHORIZED, COMPLETED, EXPORTED, IMPORT_PENDING, IN_PROGRESS, REQUESTED, VALIDATING]

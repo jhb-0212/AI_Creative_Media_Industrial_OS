@@ -1,0 +1,91 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+
+# 依赖锁文件：uv.lock 提交入库以保证可复现构建（见 README）。
+# poetry.lock / Pipfile.lock 当前未采用，仍忽略。
+poetry.lock
+Pipfile.lock
+
+# 测试与覆盖率
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 环境变量（密钥绝不入库）
+.env
+.env.*
+!.env.example
+
+# 密钥与凭证
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+credentials.json
+
+# 日志
+*.log
+logs/
+
+# 本地数据
+data/local/
+*.db
+*.sqlite3
+
+# 数据库快照（激活前/后 dump）：体积大且是本机状态，不进版本控制。
+# 报告里引用它们时只写**存放路径与用途**，不把 dump 本身当证据——
+# 可复现的是「生成快照的脚本 + 校验脚本」，不是某一次的快照文件。
+backups/
+
+# 对象存储本地缓存
+storage/
+tmp/
+temp/
+# 本地一次性排查脚本（不进库、不参与 lint：它们不是交付物，
+# 让闸门对临时脚本报错只会训练人去关掉闸门）
+.tmp/
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# WorkBuddy 本地工作区（记忆/会话数据，不入库）
+.workbuddy/
+
+# 构建产物
+node_modules/
+dist/
+
+# 根目录临时落盘文件，禁止入库
+# `_*.txt`：抓取输出/日志；`commit_msg*.txt`：提交信息（应走 `git commit -F -` 从 stdin 读，
+# 不落盘；此规则是防泄漏的最后一道网，不是推荐用法）
+/_*.txt
+/commit_msg*.txt
+
+# 本地开发身份密钥对（make dev-keys 生成，绝不入库）
+infra/compose/.dev-keys/
+.threads.tmp.json
+
+# 核验电池固定的 pytest 临时根目录
+.pytest-basetemp/
