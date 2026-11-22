@@ -162,3 +162,25 @@ Worker 若要「领取任务再执行」，必须有一条**由某个动作拥�
 
 测试证据：`tests/unit/test_budget_ledger_settlement.py` 九项。
 
+## 6. 落地记录（§1 配套 Worker 本体，2026-11-23，提交 `89c07fd`）
+
+| 项 | 申请包/决策登记册写法 | 实际落地 | 为什么 |
+| --- | --- | --- | --- |
+| Worker 入口 | `workers/generation`（R16-D3-05「填充空目录」） | `python -m workers.generation`，支持 `--once` / `--sweep` / `--lease-seconds` / `--idle-sleep` | 常驻与一次性共用同一编排，容器与 cron 两种部署不需要两套代码 |
+| 领取顺序 | 未指定 | `next_claimable()` 按 `created_at` 升序取最早 REQUESTED | 随机/最新优先会让老任务长期饥饿；FIFO 是可解释的公平性 |
+| 心跳 | 未指定 | 按租约 1/3 周期 `renew`；续租被拒转 `LeaseLostError`，取消执行且不回写 | 回写别人的租约等于伪造执行者，审计直接失真 |
+| 执行异常 | 未指定 | 执行器抛异常也落 `FAILED`，`evidence_ref=worker-error:<类型>` | 卡在 RUNNING 只能等扫尾，会把「失败」伪装成「还在跑」 |
+| 终态写入被拒 | — | `finish` 抛 `DomainError` 只告警、不重试 | 回收方已改状态时重试会覆盖回收结果 |
+| 过期回收 | §1 已登记 `RUNNING→REQUESTED` | `sweep_expired()` 逐条 `release_expired`，单条冲突跳过 | 多 Worker 扫同一批时冲突是正常竞争，不是故障 |
+| 进程身份 | 未登记 | `ProcessRole` 增 `generation`，生产密钥矩阵只要求 `POSTGRES_PRODUCTION_PLANNING_PASSWORD` | Worker 只连一个域；多给凭证就是多一份泄漏面。`test_process_entrypoints` 已同步登记 |
+| 真实执行 | — | 未接网关时 `UnconfiguredExecutor` 一律 FAILED（`generation-gateway-not-configured`） | 宁可承认没接，也不能伪造 SUCCEEDED——QC/Gate 会把假产物当事实 |
+
+查询证据：`next_claimable` = `status='REQUESTED' ORDER BY created_at LIMIT 1`；`list_expired` = `status='RUNNING' AND lease_expires_at < now()`，两者都走 `production_planning.generation_tasks`。
+
+测试证据：`tests/unit/test_generation_worker.py` 七项（空闲不领、成功落终态、异常落 FAILED、租约被回收后不回写、扫尾只收过期、`run_once` 优先干活、LeaseLost 类型）；`tests/unit/test_generation_lease.py` 新增 `ACT-GEN-NEG-002`（无租约不得终结）。全量 `pytest tests/unit tests/engineering` 退出 0；契约闸门 GATE=0。
+
+剩余缺口（同批登记 A25 `residual_risks`）：
+
+- `workers/qc` 仍为空目录：契约中没有 QC 任务对象或待检队列（仓库内 `QCTask`/`qc_task` 0 命中），`QC.REPORT.CREATE` 的入参是 `asset_version_id`，而 `GenerationTask` 不携带产物引用，Worker 无法在不臆造字段的前提下把「任务」映射到「待检资产」。补齐需新申请包（QC 任务对象 + 待检队列，或任务→资产引用），不能靠 Worker 内部约定绕过冻结契约。
+- 执行器为占位：真实生成网关（`services/model_gateway`）未接，本 Worker 目前只保证调度与租约正确。
+

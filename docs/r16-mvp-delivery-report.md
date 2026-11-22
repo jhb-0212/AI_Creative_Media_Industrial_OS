@@ -153,14 +153,15 @@ Worker 为下一阶段。
 
 ## 5. 未完成 / 后续 PR
 
-1. **契约变更类（需 Owner 决策，AI 不自改冻结契约）**：见
-   `docs/architecture/amendment-pack-r16-phase2.md`——
-   ① `GenerationTask` 的 `RUNNING`/租约/恢复边 + `GENERATION.PROCESS` 动作键（Worker 的前置）；
-   ② 账本 `RELEASE`/`REFUND` 的 `BUDGET.SHOT.RELEASE` / `BUDGET.SHOT.REFUND` 动作键与
-   `transaction_kind` 受控枚举。两项都因「31.6 没有任何动作拥有这些边」而被挡在门外。
+1. ~~契约变更类~~ → **已签发并落地**（Owner 2026-11-23「按申请包签发」，见
+   `docs/architecture/amendment-pack-r16-phase2.md` §1/§2/§5/§6）：`GenerationTask` 的
+   `RUNNING`/租约/恢复边 + `GENERATION.PROCESS`（`336ce08` + `89c07fd`）；账本
+   `BUDGET.SHOT.RELEASE` / `BUDGET.SHOT.REFUND` 与 `transaction_kind` 受控枚举（`b9dfcd3`）。
 2. ~~独立域拆分~~ → **已完成**（`a0b1c2d3e4f5`，见 §2.6）：五表出 `project_planning`，
    各自 schema + 独立角色 + 独立连接池，一次性 cutover，不保留双份表。
-3. `workers/generation` / `workers/qc`：依赖第 1 项的契约变更，落地顺序不能颠倒。
+3. `workers/generation` **已落地**（`89c07fd`：常驻领取 / 心跳续租 / 终态回写 / 过期回收），
+   但执行器为占位（`UnconfiguredExecutor` 一律 FAILED）。`workers/qc` 仍为空目录：缺 QC
+   任务对象与待检队列（需新申请包），详见 §6 落地记录与 A25 `residual_risks`。
 4. `A24.source_commits` 为 `LOCAL-NO-GIT-PLACEHOLDER`，合入团队仓库时替换真实 SHA。
 5. API 镜像已重建并重启（新镜像含本轮全部端点，`/openapi.json` 已核对）；容器重建时需要
    `IDENTITY_PUBLIC_KEY_PEM`（本次从身份进程读取同一把公钥注入，属于宿主环境事实，

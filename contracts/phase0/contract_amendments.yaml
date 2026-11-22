@@ -1238,6 +1238,7 @@ amendments:
     approved_at: '2026-11-23'
     source_commits:
       - '336ce08'
+      - '89c07fd'
     additions:
       schema_objects:
         - object: 'GenerationTask'
@@ -1254,7 +1255,8 @@ amendments:
       schema_objects: 88
       state_machines: 47
     residual_risks:
-      - 'Worker 进程本体（workers/generation）尚未落地：端点与租约语义已可执行，但没有常驻消费者自动领取任务，需 §3 同批补齐'
+      - 'workers/generation 已落地（89c07fd），但执行器仍是占位（UnconfiguredExecutor 一律 FAILED）：真实生成网关 services/model_gateway 未接，调度与租约正确、产物生成能力未验证'
+      - 'workers/qc 仍为空目录：契约无 QC 任务对象/待检队列，QC.REPORT.CREATE 以 asset_version_id 为入参而 GenerationTask 不携带产物引用，补齐需新申请包，不能靠 Worker 内部约定绕过冻结契约'
 
   - id: 'V205-R15-A26'
     title: 'Phase 2 §2：账本 RELEASE / REFUND（reservation_ref + 受控 transaction_kind）'
