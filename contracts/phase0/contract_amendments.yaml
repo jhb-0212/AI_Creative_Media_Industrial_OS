@@ -1195,7 +1195,7 @@ amendments:
     approved_by: '项目所有者（2026-11-22 会话内「按完整方案全部做完」：D3 决策先执行、留待复核）'
     approved_at: '2026-11-22'
     source_commits:
-      - 'LOCAL-NO-GIT-PLACEHOLDER'
+      - 'cd2a7ec'   # 本地首次提交（此前为 LOCAL-NO-GIT-PLACEHOLDER，本地无 .git）
     additions:
       schema_objects:
         - object: 'ProductionRoute'
