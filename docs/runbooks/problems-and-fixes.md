@@ -9,7 +9,8 @@
 > 尽量附证据（提交号 / 测试 / 报告）。只写「已修复」而不写根因的条目等于没写——
 > 清单的价值在于让人遇到相似症状时能认出同一个病根。
 
-覆盖时段：2026-11-13 ~ 2026-11-21（Shot 域闭环、双线整合、收口 PR #22、自检闸门 PR #23、第二轮审查整改 PR #24）
+覆盖时段：2026-11-13 ~ 2026-11-23（Shot 域闭环、双线整合、收口 PR #22、自检闸门 PR #23、
+第二轮审查整改 PR #24、第三/四轮审查 P1-01~P1-08 整改 PR #38~#44）
 
 ---
 
@@ -24,7 +25,8 @@
 | E. 验证装置与闸门 | 6 | 闸门给现状背书、清单漏项、mock 契约不符 | `CODE_DIRS` 自抄漏 4 目录 |
 | F. 代码质量的静默缺陷 | 6 | 不报错但行为错 / 负债累积 | 字典重复键静默覆盖、122 项 lint 债 |
 | G. 工程流程与环境 | 6 | 直推被拒、网络通道失败、基线游离副本、SHA 一致性未验收、YAML 重复键 | GH006 / BLOCKED-ENV / safe_load 静默覆盖 |
-| **合计** | **36** | | |
+| H. 第三/四轮审查（P1 系列） | 6 | 权限/引用看着齐全、第一次真实调用才炸 | 表权限在但 schema 无 USAGE / SQL 表名没跟分域迁移 |
+| **合计** | **42** | | |
 
 **出现频次最高的三类根因**（占绝大多数条目）：
 1. **判据/前提本身错了** —— 不是代码写错，是"用什么判断对错"错了（锁类型、DEFINER、语句多重集、错基线）。
@@ -300,6 +302,91 @@
 
 ---
 
+### H. 第三/四轮审查整改（P1-01~P1-06，2026-11-22~23）
+
+这一批的共同特征是：**所有静态信号都是绿的，功能整体不可用**。四条里有三条是
+「权限/引用看着齐全，第一次真实调用才炸」，因此都被补成了派生式闸门。
+
+#### H1 表权限齐全、schema 没有 USAGE（R16 三域写路径全 500）
+- **现象**：`production_planning_role` / `budget_quota_role` / `qc_governance_role` 对
+  `outbox.outbox_events` 有 INSERT，但写事件时报 `42501 permission denied for schema outbox`。
+  于是 `GENERATION.*` 推不动状态、`BUDGET.SHOT.APPROVE` 连同事务一起回滚、`GATE.*` 同理——
+  R16-D3 的 MVP 链在库里没有任何一条可写路径。
+- **根因**：PostgreSQL 里表权限（`pg_class.relacl`）与 schema USAGE（`pg_namespace.nspacl`）是
+  两道独立的门。授权矩阵只声明了前者，`converge_statements` 又只硬编码补了
+  「本域 + `project_planning`」。`8f3b2c1d4e5a` 手写的 `GRANT USAGE` 覆盖的是**当时**
+  存在的两个域角色，矩阵接管授权面之后新建的域天生缺共享 schema 的 USAGE——每建一个域复发一次。
+  更麻烦的是授权守卫只比 `relacl`，`nspacl` 在结构上不在它视野内。
+- **解决办法**：`referenced_schemas()` 从矩阵**派生** USAGE 集合（「他在这个 schema 下有
+  表权限 ⇒ 他需要 USAGE」），删掉硬编码分支；迁移 `b8c9d0e1f2a3` 补存量（升级全量幂等，
+  降级只撤三个被修复域，不碰 `8f3b2c1d4e5a` 授给老域的部分）；新增 schema 级守卫
+  `test_domain_role_has_usage_on_every_referenced_schema`，判据集合同样派生。
+- **证据**：守卫先在坏状态跑红并点名 3 域 × 3 schema（附「矩阵在此有表权限」的证据），
+  修复后转绿；迁移 `downgrade -1` → `upgrade head` 回环并逐域比对 `has_schema_privilege`。
+  契约 A33。
+
+#### H2 资源级授权 SQL 的表名没跟着分域迁移（42P01 → 端点 500）
+- **现象**：`ShotBudgetRequest` / `GenerationTask` / `GateDecision` / `ProductionRoute`
+  的资源级授权在解析归属时抛 `42P01 relation "project_planning.shot_budget_requests"
+  does not exist`，审批端点**整体不可用**。
+- **根因**：`packages/identity/ownership.py` 的 `_RESOLVE_SQL` 是手写 SQL，R16 分域迁移
+  （`a0b1c2d3e4f5`）把四张表搬到自有 schema 后没人同步它。服务层单测全绿，因为单测不经授权依赖。
+  「SQL 里的表名不会自己举手，它只是不存在而已」。
+- **解决办法**：改四处 schema；新增 `tests/integration/test_ownership_resolve_targets.py`
+  ——从源码正则抽 `FROM|JOIN a.b`、逐个 `to_regclass` 判存在、再真跑一遍（探针值 → `None`）。
+- **证据**：把 `shot_budget_requests` 临时改回坏表名 → 两条用例报红（`BAD_STATE_EXIT=1`），
+  恢复后 `EXIT=0`。契约 A34。
+
+#### H3 租约持有者与审批人来自请求体（身份是自称的）
+- **现象**：任何人只要知道别人的 `worker_id` 就能续租、终结甚至写出 `PASSED` 判定；
+  申请人填一个别人的名字即可通过「自批拒绝」。
+- **根因**：把身份当参数。`lease_owner` 的唯一写入源是请求体，而它又是
+  `require_lease_owner` 的唯一判据 ⇒ 判定等于「谁知道这个名字，谁就是持有者」。
+  `approver` 同理，是 `approver != requested_by` 的唯一输入。两者都比「拒绝」更糟：
+  它们在库里留下**看不出错**的审计记录，事后复核也查不出来。
+- **解决办法**：四个请求模型删字段 + `extra="forbid"`（旧调用方 422，而不是被静默忽略后
+  以为身份生效），路由改传 `principal.subject_id`。`operator_ref` 保留在请求体并写明理由：
+  它只做溯源、不参与任何授权比较，判据是「不可伪的必要性」而非字段名。
+- **证据**：`test_identity_from_principal.py`（12 项）——模型层拒绝、OpenAPI 契约
+  `additionalProperties=false`、AST 派生不变量（凡 `principal.<attr>` 填充的槽位，
+  请求模型不得声明同名字段）、真库端到端（伪造字段 422 且任务状态一字未变；
+  换一个同样是 Worker 的令牌续租被拒）。契约 A34。
+
+#### H4 账本结算逐笔判定（合计可以到预留的 2 倍）
+- **现象**：`RESERVE 1000 → RELEASE 1000 → REFUND 1000`，每笔都合法，合计 2000。
+  账本是追加式流水、没有余额列，超支只能靠求和发现，而原来没有任何地方求和。
+- **根因**：`_settle` 判的是「本次金额 ≤ 预留」，不是「累计 ≤ 预留」。只在服务层求和也不行：
+  两个并发事务各自读到 0，各写一笔。部分唯一索引只挡「同 kind 重复」，挡不住一 RELEASE + 一 REFUND。
+- **解决办法**：库层触发器 `budget_ledger_settlement_guard`，按 `reservation_ref` 取
+  `pg_advisory_xact_lock` 串行化后重新求和。用咨询锁而非 `FOR UPDATE`：`budget_quota_role`
+  对账本只有 SELECT/INSERT，为了加锁把账本改成可 UPDATE 等于用不变量换锁。
+  错误码用 `23514` 而非 `P0001`（后者不被 `port_errors` 翻译，会冒成 500）。
+- **证据**：6 项集成（超额/等于边界/预留不存在/负金额/并发时用 `pg_locks` 证明 T2 在等锁）
+  + 3 项单测；迁移 `c4d5e6f7a8b9` 已做升降回环。契约见 A32 之后的记录。
+
+#### H5 跨域提交顺序：待检项先于生成成功
+- **现象**：生成 Worker 在 `finish` 之后、`commit` 之前用独立 QC 会话写 `qc_tasks` 并立即提交。
+  生成域提交失败就留下一条指向不存在生成任务的待检项。
+- **根因**：跨域写入排在本地提交之前，且 `qc_tasks.generation_task_id` 是跨域引用、没有物理外键，
+  数据库拦不住。
+- **解决办法**：改成事件驱动——`GENERATION_SUCCEEDED` 与终态同事务进 outbox，relay 消费才入队
+  （事件存在 ⟺ 终态已提交）。payload 补产物两字段与归属两字段，让事件自足；
+  `MalformedEventError` 刻意不继承 `DomainError`，否则载荷违约会被当业务冲突 ack 掉、进不了死信。
+- **证据**：`test_relay_handlers.py` 13 项（四字段逐个缺失、幂等、不吞违约、无依赖不注册）；
+  另外在 P1-01 rebase 时发现 `process_one` 里残留的旧直接入队调用会让缺陷复活，已删除。契约 A31。
+
+#### H6 测试装置为了「能重跑」去删 append-only 历史（被库层拦下）
+- **现象**：端到端用例第一版用固定任务 id，第二次运行因任务已是 `RUNNING` 假失败；
+  修法是「先把 `audit.status_transitions` 里上次的记录删掉」——结果被
+  `RestrictViolation: append-only 表禁止 DELETE` 拦住（连超级用户也拦）。
+- **根因**：装置依赖上一次运行的副作用。而「删掉历史审计事实让测试能重跑」正是红线
+  禁止的操作，只是它伪装成了测试装置需求。
+- **解决办法**：每次运行生成新任务 id（项目行固定、任务 id 随机），装置自然幂等，
+  一行历史事实都不用动。
+- **证据**：`tests/unit/test_identity_from_principal.py` 连跑两次均全绿。
+
+---
+
 ## 三、避坑总则（把上面的根因浓缩成可执行的判断）
 
 1. **判据先行**：改代码前先问"我用什么判断它对了"。锁类型、DEFINER/INVOKER、终态相等、可复算违例行数——历史上翻车几乎都是判据错，不是实现错。
@@ -328,6 +415,11 @@
 | `verify_grants.py` / ACL 对账（`to_regclass`） | B1/B3 授权函数 EXECUTE 派生、对象不存在误判 |
 | ADR-R27 / 台账 `collect_invariants` | A1~A4 锁语义、B2 双向不变量、D2 冻结态 |
 | 分支保护 + PR CI 4 项 | F4/G1 未过 CI 的代码进主干 |
+| `test_domain_role_has_usage_on_every_referenced_schema` | H1 只授表不授 schema USAGE（`nspacl` 不在表级对账视野内） |
+| `tests/integration/test_ownership_resolve_targets.py` | H2 手写 SQL 的表名没跟分域迁移（`to_regclass` 实读 + 真跑一遍） |
+| `tests/unit/test_identity_from_principal.py` | H3 身份自称（AST 派生：principal 填充的槽位不得由请求体声明） |
+| `budget_ledger_settlement_guard`（库层触发器） | H4 累计结算超预留（服务层求和挡不住并发） |
+| `tests/unit/test_relay_handlers.py` | H5 跨域提交顺序（事件存在 ⟺ 终态已提交） |
 
 > 文档与闸门的关系：本清单记录"问题是什么、为什么、怎么解"；闸门把其中可机检的部分
 > 固化成"以后再犯就报红"。新增问题若可机检，应同时补一条闸门而不是只加文档条目。
