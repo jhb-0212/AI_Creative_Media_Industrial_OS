@@ -470,6 +470,36 @@ def declared_tables(domain: str) -> frozenset[tuple[str, str]]:
     return frozenset((g.schema, g.table) for g in DOMAIN_GRANTS[domain])
 
 
+def referenced_schemas(domain: str) -> tuple[str, ...]:
+    """该域角色在矩阵里被授过表权限的**全部** schema（去重、稳定排序）。
+
+    为什么必须派生而不是列一份「共享 schema」清单：schema USAGE 是表权限的
+    前置条件（只授表不授 USAGE，第一次读写就是 ``permission denied for schema``），
+    而它和表权限分属两个 ACL 位置（``pg_namespace.nspacl`` vs ``pg_class.relacl``），
+    矩阵里没有任何一条表授权能"顺带"表达它。于是「谁需要 USAGE」只能从
+    「他在这张 schema 下有表权限」反推——反推漏掉一个 schema，该域角色就拿不到
+    这个共享基础设施，而**表权限还在**，ACL 对账看起来完全正常。
+
+    这正是 R16 三域（production_planning / budget_quota / qc_governance）的历史
+    缺陷：它们靠 ``8f3b2c1d4e5a`` 手写的 ``GRANT USAGE`` 覆盖到当时已有的角色，
+    而矩阵接管授权面之后，只有 ``project_planning`` 被硬编码补了一句 USAGE，
+    新域天生缺 outbox/audit/auth 的 USAGE——写事件即 500。
+    """
+    return tuple(sorted({grant.schema for grant in DOMAIN_GRANTS[domain]}))
+
+
+def schema_usage_statements(role: str, domain: str) -> list[str]:
+    """该域角色需要的 ``GRANT USAGE ON SCHEMA`` 全集（由 :func:`referenced_schemas` 派生）。
+
+    单独成函数供两处调用：``converge_statements``（迁移与断言）与补 USAGE 的
+    修复迁移。两处共用同一份派生，避免「迁移补了 A、断言要求 B」这种第二次分裂。
+    """
+    return [
+        f"GRANT USAGE ON SCHEMA {schema} TO {role}"
+        for schema in referenced_schemas(domain)
+    ]
+
+
 def business_tables(domain: str) -> frozenset[tuple[str, str]]:
     """该域**自己的** schema 里声明过的表（不含 audit/outbox/auth/public）。
 
@@ -515,18 +545,12 @@ def converge_statements(
     授了 ``SELECT, INSERT, UPDATE, DELETE`` 的默认权限，而 ``b7c8d9e0f1a2``
     的「默认零授权」只覆盖了 app_role——旧机制在新角色上复发）。
     """
-    statements: list[str] = [
-        # schema USAGE 是「能访问这个域」的前置条件，和表级授权同属授权面：
-        # 只授表不授 USAGE，第一次查询就是 permission denied for schema。
-        # 放在矩阵里生成（而不是让每条迁移各写一句 GRANT USAGE），否则
-        # 「新增一个域」需要改迁移，而「迁移是矩阵的执行器」这条不变量就破了。
-        f"GRANT USAGE ON SCHEMA {domain} TO {role}",
-    ]
-    if any(grant.source == "cross_domain" for grant in DOMAIN_GRANTS[domain]):
-        # 跨域列级只读还需要目标 schema 的 USAGE（表权限不蕴含 schema 权限）。
-        statements.append(
-            f"GRANT USAGE ON SCHEMA {PROJECT_PLANNING} TO {role}"
-        )
+    # schema USAGE 是「能访问这些 schema」的前置条件，和表级授权同属授权面：
+    # 只授表不授 USAGE，第一次读写就是 permission denied for schema。
+    # 集合由矩阵派生（``referenced_schemas``）而不是写死本域 + project_planning：
+    # 硬编码版本只覆盖了「自己域 + 跨域只读」，于是 post-matrix 新建的域从来没拿到
+    # outbox/audit/auth 的 USAGE——表权限在、ACL 对账绿、写事件即 42501。
+    statements: list[str] = list(schema_usage_statements(role, domain))
     statements += [
         f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} REVOKE ALL ON TABLES FROM {role}"
         for schema in DOMAINS

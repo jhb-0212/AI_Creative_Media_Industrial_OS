@@ -27,6 +27,7 @@ from packages.shared.db_grants import (
     declared_column_privileges,
     declared_privileges,
     declared_tables,
+    referenced_schemas,
 )
 from packages.shared.db_roles import domain_role
 
@@ -178,6 +179,60 @@ async def test_domain_role_privileges_match_matrix(admin_sessionmaker) -> None:
     if not_applicable:
         print("[N-A] ACL 对账跳过不存在的对象：" + "、".join(not_applicable))
     assert not mismatches, "域角色授权与矩阵不一致：\n" + "\n".join(mismatches)
+
+
+_SCHEMA_USAGE = text(
+    """
+    SELECT n.nspname AS schema,
+           has_schema_privilege(r.oid, n.oid, 'USAGE') AS has_usage
+    FROM pg_namespace n CROSS JOIN pg_roles r
+    WHERE r.rolname = :role AND n.nspname = ANY(:schemas)
+    """
+)
+
+
+async def test_domain_role_has_usage_on_every_referenced_schema(
+    admin_sessionmaker,
+) -> None:
+    """矩阵里被授过表权限的每个 schema，该域角色都必须持有 USAGE。
+
+    为什么单列一条守卫：schema USAGE 与表权限存在**两个不同的 ACL 位置**
+    （``pg_namespace.nspacl`` / ``pg_class.relacl``），上面那条 ACL 对账只比表级，
+    结构上永远看不见 USAGE 缺失。而缺 USAGE 的表现是「表权限明明有，第一次读写
+    就 42501 permission denied for schema」——授权面看着全对，功能整体不可用。
+
+    判据集合从矩阵派生（:func:`referenced_schemas`），不写死 outbox/audit/auth：
+    将来某个域开始写一张新的共享表，这条守卫自动把它纳入。
+    """
+    required = {domain: referenced_schemas(domain) for domain in DOMAINS}
+    all_schemas = sorted({schema for schemas in required.values() for schema in schemas})
+
+    async with admin_sessionmaker() as session:
+        missing: list[str] = []
+        for domain in DOMAINS:
+            role = domain_role(domain)
+            rows = (
+                await session.execute(
+                    _SCHEMA_USAGE, {"role": role, "schemas": list(required[domain])}
+                )
+            ).all()
+            seen = {row[0]: row[1] for row in rows}
+            # 「schema 不存在」与「USAGE 为空」必须分开：把不存在算成缺 USAGE
+            # 会引导人去 GRANT 一个不存在的 schema，而真正的错在别处。
+            for schema in required[domain]:
+                if schema not in seen:
+                    missing.append(f"{role}: schema {schema} 不存在（无法判定，需先建 schema）")
+                elif not seen[schema]:
+                    missing.append(
+                        f"{role} 对 schema {schema} 无 USAGE（矩阵在此有表权限："
+                        f"{sorted(t for s, t in declared_tables(domain) if s == schema)}）"
+                    )
+
+    assert not missing, (
+        "schema USAGE 缺失：只授表权限不授 USAGE，运行时会 42501 且 ACL 对账看不出来\n"
+        + "\n".join(missing)
+        + f"\n（检查范围共 {len(all_schemas)} 个 schema：{all_schemas}）"
+    )
 
 
 async def test_business_tables_grant_nothing_to_public(admin_sessionmaker) -> None:
