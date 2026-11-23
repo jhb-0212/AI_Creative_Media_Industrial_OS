@@ -1453,6 +1453,50 @@ amendments:
       - '入队时效由 relay 运行状况决定：relay 停止时待检项不产生（但事件积压可见、可重放），漏入队的补偿依赖 generation Worker 的 reconcile_qc 扫描。可靠性换取了顺序正确性。'
       - 'QC 报告与 QCTask 终态的闭环（报告幂等键、终态校验报告存在且属于本任务资产版本）不在本条目范围，归 P1-04 处理。'
 
+  - id: 'V205-R15-A32'
+    title: 'QC 终结前核验报告归属；跨域证据端口下沉中立层'
+    retroactive: false
+    recorded_at: '2026-11-23'
+    discovered_by: '2026-11-23 第五轮工程审查 P1-04（QC 归属前置阻断与审核闭环）'
+    reason: >-
+      结清 A31 登记的第二条残余风险：「终态校验报告存在且属于本任务资产版本」。
+      原实现里 QCTaskService.finish 只判 qc_report_id 非空。qc_tasks.qc_report_id
+      是跨域引用、没有物理外键（两域分 schema），于是任何持有 QC.TASK.PROCESS 的
+      调用方提交一串随便编的字符串就能把任务推成 PASSED——「有 ID」被当成「有证据」，
+      而这恰好是 QC 存在的意义所在。
+      本条目把核验放到 require_lease_owner 之后：未装配核验器即 fail-closed 拒绝
+      （装配错误立刻暴露，而不是悄悄退化成「看起来通过」）；报告不存在、资产版本
+      不符、租户不符三种情形分别显式拒绝。
+      同一条审查还发现 AssetIntegrityInspector 在资产不属于任务声明项目时只记一条
+      project_scope.passed=False 的 finding，随后仍写报告、仍把资产从 GENERATED
+      推进到 TECHNICAL_QC——同一租户内项目 A 的任务可以通过错误引用影响项目 B 的
+      资产。本条目把它改为执行前的准入条件（模块级 assert_asset_within_task_scope），
+      因为「发现了错误引用」不等于「阻止了错误引用的副作用」；project_scope finding
+      保留为「已核验」证据（报告 append-only，读报告的人无法从别处推断当时验过）。
+      实现方式上有一个架构约束必须记明：核验要读资产域，而分层规则 R2 禁止 services
+      之间互相 import。四种做法只有一种对——QC 域 import 资产域（违反 R2）、资产域
+      import QC 域的 DTO（同样违反 R2，只是方向反过来）、登记成平台能力白名单
+      （这不是平台能力，且白名单会变成常驻后门），因此把契约下沉到中立层
+      packages/shared/evidence_ports.py，读取口径由数据属主
+      （services/asset_service/repository/qc_report_lookup.py）提供，装配由组合根
+      （apps/api/wiring.py 与 workers/qc/__main__.py）完成。平台能力白名单因此仍是
+      2 项、未新增条目。
+      本条目不含动作/Schema/状态机增删（Action 105 / Schema 89 / 状态机 48 不变）。
+    adr: 'docs/architecture/amendment-pack-r16-phase2.md'
+    approved_by: '项目所有者（2026-11-23 会话内指令「全部整改」，授权按审查 P1-04 整改 QC 审核闭环与跨项目引用）'
+    approved_at: '2026-11-23'
+    source_commits:
+      - '189df69'
+    counts_after:
+      actions: 105
+      openapi_operations: 105
+      schema_objects: 89
+      state_machines: 48
+    residual_risks:
+      - '报告幂等键未落地：qc_reports 上只有 (asset_version_id) 普通索引与外键，没有「同一资产版本 × 质量档案 × 检测器集合」唯一约束，重复检测会生成多份内容等价的报告。本条目只核验「引用的那份报告真实且归属正确」，不约束「应当只有一份」。刻意不在服务层加「先查后写」的幂等：没有数据库唯一约束兜底的幂等不是不变量，并发下必然漏。补齐它需要一次带存量去重与回填的迁移，属独立变更。当前实际触发面很窄——入队侧已被 generation_task_id 唯一索引挡住重复入队。'
+      - '核验与判定不在同一事务快照：核验读资产域、判定写 QC 域，两者之间报告若被删改，核验结论会过期。当前不构成窗口，因为 qc_reports 是 append-only（无更新/删除路径）且 asset_version_id 有物理外键；若将来允许改报告的归属字段，本窗口才会真实打开，届时须改为判定事务内取证。'
+      - '报告到资产状态推进的语义未变：检测器仍会把资产从 GENERATED 推进到 TECHNICAL_QC，但 QC 任务的 PASSED 与资产最终验收（Gate）之间的映射不在本条目范围。'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——
