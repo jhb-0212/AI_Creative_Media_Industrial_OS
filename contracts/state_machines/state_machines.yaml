@@ -30,7 +30,7 @@
 version: 2
 source: AFS-ARCH-MASTER-V2.0.5 各章节状态机定义（由 Markdown 基线派生）
 authority_rule: 同一对象多处定义时，按 31.5 唯一权威状态机 > 32.6/C.7 > 34.x > 33.3 > C.3 取权威；24.11 为摘要不计入权威；差异不静默合并，见 conflict 字段。
-total_objects: 48
+total_objects: 50
 conflict_count: 6
 object_count_note: total_objects 只计持久化领域对象；UI 投影见 projections 分区（不计入对象数，也不得进枚举注册表）。
 
@@ -931,30 +931,44 @@ objects:
   - 31.6 Action Registry（PRODUCTION.ROUTE.SELECT）
   - docs/architecture/decision-register-r16.md（R16-D3 架构决策）
 - object: GenerationTask
-  authoritative_source: 31.6 Action Registry（GENERATION.REQUEST）
-  allowed_states: [REQUESTED, RUNNING, SUCCEEDED, FAILED]
+  authoritative_source: 31.6 Action Registry（GENERATION.REQUEST）+ ADR-R42 附录 A（T0–T3）
+  allowed_states: [REQUESTED, RUNNING, AWAITING_ASSET_REGISTRATION, SUCCEEDED, FAILED]
   initial_state: REQUESTED
   transitions:
+  # 过渡边：PR-D 落地 T3 回执消费处理器前，Worker 仍走这两条边完成终态。
+  # 它们不是「目标态」——C1 要求删除，删除条件可机检：T3 事件处理器已实现、
+  # state_machine_gaps.yaml 的两条入口债务已销项、Finish 请求不再携带自报资产 ID。
+  # PR-B 只声明目标态，不提前切断运行时入口，避免中间提交无法完成任何任务。
   - {from: REQUESTED, to: SUCCEEDED, owner_action: GENERATION.REQUEST}
   - {from: REQUESTED, to: FAILED, owner_action: GENERATION.REQUEST}
   # 异步领取：只有持有租约的一方才推进 RUNNING（Phase 2，申请包 §1 已签发）。
   - {from: REQUESTED, to: RUNNING, owner_action: GENERATION.PROCESS}
   - {from: RUNNING, to: SUCCEEDED, owner_action: GENERATION.PROCESS}
+  # T0/T1：对象写入并复核后进入等待资产登记；SUCCEEDED 不再由 Worker 直接推进（C1）。
+  - {from: RUNNING, to: AWAITING_ASSET_REGISTRATION, owner_action: GENERATION.PROCESS}
+  # T3：资产域登记回执是唯一成功/永久失败依据，由事件处理器推进而非 Worker。
+  - {from: AWAITING_ASSET_REGISTRATION, to: SUCCEEDED, owner_action: ASSET_REGISTRATION_COMPLETED}
+  - {from: AWAITING_ASSET_REGISTRATION, to: FAILED, owner_action: ASSET_REGISTRATION_REJECTED}
   - {from: RUNNING, to: FAILED, owner_action: GENERATION.PROCESS}
   # 租约到期退回 REQUESTED 可被重新领取：否则 Worker 崩溃会让任务永远停在 RUNNING。
   - {from: RUNNING, to: REQUESTED, owner_action: GENERATION.PROCESS}
 
   frozen_states: []
   note: >-
-    生成任务记录。MVP 为同步执行：GENERATION.REQUEST 校验预算/配额/依赖/约束快照通过后
-    创建 REQUESTED，并同步推进 SUCCEEDED 或 FAILED。异步的 RUNNING 状态及 Worker 领取/
-    租约/崩溃恢复生命周期属 Phase 2/3（31.6 无任何 MVP 动作拥有这些边），本批不建模——
-    建模无法取得 owner_action 的边只会制造「可达但无入口」的债务。
+    生成任务记录。REQUESTED 由 GENERATION.REQUEST 创建；Worker 持租约推进 RUNNING。
+    T3 落地后 RUNNING 不得直接到 SUCCEEDED——须经 T1 进入 AWAITING_ASSET_REGISTRATION，
+    由 T3 消费资产域登记回执后才可到 SUCCEEDED/FAILED。两条旧同步边（REQUESTED→SUCCEEDED、
+    RUNNING→SUCCEEDED）作为过渡保留至 PR-D；删除条件可机检：T3 事件处理器已实现、
+    state_machine_gaps.yaml 两条入口债务已销项、Finish 请求不再携带自报资产 ID。
+    T3 两条边的 owner_action 是事件名而非已实现 action，入口债务在
+    state_machine_gaps.yaml 显式登记，待事件处理器落地时解除；不得用
+    GENERATION.PROCESS 占位，那等于声明 Worker 可自报成功。
   source_kind: owner_supplied_design
   registration_status: PENDING_PHASE1_REVIEW
   all_sources:
   - 31.6 Action Registry（GENERATION.REQUEST）
   - docs/architecture/decision-register-r16.md（R16-D3 架构决策）
+  - docs/adr/ADR-R42-asset-registration-saga.md（附录 A，T0–T3 四阶段）
 - object: ShotBudgetRequest
   authoritative_source: 31.6 Action Registry（BUDGET.SHOT.REQUEST / BUDGET.SHOT.APPROVE）+ 预算账户口径表
   allowed_states: [DRAFT, APPROVED, REJECTED]
@@ -994,3 +1008,34 @@ objects:
   all_sources:
   - docs/architecture/amendment-pack-r16-phase3-qc.md
   - docs/architecture/decision-register-r16.md（R16-D3-04 / R16-D3-05）
+- object: ArtifactManifest
+  authoritative_source: ADR-R42 附录 A（T0/T1 事务边界）；业主 2026-11-23 设计裁决 C2
+  allowed_states: [PREPARED, STORED_VERIFIED]
+  initial_state: PREPARED
+  transitions:
+  - {from: PREPARED, to: STORED_VERIFIED}
+  frozen_states: [STORED_VERIFIED]
+  note: >-
+    产物写入意图（T0）先落库且不持有 I/O 事务；对象存储写入并复核 SHA256 后由 T1
+    推进 STORED_VERIFIED。确认态冻结：失败恢复只能重试未确认的 PREPARED 记录，
+    不得把已确认产物改写回未确认，更不能删除已登记资产充当补偿。
+  source_kind: owner_supplied_design
+  registration_status: PENDING_PHASE1_REVIEW
+  all_sources:
+  - docs/adr/ADR-R42-asset-registration-saga.md（附录 A）
+  - 业主 2026-11-23 设计裁决 C2
+- object: AssetRegistrationReceipt
+  authoritative_source: ADR-R42 D5（幂等回执）；业主 2026-11-23 设计裁决 C5
+  allowed_states: [COMPLETED, REJECTED]
+  initial_state: COMPLETED
+  transitions: []
+  frozen_states: [COMPLETED, REJECTED]
+  note: >-
+    不可变登记回执：两态是互斥的结果分类，不是可迁移的生命周期；行创建即事实。
+    frozen_states 明确禁止原地改写——冲突（不同 sha256 / 项目 / locator）只能另建
+    带依据的 REJECTED 事实，不得更新已有回执或用第二个资产掩盖来源冲突。
+  source_kind: owner_supplied_design
+  registration_status: PENDING_PHASE1_REVIEW
+  all_sources:
+  - docs/adr/ADR-R42-asset-registration-saga.md（D5）
+  - 业主 2026-11-23 设计裁决 C5

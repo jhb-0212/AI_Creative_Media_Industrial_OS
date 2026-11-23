@@ -1585,6 +1585,58 @@ amendments:
       - 'AST 不变量只比对「同一端点内由 principal 填充的槽位」与「该端点请求模型的字段」。若某端点把标识经中间变量转发（x = principal.subject_id; ...=x），或经由依赖注入的 DTO 携带，本判据看不到。当前所有端点都是直接透传，无此形态；引入间接转发时应扩展判据而不是放宽它。'
       - '租约并发窗口未变：require_lease_owner 是读后判定，判定与写入之间若有另一事务抢占，仍依赖乐观锁版本冲突兜底（advisory/lock 未上）。本条目只解决「身份可自称」，不解决「租约判定的串行化」。'
 
+  - id: 'V205-R15-A35'
+    title: '资产登记 Saga 的等待态、产物意图与回执契约（ADR-R42 T0–T3 / C1–C7 契约层）'
+    retroactive: false
+    recorded_at: '2026-11-23'
+    discovered_by: '业主 2026-11-23 设计裁决（ADR-R42 附录 A 四阶段修订 + C1–C7 契约变更清单）'
+    reason: >-
+      当前 GenerationTask 只有 REQUESTED/RUNNING/SUCCEEDED/FAILED，Worker 可以凭一个
+      非空 asset_version_id 直接把任务推到 SUCCEEDED——资产域是否真的登记、归属是否
+      匹配、质量档案是否存在，都没有结构性证据。根因是「生成成功」被定义为模型调用
+      成功而非资产登记成功，且产物只在 Worker 内存里持有，进程崩溃后无法重建登记请求。
+      按 ADR-R42 裁定改为以资产域回执为成功终态权威：GenerationTask 增加等待登记态
+      AWAITING_ASSET_REGISTRATION；新增 ArtifactManifest 记录写入意图（PREPARED）与
+      存储确认（STORED_VERIFIED）；新增不可变 AssetRegistrationReceipt 以
+      (tenant_id, generation_task_id) 为业务幂等键。SUCCEEDED 的最终权威是 T3 消费登记
+      完成事件；RUNNING→SUCCEEDED 与 REQUESTED→SUCCEEDED 两条过渡边保留至 PR-D，
+      删除条件可机检：T3 事件处理器已实现、state_machine_gaps.yaml 两条入口债务已销项、
+      Finish 请求不再携带自报资产 ID。PR-B 只声明目标态，不提前切断运行时入口——
+      否则中间提交无法完成任何任务。T3 两条边的 owner_action 是事件名而非已实现
+      action，入口债务显式登记在 state_machine_gaps.yaml，不得用 GENERATION.PROCESS
+      占位（那等于保留自报成功入口）。
+      ProductionRoute 与 GenerationTask 同步增加 quality_profile_version，使质量策略
+      在任务创建时冻结、成为不可变任务输入。本条目只落地契约层（Schema/状态机/分类
+      台账/运行时状态机投影）；API 请求字段移除、数据库表与迁移、Saga 事件发射与
+      消费分别由后续 PR 落地，不在此条目宣称已完成。
+    adr: 'docs/adr/ADR-R42-asset-registration-saga.md'
+    approved_by: '项目所有者（2026-11-23 设计裁决：AssetRegistrar 升级为 Outbox 异步 Saga，T0–T3 四阶段，先完备契约后执行业务）'
+    approved_at: '2026-11-23'
+    source_commits:
+      - 'b41942c1a0447775e22510bd555528bdf29325c2'
+    additions:
+      schema_objects:
+        - object: 'ArtifactManifest'
+          why: '持久化产物写入意图（locator/sha256/attempt_id/status），崩溃后可按 PREPARED 记录重试对象写入而不重复调用模型（C2）'
+        - object: 'AssetRegistrationReceipt'
+          why: '不可变登记回执，(tenant_id, generation_task_id) 唯一，作为跨域幂等与成功终态的权威来源（C5）'
+      state_machines:
+        - object: 'ArtifactManifest'
+          why: 'PREPARED → STORED_VERIFIED 描述对象写入意图到存储确认的跨阶段推进（T0/T1）'
+        - object: 'AssetRegistrationReceipt'
+          why: 'COMPLETED/REJECTED 为互斥结果分类；两态均 frozen，表达回执不可原地改写（T2/T3）'
+    counts_after:
+      actions: 105
+      openapi_operations: 105
+      schema_objects: 91
+      state_machines: 50
+    residual_risks:
+      - 'C3（Finish API 移除 asset_version_id / quality_profile_version 自报入参）必须在后续 PR 改运行时请求模型与 GenerationService.finish()；本条目只完成 Schema 必填字段与 generation_task 契约投影，不宣称入口已封。'
+      - 'C6 三个 ASSET_REGISTRATION_* 事件尚未登记到 event_catalog，代码也未发射。事件目录是双向校验（未登记发事件即 FAIL，gaps 只登记已实现 action 的 audit_event 缺失），不存在「先实现后补目录」的中间态；登记须与发射实现同 PR 原子落地。'
+      - 'GenerationTask 状态枚举新增值与 ORM/DB CHECK 尚未同步，数据库仍会拒绝 AWAITING_ASSET_REGISTRATION；本条目的状态机是契约事实，迁移落地前不得让 Worker 推进该状态。'
+      - 'T3 两条转移边的入口债务（state_machine_gaps.yaml）是显式缺口，不是豁免；事件处理器落地后必须删条目，否则闸门以陈旧债务报红。'
+      - 'ArtifactManifest 与 AssetRegistrationReceipt 的运行时 Lifecycle/Repository/Service 尚未实现；本条目只给权威状态集，不代表对象可写入。不得据此在代码里先写状态字符串再补状态机。'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——

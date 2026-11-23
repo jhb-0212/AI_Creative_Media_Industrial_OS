@@ -476,7 +476,15 @@ PRODUCTION_ROUTE_ALLOWED_TRANSITIONS: dict[
     ProductionRouteStatus, frozenset[ProductionRouteStatus]
 ] = PRODUCTION_ROUTE_LIFECYCLE.allowed_transitions()
 
+# T3 的 owner 是事件名，不是已实现 action：成功终态必须由资产域登记回执证明，
+# 不能借 GENERATION.PROCESS 占位（那等于声明 Worker 可自报成功）。这两条边的
+# 入口债务登记在 state_machine_gaps.yaml，事件处理器落地时解除。
+ASSET_REGISTRATION_COMPLETED_EVENT = "ASSET_REGISTRATION_COMPLETED"
+ASSET_REGISTRATION_REJECTED_EVENT = "ASSET_REGISTRATION_REJECTED"
+
 GENERATION_TASK_TRANSITIONS: tuple[Transition[GenerationTaskStatus], ...] = (
+    # 过渡边：PR-D 落地 T3 处理器后删除（契约 state_machines.yaml 同步标注了可机检
+    # 删除条件）。现在保留是为了让中间提交仍能完成任务，而不是承认 Worker 自报成功。
     Transition(
         GenerationTaskStatus.REQUESTED,
         GenerationTaskStatus.SUCCEEDED,
@@ -488,8 +496,8 @@ GENERATION_TASK_TRANSITIONS: tuple[Transition[GenerationTaskStatus], ...] = (
         GENERATION_REQUEST_ACTION,
     ),
     # --- Phase 2：异步租约边，全部归 GENERATION.PROCESS ---
-    # REQUESTED → RUNNING：Worker 持租约领取；RUNNING → SUCCEEDED/FAILED：租约持有者
-    # 终结；RUNNING → REQUESTED：租约到期退回，否则 Worker 崩溃的任务会永远卡在 RUNNING。
+    # REQUESTED → RUNNING：Worker 持租约领取；RUNNING → AWAITING_ASSET_REGISTRATION：
+    # T1 确认对象已存储并发出登记请求；RUNNING → REQUESTED：租约到期退回。
     Transition(
         GenerationTaskStatus.REQUESTED,
         GenerationTaskStatus.RUNNING,
@@ -499,6 +507,22 @@ GENERATION_TASK_TRANSITIONS: tuple[Transition[GenerationTaskStatus], ...] = (
         GenerationTaskStatus.RUNNING,
         GenerationTaskStatus.SUCCEEDED,
         GENERATION_PROCESS_ACTION,
+    ),
+    Transition(
+        GenerationTaskStatus.RUNNING,
+        GenerationTaskStatus.AWAITING_ASSET_REGISTRATION,
+        GENERATION_PROCESS_ACTION,
+    ),
+    # --- R42 T3：登记回执驱动，owner 是事件名而非 Worker action ---
+    Transition(
+        GenerationTaskStatus.AWAITING_ASSET_REGISTRATION,
+        GenerationTaskStatus.SUCCEEDED,
+        ASSET_REGISTRATION_COMPLETED_EVENT,
+    ),
+    Transition(
+        GenerationTaskStatus.AWAITING_ASSET_REGISTRATION,
+        GenerationTaskStatus.FAILED,
+        ASSET_REGISTRATION_REJECTED_EVENT,
     ),
     Transition(
         GenerationTaskStatus.RUNNING,

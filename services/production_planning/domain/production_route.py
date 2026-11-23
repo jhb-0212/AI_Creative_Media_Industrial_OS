@@ -46,6 +46,10 @@ class ProductionRoute(Entity):
     route_type: str = ""
     capability_ref: str = ""
     basis_ref: str = ""
+    # 任务创建时从本路线冻结到 GenerationTask 的质量策略来源（C4）。空值表示
+    # 该路线尚未绑定质量档案，创建准入须拒绝——这个判定在 PR-C/D 落地，本 PR
+    # 只建立契约字段与运行时投影，避免两套事实。
+    quality_profile_version: str = ""
     status: ProductionRouteStatus = ProductionRouteStatus.VERIFIED
 
     def __post_init__(self) -> None:
@@ -102,6 +106,7 @@ class ProductionRoute(Entity):
                 "route_type": self.route_type,
                 "capability_ref": self.capability_ref,
                 "basis_ref": self.basis_ref,
+                "quality_profile_version": self.quality_profile_version,
             }
         )
         return data

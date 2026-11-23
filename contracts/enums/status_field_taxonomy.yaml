@@ -97,6 +97,8 @@ objects:
   - {object: GenerationTask, class: lifecycle}
   - {object: QCTask, class: lifecycle}
   - {object: ShotBudgetRequest, class: lifecycle}
+  - {object: ArtifactManifest, class: lifecycle}
+  - {object: AssetRegistrationReceipt, class: lifecycle}
 
   # ---------------- envelope_only：17 个无独立生命周期的对象 ----------------
   - object: ClientAnnotation

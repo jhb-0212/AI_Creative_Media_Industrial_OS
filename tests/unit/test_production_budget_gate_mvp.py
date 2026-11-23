@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -55,26 +57,28 @@ def _route(*, status: ProductionRouteStatus = ProductionRouteStatus.VERIFIED) ->
 
 
 def test_production_route_to_dict_matches_schema_keys() -> None:
+    """字段集从契约派生，不手写清单。
+
+    C4 给 ProductionRoute 增加 quality_profile_version 后，手写集合的旧断言会
+    以「多出一个字段」的形式失败——那会让修复方向变成「把新字段补进清单」，
+    而下一轮契约演进又重演一次。契约 schema 才是唯一事实源：to_dict 的键集
+    必须精确等于它的 required 集合（本对象全部属性均必填）。
+    """
+    schema_path = (
+        Path(__file__).resolve().parents[2]
+        / "contracts"
+        / "schemas"
+        / "object_schemas.schema.json"
+    )
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    route_schema = schema["definitions"]["ProductionRoute"]
+    expected = set(route_schema["required"])
+
     data = _route().to_dict()
-    assert set(data) == {
-        "entity_id",
-        "entity_type",
-        "schema_version",
-        "entity_version",
-        "status",
-        "owner_module",
-        "created_at",
-        "created_by",
-        "updated_at",
-        "audit_ref",
-        "route_id",
-        "project_id",
-        "shot_id",
-        "task_ref",
-        "route_type",
-        "capability_ref",
-        "basis_ref",
-    }
+    assert set(data) == expected, (
+        f"to_dict 字段集与契约 required 不一致："
+        f"缺 {sorted(expected - set(data))} / 多 {sorted(set(data) - expected)}"
+    )
     assert data["status"] == "VERIFIED"
     assert data["owner_module"] == "production-planning"
 

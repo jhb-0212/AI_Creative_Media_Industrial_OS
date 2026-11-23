@@ -444,6 +444,39 @@ signatures:
     tool_product: string
     updated_at: string
     version: string
+  ArtifactManifest:
+    attempt_id: string
+    audit_ref: string|null
+    created_at: string
+    created_by: string
+    entity_id: string
+    entity_type: string
+    entity_version: integer
+    generation_task_id: string
+    id: string
+    locator: string
+    owner_module: string
+    schema_version: integer
+    sha256: string
+    status: string
+    tenant_id: string
+    updated_at: string
+  AssetRegistrationReceipt:
+    asset_version_id: string|null
+    audit_ref: string|null
+    created_at: string
+    created_by: string
+    entity_id: string
+    entity_type: string
+    entity_version: integer
+    generation_task_id: string
+    id: string
+    message: string|null
+    owner_module: string
+    schema_version: integer
+    status: string
+    tenant_id: string
+    updated_at: string
   CharacterCard:
     appearance_refs: array
     audit_ref: string|null
@@ -1683,6 +1716,7 @@ signatures:
     entity_version: integer
     owner_module: string
     project_id: string
+    quality_profile_version: string
     route_id: string
     route_type: string
     schema_version: integer

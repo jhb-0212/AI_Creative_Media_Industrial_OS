@@ -18,11 +18,13 @@
   ],
   "x-afs-p0-coverage": {
     "note": "已建模对象与显式登记为待补的对象之并集，构成 P0 契约对象全集。待补项按缺口性质分类，不把“正文有字段表但派生未覆盖”与“正文缺字段标识”混为一类。",
-    "total": 89,
+    "total": 91,
     "modeled": [
       "Appeal",
       "AssetReference",
+      "AssetRegistrationReceipt",
       "AssetVersion",
+      "ArtifactManifest",
       "BlockingAsset",
       "BudgetLedger",
       "BudgetLedgerTransaction",
@@ -2154,6 +2156,108 @@
       ],
       "additionalProperties": true,
       "x-afs-required-basis": "正文该表仅标注关键/核心字段，未声明必需性；required 仅含 C.3.1 通用信封。"
+    },
+    "ArtifactManifest": {
+      "type": "object",
+      "description": "生成任务产物写入意图（ADR-R42 T0/T1）。T0 持久化 PREPARED 意图（不持有 I/O 事务），对象写入并复核 SHA256 后由 T1 推进 STORED_VERIFIED 并发出登记请求。(generation_task_id, attempt_id) 唯一，同任务同 attempt 不得产生多条意图。",
+      "required": [
+        "id",
+        "generation_task_id",
+        "tenant_id",
+        "locator",
+        "sha256",
+        "attempt_id",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "id": {"type": "string"},
+        "generation_task_id": {"type": "string"},
+        "tenant_id": {"type": "string"},
+        "locator": {
+          "type": "string",
+          "pattern": "^local://([0-9a-f]{2})/([0-9a-f]{2})/(\\1\\2[0-9a-f]{60})\\.(bin|jpg|mp4|png|wav|webm|webp)$",
+          "description": "与 AssetVersion.storage_ref 同源的受控内容寻址定位符；manifest 只记录意图与确认，不自行解析路径。"
+        },
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "attempt_id": {"type": "string"},
+        "entity_id": {"type": "string"},
+        "entity_type": {"type": "string"},
+        "schema_version": {"type": "integer"},
+        "entity_version": {"type": "integer"},
+        "status": {
+          "type": "string",
+          "enum": [
+            "PREPARED",
+            "STORED_VERIFIED"
+          ]
+        },
+        "owner_module": {"type": "string"},
+        "created_at": {"type": "string"},
+        "created_by": {"type": "string"},
+        "updated_at": {"type": "string"},
+        "audit_ref": {"type": ["string", "null"]}
+      },
+      "additionalProperties": true,
+      "x-afs-sources": [
+        "ADR-R42 附录 A（T0–T3 四阶段事务边界）",
+        "业主 2026-11-23 设计裁决 C2"
+      ]
+    },
+    "AssetRegistrationReceipt": {
+      "type": "object",
+      "description": "资产登记回执（ADR-R42 T2/T3）：不可变的登记事实记录。(tenant_id, generation_task_id) 唯一，一个任务只对应一个回执；asset_version_id 仅在 COMPLETED 时非空。内容冲突（不同 sha256 / 项目 / locator）产生可审计的 REJECTED，不得另建第二个资产掩盖冲突。",
+      "required": [
+        "id",
+        "generation_task_id",
+        "tenant_id",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "id": {"type": "string"},
+        "generation_task_id": {"type": "string"},
+        "tenant_id": {"type": "string"},
+        "asset_version_id": {"type": ["string", "null"]},
+        "status": {
+          "type": "string",
+          "enum": [
+            "COMPLETED",
+            "REJECTED"
+          ]
+        },
+        "message": {"type": ["string", "null"]},
+        "entity_id": {"type": "string"},
+        "entity_type": {"type": "string"},
+        "schema_version": {"type": "integer"},
+        "entity_version": {"type": "integer"},
+        "owner_module": {"type": "string"},
+        "created_at": {"type": "string"},
+        "created_by": {"type": "string"},
+        "updated_at": {"type": "string"},
+        "audit_ref": {"type": ["string", "null"]}
+      },
+      "additionalProperties": true,
+      "x-afs-sources": [
+        "ADR-R42 D5（幂等回执）",
+        "业主 2026-11-23 设计裁决 C5"
+      ]
     },
     "CharacterCard": {
       "type": "object",
@@ -9470,6 +9574,7 @@
         "route_type",
         "capability_ref",
         "basis_ref",
+        "quality_profile_version",
         "entity_id",
         "entity_type",
         "schema_version",
@@ -9489,6 +9594,7 @@
         "route_type": {"type": "string"},
         "capability_ref": {"type": "string"},
         "basis_ref": {"type": "string"},
+        "quality_profile_version": {"type": "string"},
         "entity_id": {"type": "string"},
         "entity_type": {"type": "string"},
         "schema_version": {"type": "integer"},
@@ -9515,6 +9621,7 @@
         "constraint_snapshot_id",
         "budget_ref",
         "prompt_ref",
+        "quality_profile_version",
         "entity_id",
         "entity_type",
         "schema_version",
@@ -9540,7 +9647,16 @@
         "entity_type": {"type": "string"},
         "schema_version": {"type": "integer"},
         "entity_version": {"type": "integer"},
-                "status": {"type": "string", "enum": ["REQUESTED", "RUNNING", "SUCCEEDED", "FAILED"]},
+        "status": {
+          "type": "string",
+          "enum": [
+            "AWAITING_ASSET_REGISTRATION",
+            "FAILED",
+            "REQUESTED",
+            "RUNNING",
+            "SUCCEEDED"
+          ]
+        },
         "lease_expires_at": {"type": ["string", "null"]},
         "lease_owner": {"type": "string"},
         "attempt_count": {"type": "integer"},
