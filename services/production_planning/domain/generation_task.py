@@ -169,10 +169,10 @@ class GenerationTask(Entity):
         asset_version_id: str,
         quality_profile_version: str,
     ) -> GenerationTask:
-        """终结前登记产物引用（不改状态、不推版本；由随后的 finish 一并落库）。
+        """登记产物引用（不改状态、不推版本）。
 
-        只允许在 RUNNING 且租约期内调用：没有租约的人不能替别的执行者写产物引用，
-        否则「谁生成了这份资产」这一事实就无从判定。
+        T3 从登记回执取值，调用方必须是已核验回执的服务；状态校验由
+        ``bind_registration_result`` 负责，这里只保证引用本身非空且不超长。
         """
         asset_version_id = (asset_version_id or "").strip()
         quality_profile_version = (quality_profile_version or "").strip()
@@ -195,6 +195,57 @@ class GenerationTask(Entity):
                 )
         self.asset_version_id = asset_version_id
         self.quality_profile_version = quality_profile_version
+        return self
+
+    def await_asset_registration(
+        self, worker_id: str, audit_ref: str, action: str
+    ) -> GenerationTask:
+        """T1：RUNNING → AWAITING_ASSET_REGISTRATION，释放租约但不宣称成功。
+
+        资产 ID 此时还不存在——它由资产域 T2 回执给出。若在这里顺便绑定产物引用
+        并推 SUCCEEDED，就等于把 Worker 的声明当成了登记事实，正是 ADR-R42 C1/C3
+        要根治的自报成功。
+        """
+        self.require_lease_owner(worker_id)
+        self.transition_to(
+            GenerationTaskStatus.AWAITING_ASSET_REGISTRATION, audit_ref, action
+        )
+        self.lease_owner = ""
+        self.lease_expires_at = None
+        return self
+
+    def bind_registration_result(
+        self,
+        asset_version_id: str,
+        quality_profile_version: str,
+        audit_ref: str,
+        action: str,
+        target: GenerationTaskStatus,
+    ) -> GenerationTask:
+        """T3：只有登记回执才能给出产物引用并推进终态。
+
+        ``action`` 是事件名（不是 Worker action）：状态机据此证明终态入口来自
+        回执消费，而不是任何一侧的自报。
+        """
+        if self.status is not GenerationTaskStatus.AWAITING_ASSET_REGISTRATION:
+            raise DomainError(
+                ErrorRegistry.STATE_TRANSITION_DENIED,
+                detail=(
+                    f"任务当前为 {self.status.value}，只能从等待登记态接受回执终态"
+                ),
+            )
+        self.attach_product_refs(asset_version_id, quality_profile_version)
+        self.transition_to(target, audit_ref, action)
+        return self
+
+    def reject_from_registration(self, audit_ref: str, action: str) -> GenerationTask:
+        """T3 拒绝分支：登记回执证明产物不可登记，不能绑定资产引用。"""
+        if self.status is not GenerationTaskStatus.AWAITING_ASSET_REGISTRATION:
+            raise DomainError(
+                ErrorRegistry.STATE_TRANSITION_DENIED,
+                detail=f"任务当前为 {self.status.value}，只能从等待登记态接受拒绝回执",
+            )
+        self.transition_to(GenerationTaskStatus.FAILED, audit_ref, action)
         return self
 
     def renew(

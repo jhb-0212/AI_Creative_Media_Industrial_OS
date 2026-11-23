@@ -107,10 +107,11 @@ class GenerationWorker:
                 "lease lost while running task %s, abandon result", claimed.entity_id
             )
             return True
-        # 入队**不在这里做**（P1-03）：GENERATION_SUCCEEDED 与终态同事务进 outbox，
-        # 由 relay 消费后入队。此处若直接写 QC 表，就会重新出现「待检项先于生成
-        # 成功」的跨域提交顺序缺陷；漏入队由 reconcile_qc 扫描补偿。
-        await self._finish(claimed, outcome)
+        # R42：SUCCEEDED 不是 Worker 可写的终态。执行器成功意味着 T1 已提交
+        # AWAITING 与登记请求；终态由 relay 的 T2/T3 依据资产回执推进。
+        # 只有失败仍由持租约的 Worker 就地登记（GENERATION.PROCESS 边）。
+        if outcome.result == "FAILED":
+            await self._finish(claimed, outcome)
         return True
 
     # ---- 四个阶段各自成事务 ------------------------------------------------ #
@@ -145,35 +146,13 @@ class GenerationWorker:
             await unit.commit()
 
     async def _finish(self, task: Any, outcome: GenerationOutcome) -> bool:
-        product_refs: dict[str, str] = {}
-        finish_result = outcome.result
-        finish_evidence = outcome.evidence_ref
-        if outcome.result == "SUCCEEDED":
-            if outcome.asset_version_id.strip() and outcome.quality_profile_version.strip():
-                product_refs = {
-                    "asset_version_id": outcome.asset_version_id,
-                    "quality_profile_version": outcome.quality_profile_version,
-                }
-            else:
-                # 执行器声明成功却没给产物引用：这是执行器违反契约，不是并发冲突。
-                # 不落 SUCCEEDED（无产物的成功会让 QC 入队与对账拿到查不到资产的任务），
-                # 也不能让任务停在 RUNNING 等租约过期——过期回收会把同一个违约执行器
-                # 无限重试，而问题只表现为一条含糊的「finish rejected」日志。
-                logger.error(
-                    "executor declared SUCCEEDED without product refs for task %s; "
-                    "recording FAILED (executor contract violation)",
-                    task.entity_id,
-                )
-                finish_result = "FAILED"
-                finish_evidence = "executor-contract-violation:missing-product-refs"
         async with self._scope() as unit:
             try:
                 await unit.service.finish(
                     task_id=task.entity_id,
                     worker_id=self.worker_id,
-                    result=finish_result,
-                    evidence_ref=finish_evidence,
-                    **product_refs,
+                    result="FAILED",
+                    evidence_ref=outcome.evidence_ref,
                 )
             except DomainError as exc:
                 # 执行期间租约被别人回收：结果作废，状态以回收方为准，不能覆盖。

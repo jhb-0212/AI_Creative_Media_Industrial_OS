@@ -631,6 +631,24 @@ def test_transition_entry_gaps_passes_on_current_contract() -> None:
     assert cc.check_transition_entry_gaps() is True
 
 
+def test_transition_entry_gaps_detects_missing_relay_handler(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T3 的事件入口必须从实际 handler 注册表派生，不能被当成永久豁免。
+
+    摘掉 relay 事件入口后，两条 AWAITING 终态边又变成「无已实现入口」；若闸门
+    仍 PASS，说明它是靠历史债务文件或硬编码事件名背书，而不是看运行时事实。
+    """
+    monkeypatch.setattr(cc, "_implemented_relay_events", lambda: set())
+    data = yaml.safe_load(cc.STATE_GAPS_PATH.read_text(encoding="utf-8"))
+    # 模拟「handler 被删、债务条目也被删」：反向完备性必须把两条边点名报红。
+    data["transition_entry_gaps"]["GenerationTask"] = {}
+    target = tmp_path / "gaps.yaml"
+    target.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    monkeypatch.setattr(cc, "STATE_GAPS_PATH", target)
+    assert cc.check_transition_entry_gaps() is False
+
+
 def test_transition_entry_gaps_detects_dropped_entry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

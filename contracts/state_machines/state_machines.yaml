@@ -935,15 +935,8 @@ objects:
   allowed_states: [REQUESTED, RUNNING, AWAITING_ASSET_REGISTRATION, SUCCEEDED, FAILED]
   initial_state: REQUESTED
   transitions:
-  # 过渡边：PR-D 落地 T3 回执消费处理器前，Worker 仍走这两条边完成终态。
-  # 它们不是「目标态」——C1 要求删除，删除条件可机检：T3 事件处理器已实现、
-  # state_machine_gaps.yaml 的两条入口债务已销项、Finish 请求不再携带自报资产 ID。
-  # PR-B 只声明目标态，不提前切断运行时入口，避免中间提交无法完成任何任务。
-  - {from: REQUESTED, to: SUCCEEDED, owner_action: GENERATION.REQUEST}
-  - {from: REQUESTED, to: FAILED, owner_action: GENERATION.REQUEST}
   # 异步领取：只有持有租约的一方才推进 RUNNING（Phase 2，申请包 §1 已签发）。
   - {from: REQUESTED, to: RUNNING, owner_action: GENERATION.PROCESS}
-  - {from: RUNNING, to: SUCCEEDED, owner_action: GENERATION.PROCESS}
   # T0/T1：对象写入并复核后进入等待资产登记；SUCCEEDED 不再由 Worker 直接推进（C1）。
   - {from: RUNNING, to: AWAITING_ASSET_REGISTRATION, owner_action: GENERATION.PROCESS}
   # T3：资产域登记回执是唯一成功/永久失败依据，由事件处理器推进而非 Worker。
@@ -956,13 +949,11 @@ objects:
   frozen_states: []
   note: >-
     生成任务记录。REQUESTED 由 GENERATION.REQUEST 创建；Worker 持租约推进 RUNNING。
-    T3 落地后 RUNNING 不得直接到 SUCCEEDED——须经 T1 进入 AWAITING_ASSET_REGISTRATION，
-    由 T3 消费资产域登记回执后才可到 SUCCEEDED/FAILED。两条旧同步边（REQUESTED→SUCCEEDED、
-    RUNNING→SUCCEEDED）作为过渡保留至 PR-D；删除条件可机检：T3 事件处理器已实现、
-    state_machine_gaps.yaml 两条入口债务已销项、Finish 请求不再携带自报资产 ID。
-    T3 两条边的 owner_action 是事件名而非已实现 action，入口债务在
-    state_machine_gaps.yaml 显式登记，待事件处理器落地时解除；不得用
-    GENERATION.PROCESS 占位，那等于声明 Worker 可自报成功。
+    RUNNING 不得直接到 SUCCEEDED——须经 T1 进入 AWAITING_ASSET_REGISTRATION，
+    由 T3 消费资产域登记回执后才可到 SUCCEEDED/FAILED。两条旧同步边与
+    state_machine_gaps.yaml 的入口债务已随 PR-D 销项；Finish 请求不再携带自报资产 ID。
+    T3 两条边的 owner_action 是事件名而非业务 action，入口由事件处理器提供；
+    不得用 GENERATION.PROCESS 占位，那等于声明 Worker 可自报成功。
   source_kind: owner_supplied_design
   registration_status: PENDING_PHASE1_REVIEW
   all_sources:

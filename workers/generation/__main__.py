@@ -45,9 +45,9 @@ from services.project_planning.repository.sqlalchemy_outbox_writer import (
 )
 from services.qc_governance.repository.qc_task_repo import SqlAlchemyQCTaskRepository
 from services.qc_governance.service.qc_task_service import QCTaskService
+from workers.generation.asset_registrar import SagaAssetRegistrar
 from workers.generation.executor import (
     StorageBackedGenerationExecutor,
-    UnwiredAssetRegistrar,
     resolve_inline_prompt,
 )
 from workers.generation.worker import (
@@ -138,7 +138,7 @@ def _build_worker(
     )
 
 
-def _build_executor(settings: Any) -> tuple[Any, Any | None]:
+def _build_executor(settings: Any, sessionmaker: Any) -> tuple[Any, Any | None]:
     """按配置装配执行器，返回 ``(executor, 需要关闭的网关)``。
 
     三档行为，都是显式的：
@@ -153,9 +153,8 @@ def _build_executor(settings: Any) -> tuple[Any, Any | None]:
     第二档刻意不降级：若「配了地址但没配 KEY」静默回落到未配置执行器，
     运维会看到「任务一直失败」而去查网关，而真正的原因是本机的配置缺一项。
 
-    资产登记器仍接 ``UnwiredAssetRegistrar``：系统主体 / 跨租户上下文 /
-    跨域事务尚未裁定（P2-01）。因此即便网关配齐，任务仍会以
-    ``asset-registration-unwired`` 失败——这是真实的当前状态，不是 bug。
+    资产登记器接 ``SagaAssetRegistrar``：T0/T1 在生成域自己的短事务里落意图并
+    发登记请求；资产 ID 由 T2 回执经 relay T3 写回，Worker 不再自报成功。
     """
     base_url = getattr(settings, "model_gateway_base_url", "")
     if not base_url:
@@ -183,7 +182,7 @@ def _build_executor(settings: Any) -> tuple[Any, Any | None]:
         gateway=gateway,
         storage=storage,
         resolve_prompt=resolve_inline_prompt,
-        registrar=UnwiredAssetRegistrar(),
+        registrar=SagaAssetRegistrar(sessionmaker),
         default_model=getattr(settings, "model_gateway_default_model", ""),
         media_type=getattr(settings, "generation_default_media_type", "image/png"),
         size=getattr(settings, "generation_default_size", ""),
@@ -327,7 +326,7 @@ async def _main(argv: list[str] | None = None) -> int:
     scope = _make_scope(sessionmaker)
     qc_enqueuer = _make_qc_enqueuer(qc_sessionmaker)
     qc_lookup = _make_qc_lookup(qc_sessionmaker)
-    executor, gateway = _build_executor(settings)
+    executor, gateway = _build_executor(settings, sessionmaker)
     worker = _build_worker(scope, args, qc_enqueuer, qc_lookup, executor)
     try:
         if args.sweep or args.once:

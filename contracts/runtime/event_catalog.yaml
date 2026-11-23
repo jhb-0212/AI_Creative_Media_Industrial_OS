@@ -34,6 +34,44 @@ events:
       - status
     contract_ref: contracts/schemas/object_schemas.schema.json#AssetVersion
 
+  # R42 T1：存储确认后与 AWAITING 同事务发出，T2 据此登记资产。
+  - event_type: ASSET_REGISTRATION_REQUESTED
+    aggregate_type: GenerationTask
+    emitted_by: services/production_planning/service/generation_service.py
+    contract_ref: docs/adr/ADR-R42-asset-registration-saga.md#T1
+    payload_required:
+      - generation_task_id
+      - project_id
+      - tenant_id
+      - locator
+      - sha256
+      - attempt_id
+      - media_type
+      - quality_profile_version
+      - worker_id
+
+  # R42 T2：登记结果与回执同事务发出；T3 只认这两个事件推进终态。
+  - event_type: ASSET_REGISTRATION_COMPLETED
+    aggregate_type: AssetRegistrationReceipt
+    emitted_by: workers/relay/asset_registration.py
+    contract_ref: docs/adr/ADR-R42-asset-registration-saga.md#T2
+    payload_required:
+      - generation_task_id
+      - project_id
+      - tenant_id
+      - asset_version_id
+      - quality_profile_version
+
+  - event_type: ASSET_REGISTRATION_REJECTED
+    aggregate_type: AssetRegistrationReceipt
+    emitted_by: workers/relay/asset_registration.py
+    contract_ref: docs/adr/ADR-R42-asset-registration-saga.md#T2
+    payload_required:
+      - generation_task_id
+      - project_id
+      - tenant_id
+      - reason
+
   - event_type: QC_REPORT_CREATED
     aggregate_type: AssetVersion
     emitted_by: services/asset_service/service/asset_service.py

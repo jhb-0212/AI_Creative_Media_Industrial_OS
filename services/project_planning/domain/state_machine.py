@@ -40,6 +40,7 @@ from packages.shared.lifecycle import (
     Transition,
 )
 from services.project_planning.domain.enums import (
+    ArtifactManifestStatus,
     ConstraintPackStatus,
     EpisodeStatus,
     GenerationTaskStatus,
@@ -483,29 +484,12 @@ ASSET_REGISTRATION_COMPLETED_EVENT = "ASSET_REGISTRATION_COMPLETED"
 ASSET_REGISTRATION_REJECTED_EVENT = "ASSET_REGISTRATION_REJECTED"
 
 GENERATION_TASK_TRANSITIONS: tuple[Transition[GenerationTaskStatus], ...] = (
-    # 过渡边：PR-D 落地 T3 处理器后删除（契约 state_machines.yaml 同步标注了可机检
-    # 删除条件）。现在保留是为了让中间提交仍能完成任务，而不是承认 Worker 自报成功。
-    Transition(
-        GenerationTaskStatus.REQUESTED,
-        GenerationTaskStatus.SUCCEEDED,
-        GENERATION_REQUEST_ACTION,
-    ),
-    Transition(
-        GenerationTaskStatus.REQUESTED,
-        GenerationTaskStatus.FAILED,
-        GENERATION_REQUEST_ACTION,
-    ),
     # --- Phase 2：异步租约边，全部归 GENERATION.PROCESS ---
     # REQUESTED → RUNNING：Worker 持租约领取；RUNNING → AWAITING_ASSET_REGISTRATION：
     # T1 确认对象已存储并发出登记请求；RUNNING → REQUESTED：租约到期退回。
     Transition(
         GenerationTaskStatus.REQUESTED,
         GenerationTaskStatus.RUNNING,
-        GENERATION_PROCESS_ACTION,
-    ),
-    Transition(
-        GenerationTaskStatus.RUNNING,
-        GenerationTaskStatus.SUCCEEDED,
         GENERATION_PROCESS_ACTION,
     ),
     Transition(
@@ -543,6 +527,26 @@ GENERATION_TASK_LIFECYCLE = Lifecycle(
     initial_states=(GenerationTaskStatus.REQUESTED,),
     frozen_states=(),
 )
+
+# R42 T1：产物意图只有一条确认边，归 GENERATION.PROCESS（对象存储写入由
+# 持有租约的 Generation Worker 完成）。确认态冻结，恢复只重试 PREPARED 行。
+ARTIFACT_MANIFEST_TRANSITIONS: tuple[Transition[ArtifactManifestStatus], ...] = (
+    Transition(
+        ArtifactManifestStatus.PREPARED,
+        ArtifactManifestStatus.STORED_VERIFIED,
+        GENERATION_PROCESS_ACTION,
+    ),
+)
+ARTIFACT_MANIFEST_LIFECYCLE = Lifecycle(
+    object_name="ArtifactManifest",
+    states=tuple(ArtifactManifestStatus),
+    edges=ARTIFACT_MANIFEST_TRANSITIONS,
+    initial_states=(ArtifactManifestStatus.PREPARED,),
+    frozen_states=(ArtifactManifestStatus.STORED_VERIFIED,),
+)
+ARTIFACT_MANIFEST_ALLOWED_TRANSITIONS: dict[
+    ArtifactManifestStatus, frozenset[ArtifactManifestStatus]
+] = ARTIFACT_MANIFEST_LIFECYCLE.allowed_transitions()
 
 GENERATION_TASK_ALLOWED_TRANSITIONS: dict[
     GenerationTaskStatus, frozenset[GenerationTaskStatus]

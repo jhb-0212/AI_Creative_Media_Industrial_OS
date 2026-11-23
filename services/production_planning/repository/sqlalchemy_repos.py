@@ -9,13 +9,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.versioning import _orm_update_values, conditional_update
+from services.production_planning.domain.artifact_manifest import ArtifactManifest
 from services.production_planning.domain.generation_task import GenerationTask
 from services.production_planning.domain.production_route import ProductionRoute
 from services.production_planning.repository.orm import (
+    ArtifactManifestModel,
     GenerationTaskModel,
     ProductionRouteModel,
 )
 from services.project_planning.domain.enums import (
+    ArtifactManifestStatus,
     GenerationTaskStatus,
     ProductionRouteStatus,
 )
@@ -170,6 +173,47 @@ def _task_to_domain(model: GenerationTaskModel) -> GenerationTask:
     )
 
 
+def _manifest_to_orm(manifest: ArtifactManifest) -> ArtifactManifestModel:
+    return ArtifactManifestModel(
+        entity_id=manifest.entity_id,
+        entity_type=manifest.ENTITY_TYPE,
+        schema_version=manifest.schema_version,
+        entity_version=manifest.entity_version,
+        status=manifest.status.value,
+        owner_module=manifest.owner_module,
+        tenant_id=manifest.tenant_id,
+        created_at=manifest.created_at,
+        created_by=manifest.created_by,
+        updated_at=manifest.updated_at,
+        audit_ref=manifest.audit_ref,
+        generation_task_id=manifest.generation_task_id,
+        project_id=manifest.project_id,
+        locator=manifest.locator,
+        sha256=manifest.sha256,
+        attempt_id=manifest.attempt_id,
+    )
+
+
+def _orm_to_manifest(model: ArtifactManifestModel) -> ArtifactManifest:
+    return ArtifactManifest(
+        entity_id=model.entity_id,
+        created_by=model.created_by,
+        tenant_id=model.tenant_id,
+        schema_version=model.schema_version,
+        entity_version=model.entity_version,
+        status=ArtifactManifestStatus(model.status),
+        owner_module=model.owner_module,
+        created_at=model.created_at,
+        updated_at=model.updated_at,
+        audit_ref=model.audit_ref,
+        generation_task_id=model.generation_task_id,
+        project_id=model.project_id,
+        locator=model.locator,
+        sha256=model.sha256,
+        attempt_id=model.attempt_id,
+    )
+
+
 class SqlAlchemyGenerationTaskRepository:
     """GenerationTask 的持久化仓储。"""
 
@@ -194,6 +238,18 @@ class SqlAlchemyGenerationTaskRepository:
     async def get_by_id(self, entity_id: str) -> GenerationTask | None:
         result = await self._session.execute(
             select(GenerationTaskModel).where(GenerationTaskModel.entity_id == entity_id)
+        )
+        model = result.scalar_one_or_none()
+        return _task_to_domain(model) if model is not None else None
+
+    async def get_by_generation_task_id(
+        self, generation_task_id: str
+    ) -> GenerationTask | None:
+        """按业务任务号读取（事件载荷使用业务号，不是随机 entity_id）。"""
+        result = await self._session.execute(
+            select(GenerationTaskModel).where(
+                GenerationTaskModel.generation_task_id == generation_task_id
+            )
         )
         model = result.scalar_one_or_none()
         return _task_to_domain(model) if model is not None else None
@@ -246,6 +302,37 @@ class SqlAlchemyGenerationTaskRepository:
             .limit(limit)
         )
         return [_task_to_domain(model) for model in result.scalars()]
+
+    # ---- ArtifactManifest（R42 T0/T1）------------------------------------ #
+
+    async def add_manifest(self, manifest: ArtifactManifest) -> ArtifactManifest:
+        self._session.add(_manifest_to_orm(manifest))
+        await self._session.flush()
+        return manifest
+
+    async def get_manifest_by_task_attempt(
+        self, generation_task_id: str, attempt_id: str
+    ) -> ArtifactManifest | None:
+        result = await self._session.execute(
+            select(ArtifactManifestModel).where(
+                ArtifactManifestModel.generation_task_id == generation_task_id,
+                ArtifactManifestModel.attempt_id == attempt_id,
+            )
+        )
+        model = result.scalar_one_or_none()
+        return _orm_to_manifest(model) if model is not None else None
+
+    async def save_manifest(
+        self, manifest: ArtifactManifest, expected_version: int
+    ) -> ArtifactManifest:
+        await conditional_update(
+            self._session,
+            ArtifactManifestModel,
+            manifest.entity_id,
+            expected_version,
+            _orm_update_values(_manifest_to_orm(manifest)),
+        )
+        return manifest
 
 
 __all__ = [

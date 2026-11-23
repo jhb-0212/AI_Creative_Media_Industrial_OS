@@ -1606,14 +1606,19 @@ amendments:
       action，入口债务显式登记在 state_machine_gaps.yaml，不得用 GENERATION.PROCESS
       占位（那等于保留自报成功入口）。
       ProductionRoute 与 GenerationTask 同步增加 quality_profile_version，使质量策略
-      在任务创建时冻结、成为不可变任务输入。本条目只落地契约层（Schema/状态机/分类
-      台账/运行时状态机投影）；API 请求字段移除、数据库表与迁移、Saga 事件发射与
-      消费分别由后续 PR 落地，不在此条目宣称已完成。
+      在任务创建时冻结、成为不可变任务输入。
+      PR-C（716971ce18ee076bbb9f50bb419d115ca841791a）落地两张表与复合归属约束；
+      PR-D 补齐 T0/T1 写入意图与存储确认、T2 资产登记回执、T3 回执终态，并满足
+      三条可机检删除条件：T3 事件处理器已实现、state_machine_gaps.yaml 两条入口
+      债务已销项、Finish 请求不再携带自报资产 ID。因此两条过渡边正式删除，
+      AWAITING→SUCCEEDED/FAILED 的 owner 仍是事件名；事件入口由 relay handler
+      注册表派生判定，不借 Worker 动作占位。
     adr: 'docs/adr/ADR-R42-asset-registration-saga.md'
     approved_by: '项目所有者（2026-11-23 设计裁决：AssetRegistrar 升级为 Outbox 异步 Saga，T0–T3 四阶段，先完备契约后执行业务）'
     approved_at: '2026-11-23'
     source_commits:
       - 'b41942c1a0447775e22510bd555528bdf29325c2'
+      - '716971ce18ee076bbb9f50bb419d115ca841791a'
     additions:
       schema_objects:
         - object: 'ArtifactManifest'

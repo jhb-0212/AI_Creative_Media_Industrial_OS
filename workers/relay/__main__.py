@@ -17,6 +17,8 @@ import signal
 
 from packages.shared.config import get_process_settings
 from packages.shared.database import (
+    create_asset_service_engine,
+    create_production_planning_engine,
     create_qc_governance_engine,
     create_relay_engine,
     create_sessionmaker,
@@ -52,7 +54,16 @@ async def _main_async(*, interval: float, batch_size: int, once: bool) -> None:
     # 写 qc_tasks 必须用 qc_governance 角色（ADR-R06 方案 B 的刻意隔离）。
     qc_engine = create_qc_governance_engine()
     qc_sessionmaker = create_sessionmaker(qc_engine)
-    handlers = build_handlers(qc_sessionmaker=qc_sessionmaker)
+    # T2/T3 各用自己的域角色会话；relay 角色只动 outbox，不写业务表。
+    production_engine = create_production_planning_engine()
+    production_sessionmaker = create_sessionmaker(production_engine)
+    asset_engine = create_asset_service_engine()
+    asset_sessionmaker = create_sessionmaker(asset_engine)
+    handlers = build_handlers(
+        qc_sessionmaker=qc_sessionmaker,
+        production_planning_sessionmaker=production_sessionmaker,
+        asset_sessionmaker=asset_sessionmaker,
+    )
     # 兜底处理器：配了 webhook 才存在。没配时事件保持未投递（积压可见），
     # 而不是被「成功」丢弃。
     # 熔断开关：配置口径「阈值 0 = 关闭熔断」，因此 enabled 由阈值派生；原值原样
@@ -102,6 +113,8 @@ async def _main_async(*, interval: float, batch_size: int, once: bool) -> None:
         # 先停投递再释放连接池：连接池关闭时在途事务会被强断。
         if dispatcher is not None:
             await dispatcher.aclose()
+        await asset_engine.dispose()
+        await production_engine.dispose()
         await qc_engine.dispose()
         await engine.dispose()
 

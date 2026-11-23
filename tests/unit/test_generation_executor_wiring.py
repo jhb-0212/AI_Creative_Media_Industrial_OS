@@ -31,11 +31,15 @@ class _RecordingRegistrar:
         self.calls: list[tuple[str, str]] = []
         self._fail = fail
 
-    async def register(self, task, artifact: GeneratedArtifact):
-        self.calls.append((task.entity_id, artifact.stored.locator))
+    async def prepare(self, task, *, locator: str, sha256: str, attempt_id: str):
+        self.calls.append(("prepare", locator))
         if self._fail:
             raise AssetRegistrationUnavailableError("模拟未接线")
-        return ("asset-v-1", "qp-1")
+
+    async def register(self, task, artifact: GeneratedArtifact):
+        self.calls.append(("register", artifact.stored.locator))
+        if self._fail:
+            raise AssetRegistrationUnavailableError("模拟未接线")
 
 
 def _task(**overrides) -> SimpleNamespace:
@@ -45,6 +49,7 @@ def _task(**overrides) -> SimpleNamespace:
         "model_adapter_ref": "model-x",
         "project_id": "project-1",
         "tenant_id": "tenant-1",
+        "attempt_count": 1,
     }
     base.update(overrides)
     return SimpleNamespace(**base)
@@ -74,14 +79,14 @@ async def test_success_registers_asset_and_lands_bytes(tmp_path: Path) -> None:
     outcome = await executor.execute(_task())
 
     assert outcome.result == "SUCCEEDED"
-    assert outcome.asset_version_id == "asset-v-1"
-    assert outcome.quality_profile_version == "qp-1"
-    # 产物真的落盘了，而不只是「登记了一个 id」。
+    # 执行器不再返回资产 ID：它只能证明 T1 已发出登记请求。
+    assert outcome.asset_version_id == ""
     locator = outcome.evidence_ref.split("|")[0]
     assert locator.startswith("local://")
     storage = LocalFsObjectStorage(tmp_path / "objects", max_bytes=1024 * 1024)
     assert await storage.exists(locator)
-    assert len(registrar.calls) == 1
+    # T0 意图先于落盘，T1 确认在落盘之后；顺序反了就失去崩溃恢复依据。
+    assert [call[0] for call in registrar.calls] == ["prepare", "register"]
 
 
 async def test_unresolvable_prompt_never_calls_gateway(tmp_path: Path) -> None:
@@ -125,20 +130,15 @@ async def test_storage_limit_failure_is_reported_as_storage(tmp_path: Path) -> N
     assert outcome.evidence_ref.startswith("storage-")
 
 
-async def test_unwired_registrar_fails_closed_after_bytes_land(tmp_path: Path) -> None:
-    """资产登记未接线时：
-
-    - 任务必须 FAILED（无 ``asset_version_id`` 的 SUCCEEDED 会被 P1-02 降级）；
-    - 但产物**已经落盘**——证据要如实反映「走到了哪一步」，否则排障会以为
-      网关或存储坏了。
-    """
+async def test_unwired_registrar_fails_closed_before_bytes_land(tmp_path: Path) -> None:
+    """T0 意图失败就不落盘：否则留下无法恢复的孤儿对象。"""
     executor = _executor(tmp_path, registrar=UnwiredAssetRegistrar())
 
     outcome = await executor.execute(_task())
 
     assert outcome.result == "FAILED"
-    assert outcome.evidence_ref.startswith("asset-registration-unwired")
-    assert any((tmp_path / "objects").rglob("*.png"))
+    assert outcome.evidence_ref.startswith("artifact-intent-")
+    assert not any((tmp_path / "objects").rglob("*.png"))
 
 
 async def test_same_task_twice_yields_same_locator(tmp_path: Path) -> None:
@@ -170,7 +170,7 @@ async def test_declared_digest_mismatch_is_caught_as_storage_failure(
     outcome = await executor.execute(_task())
 
     assert outcome.result == "FAILED"
-    assert outcome.evidence_ref.startswith("storage-StorageIntegrityError")
+    assert outcome.evidence_ref.startswith("gateway-digest-mismatch")
     assert not any((tmp_path / "objects").rglob("*.png"))
 
 

@@ -425,10 +425,8 @@ async def test_expired_lease_blocks_old_worker_renew_and_finish(
             await service.finish(
                 task_id=task_id,
                 worker_id="worker-A",
-                result="SUCCEEDED",
+                result="FAILED",
                 evidence_ref="late",
-                asset_version_id="av-late",
-                quality_profile_version="qp-late",
             )
         await session.rollback()
 
@@ -543,10 +541,8 @@ async def test_late_finish_after_reclaim_rejected(admin_sessionmaker) -> None:
             await service.finish(
                 task_id=task_id,
                 worker_id="worker-A",
-                result="SUCCEEDED",
+                result="FAILED",
                 evidence_ref="late-A",
-                asset_version_id="av-late",
-                quality_profile_version="qp-late",
             )
         await session.rollback()
 

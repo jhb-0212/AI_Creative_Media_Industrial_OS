@@ -184,6 +184,11 @@ _STATE_MACHINE_SOURCES: dict[str, tuple[str, str]] = {
         "services.project_planning.domain.state_machine",
         "GENERATION_TASK_ALLOWED_TRANSITIONS",
     ),
+    # R42 T1：产物写入意图的确认边已落地，纳入已实现状态机比对。
+    "ArtifactManifest": (
+        "services.project_planning.domain.state_machine",
+        "ARTIFACT_MANIFEST_ALLOWED_TRANSITIONS",
+    ),
     "ShotBudgetRequest": (
         "services.project_planning.domain.state_machine",
         "SHOT_BUDGET_REQUEST_ALLOWED_TRANSITIONS",
@@ -1667,6 +1672,27 @@ def _implemented_action_keys() -> set[str]:
     return {str(key) for key in (ledger.get("implemented") or {})}
 
 
+def _implemented_relay_events() -> set[str]:
+    """relay 已注册的 event_type 也是合法的转移入口凭据（R42 T3）。
+
+    T3 的 owner_action 刻意是事件名而不是 HTTP action：成功必须来自登记回执，
+    不能借用 Worker 的 ``GENERATION.PROCESS``。入口是否存在因此不能只看 HTTP
+    动作台账——那会把真实已实现的事件入口误判成缺口，反过来诱使人把 owner 改成
+    Worker action，等于把自报成功重新开门。这里从**实际注册的 handler 集合**派生，
+    不手写事件清单；注册消失时债务判定会自动变红。
+    """
+    from workers.relay.handlers import build_handlers
+
+    sentinel = object()
+    return set(
+        build_handlers(
+            qc_sessionmaker=sentinel,
+            production_planning_sessionmaker=sentinel,
+            asset_sessionmaker=sentinel,
+        )
+    )
+
+
 def _declared_transition_entry_gaps() -> dict[str, dict[str, dict[str, object]]]:
     """读取并校验 ``transition_entry_gaps`` 分区（形状坏 = 契约损坏 → ValueError）。
 
@@ -1738,7 +1764,7 @@ def check_transition_entry_gaps() -> bool:
       跑通业务路径，属集成测试的语义面。判据只对自己的语义面负责。
     """
     declared = _declared_transition_entry_gaps()
-    implemented = _implemented_action_keys()
+    implemented = _implemented_action_keys() | _implemented_relay_events()
     lifecycles, lifecycle_problems = _implemented_lifecycles()
     ok = True
     count = 0

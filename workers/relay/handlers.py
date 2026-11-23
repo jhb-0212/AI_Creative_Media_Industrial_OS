@@ -43,6 +43,7 @@ from services.project_planning.repository.sqlalchemy_outbox_writer import (
 )
 from services.qc_governance.repository.qc_task_repo import SqlAlchemyQCTaskRepository
 from services.qc_governance.service.qc_task_service import QCTaskService
+from workers.relay.asset_registration import build_asset_registration_handlers
 from workers.relay.consumer import EventHandler, OutboxEvent
 
 logger = get_logger(__name__)
@@ -172,7 +173,12 @@ def build_generation_handlers(enqueue: EnqueueFn) -> dict[str, EventHandler]:
     return {"GENERATION_SUCCEEDED": handle_generation_succeeded}
 
 
-def build_handlers(*, qc_sessionmaker: Any | None = None) -> dict[str, EventHandler]:
+def build_handlers(
+    *,
+    qc_sessionmaker: Any | None = None,
+    production_planning_sessionmaker: Any | None = None,
+    asset_sessionmaker: Any | None = None,
+) -> dict[str, EventHandler]:
     """按可用依赖装配处理器集合。
 
     依赖缺省时**不注册**对应处理器：事件保持未投递并让积压上涨，
@@ -181,6 +187,13 @@ def build_handlers(*, qc_sessionmaker: Any | None = None) -> dict[str, EventHand
     handlers: dict[str, EventHandler] = {}
     if qc_sessionmaker is not None:
         handlers.update(build_generation_handlers(make_sql_enqueue(qc_sessionmaker)))
+    if production_planning_sessionmaker is not None and asset_sessionmaker is not None:
+        handlers.update(
+            build_asset_registration_handlers(
+                production_planning_sessionmaker=production_planning_sessionmaker,
+                asset_sessionmaker=asset_sessionmaker,
+            )
+        )
     return handlers
 
 

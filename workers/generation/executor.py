@@ -28,6 +28,7 @@ fail-closed 行为，不是本模块的缺陷。
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -45,6 +46,7 @@ from adapters.storage.ports import (
     StoredObject,
 )
 from packages.shared.logging import get_logger
+from packages.shared.storage_locator import build_locator, extension_for_media_type
 from workers.generation.worker import GenerationOutcome
 
 logger = get_logger(__name__)
@@ -93,30 +95,38 @@ class GeneratedArtifact:
     """已落地的产物：此后所有引用都走 ``locator``。"""
 
     stored: StoredObject
+    attempt_id: str = ""
     upstream_request_id: str = ""
 
 
 class AssetRegistrar(Protocol):
-    """把产物登记成一个资产版本，返回 ``(asset_version_id, quality_profile_version)``。
+    """R42 两段式登记端口：T0 写意图，T1 确认存储并发出登记请求。
 
-    这个端口之所以在 Worker 侧而不是适配器侧：登记要经过资产域服务层
-    （``AssetVersion`` 的不变量、幂等、归属校验都在那里），而适配器不得
-    依赖 services。
+    成功不再由这里返回资产 ID——那等于 Worker 自报登记结果。资产 ID 只能来自
+    T2 回执，由 relay 的 T3 处理器写回任务终态。
     """
 
-    async def register(
-        self, task: Any, artifact: GeneratedArtifact
-    ) -> tuple[str, str]: ...
+    async def prepare(
+        self, task: Any, *, locator: str, sha256: str, attempt_id: str
+    ) -> None: ...
+
+    async def register(self, task: Any, artifact: GeneratedArtifact) -> None: ...
 
 
 class UnwiredAssetRegistrar:
-    """未接线时的占位：明确拒绝，而不是返回空 id 让下游「看起来成功」。"""
+    """未接线时的占位：明确拒绝，而不是让产物落库后无人登记。"""
 
-    async def register(self, task: Any, artifact: GeneratedArtifact) -> tuple[str, str]:
+    async def prepare(
+        self, task: Any, *, locator: str, sha256: str, attempt_id: str
+    ) -> None:
+        raise AssetRegistrationUnavailableError(
+            f"资产登记端口未接线（task={getattr(task, 'entity_id', '?')}）"
+        )
+
+    async def register(self, task: Any, artifact: GeneratedArtifact) -> None:
         raise AssetRegistrationUnavailableError(
             f"资产登记端口未接线（task={getattr(task, 'entity_id', '?')}，"
-            f"产物={artifact.stored.locator}）："
-            "系统主体与跨域事务尚未裁定，见 P2-01"
+            f"产物={artifact.stored.locator}）"
         )
 
 
@@ -177,37 +187,63 @@ class StorageBackedGenerationExecutor:
             logger.error("gateway misconfigured, task %s cannot proceed: %s", task_id, exc)
             return _failed("gateway-misconfigured", str(exc))
 
+        # 摘要必须先算、意图必须先落库：崩溃后要能按 PREPARED 记录继续落盘，
+        # 而不是重新调用模型。用实际字节算摘要，不信任网关声明值。
+        digest = hashlib.sha256(artifact_bytes.data).hexdigest()
+        if artifact_bytes.declared_sha256 and artifact_bytes.declared_sha256.lower() != digest:
+            return _failed(
+                "gateway-digest-mismatch",
+                f"声明摘要 {artifact_bytes.declared_sha256} 与实际字节 {digest} 不一致",
+            )
+        extension = extension_for_media_type(artifact_bytes.media_type)
+        if extension is None:
+            return _failed(
+                "media-type-unsupported",
+                f"媒体类型 {artifact_bytes.media_type!r} 无受控定位符扩展名",
+            )
+        locator = build_locator(digest, extension)
+        attempt_id = f"{task.entity_id}:{getattr(task, 'attempt_count', 1)}:{digest[:8]}"
+        try:
+            await self._registrar.prepare(
+                task, locator=locator, sha256=digest, attempt_id=attempt_id
+            )
+        except Exception as exc:
+            logger.exception("artifact intent failed for task %s", task_id)
+            return _failed(f"artifact-intent-{type(exc).__name__}", str(exc))
+
         try:
             stored = await self._storage.put(
                 data=artifact_bytes.data,
                 media_type=artifact_bytes.media_type,
-                expected_sha256=artifact_bytes.declared_sha256,
+                expected_sha256=digest,
             )
         except StorageError as exc:
-            # 存储失败一律不可重试地记为本次失败：产物已在内存里，重试要重新
-            # 调用网关（重复计费），因此交给上层决定是否重跑整个任务。
             logger.error("artifact storage failed for task %s: %s", task_id, exc)
             return _failed(f"storage-{type(exc).__name__}", str(exc))
+        if stored.sha256 != digest or stored.locator != locator:
+            return _failed(
+                "storage-locator-drift",
+                f"落盘结果 {stored.locator}/{stored.sha256} 与意图 {locator}/{digest} 不一致",
+            )
 
         artifact = GeneratedArtifact(
-            stored=stored, upstream_request_id=artifact_bytes.upstream_request_id
+            stored=stored,
+            attempt_id=attempt_id,
+            upstream_request_id=artifact_bytes.upstream_request_id,
         )
         try:
-            asset_version_id, quality_profile_version = await self._registrar.register(
-                task, artifact
-            )
-        except AssetRegistrationUnavailableError as exc:
-            logger.error("cannot complete task %s: %s", task_id, exc)
-            return _failed("asset-registration-unwired", str(exc))
+            await self._registrar.register(task, artifact)
+        except Exception as exc:
+            logger.exception("artifact registration request failed for task %s", task_id)
+            return _failed(f"asset-registration-{type(exc).__name__}", str(exc))
 
+        # 这里不是终态：T1 已把任务推到 AWAITING，资产 ID 只能来自 T2 回执。
         return GenerationOutcome(
             result="SUCCEEDED",
             evidence_ref=_clip(
                 f"{stored.locator}|sha256={stored.sha256}"
                 f"|upstream={artifact_bytes.upstream_request_id or '-'}"
             ),
-            asset_version_id=asset_version_id,
-            quality_profile_version=quality_profile_version,
         )
 
 

@@ -104,7 +104,7 @@ async def test_renew_requires_lease_owner() -> None:
     assert renewed.status is GenerationTaskStatus.RUNNING
 
 
-async def test_finish_requires_lease_owner_and_clears_lease() -> None:
+async def test_finish_failure_requires_lease_owner_and_clears_lease() -> None:
     service, _repo, outbox = _service()
     task = await _requested(service)
     await service.claim(task_id=task.entity_id, worker_id="worker-1", lease_seconds=120)
@@ -113,22 +113,20 @@ async def test_finish_requires_lease_owner_and_clears_lease() -> None:
         await service.finish(
             task_id=task.entity_id,
             worker_id="worker-2",
-            result="SUCCEEDED",
+            result="FAILED",
         )
 
     done = await service.finish(
         task_id=task.entity_id,
         worker_id="worker-1",
-        result="SUCCEEDED",
-        evidence_ref="asset-1",
-        asset_version_id="av-1",
-        quality_profile_version="qp-1",
+        result="FAILED",
+        evidence_ref="gateway-error",
     )
-    assert done.status is GenerationTaskStatus.SUCCEEDED
+    assert done.status is GenerationTaskStatus.FAILED
     assert done.lease_owner == ""
     assert done.lease_expires_at is None
-    assert outbox.events[-1]["event_type"] == "GENERATION_SUCCEEDED"
-    assert outbox.events[-1]["payload"]["evidence_ref"] == "asset-1"
+    assert outbox.events[-1]["event_type"] == "GENERATION_FAILED"
+    assert outbox.events[-1]["payload"]["evidence_ref"] == "gateway-error"
 
 
 async def test_release_requires_expired_lease() -> None:
@@ -176,10 +174,8 @@ async def test_act_gen_neg_002_finish_without_lease_is_rejected() -> None:
         await service.finish(
             task_id=task.entity_id,
             worker_id="worker-1",
-            result="SUCCEEDED",
-            evidence_ref="asset-1",
-            asset_version_id="av-1",
-            quality_profile_version="qp-1",
+            result="FAILED",
+            evidence_ref="gateway-error",
         )
 
     assert task.status is GenerationTaskStatus.REQUESTED
@@ -199,18 +195,13 @@ async def test_to_dict_exposes_lease_fields() -> None:
     assert data["status"] == "RUNNING"
 
 
-async def test_succeeded_without_product_refs_is_rejected() -> None:
-    """SUCCEEDED 必须绑定产物：没有产物的成功是自报成功。
-
-    审据是「任务最终状态」而不是「是否抛错」：拒绝之后任务必须仍是 RUNNING
-    （租约仍在、可续租重试），既不能留成 SUCCEEDED，也不能被顺手改成 FAILED
-    ——一次入参错误的调用不该终结掉一个仍被持有的任务。
-    """
+async def test_worker_cannot_report_success_even_with_product_refs() -> None:
+    """C3：成功终态只能来自登记回执，服务层不接受任何自报成功。"""
     service, _repo, _outbox = _service()
     task = await _requested(service)
     await service.claim(task_id=task.entity_id, worker_id="worker-1", lease_seconds=120)
 
-    with pytest.raises(DomainError, match="asset_version_id"):
+    with pytest.raises(DomainError, match="登记回执"):
         await service.finish(
             task_id=task.entity_id,
             worker_id="worker-1",
@@ -218,25 +209,29 @@ async def test_succeeded_without_product_refs_is_rejected() -> None:
             evidence_ref="asset-1",
         )
 
+    # 一次非法调用既不推进终态，也不偷改仍被持有的任务。
     assert task.status is GenerationTaskStatus.RUNNING
     assert task.asset_version_id == ""
 
 
-async def test_succeeded_requires_quality_profile_version_too() -> None:
-    """只有asset_version_id 不够：质量档案版本同样是成功事实的一部分。"""
+async def test_t3_requires_waiting_state_for_success_receipt() -> None:
+    """T3 不能从 RUNNING 直接成功；必须先经 T1 进入等待登记态。"""
     service, _repo, _outbox = _service()
     task = await _requested(service)
     await service.claim(task_id=task.entity_id, worker_id="worker-1", lease_seconds=120)
 
-    with pytest.raises(DomainError, match="quality_profile_version"):
-        await service.finish(
-            task_id=task.entity_id,
-            worker_id="worker-1",
-            result="SUCCEEDED",
-            asset_version_id="av-1",
-            quality_profile_version="",
-        )
+    from services.project_planning.domain.state_machine import (
+        ASSET_REGISTRATION_COMPLETED_EVENT,
+    )
 
+    with pytest.raises(DomainError, match="等待登记态"):
+        task.bind_registration_result(
+            "av-1",
+            "qp-1",
+            "audit-1",
+            ASSET_REGISTRATION_COMPLETED_EVENT,
+            GenerationTaskStatus.SUCCEEDED,
+        )
     assert task.status is GenerationTaskStatus.RUNNING
 
 

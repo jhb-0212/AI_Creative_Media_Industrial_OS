@@ -40,6 +40,16 @@ class FakeTaskRepository(InMemoryRepository):
         self.opened = 0
         self.commits: list[str] = []
 
+    async def get_by_generation_task_id(self, generation_task_id: str):
+        return next(
+            (
+                task
+                for task in self.snapshot().values()
+                if task.generation_task_id == generation_task_id
+            ),
+            None,
+        )
+
     async def next_claimable_for_claim(self):
         requested = [
             task
@@ -71,14 +81,9 @@ class FakeTaskRepository(InMemoryRepository):
 
 class RecordingExecutor:
     def __init__(self, outcome: GenerationOutcome | None = None, *, raise_exc=None, delay=0.0):
-        # 默认给「合法成功」：SUCCEEDED 必须带产物引用，否则 Worker 会按
-        # 执行器违约落 FAILED（见 test_executor_success_without_product_falls_back_to_failed）。
-        self.outcome = outcome or GenerationOutcome(
-            "SUCCEEDED",
-            "asset://out.mp4",
-            asset_version_id="asset-ver-1",
-            quality_profile_version="qp-ver-1",
-        )
+        # 成功执行器只表示「T1 已在自己的作用域里提交」；Worker 不再写终态，
+        # 也不再接收资产引用。
+        self.outcome = outcome or GenerationOutcome("SUCCEEDED", "asset://out.mp4")
         self._raise = raise_exc
         self._delay = delay
         self.calls = 0
@@ -155,14 +160,16 @@ async def test_idle_cycle_claims_nothing() -> None:
     assert repo.snapshot() == {}
 
 
-async def test_success_writes_terminal_state_and_evidence() -> None:
+async def test_success_does_not_write_terminal_state() -> None:
+    """Worker 成功只代表 T1 已提交；终态由 T3 依据回执推进。"""
     worker, repo, service = _setup(RecordingExecutor())
     task = await _requested(service, repo)
 
     assert await worker.process_one() is True
     done = repo.snapshot()[task.entity_id]
-    assert done.status is GenerationTaskStatus.SUCCEEDED
-    assert done.lease_owner == ""
+    # 假执行器没有真的走 T1，所以任务仍停在 RUNNING——关键是 Worker 没有自报成功。
+    assert done.status is GenerationTaskStatus.RUNNING
+    assert done.asset_version_id == ""
     assert done.attempt_count == 1
 
 
@@ -220,7 +227,7 @@ async def test_run_once_prefers_work_over_sweep() -> None:
     worker, repo, service = _setup(RecordingExecutor())
     task = await _requested(service, repo)
     assert await worker.run_once() is True
-    assert repo.snapshot()[task.entity_id].status is GenerationTaskStatus.SUCCEEDED
+    assert repo.snapshot()[task.entity_id].status is GenerationTaskStatus.RUNNING
 
 
 def test_lease_lost_error_is_runtime_error() -> None:
@@ -239,51 +246,40 @@ async def test_success_does_not_enqueue_qc_directly() -> None:
     async def enqueue(task, outcome) -> None:
         seen.append((task.entity_id, outcome.asset_version_id, outcome.quality_profile_version))
 
-    executor = RecordingExecutor(
-        GenerationOutcome(
-            "SUCCEEDED",
-            "asset://out.mp4",
-            asset_version_id="asset-ver-1",
-            quality_profile_version="qp-r16-v1",
-        )
-    )
-    worker, repo, service = _setup(executor, qc_enqueuer=enqueue)
+    worker, repo, service = _setup(RecordingExecutor(), qc_enqueuer=enqueue)
     task = await _requested(service, repo)
 
     assert await worker.process_one() is True
     assert seen == []
-    assert repo.snapshot()[task.entity_id].status is GenerationTaskStatus.SUCCEEDED
+    assert repo.snapshot()[task.entity_id].status is GenerationTaskStatus.RUNNING
 
 
-async def test_success_event_carries_product_refs_and_ownership() -> None:
-    """GENERATION_SUCCEEDED 必须自带产物与归属——QC 域就靠这条事件入队。
+async def test_t3_success_event_carries_product_refs_and_ownership() -> None:
+    """GENERATION_SUCCEEDED 由 T3 写，且必须自带产物与归属供 QC 入队。"""
+    from services.project_planning.domain.state_machine import GENERATION_PROCESS_ACTION
 
-    消费方拿不到产物引用就无从确定待检资产；拿不到 project_id/shot_id 就得反查，
-    而反查可能读到新版本。事件是自足的事实，不是「去库里再问一次」的通知。
-    """
     repo = FakeTaskRepository()
     outbox = InMemoryOutboxWriter()
     service = GenerationService(repo, outbox)
-    worker = GenerationWorker(
-        # P1-01 起 Worker 按阶段开短工作单元，构造时只接受作用域工厂：
-        # 绑死一个 Session 会让租约与终态回到同一事务里。
-        scope=_scope_factory(repo, service),
-        executor=RecordingExecutor(
-            GenerationOutcome(
-                "SUCCEEDED",
-                "asset://out.mp4",
-                asset_version_id="av-42",
-                quality_profile_version="qp-42",
-            )
-        ),
-        worker_id="worker-1",
-        lease_seconds=60,
-        idle_sleep=0.05,
-    )
     task = await _requested(service, repo)
+    await service.claim(task_id=task.entity_id, worker_id="worker-1", lease_seconds=60)
+    task = repo.snapshot()[task.entity_id]
+    task.quality_profile_version = "qp-42"
+    expected_version = task.entity_version
+    task.transition_to(
+        GenerationTaskStatus.AWAITING_ASSET_REGISTRATION,
+        "t1-confirm",
+        GENERATION_PROCESS_ACTION,
+    )
+    await repo.save(task, expected_version)  # 模拟 T1 已提交
 
-    assert await worker.process_one() is True
+    done = await service.complete_from_receipt(
+        generation_task_id=task.generation_task_id,
+        asset_version_id="av-42",
+        reason="receipt-ok",
+    )
 
+    assert done.status is GenerationTaskStatus.SUCCEEDED
     succeeded = [e for e in outbox.events if e["event_type"] == "GENERATION_SUCCEEDED"]
     assert len(succeeded) == 1
     payload = succeeded[0]["payload"]
@@ -294,22 +290,28 @@ async def test_success_event_carries_product_refs_and_ownership() -> None:
     assert payload["generation_task_id"] == task.generation_task_id
 
 
-async def test_success_persists_product_refs_on_task() -> None:
-    """产物引用必须落库：只有内存引用的话，漏入队永远无法对账。"""
-    executor = RecordingExecutor(
-        GenerationOutcome(
-            "SUCCEEDED",
-            "asset://out.mp4",
-            asset_version_id="asset-ver-1",
-            quality_profile_version="qp-r16-v1",
-        )
-    )
-    worker, repo, service = _setup(executor)
-    task = await _requested(service, repo)
+async def test_t3_persists_product_refs_on_task() -> None:
+    """产物引用只由回执落库；Worker 内存里的值不构成登记事实。"""
+    from services.project_planning.domain.state_machine import GENERATION_PROCESS_ACTION
 
-    assert await worker.process_one() is True
-    done = repo.snapshot()[task.entity_id]
-    assert done.asset_version_id == "asset-ver-1"
+    _worker, repo, service = _setup(RecordingExecutor())
+    task = await _requested(service, repo)
+    await service.claim(task_id=task.entity_id, worker_id="worker-1", lease_seconds=60)
+    task = repo.snapshot()[task.entity_id]
+    task.quality_profile_version = "qp-r16-v1"
+    expected_version = task.entity_version
+    task.transition_to(
+        GenerationTaskStatus.AWAITING_ASSET_REGISTRATION,
+        "t1-confirm",
+        GENERATION_PROCESS_ACTION,
+    )
+    await repo.save(task, expected_version)  # 模拟 T1 已提交
+
+    done = await service.complete_from_receipt(
+        generation_task_id=task.generation_task_id,
+        asset_version_id="asset-ver-1",
+    )
+    assert repo.snapshot()[task.entity_id].asset_version_id == "asset-ver-1"
     assert done.quality_profile_version == "qp-r16-v1"
 
 
@@ -326,20 +328,23 @@ async def test_reconcile_enqueues_success_without_qc_task() -> None:
     async def lookup(generation_task_id: str) -> bool:
         return generation_task_id in existing
 
-    worker, repo, service = _setup(
-        RecordingExecutor(
-            GenerationOutcome(
-                "SUCCEEDED",
-                "asset://out.mp4",
-                asset_version_id="asset-ver-1",
-                quality_profile_version="qp-r16-v1",
-            )
-        ),
-        qc_enqueuer=enqueue,
-        qc_lookup=lookup,
-    )
+    from services.project_planning.domain.state_machine import GENERATION_PROCESS_ACTION
+
+    worker, repo, service = _setup(RecordingExecutor(), qc_enqueuer=enqueue, qc_lookup=lookup)
     task = await _requested(service, repo)
-    assert await worker.process_one() is True
+    await service.claim(task_id=task.entity_id, worker_id="worker-1", lease_seconds=60)
+    task = repo.snapshot()[task.entity_id]
+    task.quality_profile_version = "qp-r16-v1"
+    expected_version = task.entity_version
+    task.transition_to(
+        GenerationTaskStatus.AWAITING_ASSET_REGISTRATION,
+        "t1-confirm",
+        GENERATION_PROCESS_ACTION,
+    )
+    await repo.save(task, expected_version)  # 模拟 T1 已提交
+    await service.complete_from_receipt(
+        generation_task_id=task.generation_task_id, asset_version_id="asset-ver-1"
+    )
     enqueued.clear()  # 正常路径已入队，下面只看对账行为
 
     # 模拟「任务已成功、队列缺项」：清空去重集合，让对账重新发现它
@@ -386,47 +391,17 @@ async def test_success_without_asset_reference_skips_qc() -> None:
     assert called == []
 
 
-async def test_executor_success_without_product_falls_back_to_failed() -> None:
-    """执行器声明 SUCCEEDED 却未给产物 → 必须落 FAILED，不能落 SUCCEEDED。
-
-    无产物的成功会让 QC 入队与漏入队对账拿到一个查不到资产的任务。
-    这里也不用「停在 RUNNING 等租约过期」兜底：过期回收会把同一个违约执行器
-    无限重试，问题只表现为一条含糊的 finish rejected 日志，永远不显式失败。
-    """
+async def test_executor_success_never_lets_worker_write_terminal_state() -> None:
+    """执行器成功不带资产 ID：Worker 没有凭据写 SUCCEEDED。"""
     worker, repo, service = _setup(
         RecordingExecutor(GenerationOutcome("SUCCEEDED", "asset://out.mp4"))
     )
     task = await _requested(service, repo)
 
     assert await worker.process_one() is True
-
-
     done = repo.snapshot()[task.entity_id]
-    assert done.status is GenerationTaskStatus.FAILED
+    assert done.status is GenerationTaskStatus.RUNNING
     assert done.asset_version_id == ""
-    assert done.lease_owner == ""
-
-
-async def test_executor_success_with_product_refs_succeeds() -> None:
-    """对照组：产物齐全时照常成功，证明上一条不是「一律失败」。"""
-    worker, repo, service = _setup(
-        RecordingExecutor(
-            GenerationOutcome(
-                "SUCCEEDED",
-                "asset://out.mp4",
-                asset_version_id="av-9",
-                quality_profile_version="qp-9",
-            )
-        )
-    )
-    task = await _requested(service, repo)
-
-    assert await worker.process_one() is True
-
-    done = repo.snapshot()[task.entity_id]
-    assert done.status is GenerationTaskStatus.SUCCEEDED
-    assert done.asset_version_id == "av-9"
-    assert done.quality_profile_version == "qp-9"
 
 
 async def test_claim_and_finish_use_separate_short_transactions() -> None:
@@ -435,18 +410,17 @@ async def test_claim_and_finish_use_separate_short_transactions() -> None:
     原实现全程一个事务、执行完才 commit：租约在执行期间不可见、行锁不释放，
     多 Worker 只能串行。作用域与提交计数是这条语义的可观测形式。
 
-    替身默认给「合法成功」（带产物引用），因此这里断言 SUCCEEDED 与 P1-02 的
-    产物契约不冲突：`_setup(RecordingExecutor())` 不会触发违约分支。
+    用失败执行器才能让 Worker 自己写终态：成功路径的终态属于 T3，不在本用例
+    的事务边界内。
     """
-    worker, repo, service = _setup(RecordingExecutor())
+    worker, repo, service = _setup(RecordingExecutor(GenerationOutcome("FAILED", "boom")))
     task = await _requested(service, repo)
 
     assert await worker.process_one() is True
 
-
     assert repo.opened == 2  # 领取 + 终结
     assert repo.commits == ["commit", "commit"]
-    assert repo.snapshot()[task.entity_id].status is GenerationTaskStatus.SUCCEEDED
+    assert repo.snapshot()[task.entity_id].status is GenerationTaskStatus.FAILED
 
 
 async def test_lease_is_committed_before_executor_runs() -> None:
@@ -497,5 +471,5 @@ async def test_expired_lease_cannot_renew_or_finish() -> None:
         )
     with pytest.raises(DomainError, match="过期"):
         await service.finish(
-            task_id=task.entity_id, worker_id="worker-1", result="SUCCEEDED"
+            task_id=task.entity_id, worker_id="worker-1", result="FAILED"
         )

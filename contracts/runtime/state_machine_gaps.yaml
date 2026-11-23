@@ -49,15 +49,6 @@ gaps:
 # 「状态可达但无任何 action 入口」的边。新对象若再出现此类边，必须回到本分区登记。
 transition_entry_gaps:
   ConstraintPack: {}
-  # R42 T3：登记回执驱动的终态边。owner_action 是事件名，当前尚无事件处理器
-  # 作为 action 入口——这是显式债务，不是豁免；PR-D 落地 T3 处理器后须删条目。
-  # 不得改用 GENERATION.PROCESS 占位：那等于声明 Worker 可自报成功（C1 禁止）。
-  GenerationTask:
-    "AWAITING_ASSET_REGISTRATION -> SUCCEEDED":
-      reason: "T3 由 ASSET_REGISTRATION_COMPLETED 事件处理器推进；当前尚无已实现的 action 入口，登记为显式债务而非放宽 owner_action"
-      contract_ref: "contracts/state_machines/state_machines.yaml → objects.GenerationTask.transitions（ADR-R42 附录 A T3）"
-      unblocks_when: "PR-D 实现 T3 回执消费处理器并以事件名为准入凭据推进 SUCCEEDED；届时删除本条目"
-    "AWAITING_ASSET_REGISTRATION -> FAILED":
-      reason: "T3 由 ASSET_REGISTRATION_REJECTED 事件处理器推进；当前尚无已实现的 action 入口，登记为显式债务而非放宽 owner_action"
-      contract_ref: "contracts/state_machines/state_machines.yaml → objects.GenerationTask.transitions（ADR-R42 附录 A T3）"
-      unblocks_when: "PR-D 实现 T3 拒绝回执消费处理器并以事件名为准入凭据推进 FAILED；届时删除本条目"
+  # R42 T3 入口已由 workers/relay/asset_registration.py 的事件处理器提供，
+  # 两条终态边不再有 action 入口债务；保留空对象以证明该分区已被检查过。
+  GenerationTask: {}

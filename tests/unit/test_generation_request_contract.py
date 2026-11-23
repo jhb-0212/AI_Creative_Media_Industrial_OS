@@ -64,24 +64,22 @@ def test_request_accepts_clean_body() -> None:
     assert RequestGenerationRequest(**_VALID_BODY).generation_task_id == ""
 
 
-def test_finish_request_carries_product_refs() -> None:
-    """终结请求必须能登记产物引用，否则 API 路径永远写不进 asset_version_id。"""
-    body = FinishRequest(
-        result="SUCCEEDED",
-        asset_version_id="av-1",
-        quality_profile_version="qp-1",
-    )
-    assert body.asset_version_id == "av-1"
-    assert body.quality_profile_version == "qp-1"
+def test_finish_request_rejects_self_reported_product_refs() -> None:
+    """成功终态与资产 ID 都不属于请求体（ADR-R42 C1/C3）。"""
+    with pytest.raises(ValidationError) as excinfo:
+        FinishRequest(
+            result="SUCCEEDED",
+            asset_version_id="av-1",
+            quality_profile_version="qp-1",
+        )
+    assert "result" in str(excinfo.value)
+    with pytest.raises(ValidationError) as excinfo:
+        FinishRequest(result="FAILED", asset_version_id="av-1")
+    assert "asset_version_id" in str(excinfo.value)
 
 
-def test_finish_request_allows_empty_refs_at_model_level() -> None:
-    """模型层允许留空，拒绝发生在服务层。
-
-    这里刻意不在 Pydantic 层强制非空：``FAILED`` 本来就没有产物，
-    模型层无法区分「哪种结果的产物是必填」。强制点放在服务层的
-    「SUCCEEDED 必须带产物」处，一处判定、语义集中。
-    """
-    body = FinishRequest(result="FAILED")
-    assert body.asset_version_id == ""
-    assert body.quality_profile_version == ""
+def test_finish_request_accepts_failure_evidence_only() -> None:
+    """失败登记只接受结果和证据；产物由回执在 T3 写回。"""
+    body = FinishRequest(result="FAILED", evidence_ref="gateway-rejected")
+    assert body.result == "FAILED"
+    assert body.evidence_ref == "gateway-rejected"

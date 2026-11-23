@@ -24,6 +24,11 @@ from workers.generation.__main__ import UnconfiguredExecutor, _build_executor
 from workers.generation.executor import StorageBackedGenerationExecutor
 
 
+def _wire_executor(settings: SimpleNamespace):
+    """配置测试不连库：登记端口只做装配形状校验，传哨兵会话工厂即可。"""
+    return _build_executor(settings, object())
+
+
 def _settings(**overrides) -> SimpleNamespace:
     base = {
         "model_gateway_base_url": "https://gateway.example.com/v1",
@@ -44,13 +49,13 @@ def _settings(**overrides) -> SimpleNamespace:
 
 
 def test_no_base_url_uses_honest_failure_executor() -> None:
-    executor, gateway = _build_executor(_settings(model_gateway_base_url=""))
+    executor, gateway = _wire_executor(_settings(model_gateway_base_url=""))
     assert isinstance(executor, UnconfiguredExecutor)
     assert gateway is None
 
 
 def test_full_config_wires_real_executor() -> None:
-    executor, gateway = _build_executor(_settings())
+    executor, gateway = _wire_executor(_settings())
     assert isinstance(executor, StorageBackedGenerationExecutor)
     assert isinstance(gateway, OpenAICompatibleGateway)
 
@@ -58,33 +63,33 @@ def test_full_config_wires_real_executor() -> None:
 def test_missing_api_key_is_a_config_conflict_not_a_silent_fallback() -> None:
     """缺 KEY 不降级为 UnconfiguredExecutor：那会让配置错误伪装成网关故障。"""
     with pytest.raises(GatewayMisconfiguredError):
-        _build_executor(_settings(model_gateway_api_key=SecretStr("")))
+        _wire_executor(_settings(model_gateway_api_key=SecretStr("")))
 
 
 def test_invalid_base_url_is_rejected() -> None:
     with pytest.raises(GatewayMisconfiguredError):
-        _build_executor(_settings(model_gateway_base_url="ftp://gateway/v1"))
+        _wire_executor(_settings(model_gateway_base_url="ftp://gateway/v1"))
 
 
 def test_missing_storage_root_is_rejected() -> None:
     with pytest.raises(ValueError, match="STORAGE_LOCAL_ROOT"):
-        _build_executor(_settings(storage_local_root=""))
+        _wire_executor(_settings(storage_local_root=""))
 
 
 def test_unimplemented_protocol_is_rejected() -> None:
     with pytest.raises(ValueError, match="MODEL_GATEWAY_PROTOCOL"):
-        _build_executor(_settings(model_gateway_protocol="comfyui_native"))
+        _wire_executor(_settings(model_gateway_protocol="comfyui_native"))
 
 
 def test_s3_backend_is_rejected_rather_than_silently_local(tmp_path) -> None:
     """S3 配置项存在但适配器未实现：必须报错，不能悄悄存到本地目录。"""
     with pytest.raises(ValueError, match="STORAGE_BACKEND"):
-        _build_executor(_settings(storage_backend="s3", storage_local_root=str(tmp_path)))
+        _wire_executor(_settings(storage_backend="s3", storage_local_root=str(tmp_path)))
 
 
 async def test_gateway_is_closable(tmp_path) -> None:
     """装配出来的网关必须能被关闭，否则 Worker 退出时连接池泄漏。"""
-    _executor, gateway = _build_executor(
+    _executor, gateway = _wire_executor(
         _settings(storage_local_root=str(tmp_path / "objects"))
     )
     assert gateway is not None
@@ -112,7 +117,7 @@ def _workflow_file(tmp_path) -> str:
 
 
 def test_comfyui_protocol_wires_comfy_gateway(tmp_path) -> None:
-    executor, gateway = _build_executor(
+    executor, gateway = _wire_executor(
         _settings(
             model_gateway_protocol="comfyui",
             model_gateway_comfyui_workflow_path=_workflow_file(tmp_path),
@@ -130,7 +135,7 @@ def test_comfyui_does_not_require_api_key(tmp_path) -> None:
     若这里也要求 KEY，自建部署会被迫填一个假 token，然后被自己的反向代理
     拒绝——那是一个「看起来是鉴权故障」的配置陷阱。
     """
-    _executor, gateway = _build_executor(
+    _executor, gateway = _wire_executor(
         _settings(
             model_gateway_protocol="comfyui",
             model_gateway_api_key=SecretStr(""),
@@ -144,7 +149,7 @@ def test_comfyui_does_not_require_api_key(tmp_path) -> None:
 
 def test_comfyui_without_workflow_path_is_rejected(tmp_path) -> None:
     with pytest.raises(ValueError, match="COMFYUI_WORKFLOW_PATH"):
-        _build_executor(
+        _wire_executor(
             _settings(
                 model_gateway_protocol="comfyui",
                 model_gateway_comfyui_workflow_path="",
@@ -156,7 +161,7 @@ def test_comfyui_without_workflow_path_is_rejected(tmp_path) -> None:
 
 def test_comfyui_without_prompt_node_is_rejected(tmp_path) -> None:
     with pytest.raises(ValueError, match="COMFYUI_PROMPT_NODE"):
-        _build_executor(
+        _wire_executor(
             _settings(
                 model_gateway_protocol="comfyui",
                 model_gateway_comfyui_workflow_path=_workflow_file(tmp_path),

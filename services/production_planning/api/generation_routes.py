@@ -102,21 +102,19 @@ class LeaseRenewRequest(BaseModel):
 
 
 class FinishRequest(BaseModel):
-    """终结（RUNNING → SUCCEEDED / FAILED）。
+    """终结失败任务（RUNNING → FAILED）。
 
-    ``SUCCEEDED`` 必须同时给出 ``asset_version_id`` 与 ``quality_profile_version``：
-    成功是「产出了哪一份资产、按哪一版质量档案」这一事实，缺任一项就不是成功。
-    服务层对空值直接拒绝，不在这里用默认值兜底。
+    成功终态由资产登记回执驱动的 T3 推进（ADR-R42 C1/C3）：请求体里出现
+    ``asset_version_id`` / ``quality_profile_version`` 就是让 Worker 自报登记
+    结果，因此这里以 ``extra="forbid"`` 明确拒绝，而不是静默忽略。
 
     同样没有 ``worker_id``：持有者身份由 Principal 决定，不由请求体自称。
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    result: Literal["SUCCEEDED", "FAILED"]
+    result: Literal["FAILED"]
     evidence_ref: str = Field("", max_length=200)
-    asset_version_id: str = Field("", max_length=64)
-    quality_profile_version: str = Field("", max_length=64)
 
 
 @router.post("", status_code=201)
@@ -208,14 +206,12 @@ async def finish_task(
     uow: UnitOfWork = Depends(get_production_planning_tenant_uow),
     service: GenerationService = Depends(_get_service),
 ) -> dict[str, Any]:
-    """终结任务：只有租约持有者可推进终态；成功必须携带产物引用。"""
+    """登记失败终态：成功必须由资产回执经 T3 推进，不能从请求体自报。"""
     task = await service.finish(
         task_id=entity_id,
         worker_id=principal.subject_id,
         result=body.result,
         evidence_ref=body.evidence_ref,
-        asset_version_id=body.asset_version_id,
-        quality_profile_version=body.quality_profile_version,
     )
     await uow.commit()
     return task.to_dict()

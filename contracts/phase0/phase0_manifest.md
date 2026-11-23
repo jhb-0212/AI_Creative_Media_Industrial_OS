@@ -18,7 +18,7 @@
 |---|---|---|---|---|
 | ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 291347 | `6c47b4dc23636cb49a15c1373dc3b99320325548725b5e210d24c08afc5c1492` | 8.x 对象契约 / C.3 数据契约 |
 | ② OpenAPI 草案 | `contracts/openapi/openapi.draft.yaml` | 139315 | `419568058560926fa9a07be0aba6cd7e2e3cbf9daa17ec8677bac4867f82a43a` | 31.6（由 Action Registry 派生） |
-| ③ 状态机 | `contracts/state_machines/state_machines.yaml` | 58697 | `86f9d40992ef2c15a12fc2ef08710d128b6a822ae1e60ce4bc9ef9165ea8ab84` | 31.5 / 8.6 / 32.6 / 33.3 / 34.7 |
+| ③ 状态机 | `contracts/state_machines/state_machines.yaml` | 57861 | `32e765a83a00b5e069569fdc7cacf3cf13f4fbf57dff70170142bb4377d7a103` | 31.5 / 8.6 / 32.6 / 33.3 / 34.7 |
 | ④ Action Registry | `contracts/action_registry/action_registry.yaml` | 55959 | `6ccfa5f7c85b0c894f439f6547ead5ec50445ab8263ea78e51623fdd23767ffc` | 31.6 唯一注册表 |
 | ⑤ 权限矩阵 | `contracts/permission/permission_matrix.yaml` | 4213 | `ea343622c08f233d11c91420c914f46fa5f8fd984c9b23140cb29821b447ce6b` | C.5 / 31.6 |
 | ⑥ 预算与成本口径 | `contracts/budget/budget_caliber.yaml` | 2511 | `29e1d7d470f115ff41b07daaebfb198ccea9246316a2dd4b43a28b52596a0aef` | C.2 / 34.6 |
