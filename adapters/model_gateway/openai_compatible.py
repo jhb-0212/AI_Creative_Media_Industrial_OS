@@ -33,6 +33,11 @@ from urllib.parse import urlparse
 
 import httpx
 
+from adapters.model_gateway.bounds import (
+    excerpt,
+    media_type_or_fallback,
+    read_capped,
+)
 from adapters.model_gateway.ports import (
     GatewayArtifact,
     GatewayMisconfiguredError,
@@ -42,7 +47,6 @@ from adapters.model_gateway.ports import (
 )
 
 _MAX_REDIRECTS = 3
-_ERROR_BODY_EXCERPT = 200
 
 
 class OpenAICompatibleGateway:
@@ -150,12 +154,12 @@ class OpenAICompatibleGateway:
         if response.status_code == 429 or response.status_code >= 500:
             raise GatewayRetryableError(
                 f"网关返回 {response.status_code}"
-                f"（task={request.task_id}）: {_excerpt(response)}"
+                f"（task={request.task_id}）: {excerpt(response)}"
             )
         if response.status_code >= 400:
             raise GatewayRejectedError(
                 f"网关拒绝请求 {response.status_code}"
-                f"（task={request.task_id}）: {_excerpt(response)}"
+                f"（task={request.task_id}）: {excerpt(response)}"
             )
         return response
 
@@ -166,7 +170,7 @@ class OpenAICompatibleGateway:
         except ValueError as exc:
             # 200 但不是 JSON：契约不符，重试同样的请求大概率还是不符。
             raise GatewayRejectedError(
-                f"网关响应不是 JSON（status={response.status_code}）: {_excerpt(response)}"
+                f"网关响应不是 JSON（status={response.status_code}）: {excerpt(response)}"
             ) from exc
         if not isinstance(body, dict):
             raise GatewayRejectedError(f"网关响应顶层不是对象: {type(body).__name__}")
@@ -235,8 +239,13 @@ class OpenAICompatibleGateway:
                         raise GatewayRejectedError(
                             f"产物下载失败 {response.status_code}: {current!r}"
                         )
-                    media_type = self._media_type_of(response, request)
-                    return await self._read_capped(response, request), media_type
+                    media_type = media_type_or_fallback(response, request.media_type)
+                    return (
+                        await read_capped(
+                            response, limit=self._max_bytes, task_id=request.task_id
+                        ),
+                        media_type,
+                    )
             except httpx.TimeoutException as exc:
                 raise GatewayRetryableError(
                     f"产物下载超时（task={request.task_id}）"
@@ -246,48 +255,3 @@ class OpenAICompatibleGateway:
                     f"产物下载连接失败（task={request.task_id}）: {type(exc).__name__}"
                 ) from exc
         raise GatewayRejectedError(f"产物 URL 跳转超过 {_MAX_REDIRECTS} 次: {url!r}")
-
-    @staticmethod
-    def _media_type_of(response: httpx.Response, request: GenerationRequest) -> str:
-        header: str = (
-            response.headers.get("content-type", "").split(";")[0].strip().lower()
-        )
-        # 只接受 image/* 与 video/*：网关若回 text/html（典型的是错误页伪装成
-        # 200），照单收下会把一个网页存成「产物」，QC 之后才发现。
-        if header.startswith(("image/", "video/")):
-            return header
-        return request.media_type
-
-    async def _read_capped(
-        self, response: httpx.Response, request: GenerationRequest
-    ) -> bytes:
-        declared = response.headers.get("content-length")
-        if declared is not None:
-            try:
-                if int(declared) > self._max_bytes:
-                    raise GatewayRejectedError(
-                        f"产物声明大小 {declared} 超出上限 {self._max_bytes}"
-                        f"（task={request.task_id}）"
-                    )
-            except ValueError:
-                pass  # 非法 content-length 不作为拒绝理由，交给累计计数兜底
-        chunks: list[bytes] = []
-        total = 0
-        async for chunk in response.aiter_bytes():
-            total += len(chunk)
-            # 累计判定而不是只信 content-length：声明值可以是假的。
-            if total > self._max_bytes:
-                raise GatewayRejectedError(
-                    f"产物实际大小超过上限 {self._max_bytes}（task={request.task_id}）"
-                )
-            chunks.append(chunk)
-        return b"".join(chunks)
-
-
-def _excerpt(response: httpx.Response) -> str:
-    """截断错误体：完整体可能很大，且可能含调用方数据。"""
-    try:
-        text = response.text
-    except Exception:
-        return "<unreadable body>"
-    return text[:_ERROR_BODY_EXCERPT]

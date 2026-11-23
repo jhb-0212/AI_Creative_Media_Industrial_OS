@@ -164,14 +164,38 @@ class Settings(BaseSettings):
     # 诚实失败（ADR-R12：无实现时强制配置只会阻止启动，不会让功能可用）。
     # 填了地址就必须同时填 KEY，否则属于配置矛盾，装配时 fail-closed。
     model_gateway_base_url: str = ""
-    # 协议形态：当前只实现 openai_compatible（POST {base}/images/generations）。
+    # 协议形态，决定装配哪个适配器：
+    #   openai_compatible → POST {base}/images/generations（同步，一次拿到字节）
+    #   comfyui           → POST /prompt 提交工作流 → 轮询 /history → /view 取产物
+    # 两者形状不同（同步 vs 三段异步），所以不是「同一个适配器的两种编码」。
     model_gateway_protocol: str = "openai_compatible"
     # 请求未指定 model 时的默认值。预算按模型计价，因此这是计价口径的一部分。
+    # ComfyUI 协议下它表示**工作流标识**（模型由工作流里的 CheckpointLoader
+    # 决定）：请求里的 model 必须为空或等于它，否则拒绝——静默忽略会让调用方
+    # 以为换了模型，实际仍跑同一张图。
     model_gateway_default_model: str = ""
     model_gateway_timeout_seconds: float = 120.0
     # b64_json 少一次下载往返；url 更适合大文件。两者都支持，由部署选。
     model_gateway_response_format: str = "b64_json"
     model_gateway_max_artifact_bytes: int = 256 * 1024 * 1024
+
+    # --- ComfyUI 协议专用（MODEL_GATEWAY_PROTOCOL=comfyui 时才读取）---
+    # 工作流模板路径：ComfyUI 里「导出 (API)」得到的 JSON（不是「导出」）。
+    # 用 UI 格式导出会在装配期被判错并给出可执行提示。
+    model_gateway_comfyui_workflow_path: str = ""
+    # 提示词注入点。**必须显式指定**：猜「第一个 CLIPTextEncode」在多文本节点的
+    # 工作流里必然猜错，而猜错不报错——只产出一张与意图无关的图。
+    model_gateway_comfyui_prompt_node: str = ""
+    model_gateway_comfyui_prompt_field: str = "text"
+    model_gateway_comfyui_negative_node: str = ""
+    model_gateway_comfyui_negative_field: str = "text"
+    # 产物节点。工作流里有多个保存节点时必须指定，否则多候选一律拒绝
+    # （静默取第一张会让批量生成变成「只交付一张，其余去向无人知晓」）。
+    model_gateway_comfyui_output_node: str = ""
+    # 轮询间隔与总时限。总时限必须大于最慢一张图的耗时：超时会被判为可重试，
+    # 而任务此时很可能仍在 ComfyUI 队列里，重试意味着重复排队、重复占 GPU。
+    model_gateway_comfyui_poll_interval_seconds: float = 2.0
+    model_gateway_comfyui_job_timeout_seconds: float = 900.0
 
     # 产物存储（P1-07：受控定位符 + 内容寻址，不暴露文件系统路径）
     # local 是当前唯一实现；s3 端点配置已存在但适配器未实现，配成 s3 会

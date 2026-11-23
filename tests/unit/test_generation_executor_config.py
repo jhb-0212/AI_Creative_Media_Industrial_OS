@@ -11,11 +11,13 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
 from pydantic import SecretStr
 
+from adapters.model_gateway.comfyui import ComfyUIGateway
 from adapters.model_gateway.openai_compatible import OpenAICompatibleGateway
 from adapters.model_gateway.ports import GatewayMisconfiguredError
 from workers.generation.__main__ import UnconfiguredExecutor, _build_executor
@@ -87,3 +89,78 @@ async def test_gateway_is_closable(tmp_path) -> None:
     )
     assert gateway is not None
     await gateway.aclose()
+
+
+# ---------------------------------------------------------------------------
+# 协议双栈：comfyui 与 openai_compatible 是两种调用形状，不是同一个适配器
+# ---------------------------------------------------------------------------
+
+
+def _workflow_file(tmp_path) -> str:
+    """最小可用的 ComfyUI「导出 (API)」工作流。"""
+    path = tmp_path / "workflow_api.json"
+    path.write_text(
+        json.dumps(
+            {
+                "3": {"class_type": "KSampler", "inputs": {"seed": 1}},
+                "6": {"class_type": "CLIPTextEncode", "inputs": {"text": "x"}},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return str(path)
+
+
+def test_comfyui_protocol_wires_comfy_gateway(tmp_path) -> None:
+    executor, gateway = _build_executor(
+        _settings(
+            model_gateway_protocol="comfyui",
+            model_gateway_comfyui_workflow_path=_workflow_file(tmp_path),
+            model_gateway_comfyui_prompt_node="6",
+            storage_local_root=str(tmp_path / "objects"),
+        )
+    )
+    assert isinstance(executor, StorageBackedGenerationExecutor)
+    assert isinstance(gateway, ComfyUIGateway)
+
+
+def test_comfyui_does_not_require_api_key(tmp_path) -> None:
+    """自建 ComfyUI 通常无鉴权：缺 KEY 不该被当成配置矛盾。
+
+    若这里也要求 KEY，自建部署会被迫填一个假 token，然后被自己的反向代理
+    拒绝——那是一个「看起来是鉴权故障」的配置陷阱。
+    """
+    _executor, gateway = _build_executor(
+        _settings(
+            model_gateway_protocol="comfyui",
+            model_gateway_api_key=SecretStr(""),
+            model_gateway_comfyui_workflow_path=_workflow_file(tmp_path),
+            model_gateway_comfyui_prompt_node="6",
+            storage_local_root=str(tmp_path / "objects"),
+        )
+    )
+    assert isinstance(gateway, ComfyUIGateway)
+
+
+def test_comfyui_without_workflow_path_is_rejected(tmp_path) -> None:
+    with pytest.raises(ValueError, match="COMFYUI_WORKFLOW_PATH"):
+        _build_executor(
+            _settings(
+                model_gateway_protocol="comfyui",
+                model_gateway_comfyui_workflow_path="",
+                model_gateway_comfyui_prompt_node="6",
+                storage_local_root=str(tmp_path / "objects"),
+            )
+        )
+
+
+def test_comfyui_without_prompt_node_is_rejected(tmp_path) -> None:
+    with pytest.raises(ValueError, match="COMFYUI_PROMPT_NODE"):
+        _build_executor(
+            _settings(
+                model_gateway_protocol="comfyui",
+                model_gateway_comfyui_workflow_path=_workflow_file(tmp_path),
+                model_gateway_comfyui_prompt_node="",
+                storage_local_root=str(tmp_path / "objects"),
+            )
+        )

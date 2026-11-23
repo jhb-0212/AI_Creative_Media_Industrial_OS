@@ -26,6 +26,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
+from adapters.model_gateway.comfyui import ComfyUIGateway
 from adapters.model_gateway.openai_compatible import OpenAICompatibleGateway
 from adapters.storage.local_fs import LocalFsObjectStorage
 from packages.shared.config import get_process_settings
@@ -145,8 +146,9 @@ def _build_executor(settings: Any) -> tuple[Any, Any | None]:
     | 配置 | 执行器 | 后果 |
     |---|---|---|
     | 未配 ``MODEL_GATEWAY_BASE_URL`` | ``UnconfiguredExecutor`` | 任务 FAILED，证据写明未配置 |
-    | 配了地址但缺 KEY / 存储根目录 | 抛错，进程不启动 | 配置矛盾必须在启动时暴露 |
-    | 配齐 | ``StorageBackedGenerationExecutor`` | 真实调用 |
+    | 配了地址但缺 KEY / 存储根 / 工作流模板 | 抛错，进程不启动 | 配置矛盾必须在启动时暴露 |
+    | 协议写了无适配器的值 | 抛错，进程不启动 | 否则日志里看不出协议没生效 |
+    | 配齐 | ``StorageBackedGenerationExecutor`` | 真实调用（两种协议之一） |
 
     第二档刻意不降级：若「配了地址但没配 KEY」静默回落到未配置执行器，
     运维会看到「任务一直失败」而去查网关，而真正的原因是本机的配置缺一项。
@@ -159,11 +161,6 @@ def _build_executor(settings: Any) -> tuple[Any, Any | None]:
     if not base_url:
         return UnconfiguredExecutor(), None
 
-    protocol = getattr(settings, "model_gateway_protocol", "openai_compatible")
-    if protocol != "openai_compatible":
-        raise ValueError(
-            f"MODEL_GATEWAY_PROTOCOL={protocol!r} 尚无实现（当前只有 openai_compatible）"
-        )
     if getattr(settings, "storage_backend", "local") != "local":
         raise ValueError(
             "STORAGE_BACKEND 目前只实现 local；s3 端点配置存在但适配器未实现，"
@@ -176,14 +173,8 @@ def _build_executor(settings: Any) -> tuple[Any, Any | None]:
             "产物无处落地，拒绝启动"
         )
 
-    gateway = OpenAICompatibleGateway(
-        base_url=base_url,
-        api_key=settings.model_gateway_api_key.get_secret_value(),
-        default_model=getattr(settings, "model_gateway_default_model", ""),
-        timeout_seconds=getattr(settings, "model_gateway_timeout_seconds", 120.0),
-        max_bytes=getattr(settings, "model_gateway_max_artifact_bytes", 256 * 1024 * 1024),
-        response_format=getattr(settings, "model_gateway_response_format", "b64_json"),
-    )
+    protocol = getattr(settings, "model_gateway_protocol", "openai_compatible")
+    gateway = _build_gateway(settings, base_url, protocol)
     storage = LocalFsObjectStorage(
         storage_root,
         max_bytes=getattr(settings, "storage_max_object_bytes", 256 * 1024 * 1024),
@@ -198,12 +189,88 @@ def _build_executor(settings: Any) -> tuple[Any, Any | None]:
         size=getattr(settings, "generation_default_size", ""),
     )
     logger.info(
-        "generation executor wired to %s (model=%s, storage_root=%s)",
+        "generation executor wired to %s (protocol=%s, model=%s, storage_root=%s)",
         base_url,
+        protocol,
         getattr(settings, "model_gateway_default_model", "") or "<per-task>",
         storage_root,
     )
     return executor, gateway
+
+
+def _build_gateway(settings: Any, base_url: str, protocol: str) -> Any:
+    """按协议装配网关。
+
+    两条协议**不是**同一个适配器的两种编码，而是两种调用形状：
+
+    - ``openai_compatible``：同步，一次请求拿到字节；
+    - ``comfyui``：三段异步（提交工作流 → 轮询历史 → 取产物），且必须有工作流
+      模板——ComfyUI 没有任何「给我一句话」的入口。
+
+    因此这里不共用构造参数，各自校验自己缺什么，缺什么就在启动时报什么。
+    """
+    if protocol == "openai_compatible":
+        return OpenAICompatibleGateway(
+            base_url=base_url,
+            api_key=settings.model_gateway_api_key.get_secret_value(),
+            default_model=getattr(settings, "model_gateway_default_model", ""),
+            timeout_seconds=getattr(settings, "model_gateway_timeout_seconds", 120.0),
+            max_bytes=getattr(
+                settings, "model_gateway_max_artifact_bytes", 256 * 1024 * 1024
+            ),
+            response_format=getattr(
+                settings, "model_gateway_response_format", "b64_json"
+            ),
+        )
+
+    if protocol == "comfyui":
+        workflow_path = getattr(settings, "model_gateway_comfyui_workflow_path", "")
+        if not workflow_path:
+            raise ValueError(
+                "MODEL_GATEWAY_PROTOCOL=comfyui 但 "
+                "MODEL_GATEWAY_COMFYUI_WORKFLOW_PATH 为空："
+                "ComfyUI 没有「给我一句话」的入口，必须提供工作流模板"
+                "（在 ComfyUI 里用「导出 (API)」得到）"
+            )
+        prompt_node = getattr(settings, "model_gateway_comfyui_prompt_node", "")
+        if not prompt_node:
+            raise ValueError(
+                "MODEL_GATEWAY_PROTOCOL=comfyui 但 "
+                "MODEL_GATEWAY_COMFYUI_PROMPT_NODE 为空："
+                "不指定注入节点就只能靠猜，而猜错会产出与意图无关的图且全程无错"
+            )
+        return ComfyUIGateway(
+            base_url=base_url,
+            workflow_path=workflow_path,
+            prompt_node=prompt_node,
+            prompt_field=getattr(
+                settings, "model_gateway_comfyui_prompt_field", "text"
+            ),
+            negative_node=getattr(settings, "model_gateway_comfyui_negative_node", ""),
+            negative_field=getattr(
+                settings, "model_gateway_comfyui_negative_field", "text"
+            ),
+            output_node=getattr(settings, "model_gateway_comfyui_output_node", ""),
+            # ComfyUI 下 default_model 表示工作流标识：请求里的 model 必须与它
+            # 一致，否则拒绝（见适配器 _check_model 的理由）。
+            workflow_id=getattr(settings, "model_gateway_default_model", ""),
+            api_key=settings.model_gateway_api_key.get_secret_value(),
+            timeout_seconds=getattr(settings, "model_gateway_timeout_seconds", 120.0),
+            job_timeout_seconds=getattr(
+                settings, "model_gateway_comfyui_job_timeout_seconds", 900.0
+            ),
+            poll_interval_seconds=getattr(
+                settings, "model_gateway_comfyui_poll_interval_seconds", 2.0
+            ),
+            max_bytes=getattr(
+                settings, "model_gateway_max_artifact_bytes", 256 * 1024 * 1024
+            ),
+        )
+
+    raise ValueError(
+        f"MODEL_GATEWAY_PROTOCOL={protocol!r} 无对应适配器"
+        "（已实现: openai_compatible / comfyui）"
+    )
 
 
 def _make_qc_enqueuer(qc_sessionmaker: Any) -> Any:
