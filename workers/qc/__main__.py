@@ -25,6 +25,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
+from adapters.storage.local_fs import LocalFsObjectStorage
 from packages.shared.config import get_process_settings
 from packages.shared.database import (
     create_asset_service_engine,
@@ -169,9 +170,22 @@ async def _main(argv: list[str] | None = None) -> int:
     if args.no_detector:
         inspector: QCExecutor = UnconfiguredInspector()
     else:
+        # 真实检测器要按定位符读回产物，必须接存储端口。与生成侧共用同一份
+        # 配置口径（P1-07）：未配根目录就启动即拒绝，绝不退化成「检测时读不到
+        # 内容、记一条 REJECTED 就完事」——那会把存储配置缺失伪装成质量不合格。
+        storage_root = getattr(settings, "storage_local_root", "")
+        if not storage_root:
+            raise ValueError(
+                "启用真实 QC 检测器但 STORAGE_LOCAL_ROOT 为空："
+                "检测器无法按定位符读回产物，拒绝启动"
+            )
+        storage = LocalFsObjectStorage(
+            storage_root,
+            max_bytes=getattr(settings, "storage_max_object_bytes", 256 * 1024 * 1024),
+        )
         asset_engine = create_asset_service_engine()
         asset_sessionmaker = create_sessionmaker(asset_engine)
-        inspector = AssetIntegrityInspector(asset_sessionmaker)
+        inspector = AssetIntegrityInspector(asset_sessionmaker, storage=storage)
         # 同一个资产会话工厂既用于检测、也用于判定前核验报告：
         # 两处读的是同一份 qc_reports，不可能出现「检测读到了、判定核验不到」。
         report_lookup = _make_report_lookup(asset_sessionmaker)

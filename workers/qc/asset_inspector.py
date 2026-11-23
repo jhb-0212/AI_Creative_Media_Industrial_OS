@@ -4,7 +4,10 @@
 1. 资产版本在资产域真实存在；
 2. 资产的 `project_id` 与 QC 任务一致（不检别人项目的产物）；
 3. `sha256` 是 64 位十六进制（可用于内容比对）；
-4. `storage_ref` 能定位内容；若提供本地路径，则要求文件存在且哈希一致。
+4. `storage_ref` 能通过统一的 ObjectStoragePort 读回内容——定位符解析、
+   根目录约束、符号链接识别、SHA256 复核全部由存储端口完成，检测器不自己
+   解析路径（P1-01：#49 后 storage_ref 不再是字典，旧的 dict 路径解析必抛
+   AttributeError，真实 QC 路径不可用）。
 
 不做像素级/语义级质量判断——那需要模型网关与质量档案执行器，当前没有。
 检测结论通过 `AssetService.create_qc_report`（`QC.REPORT.CREATE` 的同一服务层）
@@ -13,15 +16,15 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Literal
 
+from adapters.storage.ports import ObjectStoragePort, StorageError
 from packages.identity.principal import Principal
 from packages.shared.outbox_writer import SqlAlchemyOutboxWriter
 from packages.shared.rls import set_tenant_context
+from packages.shared.storage_locator import parse_locator
 from services.asset_service.domain.enums import AssetStatus
 from services.asset_service.repository.sqlalchemy_asset_repo import (
     SqlAlchemyAssetRepository,
@@ -33,9 +36,6 @@ from services.asset_service.service.asset_service import AssetService
 from workers.qc.worker import QCInspection
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-
-# `storage_ref` 里常见的本地定位键；命中任一即视为「可本地校验内容」。
-_LOCAL_PATH_KEYS = ("path", "local_path", "file", "file_path")
 
 # 资产处于这两种状态时才能追加 QC 报告；其它状态说明它已进入下游流程，
 # 再补技术报告会与既成的审核结论冲突。
@@ -70,9 +70,15 @@ def assert_asset_within_task_scope(task: Any, asset: Any) -> None:
 
 @dataclass
 class AssetIntegrityInspector:
-    """读取资产域并登记 QC 报告；只依赖 sessionmaker，便于单测替换。"""
+    """读取资产域并登记 QC 报告；只依赖 sessionmaker 与存储端口，便于单测替换。
+
+    ``storage`` 是读取产物内容的**唯一**入口（P1-01）。定位符解析、越界防护、
+    符号链接识别、SHA256 复核都在存储端口内部完成；检测器只判断「能不能读回」
+    并把结果记进报告，绝不自己拼路径——这正是 #49 之前 dict 路径解析出错的地方。
+    """
 
     asset_sessionmaker: Any
+    storage: ObjectStoragePort
     detector_version: str = "asset-integrity-v1"
 
     configured = True
@@ -99,7 +105,7 @@ class AssetIntegrityInspector:
             # 归属核验是**执行的准入条件**，不是一条检测项（见函数文档）。
             assert_asset_within_task_scope(task, asset)
 
-            findings = self._check(task, asset)
+            findings = await self._check(task, asset)
             verdict: Literal["PASSED", "REJECTED"] = (
                 "PASSED" if all(f["passed"] for f in findings) else "REJECTED"
             )
@@ -121,7 +127,7 @@ class AssetIntegrityInspector:
                 [f"asset-sha256:{asset.sha256}"],
             )
 
-    def _check(self, task: Any, asset: Any) -> list[dict[str, Any]]:
+    async def _check(self, task: Any, asset: Any) -> list[dict[str, Any]]:
         findings: list[dict[str, Any]] = []
 
         # 走到这里归属必然一致（``inspect`` 已前置阻断）。保留这条不是为了判定，
@@ -144,47 +150,47 @@ class AssetIntegrityInspector:
             }
         )
 
-        locator = self._local_path(asset.storage_ref)
-        if locator is None:
+        # 内容可验证分两环，缺一不可：
+        #   ① 存储端口按定位符读回内容 —— 端口内部复核「内容 vs 定位符内嵌哈希」；
+        #   ② 定位符内嵌哈希 == 资产声明的 sha256 —— 否则「内容是真的、但挂错了
+        #      资产」，检测仪只证明产物存在却没证明它就是这项资产宣称的那份。
+        # 两环合起来才等于修复前 `digest == asset.sha256` 的判定，但路径解析、
+        # 越界、符号链接一律交给端口，检测器只做哈希比对这一件它能举证的事。
+        locator = asset.storage_ref
+        parsed, problem = parse_locator(locator)
+        if parsed is None:
             findings.append(
                 {
                     "check": "content_verifiable",
                     "passed": False,
-                    "reason": "storage_ref 未提供本地路径，内容不可验证",
+                    "locator": locator,
+                    "reason": f"非法存储定位符: {problem}",
                 }
             )
-        else:
-            path = Path(locator)
-            exists = path.is_file()
-            digest = ""
-            if exists:
-                digest = _sha256_of(path)
+            return findings
+        digest_matches = parsed.sha256 == (asset.sha256 or "").lower()
+        try:
+            content = await self.storage.get(locator)
             findings.append(
                 {
                     "check": "content_verifiable",
-                    "passed": exists and digest == asset.sha256,
-                    "path": locator,
-                    "exists": exists,
-                    "sha256_matches": digest == asset.sha256 if exists else False,
+                    "passed": digest_matches,
+                    "locator": locator,
+                    "size_bytes": len(content),
+                    "sha256_matches": digest_matches,
+                    "reason": "" if digest_matches else "定位符内嵌哈希与资产声明的 sha256 不符",
+                }
+            )
+        except StorageError as exc:
+            findings.append(
+                {
+                    "check": "content_verifiable",
+                    "passed": False,
+                    "locator": locator,
+                    "reason": f"{type(exc).__name__}: {exc}",
                 }
             )
         return findings
-
-    @staticmethod
-    def _local_path(storage_ref: dict[str, Any]) -> str | None:
-        for key in _LOCAL_PATH_KEYS:
-            value = storage_ref.get(key)
-            if isinstance(value, str) and value.strip():
-                return value
-        return None
-
-
-def _sha256_of(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 __all__ = [
