@@ -26,7 +26,8 @@
 | F. 代码质量的静默缺陷 | 6 | 不报错但行为错 / 负债累积 | 字典重复键静默覆盖、122 项 lint 债 |
 | G. 工程流程与环境 | 6 | 直推被拒、网络通道失败、基线游离副本、SHA 一致性未验收、YAML 重复键 | GH006 / BLOCKED-ENV / safe_load 静默覆盖 |
 | H. 第三/四轮审查（P1 系列） | 6 | 权限/引用看着齐全、第一次真实调用才炸 | 表权限在但 schema 无 USAGE / SQL 表名没跟分域迁移 |
-| **合计** | **42** | | |
+| I. 验收取证与自检 | 3 | 判据比实现更容易错、清单漏项、自检把环境错误当证据 | 闭包判据用可空外键 / `--basetemp` 落 `C:\tmp` |
+| **合计** | **45** | | |
 
 **出现频次最高的三类根因**（占绝大多数条目）：
 1. **判据/前提本身错了** —— 不是代码写错，是"用什么判断对错"错了（锁类型、DEFINER、语句多重集、错基线）。
@@ -384,6 +385,46 @@
 - **解决办法**：每次运行生成新任务 id（项目行固定、任务 id 随机），装置自然幂等，
   一行历史事实都不用动。
 - **证据**：`tests/unit/test_identity_from_principal.py` 连跑两次均全绿。
+
+#### H7 正式链归属约束缺失（一张「35/35 闭环」的台账掩盖了它）
+- **现象**：分叉库 `ai_film_industrial` 的归属台账 35/35 全 PASS，看起来归属治理已经完备。
+  对正式链 `ai_film_api_tests` 重新取证后：15 张含 `project_id` 的表里只有 2 张通过，
+  5 张（`shot_budget_requests` / `generation_tasks` / `production_routes` /
+  `gate_decisions` / `qc_tasks`）**完全没有归属路径**，`project_id` 可以指向任意字符串。
+- **根因**：两套库是不同谱系（分叉库三列外键含 `organization_id`，正式链两列外键、
+  组织只在 `projects`），而验收证据被跨链挪用了一次。缺口本身则是 R16 分域迁移只搬了表、
+  没搬归属约束——表和约束分两次做，后一次没人记得。
+- **解决办法**：写 `main_chain_ownership_ledger.py`，目标集合从 `information_schema` /
+  `pg_constraint` **实读派生**，判据为「项目真实 ∧ 租户一致 ∧ 数据干净 ∧ 已 VALIDATE」。
+  「项目真实」走**传递闭包**（`scenes` 没有直接指向 projects 的外键，但经
+  `episodes` 可达），并要求路径全程 NOT NULL——复合外键在任一列为 NULL 时完全不校验。
+- **证据**：`docs/audits/mig-recon/main-chain/ownership-ledger.md`（13/15 未通过）；
+  `--selftest` 插入一行租户不一致的 episode 后计数 = 1，证明判定不是恒真。
+
+#### H8 类型检查的覆盖面靠手写清单（新落地的层天然没有保护）
+- **现象**：`adapters/` 落地了网关与存储的真实实现，而 CI 的 mypy 仍是
+  `packages services apps workers`，注释还写着「adapters 仍为占位」。新代码一行类型检查都没跑过。
+- **根因**：清单写在两个地方（CI workflow 与 `merge_readiness.py`），新增一层时两边都不报错，
+  它们只是**漏掉**。漏掉的层没有任何信号——这正是「清单不会自己举手」的又一例。
+- **解决办法**：`scripts/mypy_targets.py` 从 `architecture_check.LAYERS` 派生，按「实际含 .py」
+  过滤（`agents/` 只有 `.gitkeep`，对它跑 mypy 会得到「no .py files」的非零退出码，看起来像类型错误）。
+  CI 与本地闸门都调同一个派生函数，不再各写一份。
+- **证据**：`tests/unit/test_mypy_targets.py` 4 项，含「新建一个有 .py 的层必须自动出现」；
+  派生结果 `apps services packages workers adapters`，全仓 191 个文件类型检查通过。
+
+#### H9 自检把「环境错误」当成「闸门有效」（这只差一步就变成假证据）
+- **现象**：为了证明守卫有效，用 `subprocess` 跑「注入坏状态 → 跑测试 → 恢复」。
+  三组都得到 `exit=1`，看起来完美。实际上 pytest 的 `--basetemp=/tmp/x` 在 Windows 上被
+  解析成 `C:\tmp\x`（不存在），每个用例都是 **ERROR（夹具失败）**，不是 FAILED（断言失败）。
+  真正的原因：Git Bash 会把 `/tmp/x` 参数转换成 `C:/Users/.../Temp/x`，而 Python
+  `subprocess` 直接传参**不转换**。
+- **根因**：只看退出码。`ERROR` 与 `FAILED` 的退出码都是 1，而它们证明的是相反的事情——
+  一个说「环境没跑起来」，一个说「守卫抓住了坏状态」。这与「用 A 的失败证明 B 有效」是同一类错误。
+- **解决办法**：把自检固化为 `tests/unit/test_guard_effectiveness.py`，判据改成三条同时成立：
+  `exit != 0` ∧ 输出含 `FAILED` ∧ **不含 `ERROR`**，且失败的必须是**指定的那条**用例。
+  basetemp 改用 `mkdtemp()` 生成的绝对路径。
+- **证据**：8 条坏状态（扩白名单、去符号链接判定、5xx 归成拒绝、只信 content-length、
+  不校验 URL 协议、prompt_ref 当正文、可重试归类、缺存储根目录）逐条命中各自用例。
 
 ---
 

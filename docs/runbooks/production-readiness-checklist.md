@@ -45,12 +45,22 @@
 ### D. 架构事实边界
 
 - [x] **D1 数据库谱系边界已裁定** — 证据：`docs/adr/ADR-R41-migration-lineage-decision.md`（main 正式链为唯一部署事实，pending 链为验证载体，禁止合并/同时部署/跨链挪用证据）。
-- [ ] **D2 正式链归属验收独立取证** — 证据要求：在 `ai_film_api_tests` 上按归属台账判据重跑并登记结果；分叉库 35/35 不能直接挪用，**未勾选**。
+- [ ] **D2 正式链归属验收独立取证** — **已取证，结论为不通过**。
+  证据：`docs/audits/mig-recon/main-chain/ownership-ledger.md`（机器生成，2026-11-23）。
+  目标集合从 `information_schema` / `pg_constraint` 实读派生（15 张含 `project_id` 的表），
+  判据 `PASS ⇔ 项目真实 ∧ 租户一致 ∧ 数据干净 ∧ 相关外键已 VALIDATE`。
+  实测：**2 通过 / 8 项「项目真实但 tenant_id 未被约束」/ 5 项「无任何归属路径」**。
+  脚本 `--selftest` 已证明判定可 FAIL（插入一行租户不一致的 episode 后计数 = 1）。
+  **未勾选**：缺口修复前，「已取证」不等于「已通过」；分叉库 35/35 不得挪用（ADR-R41 D5）。
 
 ## 三、勾选统计
 
 - 已勾选：A3（骨架）、C1（密钥扫描）、D1（谱系裁定）— 共 3 项
 - 未勾选：A1、A2、B1~B5、D2 — 共 9 项
+- **注**：D2 的未勾选性质已改变——此前是「未取证」，现在是「已取证且发现缺口」。
+  缺口清单见 `docs/audits/mig-recon/main-chain/ownership-ledger.md`，
+  其中 5 张表完全无归属路径（`shot_budget_requests` / `generation_tasks` /
+  `production_routes` / `gate_decisions` / `qc_tasks`），属结构性缺陷而非配置问题。
 - **结论：未达到生产准入。已勾选的 3 项只是"可机检的治理/骨架"落地，不代表 Phase 1 可放行。**
 
 ## 四、解除准入的前置条件（按责任人分组的取证要求）
@@ -82,7 +92,7 @@
 
 | 项 | 需交付的证据 | 验收判据 |
 |---|---|---|
-| D2 | 在正式链测试库 `ai_film_api_tests` 上，按 `docs/audits/mig-recon/acceptance-ledger.md` 的判据（约束存在 ∧ convalidated ∧ 违规行数=0）重跑归属验收，出具独立台账 | 判据三要素逐行可复算；分叉库 `ai_film_industrial` 的 35/35 不得挪用为正式链结论（见 ADR-R41 D5） |
+| D2 | 在正式链测试库 `ai_film_api_tests` 上重跑归属验收，出具独立台账 | **已完成取证**（`main-chain/ownership-ledger.md`）：判据三要素逐行可复算、`--selftest` 可 FAIL；结论 FAIL（13/15 未通过）。**后续动作**：按台账「未通过项与原因」补归属约束（`NOT VALID` → 订正 → `VALIDATE`），再复跑至全 PASS 才可勾选 |
 
 ### 最终签署
 
