@@ -26,6 +26,7 @@ from packages.shared.database import Base, build_migration_url
 from packages.shared.outbox import OutboxEventModel  # noqa: F401
 from packages.shared.status_transition import StatusTransitionModel  # noqa: F401
 from services.asset_service.repository.orm import (  # noqa: F401
+    AssetRegistrationReceiptModel,
     AssetVersionModel,
     QCReportModel,
 )
@@ -34,6 +35,7 @@ from services.budget_quota.repository.orm import (  # noqa: F401
     ShotBudgetRequestModel,
 )
 from services.production_planning.repository.orm import (  # noqa: F401
+    ArtifactManifestModel,
     GenerationTaskModel,
     ProductionRouteModel,
 )

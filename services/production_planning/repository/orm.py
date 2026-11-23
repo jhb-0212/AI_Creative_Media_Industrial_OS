@@ -19,13 +19,23 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Index, Integer, String, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKeyConstraint,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from packages.shared.database import Base
 from packages.shared.orm import EntityMixin, project_tenant_fk
 from packages.shared.status_constraint import status_check
+from packages.shared.storage_locator import sql_locator_check
 from services.project_planning.domain.enums import (
+    ArtifactManifestStatus,
     GenerationTaskStatus,
     ProductionRouteStatus,
 )
@@ -55,6 +65,11 @@ class ProductionRouteModel(Base, EntityMixin):
     route_type: Mapped[str] = mapped_column(String(32), nullable=False)
     capability_ref: Mapped[str] = mapped_column(String(200), nullable=False)
     basis_ref: Mapped[str] = mapped_column(String(200), nullable=False)
+    # 任务创建时冻结的质量策略来源（C4）。空串表示该路线尚未绑定，
+    # 创建准入须拒绝——判定在运行时服务层，列本身只保证事实有处可落。
+    quality_profile_version: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default=""
+    )
 
 
 class GenerationTaskModel(Base, EntityMixin):
@@ -63,6 +78,12 @@ class GenerationTaskModel(Base, EntityMixin):
     __tablename__ = "generation_tasks"
     __table_args__ = (
         UniqueConstraint("project_id", "entity_id", name="uq_generation_tasks_entity_project"),
+        # 产物清单与登记回执的复合外键目标：跨任务/跨租户伪造登记依据必须被拒。
+        # 约束名由迁移 e1f2a3b4c5d6 建立，这里同步声明，避免 alembic check 漂移。
+        UniqueConstraint(
+            "generation_task_id", "project_id", "tenant_id",
+            name="uq_generation_tasks_task_project_tenant",
+        ),
         # 归属外键：本表此前对 projects **一条外键都没有**。生成任务是
         # 「谁在什么约束下生成了什么」的证据，其 project_id 必须指向真实项目。
         project_tenant_fk("generation_tasks"),
@@ -101,4 +122,55 @@ class GenerationTaskModel(Base, EntityMixin):
     )
 
 
-__all__ = ["SCHEMA_NAME", "GenerationTaskModel", "ProductionRouteModel"]
+class ArtifactManifestModel(Base, EntityMixin):
+    """artifact_manifests：产物写入意图（ADR-R42 T0/T1）。
+
+    这条记录是崩溃恢复的权威依据：T0 提交后即使进程立即退出，也能按
+    PREPARED 记录重试对象写入，而不必重新调用模型。``locator`` 与
+    ``sha256`` 的绑定由数据库 CHECK 保证（与 asset_versions 同源）。
+    """
+
+    __tablename__ = "artifact_manifests"
+    __table_args__ = (
+        UniqueConstraint(
+            "generation_task_id", "attempt_id",
+            name="uq_artifact_manifests_task_attempt",
+        ),
+        UniqueConstraint(
+            "project_id", "entity_id", name="uq_artifact_manifests_entity_project"
+        ),
+        project_tenant_fk("artifact_manifests"),
+        ForeignKeyConstraint(
+            ["generation_task_id", "project_id", "tenant_id"],
+            [
+                "production_planning.generation_tasks.generation_task_id",
+                "production_planning.generation_tasks.project_id",
+                "production_planning.generation_tasks.tenant_id",
+            ],
+            name="fk_artifact_manifests_generation_task",
+        ),
+        Index("ix_artifact_manifests_project_id", "project_id"),
+        Index("ix_production_planning_artifact_manifests_tenant_id", "tenant_id"),
+        Index("ix_artifact_manifests_generation_task_id", "generation_task_id"),
+        status_check(
+            (s.value for s in ArtifactManifestStatus), table="artifact_manifests"
+        ),
+        CheckConstraint(
+            sql_locator_check("locator"), name="ck_artifact_manifests_locator_sha256"
+        ),
+        {"schema": SCHEMA_NAME},
+    )
+
+    generation_task_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    locator: Mapped[str] = mapped_column(String(96), nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    attempt_id: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+__all__ = [
+    "SCHEMA_NAME",
+    "ArtifactManifestModel",
+    "GenerationTaskModel",
+    "ProductionRouteModel",
+]

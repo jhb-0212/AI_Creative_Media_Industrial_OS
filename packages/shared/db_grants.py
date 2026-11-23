@@ -259,6 +259,14 @@ DOMAIN_GRANTS: dict[str, tuple[TableGrant, ...]] = {
     ASSET_SERVICE: (
         _grant(
             ASSET_SERVICE,
+            "asset_registration_receipts",
+            "SELECT INSERT",
+            "SELECT：T3 按业务幂等键回读回执、重复投递时复用结果；"
+            "INSERT：T2 登记成功或内容冲突时落一条事实。无 UPDATE/DELETE："
+            "回执由触发器强制 append-only，冲突只能另建带理由的 REJECTED，不能改写既有事实。",
+        ),
+        _grant(
+            ASSET_SERVICE,
             "asset_versions",
             "SELECT INSERT UPDATE",
             "SELECT：按项目列举/读取；INSERT：登记新版本；UPDATE：状态推进（_advance）+ 版本递增。"
@@ -378,6 +386,14 @@ def _projects_readonly(label: str) -> TableGrant:
 # 项目域的列级只读；它没有别的域的任何权限，因此「生产域去写账本」这类越界
 # 在数据库层就被拒绝，而不是靠代码审查。
 DOMAIN_GRANTS[PRODUCTION_PLANNING] = (
+    _grant(
+        PRODUCTION_PLANNING,
+        "artifact_manifests",
+        "SELECT INSERT UPDATE",
+        "SELECT：按 generation_task_id 回读写入意图，供崩溃恢复重建登记请求；"
+        "INSERT：T0 落 PREPARED 意图；UPDATE：T1 复核对象与 SHA256 后推进 STORED_VERIFIED。"
+        "无 DELETE：意图是恢复依据，抹掉它等于把崩溃后的任务变成无法对账的黑洞。",
+    ),
     _grant(
         PRODUCTION_PLANNING,
         "production_routes",

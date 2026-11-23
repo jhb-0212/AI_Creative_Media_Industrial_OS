@@ -201,6 +201,17 @@ class GenerationTaskStatus(str, Enum):
     FAILED = "FAILED"        # 执行或登记失败的终态
 
 
+class ArtifactManifestStatus(str, Enum):
+    """产物写入意图的状态（ADR-R42 T0/T1）。
+
+    PREPARED 是 T0 落库的写入意图；STORED_VERIFIED 表示对象写入并复核过
+    SHA256。确认态冻结：恢复只能重试未确认的 PREPARED，不能回退已确认事实。
+    """
+
+    PREPARED = "PREPARED"
+    STORED_VERIFIED = "STORED_VERIFIED"
+
+
 class QCTaskStatus(str, Enum):
     """QC 待检任务的生命周期（Phase 3，生成终态入队）。"""
 

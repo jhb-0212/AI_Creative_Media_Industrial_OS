@@ -29,7 +29,16 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, Uuid
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Index,
+    String,
+    UniqueConstraint,
+    Uuid,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -37,7 +46,10 @@ from packages.shared.database import Base
 from packages.shared.orm import EntityMixin, project_tenant_fk
 from packages.shared.status_constraint import status_check
 from packages.shared.storage_locator import sql_locator_check
-from services.asset_service.domain.enums import AssetStatus
+from services.asset_service.domain.enums import (
+    AssetRegistrationReceiptStatus,
+    AssetStatus,
+)
 
 SCHEMA_NAME = "asset_service"
 # 归属目标（跨 schema 只引用，不拥有）由 packages.shared.orm.OWNERSHIP_ROOT
@@ -56,6 +68,12 @@ class AssetVersionModel(EntityMixin, Base):
         # 复合外键：资产所属项目必须与资产同租户（跨租户挂靠被数据库拒绝）。
         # 构造已收敛到 packages.shared.orm.project_tenant_fk（全平台唯一出处）。
         project_tenant_fk("asset_versions"),
+        # 回执跨表引用的目标键：entity_id 是全局主键，但「项目内资产」
+        # 还需要 (project_id, entity_id) 唯一，才能让回执用复合外键锁死
+        # 「资产必须属于回执所属项目」，而不是只验资产 ID 存在。
+        UniqueConstraint(
+            "project_id", "entity_id", name="uq_asset_versions_project_entity"
+        ),
         # status 收口（十态）：资产版本是唯一允许「GOLD / QUARANTINED」等旁支的
         # 对象，库里若只认有入边的五态，真实数据一出现旁支就会被 CHECK 打回。
         status_check((s.value for s in AssetStatus), table="asset_versions"),
@@ -91,6 +109,63 @@ class AssetVersionModel(EntityMixin, Base):
     tool_product: Mapped[str | None] = mapped_column(String(64), nullable=True)
     operator_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class AssetRegistrationReceiptModel(Base, EntityMixin):
+    """asset_registration_receipts：不可变登记回执（ADR-R42 T2/T3）。
+
+    ``(tenant_id, generation_task_id)`` 是业务幂等键：同一任务只有一条回执。
+    尚无回执时发现内容冲突则写 REJECTED；已有回执时复用原结果并另记冲突审计
+    事实，绝不新建第二个资产、也不改写既有回执（ADR-R42 §4.3）。
+    数据库触发器禁止一切 UPDATE/DELETE/TRUNCATE——应用层「约定不改」不算约束。
+    """
+
+    __tablename__ = "asset_registration_receipts"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "generation_task_id",
+            name="uq_asset_registration_receipts_tenant_task",
+        ),
+        UniqueConstraint(
+            "project_id", "entity_id",
+            name="uq_asset_registration_receipts_entity_project",
+        ),
+        project_tenant_fk("asset_registration_receipts"),
+        ForeignKeyConstraint(
+            ["generation_task_id", "project_id", "tenant_id"],
+            [
+                "production_planning.generation_tasks.generation_task_id",
+                "production_planning.generation_tasks.project_id",
+                "production_planning.generation_tasks.tenant_id",
+            ],
+            name="fk_asset_registration_receipts_generation_task",
+        ),
+        # 复合引用：单列 asset_version_id 只能证明「资产存在」，无法阻止
+        # A 项目的回执引用 B 项目的资产。目标唯一键在 AssetVersionModel 上声明。
+        ForeignKeyConstraint(
+            ["project_id", "asset_version_id"],
+            [f"{SCHEMA_NAME}.asset_versions.project_id",
+             f"{SCHEMA_NAME}.asset_versions.entity_id"],
+            name="fk_asset_registration_receipts_asset_version",
+        ),
+        Index("ix_asset_registration_receipts_project_id", "project_id"),
+        Index("ix_asset_service_asset_registration_receipts_tenant_id", "tenant_id"),
+        Index("ix_asset_registration_receipts_generation_task_id", "generation_task_id"),
+        status_check(
+            (s.value for s in AssetRegistrationReceiptStatus),
+            table="asset_registration_receipts",
+        ),
+        CheckConstraint(
+            "status <> 'COMPLETED' OR (asset_version_id IS NOT NULL AND asset_version_id <> '')",
+            name="ck_asset_registration_receipts_completion",
+        ),
+        {"schema": SCHEMA_NAME},
+    )
+
+    generation_task_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    asset_version_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    message: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
 
 class QCReportModel(Base):

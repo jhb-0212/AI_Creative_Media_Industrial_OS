@@ -41,6 +41,17 @@ class AssetStatus(str, Enum):
     ARCHIVED = "ARCHIVED"
 
 
+class AssetRegistrationReceiptStatus(str, Enum):
+    """登记回执的结果分类（ADR-R42 T2/T3）。
+
+    两态互斥且都是终态：这不是可迁移的生命周期，而是「一次登记的结果」。
+    冲突不能改写旧回执，只能另建带理由的 REJECTED 事实。
+    """
+
+    COMPLETED = "COMPLETED"
+    REJECTED = "REJECTED"
+
+
 class DeviationClass(str, Enum):
     """QC 偏差分类（契约 QCReport.deviation_class）。"""
 
