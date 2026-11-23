@@ -18,7 +18,7 @@
 | D1 | 登记架构 | **Outbox 驱动的异步 Saga**。禁止在 Generation Worker 内直接跨域调用 AssetService 并拼接两个 Session；禁止引入包装类把两个域的事务边界藏起来。 |
 | D2 | 执行身份 | 专用内部工作负载身份 `svc:asset-registration`，仅由受信任的内部事件处理器构造。 |
 | D3 | 租户与归属 | 来源 Generation Task 是授权依据，数据库复合外键是最终防线；不信任 Outbox payload 单方声明。 |
-| D4 | 事务 | 三个域内本地事务（T1/T2/T3），各域本地原子提交；**不承诺跨域原子性**，不共享 Session，不引入伪 2PC。域间至少一次交付，幂等是运行条件而非附加项。 |
+| D4 | 事务 | 四个域内本地事务（T0–T3：T0/T1/T3 在 Generation，T2 在 Asset），各域本地原子提交；**不承诺跨域原子性**，不共享 Session，不引入伪 2PC。对象存储 I/O 不持有数据库事务。域间至少一次交付，幂等是运行条件而非附加项。 |
 | D5 | 幂等 | 以 Generation Task 为业务登记依据，建立有业务意义的**登记回执**记录，唯一约束至少覆盖 `(tenant_id, generation_task_id)`。随机 `entity_id` 不构成幂等键。 |
 | D6 | 失败补偿 | 持久化回执、幂等重放、死信与人工处置；**不删除已登记的不可变资产**，不通过重新生成掩盖登记失败。 |
 | D7 | 成功终态权威 | `asset_version_id` 来自 AssetService 登记回执；`quality_profile_version` 来自任务创建时冻结的质量策略；Generation Task 的 SUCCEEDED 来自登记完成事件。Worker 不再拥有自行声明资产已登记的权力。 |
@@ -49,28 +49,32 @@ D1–D7 为本次拍板的**四条红线**（D2 身份 / D3 租户 / D4 事务 /
 
 ```
 Generation Worker
-    | 模型生成
+    | 模型生成 → locator / sha256 / attempt_id
     v
-受控对象存储  ── locator / sha256
+Generation Domain (T0，本地事务)
+    1. 写入 ArtifactManifest（locator、sha256、attempt_id、status=PREPARED）
+    2. 提交，不持有后续 I/O 的事务
+    |
+    v  受控对象存储（事务外 I/O）
+    写入对象并复核 SHA256
     |
     v
-Generation Domain (T1，同一个 Gen UoW)
-    1. 持久化产物清单（locator、sha256、attempt 标识、写入意图）
-    2. 状态 → AWAITING_ASSET_REGISTRATION
+Generation Domain (T1，本地事务)
+    1. manifest.status → STORED_VERIFIED
+    2. GenerationTask.state → AWAITING_ASSET_REGISTRATION
     3. 写 ASSET_REGISTRATION_REQUESTED Outbox
     |
     v  Outbox Relay
-Asset Registration Handler (Asset Service UoW，T2)
-    1. 校验来源任务 / 租户 / 项目 / 产物 / locator+sha256
-    2. 幂等登记 AssetVersion + 登记回执（同一资产域事务）
-    3. 写 ASSET_REGISTRATION_COMPLETED / REJECTED
+Asset Registration Handler (T2，资产域本地事务)
+    1. 校验来源任务 / 租户 / 项目 / 产物 / locator+sha256 一致
+    2. 幂等创建 AssetVersion + AssetRegistrationReceipt（COMPLETED / REJECTED）
+    3. 写 ASSET_REGISTRATION_COMPLETED / REJECTED Outbox
     |
     v  Outbox Relay
-Generation Domain (T3，同一个 Gen UoW)
-    1. 校验登记回执
-    2. 绑定 asset_version_id
-    3. 状态 → SUCCEEDED
-    4. 写 GENERATION_SUCCEEDED Outbox
+Generation Domain (T3，本地事务)
+    1. 校验回执的 tenant_id / generation_task_id 与当前任务一致
+    2. 绑定 asset_version_id；COMPLETED → SUCCEEDED + GENERATION_SUCCEEDED
+    3. REJECTED → FAILED + GENERATION_FAILED
     |
     v  现有 QC Relay
 QC Task
@@ -78,12 +82,18 @@ QC Task
 
 | 事务 | 所属域 | 必须原子提交的内容 | 数据库角色 |
 |---|---|---|---|
-| T1 | Generation | 产物清单、写入意图、等待登记状态、`ASSET_REGISTRATION_REQUESTED` | `production_planning_role` |
+| T0 | Generation | ArtifactManifest（PREPARED 写入意图）、审计字段 | `production_planning_role` |
+| T1 | Generation | manifest 状态 → STORED_VERIFIED、等待登记状态、`ASSET_REGISTRATION_REQUESTED` | `production_planning_role` |
 | T2 | Asset Service | 登记回执、`AssetVersion`、完成/拒绝事件 | `asset_service_role` |
-| T3 | Generation | 回执核验、资产 ID 绑定、任务终态、`GENERATION_SUCCEEDED` | `production_planning_role` |
+| T3 | Generation | 回执核验、资产 ID 绑定、任务终态、`GENERATION_SUCCEEDED` / `GENERATION_FAILED` | `production_planning_role` |
 
-三个事务分别由各域自己的数据库角色完成。域间以 Outbox 形成**至少一次**交付；重复消费是正常运行条件，
+四个事务分别由各域自己的数据库角色完成。对象存储的写入与校验在 T0 提交之后、T1 开启之前进行，
+**不得持有数据库事务或行锁**。域间以 Outbox 形成**至少一次**交付；重复消费是正常运行条件，
 必须由幂等吸收。任何「用一个 Session 跨两个域写半边再补另一半」的实现，无论包装成何种端口，均违反 D4。
+
+失败恢复的权威依据是持久化事实，不是内存状态：T0 提交后崩溃可按未完成的 `PREPARED` 记录重试对象写入，
+不重复调用模型；T1 之后崩溃依赖已持久化的 `ASSET_REGISTRATION_REQUESTED` 继续登记；T2 提交后 T3 未消费
+时由 Relay 重放，回执唯一性保证不重复建资产；T3 提交后 ACK 丢失时重复消费由回执幂等吸收。
 
 ---
 
@@ -169,11 +179,11 @@ QC Task
 | 编号 | 契约项 | 变更要求 |
 |---|---|---|
 | C1 | GenerationTask 状态机 | 增加 `AWAITING_ASSET_REGISTRATION`，进入条件为 T1 提交；`SUCCEEDED` 只能由登记完成事件驱动的 T3 推进。 |
-| C2 | Generation 产物清单 | 新增带 `locator`、`sha256`、`attempt_id` 与写入意图的持久化结构；Worker 不得只在内存里持有产物。 |
+| C2 | Generation 产物清单 | 新增 `ArtifactManifest`，记录 `locator`、`sha256`、`attempt_id` 与状态（`PREPARED` → `STORED_VERIFIED`），由 T0 持久化；`(generation_task_id, attempt_id)` 唯一，同任务同 attempt 不得产生多条意图。Worker 不得只在内存里持有产物。 |
 | C3 | Finish API | 移除 Worker 自报的 `asset_version_id` / `quality_profile_version` 成功入参；成功终态改由 T3 内部推进。 |
 | C4 | ProductionRoute / QC Profile 绑定 | 补齐质量策略权威来源；`quality_profile_version` 在任务创建时按冻结路线确定并作为不可变任务输入持久化。 |
-| C5 | 登记回执对象 | 新增有业务意义的登记回执，唯一约束至少 `(tenant_id, generation_task_id)`，与 `AssetVersion` 同事务建立关联。 |
-| C6 | Outbox 事件 | 新增 `ASSET_REGISTRATION_REQUESTED` / `COMPLETED` / `REJECTED`；`GENERATION_SUCCEEDED` 仅在 T3 写出。 |
+| C5 | 登记回执对象 | 新增不可变 `AssetRegistrationReceipt`，含 `status (COMPLETED/REJECTED)` 与原因；`asset_version_id` 仅成功时非空。唯一约束至少 `(tenant_id, generation_task_id)`，与 `AssetVersion` 同事务建立关联。重复请求内容一致则复用结果，内容冲突（如不同 sha256）产生可审计的拒绝，不得另建第二个资产。 |
+| C6 | Outbox 事件 | 新增 `ASSET_REGISTRATION_REQUESTED` / `COMPLETED` / `REJECTED`；`GENERATION_SUCCEEDED` / `GENERATION_FAILED` 仅在 T3 写出，前者的 `asset_version_id` 必须来自 Receipt。事件登记与发射实现须同一变更原子落地（事件目录双向校验下不存在「先实现、后补目录」的中间态）。 |
 | C7 | QC Task 入队依据 | 保持消费 `GENERATION_SUCCEEDED`；事件负载中的资产 ID 必须来自登记回执而非 Worker 声明。 |
 
 C1–C7 是**变更清单**，不是已实施事实。任何一项落地前必须按冻结治理走「契约修订登记 → 派生文件 →
@@ -219,3 +229,18 @@ C1–C7 是**变更清单**，不是已实施事实。任何一项落地前必�
   生产闭环是否可验收，须待第 7 节全部落地并取得真实 PG 证据后重新审查。
 - P1-04 通过标准独立成立：Generation 与 QC 两条链都需真实数据库并发证据；单测事务次数断言、
   `SKIP LOCKED` 静态检查或 CI 全绿均不能替代。
+
+---
+
+## 附录 A：事务边界由三阶段修订为 T0–T3 四阶段（append-only 决策修订）
+
+- 记录时间：2026-11-23
+- 批准依据：项目所有者在 2026-11-23 设计裁决中明确「经业主批准，现将资产注册 Saga 划分为四个本地事务」。
+- 修订内容：原第 3 节把「持久化写入意图 + 对象存储写入校验 + 登记请求事件」合并为 T1 一个本地事务。
+  该合并无法表达 T0 提交后、对象写入前崩溃时的恢复路径——意图未独立持久化，系统无法区分
+  「尚未写入」与「已写入但未确认」，也无法约束对象存储 I/O 不持有数据库事务。现拆为四阶段：
+  T0 持久化写入意图（`PREPARED`）→ 事务外对象写入与 SHA256 复核 → T1 确认并发出登记请求 →
+  T2 资产域登记并写回执 → T3 生成域消费回执完成任务。
+- 边界：本次修订**不改变 D1–D7 的任何裁定结论**，不放宽任何验收条件；只明确数据持久化顺序、
+  事务边界与失败恢复的权威依据。第 1 节 D4、第 3 节、第 5 节 C2/C5/C6 已同步更新。
+- 治理：本附录为 append-only 决策修订记录，不回写历史版本；正文仍不内嵌自身哈希。
