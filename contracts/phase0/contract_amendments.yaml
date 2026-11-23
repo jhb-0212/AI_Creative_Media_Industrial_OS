@@ -1421,6 +1421,38 @@ amendments:
       - '真实模型网关未接入（services/model_gateway 仅占位）：默认执行器 UnconfiguredExecutor 如实返回 FAILED，因此当前不存在能产出合法 SUCCEEDED 的生产执行器，生成能力仍未交付。这不是本条目引入的缺口，而是 P1-08 之外的独立能力缺口。'
       - 'A26 第一条残余风险仍然成立：本修订之前的历史成功任务没有产物引用，无法回填；对账只覆盖修订后登记了引用的任务。'
 
+  - id: 'V205-R15-A31'
+    title: '生成→QC 入队改为 outbox 事件驱动；GENERATION_SUCCEEDED payload 补产物与归属'
+    retroactive: false
+    recorded_at: '2026-11-23'
+    discovered_by: '2026-11-23 第五轮工程审查 P1-03（跨域提交顺序不可靠）'
+    reason: >-
+      原实现里生成 Worker 在自己事务的 finish 之后、commit 之前，用独立 QC 会话直接写
+      qc_governance.qc_tasks 并立刻提交。顺序因此是「QCTask 先落库、GenerationTask 后提交」；
+      生成域提交失败就留下一条指向不存在生成任务的待检项，而 qc_tasks.generation_task_id
+      是跨域引用、没有物理外键，数据库拦不住这种悬空引用。
+      本条目把入队改为事件驱动：GENERATION_SUCCEEDED 与生成终态在同一事务写入 outbox，
+      事件存在即等于终态已提交，QC 域由 relay 消费后入队（至少一次投递，
+      按 generation_task_id 唯一约束幂等），因此「待检项先于生成成功」在结构上不可能发生。
+      为此 GENERATION_SUCCEEDED 的 payload 契约补四项必需事实：
+      asset_version_id、quality_profile_version、project_id、shot_id——
+      消费方没有产物引用就无从确定待检资产，没有归属就必须反查，而反查可能读到新版本。
+      本条目不含动作/Schema/状态机增删（Action 105 / Schema 89 / 状态机 48 不变），
+      但**实质性变更事件载荷契约**，故单独登记而非并入 A30。
+    adr: 'docs/architecture/amendment-pack-r16-phase2.md'
+    approved_by: '项目所有者（2026-11-23 会话内指令「全部整改」，授权按审查 P1-03 整改跨域事务顺序）'
+    approved_at: '2026-11-23'
+    source_commits:
+      - '5342629'
+    counts_after:
+      actions: 105
+      openapi_operations: 105
+      schema_objects: 89
+      state_machines: 48
+    residual_risks:
+      - '入队时效由 relay 运行状况决定：relay 停止时待检项不产生（但事件积压可见、可重放），漏入队的补偿依赖 generation Worker 的 reconcile_qc 扫描。可靠性换取了顺序正确性。'
+      - 'QC 报告与 QCTask 终态的闭环（报告幂等键、终态校验报告存在且属于本任务资产版本）不在本条目范围，归 P1-04 处理。'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——
