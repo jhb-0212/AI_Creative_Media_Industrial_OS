@@ -20,6 +20,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from packages.shared.database import build_migration_url
+from packages.shared.storage_locator import build_locator
 
 # 测试自造的样本主键（确定性，避免与真实数据冲突）。
 _SAMPLE_ASSET_ID = "immut-sample-0001"
@@ -69,7 +70,7 @@ async def _seed_samples(admin_engine: AsyncEngine) -> None:
                 " source_asset_version_ids, version) "
                 "VALUES (:id, 'AssetVersion', 1, 1, 'APPROVED', 'asset_service', "
                 " :tid, :now, 'test-seeder', :now, :pid, 'image', :sha, "
-                " '{}'::jsonb, '[]'::jsonb, 'v1') "
+                " :locator, '[]'::jsonb, 'v1') "
                 "ON CONFLICT (entity_id) DO NOTHING"
             ),
             {
@@ -77,6 +78,9 @@ async def _seed_samples(admin_engine: AsyncEngine) -> None:
                 "tid": tenant,
                 "now": now,
                 "sha": "a" * 64,
+                # storage_ref 必须是受控定位符，且内嵌哈希与 sha256 一致
+                # （DB CHECK 同时校验形态、派生关系与跨列一致）。
+                "locator": build_locator("a" * 64, "png"),
                 "pid": _SAMPLE_PROJECT_ID,
             },
         )

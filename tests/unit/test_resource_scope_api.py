@@ -23,11 +23,14 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
 
+from packages.shared.storage_locator import build_locator
 from tests.conftest import TEST_TENANT_ID, make_test_token
 
 _ORG_A = uuid.uuid4()
 _ORG_B = uuid.uuid4()
 _SHA = "a" * 64
+# 受控内容寻址定位符：storage_ref 不再是自由 dict（P1-07）。
+_LOCATOR = build_locator(_SHA, "png")
 
 
 async def _seed_organization(admin_sessionmaker, org_id: uuid.UUID) -> None:
@@ -233,7 +236,7 @@ async def _create_asset(client: AsyncClient, project_id: str) -> str:
             "project_id": project_id,
             "asset_type": "IMAGE",
             "sha256": _SHA,
-            "storage_ref": {"uri": f"s3://bucket/{uuid.uuid4().hex}.png"},
+            "storage_ref": _LOCATOR,
             "rights_manifest_ref": "rights-1",
             "entity_id": f"asset_{uuid.uuid4().hex[:10]}",
         },
@@ -254,7 +257,7 @@ async def test_asset_create_into_other_organization_project_rejected() -> None:
                 "project_id": project_id,
                 "asset_type": "IMAGE",
                 "sha256": _SHA,
-                "storage_ref": {"uri": "s3://bucket/other.png"},
+                "storage_ref": _LOCATOR,
             },
         )
     # ADR-R24 §D3a-7：组织边界下沉到数据库后，他组织的行**查不出来**，
@@ -302,7 +305,7 @@ async def test_asset_read_missing_project_returns_not_found() -> None:
                 "project_id": f"missing_{uuid.uuid4().hex[:8]}",
                 "asset_type": "IMAGE",
                 "sha256": _SHA,
-                "storage_ref": {"uri": "s3://bucket/none.png"},
+                "storage_ref": _LOCATOR,
             },
         )
     assert resp.status_code == 404

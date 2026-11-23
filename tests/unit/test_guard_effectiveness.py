@@ -87,14 +87,33 @@ _GATEWAY_TESTS = "tests/unit/test_openai_compatible_gateway.py"
 _COMFY_TESTS = "tests/unit/test_comfyui_gateway.py"
 _EXECUTOR_TESTS = "tests/unit/test_generation_executor_wiring.py"
 _CONFIG_TESTS = "tests/unit/test_generation_executor_config.py"
+_LOCATOR_TESTS = "tests/unit/test_storage_locator.py"
+_ASSET_DOMAIN_TESTS = "tests/unit/test_asset_domain.py"
 
 _CASES = [
+    # 说明：原先这里有一条「去掉扩展名白名单」的坏状态，注入点是 local_fs 的
+    # `_ALLOWED_EXTENSIONS`。定位符语法收敛到 packages/shared/storage_locator
+    # 之后，那条注入点已不存在；更重要的是**即使存在也注入无效**——白名单在
+    # `parse_locator` 的分段判定与 `_STRICT_RE`（契约 pattern 的扩展名枚举）
+    # 里各判一次，单点放宽会被另一条拦住。
+    #
+    # 这是有意的纵深防御，但它破坏了「单点变异能否证伪」这个前提。处理方式不是
+    # 削弱防线，而是**只登记能单点证伪的条目**，并如实说明哪些防线做不到：
+    # 对它们而言「注入后闸门没红」既可能是闸门失效，也可能是另一条防线接手，
+    # 二者不可区分 —— 不可区分的证据不如不要。
     BadState(
-        label="去掉扩展名白名单",
-        path="adapters/storage/local_fs.py",
-        old="        if ext not in _ALLOWED_EXTENSIONS:",
+        label="build_locator 不校验摘要形状",
+        path="packages/shared/storage_locator.py",
+        old='    if not re.fullmatch(r"[0-9a-f]{64}", digest):',
+        new="    if False:  # BAD-STATE",
+        expected_test="test_build_rejects_bad_digest_and_extension",
+    ),
+    BadState(
+        label="领域层不判定位符与 sha256 一致",
+        path="services/asset_service/domain/asset_version.py",
+        old="        if parsed.sha256 != self.sha256:",
         new="        if False:  # BAD-STATE",
-        expected_test="test_locator_must_be_hex_not_arbitrary_text",
+        expected_test="test_storage_ref_must_embed_the_declared_sha256",
     ),
     BadState(
         label="读取时不判符号链接",
@@ -181,7 +200,8 @@ _CASES = [
 ]
 
 _TEST_FILE_BY_LABEL = {
-    "去掉扩展名白名单": _STORAGE_TESTS,
+    "build_locator 不校验摘要形状": _LOCATOR_TESTS,
+    "领域层不判定位符与 sha256 一致": _ASSET_DOMAIN_TESTS,
     "读取时不判符号链接": _STORAGE_TESTS,
     "5xx/429 归成拒绝（不再可重试）": _GATEWAY_TESTS,
     "只信 content-length，不做累计计数": _GATEWAY_TESTS,

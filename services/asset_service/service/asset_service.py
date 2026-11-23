@@ -115,7 +115,7 @@ class AssetService:
         project_id: str,
         asset_type: str,
         sha256: str,
-        storage_ref: dict[str, Any],
+        storage_ref: str,
         source_asset_version_ids: list[str],
         rights_manifest_ref: str | None,
         adapter_id: str | None,

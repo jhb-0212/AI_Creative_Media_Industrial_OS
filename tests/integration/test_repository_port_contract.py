@@ -25,6 +25,7 @@ import pytest
 from sqlalchemy import text
 
 from packages.shared.port_errors import DuplicateEntityError, ReferentialIntegrityError
+from packages.shared.storage_locator import build_locator
 from services.asset_service.domain.asset_version import AssetVersion
 from services.asset_service.repository.sqlalchemy_asset_repo import (
     SqlAlchemyAssetRepository,
@@ -65,7 +66,7 @@ def _asset(tenant: uuid.UUID, project_id: str, entity_id: str | None = None) -> 
         project_id=project_id,
         asset_type="video",
         sha256="c" * 64,
-        storage_ref={"uri": "s3://bucket/key.mp4"},
+        storage_ref=build_locator("c" * 64, "mp4"),
     )
 
 

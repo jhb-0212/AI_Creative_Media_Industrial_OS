@@ -38,7 +38,7 @@ def _to_domain(model: AssetVersionModel) -> AssetVersion:
         audit_ref=model.audit_ref,
         asset_type=model.asset_type,
         sha256=model.sha256,
-        storage_ref=dict(model.storage_ref),
+        storage_ref=model.storage_ref,
         source_asset_version_ids=list(model.source_asset_version_ids),
         rights_manifest_ref=model.rights_manifest_ref,
         adapter_id=model.adapter_id,

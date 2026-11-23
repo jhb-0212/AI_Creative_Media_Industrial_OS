@@ -24,6 +24,7 @@ from typing import Any
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.entity import Entity
+from packages.shared.storage_locator import parse_locator
 from services.asset_service.domain.enums import AssetStatus
 from services.asset_service.domain.state_machine import ASSET_LIFECYCLE
 
@@ -50,7 +51,11 @@ class AssetVersion(Entity):
     # 业务字段（信封字段由 Entity 基类提供）。
     asset_type: str = ""
     sha256: str = ""
-    storage_ref: dict[str, Any] = field(default_factory=dict)
+    # 受控内容寻址定位符（P1-07）。**不是**自由映射：整改前是
+    # ``dict[str, Any]``，任何调用方都能声明 ``{"path": "../../etc/passwd"}``，
+    # 且与上面的 ``sha256`` 毫无关系。形态收敛后「资产在哪」可由哈希推出，
+    # 「指向的内容是否就是声称的那份」也变成可判定的（见 ``__post_init__``）。
+    storage_ref: str = ""
     source_asset_version_ids: list[str] = field(default_factory=list)
     rights_manifest_ref: str | None = None
     adapter_id: str | None = None
@@ -86,7 +91,7 @@ class AssetVersion(Entity):
             )
 
         # 资产可用性最低要求：必须能校验完整性（sha256）、必须能定位内容
-        # （storage_ref 非空）。缺任一项的「资产」是空壳，不得入库。
+        # （storage_ref 是受控定位符）。缺任一项的「资产」是空壳，不得入库。
         if not _SHA256_RE.fullmatch(self.sha256 or ""):
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,
@@ -94,9 +99,31 @@ class AssetVersion(Entity):
             )
         self.sha256 = self.sha256.lower()
 
-        if not self.storage_ref:
+        # 定位符必须是受控形态。这一步不是「格式校验」，而是把三条结构性保证
+        # 落到入口：形态固定为内容寻址后，路径穿越不可表达、覆盖只能退化成
+        # 新增、写入天然幂等。放过一个自由值，这三条同时失效。
+        parsed, problem = parse_locator(self.storage_ref or "")
+        if parsed is None:
             raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="storage_ref 不能为空"
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=f"storage_ref 非法：{problem}",
+            )
+
+        # 跨字段一致性：定位符里内嵌的哈希必须等于本行的 sha256。
+        #
+        # 这是 JSON Schema 的 pattern 表达不了的那一半（pattern 只看单个值），
+        # 也恰恰是最容易被写成「两份事实源」的地方：同一条资产可以声称内容
+        # 哈希是 A、定位符却指向 B，两列各自合法、合起来无意义。下游按哪个走
+        # 都会错——按 sha256 校验会把好内容判成篡改，按定位符读会取回别的
+        # 内容。所以两者必须由**同一个值**推出，任何不一致都在这里停下。
+        if parsed.sha256 != self.sha256:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=(
+                    "storage_ref 与 sha256 不一致：定位符指向 "
+                    f"{parsed.sha256}，本行声明 {self.sha256}"
+                    "（两列各自合法但合起来无意义，必须由同一个内容哈希推出）"
+                ),
             )
 
         for source_id in self.source_asset_version_ids:

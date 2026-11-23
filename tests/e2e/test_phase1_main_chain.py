@@ -41,12 +41,15 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
 from apps.api.main import app
+from packages.shared.storage_locator import build_locator
 from tests.conftest import TEST_TENANT_ID, make_test_token
 
 # 主链全程在同一个组织内完成：组织维度是归属链的一环（tenant → org → project），
 # 用无组织项目会让这条链少一段，测不出 SCOPE-3 的真实路径。
 _ORG = uuid.uuid4()
 _SHA = "e" * 64
+_LOCATOR = build_locator(_SHA, "png")
+_LOCATOR_MP4 = build_locator(_SHA, "mp4")
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -135,7 +138,7 @@ async def _create_asset(client: AsyncClient, project_id: str) -> str:
             "project_id": project_id,
             "asset_type": "IMAGE",
             "sha256": _SHA,
-            "storage_ref": {"uri": f"s3://bucket/{uuid.uuid4().hex}.png"},
+            "storage_ref": _LOCATOR,
             "rights_manifest_ref": "rights-manifest-chain",
             "entity_id": f"asset_{uuid.uuid4().hex[:10]}",
         },

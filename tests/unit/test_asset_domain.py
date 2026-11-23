@@ -13,6 +13,7 @@ import uuid
 import pytest
 
 from packages.errors.error_codes import DomainError
+from packages.shared.storage_locator import build_locator
 from services.asset_service.domain.asset_version import AssetVersion
 from services.asset_service.domain.enums import AssetStatus
 from services.asset_service.domain.qc_report import QCReport
@@ -26,6 +27,8 @@ from services.asset_service.domain.state_machine import (
 )
 
 _SHA = "a" * 64
+_LOCATOR = build_locator(_SHA, "png")
+_LOCATOR_MP4 = build_locator(_SHA, "mp4")
 _TENANT = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
 
@@ -37,7 +40,7 @@ def _asset(**overrides: object) -> AssetVersion:
         "project_id": "project-1",
         "asset_type": "IMAGE",
         "sha256": _SHA,
-        "storage_ref": {"uri": "s3://bucket/key.png"},
+        "storage_ref": _LOCATOR,
     }
     payload.update(overrides)
     return AssetVersion(**payload)  # type: ignore[arg-type]
@@ -152,7 +155,7 @@ def test_sha256_is_normalized_lowercase() -> None:
 
 def test_empty_storage_ref_rejected() -> None:
     with pytest.raises(DomainError):
-        _asset(storage_ref={})
+        _asset(storage_ref="")
 
 
 def test_empty_asset_type_rejected() -> None:
@@ -225,3 +228,59 @@ def test_asset_serialization_hides_project_id() -> None:
     data = _asset().to_dict()
     assert "project_id" not in data
     assert "tenant_id" not in data
+
+
+# ---------------------------------------------------------------------------
+# storage_ref：受控定位符 + 与 sha256 交叉一致（P1-07 / #179）
+# ---------------------------------------------------------------------------
+
+
+def test_storage_ref_must_embed_the_declared_sha256() -> None:
+    """定位符内嵌哈希与 sha256 列不一致 → 拒绝。
+
+    这是 JSON Schema 的 ``pattern`` 表达不了的那一半（pattern 只看单个值），
+    也是「两份事实源」最容易长出来的地方：同一行可以声称内容是 A、定位符却
+    指向 B，两列各自合法、合起来无意义。下游按哪个走都会错——按 sha256 校验
+    会把好内容判成篡改，按定位符读会取回别的内容。
+    """
+    other = "f" * 64
+    with pytest.raises(DomainError) as exc:
+        _asset(storage_ref=build_locator(other, "png"))
+    assert "不一致" in str(exc.value)
+
+
+def test_storage_ref_rejects_mismatched_prefix_segments() -> None:
+    """前两段与哈希不符 → 拒绝（语法合法但永远读不到内容）。"""
+    with pytest.raises(DomainError) as exc:
+        _asset(storage_ref=f"local://ff/ee/{_SHA}.png")
+    assert "由哈希派生" in str(exc.value)
+
+
+def test_storage_ref_rejects_legacy_free_form_reference() -> None:
+    """旧的自由引用形态（s3://...）不再被接受——缺口就是从它开始的。"""
+    with pytest.raises(DomainError):
+        _asset(storage_ref="s3://bucket/frame.png")
+
+
+def test_storage_ref_rejects_unregistered_extension() -> None:
+    with pytest.raises(DomainError) as exc:
+        _asset(storage_ref=build_locator(_SHA, "png").replace(".png", ".sh"))
+    assert "不是登记的产物类型" in str(exc.value)
+
+
+def test_storage_ref_accepts_locator_built_from_sha256() -> None:
+    """正向：由本行 sha256 推出的定位符被接受（不误伤合法路径）。"""
+    asset = _asset(storage_ref=build_locator(_SHA, "png"))
+    assert asset.storage_ref == build_locator(_SHA, "png")
+    assert asset.to_dict()["storage_ref"] == build_locator(_SHA, "png")
+
+
+def test_storage_ref_normalization_matches_lowercased_sha256() -> None:
+    """sha256 大写输入先归一为小写，定位符按小写哈希构造 → 一致通过。
+
+    顺序敏感：若先比较再归一，大写哈希会让「正确构造的小写定位符」被判不一致，
+    而错误只出现在大小写混用的输入上——最容易被漏测的那种。
+    """
+    digest = "A" * 64
+    asset = _asset(sha256=digest, storage_ref=build_locator(digest, "png"))
+    assert asset.sha256 == "a" * 64

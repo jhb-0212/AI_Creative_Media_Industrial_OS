@@ -28,7 +28,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
-import re
 import tempfile
 from pathlib import Path
 
@@ -38,31 +37,21 @@ from adapters.storage.ports import (
     StorageSizeLimitError,
     StoredObject,
 )
-
-# 受控定位符：local://<sha2>/<sha2>/<sha256>.<ext>
-#
-# 每一段都必须是**小写十六进制**或受控扩展名。这条正则是路径穿越的唯一防线，
-# 因此不能放宽成 ``[^/]+``——那会把 ``..`` 也放进来，防线就没了。
-_LOCATOR_RE = re.compile(
-    r"^local://([0-9a-f]{2})/([0-9a-f]{2})/([0-9a-f]{64})\.([a-z0-9]{2,5})$"
+from packages.shared.storage_locator import (
+    EXT_BY_MEDIA_TYPE,
+    LOCATOR_SHAPE,
+    build_locator,
+    extension_for_media_type,
+    parse_locator,
 )
 
-# 允许的媒体类型 → 扩展名。白名单而非黑名单：新增一种产物类型时要显式登记，
-# 而不是「忘了拦」就自动放行任意扩展名。
-EXT_BY_MEDIA_TYPE: dict[str, str] = {
-    "image/png": "png",
-    "image/jpeg": "jpg",
-    "image/webp": "webp",
-    "video/mp4": "mp4",
-    "video/webm": "webm",
-    "audio/wav": "wav",
-    "application/octet-stream": "bin",
-}
-
-# 读取定位符时无法反推 media_type（定位符里只有扩展名），因此扩展名必须独立
-# 成为白名单。缺这一条时 ``.sh`` / ``.exe`` 都能通过语法校验：正则的
-# ``[a-z0-9]{2,5}`` 只约束了字符集，不约束「这是不是一个产物类型」。
-_ALLOWED_EXTENSIONS = frozenset(EXT_BY_MEDIA_TYPE.values())
+# 定位符语法**只有一份实现**：``packages/shared/storage_locator.py``。
+#
+# 本模块此前自带一份 ``_LOCATOR_RE`` 与一份扩展名白名单，而资产域登记时又
+# 各自判断「非空就行」——三处对「什么是一个合法定位符」的回答并不相同。
+# 现在解析、构造、契约 pattern 全部由那一份定义派生；这里只负责把它的
+# 「失败原因」翻译成本适配器的异常类型。
+__all__ = ["EXT_BY_MEDIA_TYPE", "LocalFsObjectStorage"]
 
 
 class LocalFsObjectStorage:
@@ -96,7 +85,7 @@ class LocalFsObjectStorage:
                 "拒绝落盘（否则资产台账会把矛盾固化下来）"
             )
 
-        locator = f"local://{digest[0:2]}/{digest[2:4]}/{digest}.{ext}"
+        locator = build_locator(digest, ext)
         target = self._path_for(locator)
         if not target.exists():
             # 落盘走线程：文件 IO 是阻塞调用，直接 await 外层会把事件循环卡住，
@@ -116,8 +105,7 @@ class LocalFsObjectStorage:
         return data
 
     async def exists(self, locator: str) -> bool:
-        match = _LOCATOR_RE.match(locator)
-        if match is None:
+        if parse_locator(locator)[0] is None:
             return False
         try:
             target = self._path_for(locator)
@@ -129,7 +117,7 @@ class LocalFsObjectStorage:
 
     @staticmethod
     def _ext_for(media_type: str) -> str:
-        ext = EXT_BY_MEDIA_TYPE.get(media_type)
+        ext = extension_for_media_type(media_type)
         if ext is None:
             raise StorageLocatorError(
                 f"未登记的 media_type={media_type}；"
@@ -148,20 +136,19 @@ class LocalFsObjectStorage:
         也没有额外的 ``..`` 过滤或根前缀比对：``local://<2 hex>/<2 hex>/
         <64 hex>.<白名单扩展名>`` 这个形态里**没有任何位置**可以放下路径片段，
         穿越因此不可表达。多留一条永远不触发的判定只会让人误以为它是防线，
-        而真正的防线是这条正则——它有专门的用例锁定（含大写、短哈希、非产物
+        而真正的防线是那条正则——它有专门的用例锁定（含大写、短哈希、非产物
         扩展名三种伪造形态）。
+
+        解析失败一律 ``StorageLocatorError``（含「前两段与哈希不符」）：
+        这类定位符**语法合法但永远读不到内容**，属于拼写错误，与「数据丢了」
+        是两件事——把后者归给前者会让人去查存储，而真正该查的是调用方。
         """
-        match = _LOCATOR_RE.match(locator)
-        if match is None:
-            raise StorageLocatorError(
-                f"定位符不是受控形态（应为 local://xx/yy/<sha256>.<ext>）：{locator!r}"
-            )
-        a, b, digest, ext = match.groups()
-        if ext not in _ALLOWED_EXTENSIONS:
-            raise StorageLocatorError(
-                f"扩展名 .{ext} 不是登记的产物类型：{locator!r}"
-            )
-        return self._root / a / b / f"{digest}.{ext}"
+        parsed, problem = parse_locator(locator)
+        if parsed is None:
+            raise StorageLocatorError(f"{problem}（应为 {LOCATOR_SHAPE}）")
+        return self._root / parsed.sha256[0:2] / parsed.sha256[2:4] / (
+            f"{parsed.sha256}.{parsed.extension}"
+        )
 
     def _write_atomically(self, target: Path, data: bytes) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -194,9 +181,9 @@ class LocalFsObjectStorage:
             )
         data = target.read_bytes()
         digest = hashlib.sha256(data).hexdigest()
-        expected = _LOCATOR_RE.match(locator)
-        assert expected is not None  # 调用前已校验
-        if digest != expected.group(3):
+        parsed, problem = parse_locator(locator)
+        assert parsed is not None, problem  # 调用前已校验
+        if digest != parsed.sha256:
             raise StorageIntegrityError(
                 f"内容哈希与定位符不符（存储被篡改或损坏）：{locator}"
             )

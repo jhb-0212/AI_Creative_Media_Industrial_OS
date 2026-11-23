@@ -2091,7 +2091,14 @@
           "type": "array"
         },
         "storage_ref": {
-          "type": "object"
+          "type": "string",
+          "pattern": "^local://([0-9a-f]{2})/([0-9a-f]{2})/(\\1\\2[0-9a-f]{60})\\.(bin|jpg|mp4|png|wav|webm|webp)$",
+          "description": "受控内容寻址定位符（P1-07）：local://<sha256 前2位>/<sha256 第3-4位>/<完整 sha256>.<扩展名>。不是自由引用：整改前为 {\"type\": \"object\"}，接受任意值，于是调用方可声明 {\"path\": \"../../etc/passwd\"} 且与同行 sha256 无关。形态固定为内容寻址后，路径穿越不可表达、覆盖退化为新增、写入天然幂等。pattern 中的 \\1\\2 反向引用要求前两段由哈希派生——只约束语法而不管派生关系时，local://ff/ee/<真实哈希>.png 语法合法却永远读不到内容。",
+          "x-afs-sources": [
+            "C.3.1 通用实体信封与资产版本",
+            "ADR-R08 G2 读能力边界",
+            "P1-07 存储读取边界"
+          ]
         },
         "tool_product": {
           "type": "string"
@@ -7202,7 +7209,13 @@
           "type": "string"
         },
         "storage_ref": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^local://([0-9a-f]{2})/([0-9a-f]{2})/(\\1\\2[0-9a-f]{60})\\.(bin|jpg|mp4|png|wav|webm|webp)$",
+          "description": "同 AssetVersion.storage_ref：受控内容寻址定位符。两处此前类型不同（AssetVersion 为 object、本处为裸 string），同一个概念两种回答——引用侧因此可能携带一个登记侧不接受的值，而没有任何一处会说话。",
+          "x-afs-sources": [
+            "C.3.2 API 命令、事件信封与错误码",
+            "P1-07 存储读取边界"
+          ]
         },
         "rights_manifest_ref": {
           "type": "string"

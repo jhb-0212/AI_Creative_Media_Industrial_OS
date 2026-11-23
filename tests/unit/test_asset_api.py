@@ -21,9 +21,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from apps.api.main import app
+from packages.shared.storage_locator import build_locator
 from tests.conftest import TEST_TENANT_ID, make_test_token, set_test_scope
 
 _SHA = "d" * 64
+_LOCATOR = build_locator(_SHA, "png")
+_LOCATOR_MP4 = build_locator(_SHA, "mp4")
 # 资产归属键（SCOPE-3）：资产必须挂在真实项目上，归属判定才成立。
 _PROJECT_ID = "project-1"
 
@@ -100,7 +103,7 @@ async def test_asset_lifecycle_end_to_end(
             "project_id": _PROJECT_ID,
             "asset_type": "IMAGE",
             "sha256": _SHA,
-            "storage_ref": {"uri": "s3://bucket/frame.png"},
+            "storage_ref": _LOCATOR,
             "source_asset_version_ids": [],
             "rights_manifest_ref": "rights-manifest-1",
             "entity_id": asset_id,
@@ -155,7 +158,7 @@ async def test_create_asset_wrong_role_is_403(approver_client: AsyncClient) -> N
             "project_id": _PROJECT_ID,
             "asset_type": "IMAGE",
             "sha256": _SHA,
-            "storage_ref": {"uri": "s3://bucket/frame.png"},
+            "storage_ref": _LOCATOR,
         },
     )
     assert resp.status_code == 403
@@ -171,7 +174,7 @@ async def test_worker_cannot_approve(worker_client: AsyncClient) -> None:
             "project_id": _PROJECT_ID,
             "asset_type": "IMAGE",
             "sha256": _SHA,
-            "storage_ref": {"uri": "s3://bucket/frame.png"},
+            "storage_ref": _LOCATOR,
             "rights_manifest_ref": "rights-manifest-1",
             "entity_id": asset_id,
         },
@@ -188,7 +191,7 @@ async def test_duplicate_asset_id_is_idempotent(worker_client: AsyncClient) -> N
         "project_id": _PROJECT_ID,
         "asset_type": "IMAGE",
         "sha256": _SHA,
-        "storage_ref": {"uri": "s3://bucket/frame.png"},
+        "storage_ref": _LOCATOR,
         "entity_id": asset_id,
     }
     first = await worker_client.post("/assets", json=payload)
@@ -205,7 +208,7 @@ async def test_overwriting_asset_version_is_rejected(worker_client: AsyncClient)
     base = {
         "project_id": _PROJECT_ID,
         "asset_type": "IMAGE",
-        "storage_ref": {"uri": "s3://bucket/frame.png"},
+        "storage_ref": _LOCATOR,
         "entity_id": asset_id,
     }
     first = await worker_client.post("/assets", json={**base, "sha256": _SHA})
@@ -240,7 +243,7 @@ async def test_read_asset_version_returns_envelope(
             "project_id": _PROJECT_ID,
             "asset_type": "IMAGE",
             "sha256": _SHA,
-            "storage_ref": {"uri": "s3://bucket/frame.png"},
+            "storage_ref": _LOCATOR,
             "rights_manifest_ref": "rights-manifest-1",
             "entity_id": asset_id,
         },
@@ -287,7 +290,7 @@ async def test_asset_status_change_to_gold_with_evidence(
             "project_id": _PROJECT_ID,
             "asset_type": "IMAGE",
             "sha256": _SHA,
-            "storage_ref": {"uri": "s3://bucket/frame.png"},
+            "storage_ref": _LOCATOR,
             "rights_manifest_ref": "rights-manifest-1",
             "entity_id": asset_id,
         },
@@ -344,7 +347,7 @@ async def test_asset_status_change_illegal_transition_rejected(
             "project_id": _PROJECT_ID,
             "asset_type": "IMAGE",
             "sha256": _SHA,
-            "storage_ref": {"uri": "s3://bucket/frame.png"},
+            "storage_ref": _LOCATOR,
             "rights_manifest_ref": "rights-manifest-1",
             "entity_id": asset_id,
         },
@@ -370,7 +373,7 @@ async def test_asset_status_change_wrong_role_is_403(
             "project_id": _PROJECT_ID,
             "asset_type": "IMAGE",
             "sha256": _SHA,
-            "storage_ref": {"uri": "s3://bucket/frame.png"},
+            "storage_ref": _LOCATOR,
             "rights_manifest_ref": "rights-manifest-1",
             "entity_id": asset_id,
         },
@@ -396,7 +399,7 @@ async def test_asset_status_change_self_promotion_rejected(
             "project_id": _PROJECT_ID,
             "asset_type": "IMAGE",
             "sha256": _SHA,
-            "storage_ref": {"uri": "s3://bucket/frame.png"},
+            "storage_ref": _LOCATOR,
             "rights_manifest_ref": "rights-manifest-1",
             "entity_id": asset_id,
         },
@@ -419,3 +422,71 @@ async def test_asset_status_change_self_promotion_rejected(
         )
     assert resp.status_code == 409
     assert resp.json()["error_code"] == "STATE_TRANSITION_DENIED"
+
+
+# ---------------------------------------------------------------------------
+# storage_ref 入口收敛（P1-07 / #179）
+# ---------------------------------------------------------------------------
+
+
+async def test_free_form_storage_ref_rejected_at_entry(worker_client: AsyncClient) -> None:
+    """旧的自由引用形态在协议层就被拒（422），不留到落库或读取时。
+
+    整改前 ``storage_ref`` 是自由 dict，``{"uri": "s3://bucket/x.png"}`` 是
+    「合法」的；现在入口就按受控定位符判定，错误现场紧贴调用方。
+    """
+    resp = await worker_client.post(
+        "/assets",
+        json={
+            "project_id": _PROJECT_ID,
+            "asset_type": "IMAGE",
+            "sha256": _SHA,
+            "storage_ref": "s3://bucket/frame.png",
+            "entity_id": f"asset_{uuid.uuid4().hex[:10]}",
+        },
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error_code"] == "VALIDATION_ERROR"
+
+
+async def test_locator_with_mismatched_prefix_rejected_at_entry(
+    worker_client: AsyncClient,
+) -> None:
+    """前两段与哈希不符 → 入口拒绝。
+
+    这类定位符语法完全合法（正则能匹配），只有「前两段必须由哈希派生」这条
+    才判得掉。若入口只校验形态，它会一路走到登记成功，然后在读取时表现为
+    「内容不存在」——把拼写错误伪装成数据丢失。
+    """
+    resp = await worker_client.post(
+        "/assets",
+        json={
+            "project_id": _PROJECT_ID,
+            "asset_type": "IMAGE",
+            "sha256": _SHA,
+            "storage_ref": f"local://ff/ee/{_SHA}.png",
+            "entity_id": f"asset_{uuid.uuid4().hex[:10]}",
+        },
+    )
+    assert resp.status_code == 422
+    assert "由哈希派生" in resp.text
+
+
+async def test_unknown_request_field_is_rejected(worker_client: AsyncClient) -> None:
+    """未知字段必须 422 而不是静默忽略。
+
+    静默忽略比 422 更危险：调用方以为字段生效了，实际被丢弃。这个模型上尤其
+    要防——整改前 ``storage_ref`` 是自由 dict，多塞一个键是「合法」的。
+    """
+    resp = await worker_client.post(
+        "/assets",
+        json={
+            "project_id": _PROJECT_ID,
+            "asset_type": "IMAGE",
+            "sha256": _SHA,
+            "storage_ref": _LOCATOR,
+            "storage_hint": "worker 以为这个字段能指定落盘位置",
+            "entity_id": f"asset_{uuid.uuid4().hex[:10]}",
+        },
+    )
+    assert resp.status_code == 422

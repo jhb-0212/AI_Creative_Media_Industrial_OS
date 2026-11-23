@@ -835,6 +835,7 @@ def _serializer_factories() -> dict[str, object]:
     from datetime import UTC, datetime
     from uuid import uuid4
 
+    from packages.shared.storage_locator import build_locator
     from services.asset_service.domain.asset_version import AssetVersion
     from services.asset_service.domain.qc_report import QCReport
     from services.budget_quota.domain.budget_ledger import BudgetLedger
@@ -857,7 +858,10 @@ def _serializer_factories() -> dict[str, object]:
             project_id="probe-project",
             asset_type="video",
             sha256="0" * 64,
-            storage_ref={"bucket": "probe", "key": "probe"},
+            # 探测对象也必须遵守 storage_ref 的受控形态：它是**第二个写入
+            # 路径**，若这里仍用自由 dict，就等于「契约探测走一套、真实登记走
+            # 另一套」，而探测全绿恰恰说明不了真实登记能过。
+            storage_ref=build_locator("0" * 64, "mp4"),
         ),
         "QCReport": QCReport(
             qc_report_id="probe-report",
@@ -1259,6 +1263,208 @@ def write_schema_field_signatures() -> None:
     print(
         f"[PASS] 已重写字段签名台账：{len(current)} 个对象"
     )
+
+
+# --------------------------------------------------------------------------- #
+# 存储定位符：契约 pattern 必须与存储实现同源（P1-07 / #179）
+# --------------------------------------------------------------------------- #
+STORAGE_LOCATOR_PATTERN_OWNERS = ("AssetVersion", "AssetReference")
+
+
+def _locator_check_samples() -> list[str]:
+    """构造用于两侧比对的样本，正例**从登记表派生**而非手写清单。
+
+    手写正例的问题是「登记表加了新扩展名，样本忘了加」——于是新扩展名在
+    契约里被拒、在实现里被收，而闸门仍绿。反例同理：未登记扩展名从登记表
+    之外取，不写死具体值。
+    """
+    from packages.shared.storage_locator import (
+        ALLOWED_EXTENSIONS,
+        build_locator,
+    )
+
+    digest = "0123456789abcdef" * 4
+    samples = [build_locator(digest, ext) for ext in sorted(ALLOWED_EXTENSIONS)]
+    # 前两段与哈希不符：语法合法但永远读不到内容（本次收敛才发现的历史缺口）。
+    samples.append(f"local://ff/ee/{digest}.png")
+    # 哈希长短不对 / 非十六进制 / 大写。
+    samples.append(f"local://01/23/{digest[:-1]}.png")
+    samples.append(f"local://01/23/{'z' * 64}.png")
+    samples.append(f"local://01/23/{digest.upper()}.png")
+    # 路径穿越的各种写法（形态里没有位置放路径片段，因此都应被拒）。
+    samples.append("local://../../etc/passwd")
+    samples.append(f"local://01/23/{digest}.png/../../../etc/passwd")
+    # 未登记扩展名：从登记表之外取，避免写死一个将来可能被登记的值。
+    unregistered = next(
+        ext for ext in ("sh", "exe", "tmp", "bin2", "jpg2") if ext not in ALLOWED_EXTENSIONS
+    )
+    samples.append(f"local://01/23/{digest}.{unregistered}")
+    # 旧形态（自由引用）：本次改动的起点，必须两侧都拒。
+    samples.append("s3://bucket/frame.png")
+    samples.append("")
+    return samples
+
+
+def check_storage_locator_pattern() -> bool:
+    """契约里 ``storage_ref.pattern`` 必须与存储层实现判定等价。
+
+    为什么这条闸门必须存在
+    ----------------------
+    JSON Schema 的 ``pattern`` 只有**有人求值**时才起作用。本仓库里请求侧是
+    手写 Pydantic 模型、响应侧由 ``contract_model`` 生成（它只读 ``type``，
+    忽略 ``pattern``），因此契约里的 pattern 极易退化成「文档」——写了、但
+    没有任何执行点。一旦如此，代码放宽正则而契约不变，两边就永久分叉，
+    而所有闸门依旧全绿：这正是「不可机检的判据只能靠人记得看」的形状。
+
+    判据两段，缺一不可
+    ------------------
+    1. **逐字相等**：抓「只改了一边」这种最常见情形，失败信息一眼可读。
+       它本身是弱判据（写法不同可语义相同），所以还需要——
+    2. **抽样等价**：把同一批样本分别喂给契约 pattern（``re``，与 ECMA-262
+       的反向引用语义一致）与实现判定，结论必须逐条相同。这一条抓的是
+       「逐字相同但求值结果不同」的情形，例如反向引用 ``\\1\\2`` 被某一侧
+       当成转义字符。
+    """
+    from packages.shared.storage_locator import (
+        LOCATOR_PATTERN,
+        is_controlled_locator,
+    )
+
+    data = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    definitions = data.get("definitions", data.get("$defs", {}))
+    ok = True
+    for name in STORAGE_LOCATOR_PATTERN_OWNERS:
+        spec = (definitions.get(name) or {}).get("properties", {}).get("storage_ref")
+        if not isinstance(spec, dict):
+            print(f"[FAIL] {name}.storage_ref 未在契约中定义")
+            ok = False
+            continue
+        if spec.get("type") != "string":
+            print(
+                f"[FAIL] {name}.storage_ref 类型为 {spec.get('type')!r}，"
+                "应为 string：受控定位符是**一个**值，不是结构化容器"
+            )
+            ok = False
+        pattern = spec.get("pattern")
+        if pattern != LOCATOR_PATTERN:
+            print(
+                f"[FAIL] {name}.storage_ref.pattern 与存储实现不同源：\n"
+                f"    契约：{pattern!r}\n"
+                f"    实现：{LOCATOR_PATTERN!r}\n"
+                "    修法：以 packages/shared/storage_locator.LOCATOR_PATTERN 为准同步契约"
+            )
+            ok = False
+
+    # 抽样等价：只要有任一处两侧结论不同，说明「契约说的」与「实现做的」不是
+    # 同一件事——此时讨论哪种写法更规范没有意义，先让它们一致。
+    pattern_value = (
+        (definitions.get("AssetVersion") or {})
+        .get("properties", {})
+        .get("storage_ref", {})
+        .get("pattern")
+    )
+    if isinstance(pattern_value, str):
+        compiled = re.compile(pattern_value)
+        for sample in _locator_check_samples():
+            contract_verdict = bool(compiled.match(sample))
+            implementation_verdict = is_controlled_locator(sample)
+            if contract_verdict != implementation_verdict:
+                shown = sample if sample else "<空串>"
+                print(
+                    f"[FAIL] 定位符判定两侧不一致：{shown!r} → "
+                    f"契约={contract_verdict}，实现={implementation_verdict}"
+                )
+                ok = False
+    if ok:
+        print(
+            f"[PASS] 存储定位符 pattern 与实现同源"
+            f"（{len(STORAGE_LOCATOR_PATTERN_OWNERS)} 处声明 + 抽样等价）"
+        )
+    return ok
+
+
+# --------------------------------------------------------------------------- #
+# 字段级演进登记（F07 配套）：理由必须可机检
+# --------------------------------------------------------------------------- #
+CONTRACT_AMENDMENTS_PATH = CONTRACTS / "runtime" / "contract_amendments.yaml"
+_AMENDMENT_REQUIRED_FIELDS = (
+    "object",
+    "field",
+    "from",
+    "to",
+    "decided_at",
+    "recorded_by",
+    "reason",
+    "contract_ref",
+    "implementation",
+)
+
+
+def check_contract_amendments() -> bool:
+    """演进登记里的 ``to`` 必须等于当前字段签名。
+
+    这条判据刻意**不**去验证历史（「上次真的是 object 吗」无法从当前 schema
+    反推，只能从 git 翻）。它验证的是另一件事：登记仍在描述现在。
+
+    为什么这一条足以防止台账变垃圾桶
+    --------------------------------
+    字段后来又变一次（string → 别的）时，本条登记的 ``to`` 对不上当前签名，
+    闸门报「陈旧登记」，人必须补一条新的。而纯文字的豁免没有这个性质——它
+    写完之后与事实脱钩，却永远不会报错。
+    """
+    if not CONTRACT_AMENDMENTS_PATH.exists():
+        print(
+            "[FAIL] 缺少字段级演进登记 "
+            f"{CONTRACT_AMENDMENTS_PATH.relative_to(ROOT)}（F07 配套，记录改字段的理由）"
+        )
+        return False
+
+    body = load_yaml_mapping(CONTRACT_AMENDMENTS_PATH)
+    amendments = body.get("amendments")
+    if not isinstance(amendments, list) or not amendments:
+        print("[FAIL] contract_amendments.yaml 的 amendments 必须是非空列表")
+        return False
+
+    current = _current_field_signatures()
+    ok = True
+    for index, entry in enumerate(amendments):
+        if not isinstance(entry, dict):
+            print(f"[FAIL] amendments[{index}] 不是映射")
+            ok = False
+            continue
+        missing = [key for key in _AMENDMENT_REQUIRED_FIELDS if not entry.get(key)]
+        if missing:
+            print(
+                f"[FAIL] amendments[{index}] 缺字段 {missing}："
+                "登记必须有理由、依据与落地位置，不记进度"
+            )
+            ok = False
+            continue
+        object_name = str(entry["object"])
+        field_name = str(entry["field"])
+        signature = current.get(object_name)
+        if signature is None:
+            print(f"[FAIL] amendments[{index}] 指向已删除对象 {object_name}（陈旧登记）")
+            ok = False
+            continue
+        actual = signature.get(field_name)
+        if actual is None:
+            print(
+                f"[FAIL] amendments[{index}] 指向已删除字段 "
+                f"{object_name}.{field_name}（陈旧登记）"
+            )
+            ok = False
+            continue
+        if actual != str(entry["to"]):
+            print(
+                f"[FAIL] amendments[{index}] 陈旧登记：{object_name}.{field_name} "
+                f"登记的 to={entry['to']!r}，当前签名是 {actual!r}——"
+                "字段又变了，必须补一条新登记而不是改旧的"
+            )
+            ok = False
+    if ok:
+        print(f"[PASS] 字段级演进登记：{len(amendments)} 条与当前签名一致")
+    return ok
 
 
 # --------------------------------------------------------------------------- #
@@ -3510,6 +3716,8 @@ def main() -> int:
         ok &= check_permission_matrix()
         ok &= check_schema_objects()
         ok &= check_schema_field_evolution()
+        ok &= check_storage_locator_pattern()
+        ok &= check_contract_amendments()
         ok &= check_reference_targets()
         ok &= check_status_enum_consistency()
         ok &= check_event_catalog()

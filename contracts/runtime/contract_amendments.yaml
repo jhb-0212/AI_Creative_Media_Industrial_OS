@@ -1,0 +1,65 @@
+# 字段级契约演进登记（F07 的配套台账）
+#
+# 为什么需要这个文件
+# ------------------
+# `object_schemas.schema.json` 的字段签名台账（`schema_field_signatures.yaml`）
+# 是**派生快照**：字段一改，重签一下就全绿了。于是「谁改的、为什么改」这件事
+# 会随重签一起消失——半年后没人能解释 storage_ref 为什么从 object 变成 string，
+# 只能从 git 历史里翻。
+#
+# 本台账记录的是**理由**，不是状态（状态在 signatures 台账里）。
+#
+# 每条登记都必须可机检
+# --------------------
+# `to` 必须等于当前 schema 的字段签名（由 `contract_check.check_contract_amendments`
+# 实读比对）。这条约束的作用不是「验证历史」（无法验证），而是防止台账退化成
+# 垃圾桶：如果字段后来又变了（string → 别的），这条登记的 `to` 就对不上，
+# 闸门会报「陈旧登记」，逼人补一条新的。纯文字豁免没有这个性质。
+#
+# 什么时候必须登记
+# ----------------
+# 字段的 **type 变化**（新增/删除字段不在此列，它们在签名 diff 里一眼可见，
+# 理由通常就是「契约补齐了某对象的定义」）。改字段名等同于删一个加一个。
+#
+# `from` 只是记录，不作为判据——历史状态无法从当前 schema 反推，把它当判据
+# 会让闸门依赖一份不可信的记忆。
+#
+# 不记的东西
+# ----------
+# 不记进度、不记谁批准（实现方不签自己的验收，本台账只记「谁记录的、依据哪条
+# 决策」）。批准走 ADR / 评审，不在这里伪装。
+
+amendments:
+  - object: AssetVersion
+    field: storage_ref
+    from: object
+    to: string
+    decided_at: "2026-11-23"
+    recorded_by: agent
+    reason: |
+      整改前契约声明为 {"type": "object"}（自由映射），AssetReference 同名字段
+      却是裸 string——同一个概念两种类型，且都接受任意值。这不是「类型写得宽松
+      一点」，它使三条不变量在存储层没有任何结构性保障：
+        1. 路径穿越可表达：调用方声明 {"path": "../../etc/passwd"}，消费方
+           （QC 检测、交付打包）照着读；
+        2. 资产不可覆盖是纸面红线：同一个 storage_ref 可先后指向不同内容；
+        3. sha256 列与 storage_ref 里的哈希可以互相矛盾，没有任何一处会说话。
+      收敛为受控内容寻址定位符后，三条都变成结构性不可能：定位符里没有位置
+      放路径片段，文件名就是内容哈希，因此覆盖只能退化成新增、写入天然幂等。
+    contract_ref: "P1-07 存储读取边界；ADR-R08 G2 读能力边界"
+    implementation: packages/shared/storage_locator.py
+
+  - object: AssetReference
+    field: storage_ref
+    from: string
+    to: string
+    decided_at: "2026-11-23"
+    recorded_by: agent
+    reason: |
+      类型未变（一直是 string），但补上了与 AssetVersion 相同的 pattern。
+      不补的后果是引用侧能携带一个登记侧不接受的值——下游拿着一个「资产台账
+      不可能产生」的引用去读，报错现场离真正的原因很远。
+      本条登记的意义在于：它是**跨对象一致性**的变更，签名 diff 看不见
+      （string → string），只有 pattern 闸门能守。
+    contract_ref: "C.3.2 资产引用；P1-07 存储读取边界"
+    implementation: packages/shared/storage_locator.py

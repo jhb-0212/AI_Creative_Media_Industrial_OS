@@ -440,7 +440,7 @@ signatures:
     sha256: string
     source_asset_version_ids: array
     status: string
-    storage_ref: object
+    storage_ref: string
     tool_product: string
     updated_at: string
     version: string

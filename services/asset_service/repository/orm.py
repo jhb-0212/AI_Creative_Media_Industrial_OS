@@ -29,13 +29,14 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Uuid
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from packages.shared.database import Base
 from packages.shared.orm import EntityMixin, project_tenant_fk
 from packages.shared.status_constraint import status_check
+from packages.shared.storage_locator import sql_locator_check
 from services.asset_service.domain.enums import AssetStatus
 
 SCHEMA_NAME = "asset_service"
@@ -58,6 +59,21 @@ class AssetVersionModel(EntityMixin, Base):
         # status 收口（十态）：资产版本是唯一允许「GOLD / QUARANTINED」等旁支的
         # 对象，库里若只认有入边的五态，真实数据一出现旁支就会被 CHECK 打回。
         status_check((s.value for s in AssetStatus), table="asset_versions"),
+        # storage_ref 必须是受控内容寻址定位符（P1-07）。
+        #
+        # 为什么这条不变量必须落在数据库而不是只靠服务层：产物由多个写入口
+        # 落库（worker、运维脚本、未来的新用例），服务层校验只覆盖经过它的
+        # 那条路径。记忆里「策略 ≠ 约束」那一条说的就是这件事——应用层校验
+        # 看起来等价，但它不在所有连接的必经之路上。
+        #
+        # 表达式来自 packages/shared/storage_locator.sql_locator_check()：
+        # PostgreSQL 正则不支持反向引用，所以 SQL 侧用「形态正则 + 位置算术」
+        # 两段合取表达同一条判据。三处表达（Python/契约/SQL）的等价性由
+        # tests/integration/test_storage_locator_constraint.py 用同一批样本锁定。
+        CheckConstraint(
+            sql_locator_check("storage_ref"),
+            name="ck_asset_versions_storage_ref_locator",
+        ),
         {"schema": SCHEMA_NAME},
     )
 
@@ -66,7 +82,9 @@ class AssetVersionModel(EntityMixin, Base):
 
     asset_type: Mapped[str] = mapped_column(String(32), nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
-    storage_ref: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    # 受控定位符（受 CHECK 约束），不是自由 JSON。长度上限取形态的最大值：
+    # "local://" (8) + 2 + 1 + 2 + 1 + 64 + 1 + 5 = 84，留余量取 96。
+    storage_ref: Mapped[str] = mapped_column(String(96), nullable=False)
     source_asset_version_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
     rights_manifest_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     adapter_id: Mapped[str | None] = mapped_column(String(64), nullable=True)

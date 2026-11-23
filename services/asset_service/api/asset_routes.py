@@ -26,11 +26,12 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, ConfigDict, Field, create_model, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.shared.contract_models import contract_model
 from packages.shared.outbox_writer import SqlAlchemyOutboxWriter
+from packages.shared.storage_locator import validate_locator_or_raise
 from packages.shared.unit_of_work import UnitOfWork
 from services.asset_service.domain.enums import (
     AssetStatus,
@@ -71,12 +72,27 @@ class CreateAssetVersionRequest(BaseModel):
 
     project_id 是必填归属键：资产必须挂到项目上，否则无法判定项目/组织级授权
     （契约 scope: project/shot/asset）。它不进响应（与 tenant_id 同待遇）。
+
+    ``extra="forbid"``：静默忽略未知字段比 422 更危险——调用方以为身份或内容
+    生效了，实际被丢弃。这个模型上尤其要防：整改前 ``storage_ref`` 是自由
+    ``dict``，多塞一个 ``{"path": ...}`` 是「合法」的。
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     project_id: str = Field(..., min_length=1, max_length=64)
     asset_type: str = Field(..., min_length=1, max_length=32)
     sha256: str = Field(..., min_length=64, max_length=64)
-    storage_ref: dict[str, Any] = Field(..., min_length=1)
+    # 受控内容寻址定位符。入口就拒绝自由引用，不把「这个值是不是合法定位符」
+    # 这个问题留到落库或读取时——那时错误现场已经离真正的原因很远了。
+    #
+    # 校验走 ``parse_locator`` 而不是声明 ``pattern``：契约里的 pattern 含
+    # ``\1\2`` 反向引用（要求前两段由哈希派生），而 pydantic v2 的正则引擎
+    # （Rust ``regex`` crate）**不支持反向引用**——写成 pattern 会在建模阶段
+    # 直接 SchemaError。与其退化成「不含派生关系的宽松正则」（那就是两套标准），
+    # 不如复用存储层同一份解析函数：语法、派生关系、扩展名白名单一次判完，
+    # 失败原因也能原样带给调用方。
+    storage_ref: str = Field(..., min_length=1, max_length=96)
     source_asset_version_ids: list[str] = Field(default_factory=list)
     rights_manifest_ref: str | None = Field(default=None, max_length=64)
     adapter_id: str | None = Field(default=None, max_length=64)
@@ -84,6 +100,11 @@ class CreateAssetVersionRequest(BaseModel):
     operator_ref: str | None = Field(default=None, max_length=64)
     version: str | None = Field(default=None, max_length=32)
     entity_id: str | None = Field(default=None, max_length=64)
+
+    @field_validator("storage_ref")
+    @classmethod
+    def _validate_storage_ref(cls, value: str) -> str:
+        return validate_locator_or_raise(value)
 
 
 class CreateQCReportRequest(BaseModel):

@@ -49,6 +49,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 
+from packages.shared.storage_locator import build_locator
 from tests.conftest import set_test_scope
 
 # 期望的 SQLSTATE：外键冲突（外键层）与行级安全拒绝（策略层）。
@@ -286,7 +287,7 @@ _ASSET_INSERT = """
          project_id, asset_type, sha256, storage_ref, source_asset_version_ids)
     VALUES
         (:eid, 'AssetVersion', 205, 1, 'GENERATED', 'asset-service', :tid,
-         :now, 'tester', :now, :pid, 'IMAGE', :sha, '{}'::jsonb, '[]'::jsonb)
+         :now, 'tester', :now, :pid, 'IMAGE', :sha, :locator, '[]'::jsonb)
 """
 
 
@@ -329,6 +330,7 @@ async def test_asset_must_reference_existing_project(
         "now": _now(),
         "pid": uuid.uuid4().hex,
         "sha": "a" * 64,
+        "locator": build_locator("a" * 64, "png"),
     }
 
     async with asset_sessionmaker() as session:
@@ -359,6 +361,7 @@ async def test_asset_cannot_reference_cross_tenant_project(
         "now": _now(),
         "pid": project_in_a,
         "sha": "b" * 64,
+        "locator": build_locator("b" * 64, "png"),
     }
 
     # 层 1：业务角色切到租户 B 写资产，指向租户 A 的项目 → RLS 先拒。
@@ -395,6 +398,7 @@ async def test_asset_with_same_tenant_project_succeeds(
                 "now": _now(),
                 "pid": project_id,
                 "sha": "c" * 64,
+                "locator": build_locator("c" * 64, "png"),
             },
         )
         await session.rollback()

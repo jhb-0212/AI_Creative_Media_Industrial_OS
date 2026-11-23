@@ -16,6 +16,7 @@ import yaml
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.identity.principal import Principal
 from packages.shared.port_errors import DuplicateEntityError
+from packages.shared.storage_locator import build_locator
 from packages.shared.versioning import ConcurrentModificationError
 from services.asset_service.domain.asset_version import AssetVersion
 from services.asset_service.domain.enums import AssetStatus
@@ -26,6 +27,8 @@ from services.asset_service.service.asset_service import AssetService
 
 _TENANT = uuid.UUID("00000000-0000-0000-0000-000000000000")
 _SHA = "b" * 64
+_LOCATOR = build_locator(_SHA, "png")
+_LOCATOR_MP4 = build_locator(_SHA, "mp4")
 
 _CATALOG_PATH = (
     Path(__file__).resolve().parents[2] / "contracts/runtime/event_catalog.yaml"
@@ -133,7 +136,7 @@ async def _create(service: AssetService, **overrides: object) -> AssetVersion:
         "project_id": "project-1",
         "asset_type": "IMAGE",
         "sha256": _SHA,
-        "storage_ref": {"uri": "s3://bucket/key.png"},
+        "storage_ref": _LOCATOR,
         "source_asset_version_ids": [],
         "rights_manifest_ref": "rights-1",
         "adapter_id": "adapter-1",
@@ -441,7 +444,7 @@ async def test_concurrent_same_content_is_idempotent() -> None:
         project_id="project-1",
         asset_type="IMAGE",
         sha256=_SHA,
-        storage_ref={"uri": "s3://bucket/key.png"},
+        storage_ref=_LOCATOR,
     )
     svc, _, _, outbox = _concurrent_service(pre)
 
@@ -449,7 +452,7 @@ async def test_concurrent_same_content_is_idempotent() -> None:
         project_id="project-1",
         asset_type="IMAGE",
         sha256=_SHA,
-        storage_ref={"uri": "s3://bucket/key.png"},
+        storage_ref=_LOCATOR,
         source_asset_version_ids=[],
         rights_manifest_ref=None,
         adapter_id=None,
@@ -477,7 +480,7 @@ async def test_concurrent_same_sha_different_type_is_rejected() -> None:
         project_id="project-1",
         asset_type="VIDEO",
         sha256=_SHA,
-        storage_ref={"uri": "s3://bucket/key.mp4"},
+        storage_ref=_LOCATOR_MP4,
     )
     svc, _, _, _ = _concurrent_service(pre)
 
@@ -486,7 +489,7 @@ async def test_concurrent_same_sha_different_type_is_rejected() -> None:
             project_id="project-1",
             asset_type="AUDIO",  # 同 sha、不同 asset_type
             sha256=_SHA,
-            storage_ref={"uri": "s3://bucket/key.mp4"},
+            storage_ref=_LOCATOR_MP4,
             source_asset_version_ids=[],
             rights_manifest_ref=None,
             adapter_id=None,
@@ -528,7 +531,7 @@ def _asset_in(status: AssetStatus, *, rights: str | None = "rights-1") -> AssetV
         project_id="project-1",
         asset_type="IMAGE",
         sha256=_SHA,
-        storage_ref={"uri": "s3://bucket/key.png"},
+        storage_ref=_LOCATOR,
         rights_manifest_ref=rights,
         status=status,
     )
