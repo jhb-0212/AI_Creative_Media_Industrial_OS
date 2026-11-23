@@ -167,5 +167,5 @@
 
 - 本报告的"现状"均来自 main @ `abf77c18…` 的工作区实测与当期 CI 时点；**未**重跑 C1–C7 核验电池、**未**连接真实 PG 复验业务数据、**未**执行任何迁移。
 - 输入源 `总体实施蓝图.txt` 为 UNTRACKED 工作区文件，其 SHA-256 仅证明本次取证时的字节内容，不构成"已批准基线"；Owner 批准须走正式 ADR 流程。
-- ADR-R44 草案（见 `docs/adr/ADR-R44-technology-baseline.PROPOSED.md`）仅为待签草案，**未定版、未发布、未批准**，不改变任何既有 ADR 状态或冻结清单。
+- ADR-R44 草案（现见 `docs/adr/ADR-R44-technology-and-infrastructure-baseline.md`，机读视图见 `docs/architecture/technology-decision-matrix.md`）仅为待签草案，**未定版、未发布、未批准**，不改变任何既有 ADR 状态或冻结清单。原边界裁定版 `ADR-R44-technology-baseline.PROPOSED.md` 已合并入该完整版并删除（TECH-00，同号 ADR 收敛为一份），内容全部承继。
 - 方案 §6.1 "不引入 ComfyUI 节点画布"与 ADR-R43 已裁定边界一致；`adapters/comfyui/` 为空目录，本对账**未**恢复或触碰任何 ComfyUI 未提交改动。
