@@ -50,6 +50,24 @@ class InspectionBlockedError(RuntimeError):
     """
 
 
+def assert_asset_within_task_scope(task: Any, asset: Any) -> None:
+    """归属核验：QC 任务声明的项目必须等于资产实际归属。
+
+    这是**执行的准入条件**，不是一条检测项。若只把它记成 finding，随后仍会写
+    报告、仍会把资产从 GENERATED 推进到 TECHNICAL_QC——于是同一租户内项目 A
+    的任务可以通过错误引用影响项目 B 的资产。「发现了错误引用」不等于
+    「阻止了错误引用的副作用」。
+
+    抽成模块级函数而不是内联在 ``inspect`` 里，是为了让它能在不连数据库的
+    情况下被直接证伪：判定逻辑与 I/O 分离，测试验的是同一条实现。
+    """
+    if asset.project_id != task.project_id:
+        raise InspectionBlockedError(
+            f"QC 任务声明项目 {task.project_id}，但资产 {asset.entity_id} "
+            f"实际归属 {asset.project_id}：跨项目引用，拒绝检测与写入"
+        )
+
+
 @dataclass
 class AssetIntegrityInspector:
     """读取资产域并登记 QC 报告；只依赖 sessionmaker，便于单测替换。"""
@@ -78,6 +96,9 @@ class AssetIntegrityInspector:
                     f"资产状态 {asset.status.value} 不接受新的 QC 报告"
                 )
 
+            # 归属核验是**执行的准入条件**，不是一条检测项（见函数文档）。
+            assert_asset_within_task_scope(task, asset)
+
             findings = self._check(task, asset)
             verdict: Literal["PASSED", "REJECTED"] = (
                 "PASSED" if all(f["passed"] for f in findings) else "REJECTED"
@@ -103,10 +124,13 @@ class AssetIntegrityInspector:
     def _check(self, task: Any, asset: Any) -> list[dict[str, Any]]:
         findings: list[dict[str, Any]] = []
 
+        # 走到这里归属必然一致（``inspect`` 已前置阻断）。保留这条不是为了判定，
+        # 而是让报告里留下「归属已核验」的事实——报告是 append-only 证据，
+        # 读报告的人无法从别处推断当时是否核验过。
         findings.append(
             {
                 "check": "project_scope",
-                "passed": asset.project_id == task.project_id,
+                "passed": True,
                 "expected": task.project_id,
                 "actual": asset.project_id,
             }
@@ -163,4 +187,8 @@ def _sha256_of(path: Path) -> str:
     return digest.hexdigest()
 
 
-__all__ = ["AssetIntegrityInspector", "InspectionBlockedError"]
+__all__ = [
+    "AssetIntegrityInspector",
+    "InspectionBlockedError",
+    "assert_asset_within_task_scope",
+]

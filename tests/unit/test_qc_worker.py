@@ -1,6 +1,7 @@
 """QC Worker（Phase 3）的单元测试。
 
-关键不变量：没有检测器时不得领取任务（不制造假绿）；有检测器时判定必须带报告；
+关键不变量：没有检测器时不得领取任务（不制造假绿）；有检测器时判定必须带报告，
+且该报告必须真实存在并属于本任务的资产版本与租户（「有 ID」≠「有证据」）；
 执行器异常不得写假的 REJECTED，只能让租约过期后交回队列。
 """
 
@@ -9,6 +10,9 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import pytest
+
+from packages.shared.evidence_ports import ReportFacts
 from services.project_planning.domain.enums import QCTaskStatus
 from workers.qc.worker import QCInspection, QCWorker
 
@@ -69,12 +73,32 @@ class FakeInspector:
         return self.inspection
 
 
-def _setup(inspector) -> tuple[QCWorker, FakeRepo, object]:
+def _report_lookup(
+    *,
+    asset_version_id: str = "asset-1",
+    tenant_id=_TENANT,
+    known: frozenset[str] = frozenset({"report-1"}),
+):
+    """报告核验器替身：只承认 ``known`` 里的 id，其余视为不存在。"""
+
+    async def lookup(qc_report_id: str, want_tenant):
+        if qc_report_id not in known:
+            return None
+        return ReportFacts(asset_version_id=asset_version_id, tenant_id=tenant_id)
+
+    return lookup
+
+
+def _setup(inspector, *, report_lookup=None) -> tuple[QCWorker, FakeRepo, object]:
     from packages.shared.in_memory import InMemoryOutboxWriter
     from services.qc_governance.service.qc_task_service import QCTaskService
 
     repo = FakeRepo()
-    service = QCTaskService(repo, InMemoryOutboxWriter())
+    service = QCTaskService(
+        repo,
+        InMemoryOutboxWriter(),
+        report_lookup=report_lookup or _report_lookup(),
+    )
     worker = QCWorker(
         service=service,
         repository=repo,
@@ -148,7 +172,8 @@ def test_qc_result_literal() -> None:
 
 
 class _Asset:
-    def __init__(self, *, project_id="proj-1", sha256="", storage_ref=None):
+    def __init__(self, *, entity_id="asset-1", project_id="proj-1", sha256="", storage_ref=None):
+        self.entity_id = entity_id
         self.project_id = project_id
         self.sha256 = sha256
         self.storage_ref = storage_ref or {}
@@ -162,14 +187,36 @@ def _inspector():
     return ins
 
 
-def test_integrity_checks_detect_project_scope_mismatch() -> None:
-    insp = _inspector()
+def test_cross_project_asset_is_blocked_not_merely_flagged() -> None:
+    """跨项目引用必须**阻断执行**，不能只记一条 finding 后照旧写报告。"""
+    from workers.qc.asset_inspector import (
+        InspectionBlockedError,
+        assert_asset_within_task_scope,
+    )
+
     task = type("T", (), {"project_id": "proj-1"})()
     asset = _Asset(project_id="proj-other", sha256="a" * 64, storage_ref={"path": "x"})
 
-    findings = insp._check(task, asset)
-    assert not all(f["passed"] for f in findings)
-    assert next(f for f in findings if f["check"] == "project_scope")["passed"] is False
+    with pytest.raises(InspectionBlockedError) as excinfo:
+        assert_asset_within_task_scope(task, asset)
+    # 报错要能定位到「谁引用了谁」，否则现场只能看到一句「检测失败」。
+    assert "proj-1" in str(excinfo.value)
+    assert "proj-other" in str(excinfo.value)
+
+
+def test_same_project_asset_passes_scope_guard_and_leaves_verified_evidence() -> None:
+    """对照组：归属一致时守卫不误杀，且报告里留下「已核验」的事实。"""
+    from workers.qc.asset_inspector import assert_asset_within_task_scope
+
+    insp = _inspector()
+    task = type("T", (), {"project_id": "proj-1"})()
+    asset = _Asset(project_id="proj-1", sha256="a" * 64, storage_ref={"path": "x"})
+
+    assert_asset_within_task_scope(task, asset)  # 不抛即通过
+
+    scope = next(f for f in insp._check(task, asset) if f["check"] == "project_scope")
+    assert scope["passed"] is True
+    assert scope["expected"] == scope["actual"] == "proj-1"
 
 
 def test_integrity_checks_verify_content_hash(tmp_path) -> None:

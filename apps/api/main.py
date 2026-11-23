@@ -54,6 +54,7 @@ app = FastAPI(
 setup_telemetry(app)
 
 # 挂载领域模块路由。
+from apps.api.wiring import register_cross_domain_ports  # noqa: E402
 from services.asset_service.api.asset_routes import router as asset_router  # noqa: E402
 from services.budget_quota.api.budget_routes import ledger_router as budget_ledger_router  # noqa: E402
 from services.budget_quota.api.budget_routes import router as budget_router  # noqa: E402
@@ -97,6 +98,12 @@ app.include_router(budget_router)
 app.include_router(budget_ledger_router)
 app.include_router(gate_router)
 app.include_router(qc_task_router)
+
+# 跨域端口装配（组合根职责，见 apps/api/wiring.py）：
+# QC 终结要核验「报告是否真属于本任务的资产版本」，而报告在资产域。QC 域只声明
+# 端口，本层把资产域的实现接上去——否则 QC 域只能去 import 资产域（违反 R2），
+# 或者把引用完整性降级成「qc_report_id 非空」。
+register_cross_domain_ports(app)
 
 
 # 探针与指标端点不参与限流：编排系统高频抓取，被限流会误判实例不可用。

@@ -6,6 +6,9 @@
 2. 租约：领取/续租/判定/回收全部走本服务，状态事实与事件由唯一入口
    ``advance_status`` / ``save_versioned_entity`` 写入，没有第二处改状态的地方；
 3. 判定必须有报告：``qc_report_id`` 为空直接拒绝——「无证据 PASS」是最危险的假绿。
+   进一步，「有 ID」也不等于「有证据」：判定前必须核验该报告**真实存在**、
+   且属于本任务引用的资产版本与同一租户（见 ``packages.shared.evidence_ports``）。
+   跨域不建物理外键是架构选择，但不能因此把引用完整性降级为「字符串非空」。
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.evidence_ports import ReportLookup
 from services.project_planning.domain.enums import QCTaskStatus
 from services.project_planning.service.transition import (
     advance_status,
@@ -31,9 +35,16 @@ def _now() -> datetime:
 
 
 class QCTaskService:
-    def __init__(self, repository: Any, outbox_writer: Any) -> None:
+    def __init__(
+        self,
+        repository: Any,
+        outbox_writer: Any,
+        *,
+        report_lookup: ReportLookup | None = None,
+    ) -> None:
         self._repository = repository
         self._outbox_writer = outbox_writer
+        self._report_lookup = report_lookup
 
     async def enqueue(
         self,
@@ -167,6 +178,7 @@ class QCTaskService:
         task = await self._load(task_id)
         task.require_lease_owner(worker_id)
         target = QCTaskStatus(result)
+        await self._assert_report_backs_task(task, qc_report_id)
         payload = {
             "qc_task_id": task.qc_task_id,
             "worker_id": worker_id,
@@ -210,6 +222,50 @@ class QCTaskService:
                 ),
             )
         return task
+
+    async def _assert_report_backs_task(self, task: QCTask, qc_report_id: str) -> None:
+        """判定前核验报告真实存在，且属于本任务的资产版本与租户。
+
+        为什么不能只判非空
+        ------------------
+        ``qc_tasks.qc_report_id`` 是跨域引用、没有物理外键（两域分 schema）。
+        如果这里只判 ``if not qc_report_id``，任何持有 ``QC.TASK.PROCESS`` 的
+        调用方都能提交一个随便编的字符串把任务推成 PASSED——「有 ID」被当成
+        「有证据」，而这正是 QC 存在的意义所在。
+
+        为什么缺核验器要拒绝而不是放行
+        ------------------------------
+        未装配 ``report_lookup`` 说明调用方没打算验证据。放行等于让它成为默认
+        路径；按 fail-closed 拒绝，装配错误会立刻暴露成一次显式失败，
+        而不是悄悄退化成一串「看起来通过」的判定。
+        """
+        if self._report_lookup is None:
+            raise DomainError(
+                ErrorRegistry.INTERNAL_ERROR,
+                detail=(
+                    "QC 终结缺少报告核验器：判定必须有可核验的证据，"
+                    "未装配 report_lookup 时拒绝终结（fail-closed）"
+                ),
+            )
+        facts = await self._report_lookup(qc_report_id, task.tenant_id)
+        if facts is None:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=f"QC 报告不存在: {qc_report_id}",
+            )
+        if facts.asset_version_id != task.asset_version_id:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=(
+                    f"QC 报告 {qc_report_id} 属于资产版本 {facts.asset_version_id}，"
+                    f"不是本任务引用的 {task.asset_version_id}"
+                ),
+            )
+        if facts.tenant_id != task.tenant_id:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=f"QC 报告 {qc_report_id} 不属于本租户",
+            )
 
     async def release_expired(self, *, task_id: str) -> QCTask:
         task = await self._load(task_id)

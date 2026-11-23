@@ -29,6 +29,8 @@ from packages.shared.database import (
     create_sessionmaker,
 )
 from packages.shared.logging import get_logger, setup_logging
+from packages.shared.rls import set_tenant_context
+from services.asset_service.repository.qc_report_lookup import build_report_lookup
 from services.project_planning.repository.sqlalchemy_outbox_writer import (
     SqlAlchemyOutboxWriter,
 )
@@ -69,13 +71,38 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _make_report_lookup(asset_sessionmaker: Any) -> Any:
+    """判定前核验报告：每次核验独立会话，并显式设置租户上下文。
+
+    必须显式设置：``qc_tasks.tenant_id`` 是队列里给的值，不带进会话就会在 RLS
+    下读到 0 行，而「读不到」会被误判成「报告不存在」——真实的越权与真实的缺失
+    给出同一个结论，排障时无法区分。
+
+    注入点放在进程入口而不是资产域内：业务代码自行注入 RLS 作用域是 SCOPE-4
+    明令禁止的（唯一注入点是 ``build_tenant_uow_dependency``，多一个注入点就多
+    一处「以为注入了、其实没注」）。Worker 没有该依赖，因此在这里显式注入，
+    读取口径仍复用资产域的 ``build_report_lookup``（一处实现，两个进程共用）。
+    """
+
+    async def lookup(qc_report_id: str, tenant_id: Any) -> Any:
+        async with asset_sessionmaker() as session:
+            await set_tenant_context(session, tenant_id)
+            return await build_report_lookup(session)(qc_report_id, tenant_id)
+
+    return lookup
+
+
 def _build_worker(
-    session: Any, args: argparse.Namespace, inspector: QCExecutor
+    session: Any,
+    args: argparse.Namespace,
+    inspector: QCExecutor,
+    report_lookup: Any | None = None,
 ) -> QCWorker:
     return QCWorker(
         service=QCTaskService(
             SqlAlchemyQCTaskRepository(session),
             SqlAlchemyOutboxWriter(session),
+            report_lookup=report_lookup,
         ),
         repository=SqlAlchemyQCTaskRepository(session),
         executor=inspector,
@@ -86,10 +113,13 @@ def _build_worker(
 
 
 async def _run_cycle(
-    sessionmaker: Any, args: argparse.Namespace, inspector: QCExecutor
+    sessionmaker: Any,
+    args: argparse.Namespace,
+    inspector: QCExecutor,
+    report_lookup: Any | None = None,
 ) -> bool:
     async with sessionmaker() as session:
-        worker = _build_worker(session, args, inspector)
+        worker = _build_worker(session, args, inspector, report_lookup)
         if args.sweep:
             reclaimed = await worker.sweep_expired()
             await session.commit()
@@ -113,18 +143,25 @@ async def _main(argv: list[str] | None = None) -> int:
     engine = create_qc_governance_engine()
     sessionmaker = create_sessionmaker(engine)
     asset_engine = None
+    report_lookup: Any | None = None
     if args.no_detector:
         inspector: QCExecutor = UnconfiguredInspector()
     else:
         asset_engine = create_asset_service_engine()
-        inspector = AssetIntegrityInspector(create_sessionmaker(asset_engine))
+        asset_sessionmaker = create_sessionmaker(asset_engine)
+        inspector = AssetIntegrityInspector(asset_sessionmaker)
+        # 同一个资产会话工厂既用于检测、也用于判定前核验报告：
+        # 两处读的是同一份 qc_reports，不可能出现「检测读到了、判定核验不到」。
+        report_lookup = _make_report_lookup(asset_sessionmaker)
     try:
         if args.sweep or args.once:
-            await _run_cycle(sessionmaker, args, inspector)
+            await _run_cycle(sessionmaker, args, inspector, report_lookup)
             return 0
         while True:
             try:
-                busy = await _run_cycle(sessionmaker, args, inspector)
+                busy = await _run_cycle(
+                    sessionmaker, args, inspector, report_lookup
+                )
             except Exception:
                 logger.exception("QC worker cycle failed")
                 busy = False
