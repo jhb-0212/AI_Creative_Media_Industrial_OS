@@ -46,14 +46,13 @@ OutcomeResult = Literal["SUCCEEDED", "FAILED"]
 class GenerationOutcome:
     """执行结果：Worker 只认这两种终态，中间态由领域状态机管。
 
-    ``asset_version_id`` 是产物的权威引用：QC 待检队列靠它把「任务」映射到
-    「待检资产」。没有它就不入队——用一个含糊的 evidence_ref 顶替会让 QC 检错对象。
+    C7（单一入队事实源）：成功不再携带资产 ID / 质量版本。QC 待检项由
+    ``GENERATION_SUCCEEDED`` 事件经 Relay → QC Handler 入队，而不是 Worker 在
+    终态后另开一条直写 QC 表的路径。产物引用的权威来源始终是 T2 回执。
     """
 
     result: OutcomeResult
     evidence_ref: str = ""
-    asset_version_id: str = ""
-    quality_profile_version: str = ""
 
 
 class GenerationExecutor(Protocol):
@@ -77,8 +76,6 @@ class GenerationWorker:
         worker_id: str,
         lease_seconds: int = 60,
         idle_sleep: float = 1.0,
-        qc_enqueuer: Any | None = None,
-        qc_lookup: Any | None = None,
     ) -> None:
         if lease_seconds <= 0:
             raise ValueError("lease_seconds 必须为正")
@@ -87,8 +84,6 @@ class GenerationWorker:
         self.worker_id = worker_id
         self.lease_seconds = lease_seconds
         self.idle_sleep = idle_sleep
-        self._qc_enqueuer = qc_enqueuer
-        self._qc_lookup = qc_lookup
 
     @property
     def heartbeat_interval(self) -> float:
@@ -159,11 +154,10 @@ class GenerationWorker:
                 logger.warning("finish rejected for task %s: %s", task.entity_id, exc)
                 return False
             await unit.commit()
-        # 入队**不在这里做**：GENERATION_SUCCEEDED 已随终态在同一事务写入 outbox，
-        # 由 relay 消费后入队（workers/relay/handlers.py）。此处直接写 QC 表会出现
-        # 「QCTask 先提交、GenerationTask 后提交」——生成域提交失败就留下一条指向
-        # 不存在生成任务的待检项，而 qc_tasks.generation_task_id 是跨域引用、没有
-        # 物理外键，数据库拦不住。漏入队由 reconcile_qc 扫描补偿。
+        # QC 入队**不在这里做**：GENERATION_SUCCEEDED 随终态在同一事务写入 outbox，
+        # 由 relay 消费后入队（workers/relay/handlers.py）。Worker 不持有 QC 会话，
+        # 「一个业务结果、一个入队事实源」——漏投递由 relay 重试与死信处置负责，
+        # 不再从生成侧另开直写 QC 表的入口。
         return True
 
     async def _execute_with_heartbeat(self, task: Any) -> GenerationOutcome:
@@ -192,31 +186,6 @@ class GenerationWorker:
                 work.cancel()
                 await asyncio.gather(work, return_exceptions=True)
 
-    async def _enqueue_qc(self, task: Any, outcome: GenerationOutcome) -> None:
-        """成功产物进入 QC 待检队列；没有权威产物引用就不入队（不猜）。"""
-        if self._qc_enqueuer is None:
-            return
-        if not outcome.asset_version_id.strip():
-            logger.warning(
-                "task %s succeeded without asset_version_id; skip QC enqueue",
-                task.entity_id,
-            )
-            return
-        if not outcome.quality_profile_version.strip():
-            logger.warning(
-                "task %s succeeded without quality_profile_version; skip QC enqueue",
-                task.entity_id,
-            )
-            return
-        try:
-            await self._qc_enqueuer(task, outcome)
-        except DomainError as exc:
-            # 重复入队（幂等冲突）不是错误：说明上一轮已经入队成功。
-            logger.info("QC enqueue skipped for task %s: %s", task.entity_id, exc)
-        except Exception:
-            # 入队失败不回滚生成终态：任务已完成，QC 队列缺口必须留日志待补。
-            logger.exception("QC enqueue failed for task %s", task.entity_id)
-
     async def sweep_expired(self) -> int:
         """回收过期 RUNNING 任务，返回成功回收条数（逐条独立事务）。"""
         async with self._scope() as unit:
@@ -234,39 +203,14 @@ class GenerationWorker:
             reclaimed += 1
         return reclaimed
 
-    async def reconcile_qc(self, limit: int = 50) -> int:
-        """补偿「生成成功但漏入队」：扫描带产物引用的成功任务，缺则补入队。
-
-        为什么需要它：入队是生成终态提交后的第二个事务，进程在两者之间崩溃时
-        任务已成功、队列里却没有对应待检项。产物引用落库后，这个缺口可被扫描发现。
-        """
-        if self._qc_enqueuer is None:
-            return 0
-        async with self._scope() as unit:
-            lister = getattr(unit.repository, "list_succeeded_with_asset", None)
-            if lister is None:
-                return 0
-            succeeded = await lister(limit)
-        enqueued = 0
-        for task in succeeded:
-            if self._qc_lookup is not None and await self._qc_lookup(task.entity_id):
-                continue
-            outcome = GenerationOutcome(
-                result="SUCCEEDED",
-                asset_version_id=task.asset_version_id,
-                quality_profile_version=task.quality_profile_version,
-            )
-            await self._enqueue_qc(task, outcome)
-            enqueued += 1
-        if enqueued:
-            logger.info("QC reconcile enqueued %d missed success(es)", enqueued)
-        return enqueued
-
     async def run_once(self) -> bool:
-        """一轮调度：优先领任务，空闲时补漏入队并扫尾。返回是否领到了任务。"""
+        """一轮调度：优先领任务，空闲时扫尾回收租约。返回是否领到了任务。
+
+        C7：QC 入队不在本 Worker 的职责内——它由 GENERATION_SUCCEEDED 事件经
+        Relay 单一路径完成；漏投递是 Relay 的重试/死信问题，不从生成侧补第二入口。
+        """
         if await self.process_one():
             return True
-        await self.reconcile_qc()
         reclaimed = await self.sweep_expired()
         if reclaimed:
             logger.info("reclaimed %d expired lease(s)", reclaimed)

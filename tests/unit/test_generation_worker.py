@@ -131,8 +131,6 @@ def _setup(
     executor,
     *,
     lease_seconds: int = 60,
-    qc_enqueuer=None,
-    qc_lookup=None,
 ) -> tuple[GenerationWorker, FakeTaskRepository, GenerationService]:
     repo = FakeTaskRepository()
     service = GenerationService(repo, InMemoryOutboxWriter())
@@ -142,8 +140,6 @@ def _setup(
         worker_id="worker-1",
         lease_seconds=lease_seconds,
         idle_sleep=0.05,
-        qc_enqueuer=qc_enqueuer,
-        qc_lookup=qc_lookup,
     )
     return worker, repo, service
 
@@ -265,24 +261,23 @@ def test_lease_lost_error_is_runtime_error() -> None:
     assert issubclass(LeaseLostError, RuntimeError)
 
 
-async def test_success_does_not_enqueue_qc_directly() -> None:
-    """成功**不再**直接写 QC 表：入队只能由 GENERATION_SUCCEEDED 事件触发。
+def test_worker_has_no_qc_enqueue_capability() -> None:
+    """C7 单一入队事实源的结构判据：Worker 根本没有直写 QC 的能力。
 
-    直接写会出现「QCTask 先提交、GenerationTask 后提交」——生成域提交失败就留下
-    一条指向不存在生成任务的待检项，而 qc_tasks.generation_task_id 没有物理外键。
-    这条测试是回归闸门：若有人把入队挪回 process_one，它立刻红。
+    不是靠「调用时没传入 enqueuer」这种可绕过的约定，而是从构造签名与方法集合
+    上消除这条路——若有人重新加回 qc_enqueuer 参数或 reconcile_qc 方法，本测试
+    立刻红。QC 入队唯一路径是 GENERATION_SUCCEEDED 事件 → Relay → QC Handler。
     """
-    seen: list[tuple[str, str, str]] = []
+    import inspect
 
-    async def enqueue(task, outcome) -> None:
-        seen.append((task.entity_id, outcome.asset_version_id, outcome.quality_profile_version))
-
-    worker, repo, service = _setup(RecordingExecutor(), qc_enqueuer=enqueue)
-    task = await _requested(service, repo)
-
-    assert await worker.process_one() is True
-    assert seen == []
-    assert repo.snapshot()[task.entity_id].status is GenerationTaskStatus.RUNNING
+    params = inspect.signature(GenerationWorker.__init__).parameters
+    assert "qc_enqueuer" not in params
+    assert "qc_lookup" not in params
+    assert not hasattr(GenerationWorker, "reconcile_qc")
+    assert not hasattr(GenerationWorker, "_enqueue_qc")
+    # 结果对象不再携带产物引用——那是回执的权威事实，不是 Worker 的自报。
+    assert "asset_version_id" not in GenerationOutcome.__dataclass_fields__
+    assert "quality_profile_version" not in GenerationOutcome.__dataclass_fields__
 
 
 async def test_t3_success_event_carries_product_refs_and_ownership() -> None:
@@ -344,82 +339,6 @@ async def test_t3_persists_product_refs_on_task() -> None:
     )
     assert repo.snapshot()[task.entity_id].asset_version_id == "asset-ver-1"
     assert done.quality_profile_version == "qp-r16-v1"
-
-
-async def test_reconcile_enqueues_success_without_qc_task() -> None:
-    """成功但没入队的产物，由对账补上；已入队的不重复提交。"""
-    enqueued: list[tuple[str, str, str]] = []
-    existing = {"gen-existing"}
-
-    async def enqueue(task, outcome) -> None:
-        enqueued.append(
-            (task.entity_id, outcome.asset_version_id, outcome.quality_profile_version)
-        )
-
-    async def lookup(generation_task_id: str) -> bool:
-        return generation_task_id in existing
-
-    from services.project_planning.domain.state_machine import GENERATION_PROCESS_ACTION
-
-    worker, repo, service = _setup(RecordingExecutor(), qc_enqueuer=enqueue, qc_lookup=lookup)
-    task = await _requested(service, repo)
-    await service.claim(task_id=task.entity_id, worker_id="worker-1", lease_seconds=60)
-    task = repo.snapshot()[task.entity_id]
-    task.quality_profile_version = "qp-r16-v1"
-    expected_version = task.entity_version
-    task.transition_to(
-        GenerationTaskStatus.AWAITING_ASSET_REGISTRATION,
-        "t1-confirm",
-        GENERATION_PROCESS_ACTION,
-    )
-    await repo.save(task, expected_version)  # 模拟 T1 已提交
-    await service.complete_from_receipt(
-        generation_task_id=task.generation_task_id, asset_version_id="asset-ver-1"
-    )
-    enqueued.clear()  # 正常路径已入队，下面只看对账行为
-
-    # 模拟「任务已成功、队列缺项」：清空去重集合，让对账重新发现它
-    existing.clear()
-    assert await worker.reconcile_qc() == 1
-    assert enqueued == [(task.entity_id, "asset-ver-1", "qp-r16-v1")]
-
-    # 已入队（lookup 返回 True）不得重复提交
-    existing.add(task.entity_id)
-    enqueued.clear()
-    assert await worker.reconcile_qc() == 0
-    assert enqueued == []
-
-
-async def test_failed_task_never_enqueues_qc() -> None:
-    called: list[str] = []
-
-    async def enqueue(task, outcome) -> None:
-        called.append(task.entity_id)
-
-    worker, repo, service = _setup(
-        RecordingExecutor(raise_exc=RuntimeError("boom")), qc_enqueuer=enqueue
-    )
-    await _requested(service, repo)
-
-    assert await worker.process_one() is True
-    assert called == []
-
-
-async def test_success_without_asset_reference_skips_qc() -> None:
-    """没有权威产物引用就不猜：宁可留日志，也不给 QC 一个错对象。"""
-    called: list[str] = []
-
-    async def enqueue(task, outcome) -> None:
-        called.append(task.entity_id)
-
-    worker, repo, service = _setup(
-        RecordingExecutor(GenerationOutcome("SUCCEEDED", "asset://out.mp4")),
-        qc_enqueuer=enqueue,
-    )
-    await _requested(service, repo)
-
-    assert await worker.process_one() is True
-    assert called == []
 
 
 async def test_executor_success_never_lets_worker_write_terminal_state() -> None:

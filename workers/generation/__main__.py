@@ -32,7 +32,6 @@ from adapters.storage.local_fs import LocalFsObjectStorage
 from packages.shared.config import get_process_settings
 from packages.shared.database import (
     create_production_planning_engine,
-    create_qc_governance_engine,
     create_sessionmaker,
 )
 from packages.shared.logging import get_logger, setup_logging
@@ -43,8 +42,6 @@ from services.production_planning.service.generation_service import GenerationSe
 from services.project_planning.repository.sqlalchemy_outbox_writer import (
     SqlAlchemyOutboxWriter,
 )
-from services.qc_governance.repository.qc_task_repo import SqlAlchemyQCTaskRepository
-from services.qc_governance.service.qc_task_service import QCTaskService
 from workers.generation.asset_registrar import SagaAssetRegistrar
 from workers.generation.executor import (
     StorageBackedGenerationExecutor,
@@ -122,8 +119,6 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 def _build_worker(
     scope: Any,
     args: argparse.Namespace,
-    qc_enqueuer: Any | None = None,
-    qc_lookup: Any | None = None,
     executor: Any | None = None,
 ) -> GenerationWorker:
     return GenerationWorker(
@@ -133,8 +128,6 @@ def _build_worker(
         worker_id=args.worker_id,
         lease_seconds=args.lease_seconds,
         idle_sleep=args.idle_sleep,
-        qc_enqueuer=qc_enqueuer,
-        qc_lookup=qc_lookup,
     )
 
 
@@ -272,40 +265,6 @@ def _build_gateway(settings: Any, base_url: str, protocol: str) -> Any:
     )
 
 
-def _make_qc_enqueuer(qc_sessionmaker: Any) -> Any:
-    """成功产物入 QC 队列：独立事务，入队失败不回滚生成终态。"""
-
-    async def enqueue(task: Any, outcome: Any) -> None:
-        async with qc_sessionmaker() as session:
-            service = QCTaskService(
-                SqlAlchemyQCTaskRepository(session),
-                SqlAlchemyOutboxWriter(session),
-            )
-            await service.enqueue(
-                project_id=task.project_id,
-                shot_id=task.shot_id,
-                asset_version_id=outcome.asset_version_id,
-                generation_task_id=task.entity_id,
-                quality_profile_version=outcome.quality_profile_version,
-                created_by="generation-worker",
-                tenant_id=task.tenant_id,
-            )
-            await session.commit()
-
-    return enqueue
-
-
-def _make_qc_lookup(qc_sessionmaker: Any) -> Any:
-    """对账用：该生成任务是否已有待检项（跨域只读查询，独立会话）。"""
-
-    async def exists(generation_task_id: str) -> bool:
-        async with qc_sessionmaker() as session:
-            repo = SqlAlchemyQCTaskRepository(session)
-            return await repo.find_by_generation_task(generation_task_id) is not None
-
-    return exists
-
-
 async def _run_cycle(worker: GenerationWorker, args: argparse.Namespace) -> bool:
     """一轮调度。每个阶段的事务边界由 Worker 内部负责，这里不再开外层事务。"""
     if args.sweep:
@@ -321,13 +280,9 @@ async def _main(argv: list[str] | None = None) -> int:
     setup_logging(settings.log_level)
     engine = create_production_planning_engine()
     sessionmaker = create_sessionmaker(engine)
-    qc_engine = create_qc_governance_engine()
-    qc_sessionmaker = create_sessionmaker(qc_engine)
     scope = _make_scope(sessionmaker)
-    qc_enqueuer = _make_qc_enqueuer(qc_sessionmaker)
-    qc_lookup = _make_qc_lookup(qc_sessionmaker)
     executor, gateway = _build_executor(settings, sessionmaker)
-    worker = _build_worker(scope, args, qc_enqueuer, qc_lookup, executor)
+    worker = _build_worker(scope, args, executor)
     try:
         if args.sweep or args.once:
             await _run_cycle(worker, args)
@@ -343,7 +298,6 @@ async def _main(argv: list[str] | None = None) -> int:
     finally:
         if gateway is not None:
             await gateway.aclose()
-        await qc_engine.dispose()
         await engine.dispose()
     return 0
 

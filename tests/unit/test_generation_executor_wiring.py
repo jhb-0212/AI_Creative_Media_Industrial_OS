@@ -79,8 +79,8 @@ async def test_success_registers_asset_and_lands_bytes(tmp_path: Path) -> None:
     outcome = await executor.execute(_task())
 
     assert outcome.result == "SUCCEEDED"
-    # 执行器不再返回资产 ID：它只能证明 T1 已发出登记请求。
-    assert outcome.asset_version_id == ""
+    # 执行器不再返回资产 ID：结果对象根本没有该字段（C7 单一入队事实源）。
+    assert not hasattr(outcome, "asset_version_id")
     locator = outcome.evidence_ref.split("|")[0]
     assert locator.startswith("local://")
     storage = LocalFsObjectStorage(tmp_path / "objects", max_bytes=1024 * 1024)
