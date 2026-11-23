@@ -145,6 +145,26 @@ async def asset_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]
 
 
 @pytest.fixture(scope="session")
+async def budget_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """budget_quota_role 连接（预算域运行时的真实连接角色）。
+
+    该角色对 ``budget_quota.budget_ledger`` 只有 SELECT/INSERT：账本不可变是
+    **权限形状**保证的，不是代码自觉。验证账本库层不变量（结算守卫）必须用它，
+    否则「用超级用户证明了约束成立」并不能说明业务角色真的会撞上它。
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from packages.shared.database import build_budget_quota_database_url
+
+    engine = create_async_engine(build_budget_quota_database_url())
+    sessionmaker = create_sessionmaker(engine)
+    try:
+        yield sessionmaker
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture(scope="session")
 async def admin_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     """超级用户连接（**唯一用途**：在 RLS 不生效的连接上验证约束本身）。
 

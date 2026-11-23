@@ -6,6 +6,7 @@ from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.port_errors import DuplicateEntityError, ReferentialIntegrityError
 from services.budget_quota.domain.budget_ledger import BudgetLedger
 from services.budget_quota.domain.shot_budget_request import ShotBudgetRequest
 from services.project_planning.domain.enums import ShotBudgetRequestStatus
@@ -122,7 +123,23 @@ class BudgetService:
                 approval_ref=request.entity_id,
                 source=request.entity_id,
             )
-            await self._ledger_repository.add(ledger)
+            try:
+                await self._ledger_repository.add(ledger)
+            except DuplicateEntityError as exc:
+                # 幂等键已存在＝这笔审批已经入过账。这是业务冲突，不是 500：
+                # 让调用方看到「已入账」才能停止重试。
+                raise DomainError(
+                    ErrorRegistry.IDEMPOTENCY_CONFLICT,
+                    detail=(
+                        f"预算申请 {request.request_id} 已入账"
+                        f"（幂等键 shot-budget:{request.request_id}）"
+                    ),
+                ) from exc
+            except ReferentialIntegrityError as exc:
+                raise DomainError(
+                    ErrorRegistry.VALIDATION_ERROR,
+                    detail=f"预留流水被账本约束拒绝（申请 {request.request_id}）",
+                ) from exc
         return cast("ShotBudgetRequest", request)
 
     # ---- Phase 2 §2：账本释放 / 冲销 ------------------------------------- #
@@ -154,11 +171,13 @@ class BudgetService:
                 ErrorRegistry.AUTH_SCOPE_DENIED,
                 detail="预留言本不属于当前租户",
             )
-        if amount <= 0 or amount > run.amount:
+        if amount <= 0:
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,
-                detail=f"{kind} 金额必须大于 0 且不超过预留金额 {run.amount}，实际 {amount}",
+                detail=f"{kind} 金额必须大于 0，实际 {amount}",
             )
+        # 先判「同种结算是否已存在」：重复结算的正确语义是「你已经释放过了」，
+        # 而不是「这次金额太大」——后者会把幂等冲突误导成金额问题。
         existing = await self._ledger_repository.find_settlement(
             reservation_ref=run.entity_id, transaction_kind=kind
         )
@@ -166,6 +185,25 @@ class BudgetService:
             raise DomainError(
                 ErrorRegistry.IDEMPOTENCY_CONFLICT,
                 detail=f"该预留已存在 {kind} 流水（{existing.entity_id}），不可重复结算",
+            )
+        # 再以「剩余可结算额度」为界，而不是「不超过预留金额」。
+        #
+        # 后者是逐笔判定，挡不住「一个 RELEASE 拿满额、再来一个 REFUND 又拿满额」：
+        # 两笔各自都 ≤ 预留，合计却是 2 倍。账面上的后果是同一笔钱被退两次。
+        # 这里的求和只是**提前给出可读的拒绝理由**；权威闸门在库层触发器
+        # （``budget_quota.budget_ledger_settlement_guard``），因为两个事务各读
+        # 一次「已结算 0」时，服务层的求和必然同时放过两笔。
+        settled = await self._ledger_repository.settlement_total(
+            reservation_ref=run.entity_id
+        )
+        if settled + amount > run.amount:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=(
+                    f"{kind} 后累计结算 {settled + amount} 将超过预留 {run.amount}"
+                    f"（已结算 {settled}，本次 {amount}）：一笔预留的 RELEASE+REFUND "
+                    "合计不得超过 RESERVE"
+                ),
             )
 
         ledger = BudgetLedger(
@@ -182,7 +220,7 @@ class BudgetService:
             source=run.entity_id,
             reservation_ref=run.entity_id,
         )
-        await self._ledger_repository.add(ledger)
+        await self._write_ledger(ledger, kind=kind, reservation_ref=run.entity_id)
         payload = {
             "reservation_ref": run.entity_id,
             "transaction_kind": kind,
@@ -211,6 +249,36 @@ class BudgetService:
                 payload=payload,
             )
         return ledger
+
+    async def _write_ledger(
+        self, ledger: BudgetLedger, *, kind: str, reservation_ref: str
+    ) -> None:
+        """追加流水，把库层拒绝翻译成**业务**语义。
+
+        三种拒绝必须分开报，否则调用方无法判断该重试、该换金额、还是该报缺陷：
+
+        - ``DuplicateEntityError``（23505，部分唯一索引）＝ 并发下同一预留的同类
+          结算被写了两笔。语义同「已经结算过」→ 幂等冲突，不重试；
+        - ``ReferentialIntegrityError``（23514，结算守卫）＝ 累计结算超过预留，
+          或预留言本不存在。语义是「取值/引用不成立」→ 参数问题，不重试；
+        - 其余异常原样上抛（部署缺陷、连接中断等，冒到 500 才是对的）。
+        """
+        try:
+            await self._ledger_repository.add(ledger)
+        except DuplicateEntityError as exc:
+            raise DomainError(
+                ErrorRegistry.IDEMPOTENCY_CONFLICT,
+                detail=f"该预留已存在 {kind} 流水（并发重复结算被库层拒绝）",
+            ) from exc
+        except ReferentialIntegrityError as exc:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=(
+                    f"{kind} 被账本不变量拒绝（预留 {reservation_ref}）："
+                    "累计 RELEASE+REFUND 不得超过该笔 RESERVE 金额，"
+                    "且结算必须指向存在的预留"
+                ),
+            ) from exc
 
     async def release_budget(
         self,
