@@ -60,9 +60,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 # 覆盖面清单**不在这里维护第二份**——从 architecture_check 导入，单一事实源。
 # 自己抄一份 LAYERS 正是本脚本要防的病（清单不会自己举手，漏一个就免疫）。
-# 注：CI mypy 口径只覆盖 packages/services/apps/workers，不含 scripts；
-# 本模块自身类型已独立校验通过，architecture_check 的既有类型瑕疵不在本闸门范围。
+# mypy 的检查目录同样派生（scripts/mypy_targets.py），与 CI 共用同一个口径：
+# 之前 CI 写死四个目录、这里再写一遍，adapters 落地真实实现后两边都没覆盖到它，
+# 而「漏掉」这件事不会报错。scripts/ 自身不在 mypy 范围（既有口径）。
 from architecture_check import LAYERS, NON_LAYER_DIRS  # noqa: E402
+from mypy_targets import mypy_targets  # noqa: E402
 
 # 仅用于跳过的缓存/产物目录（含 .py 的副本也不算源码落地处）。
 IGNORE_DIRS: frozenset[str] = frozenset(
@@ -84,7 +86,7 @@ IGNORE_DIRS: frozenset[str] = frozenset(
 # ruff/mypy 直接调可执行文件，与 CI 的 `uv run` 同版本（uv.lock 锁定）。
 CHECK_COMMANDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("ruff 全仓 lint", ("ruff", "check", ".")),
-    ("mypy 类型检查", ("mypy", "packages", "services", "apps", "workers")),
+    ("mypy 类型检查", ("mypy", *mypy_targets())),
     ("契约派生一致性", (sys.executable, "scripts/contract_check.py")),
     ("分层依赖校验", (sys.executable, "scripts/architecture_check.py")),
     ("契约冻结校验", (sys.executable, "scripts/freeze_manifest.py", "--check")),

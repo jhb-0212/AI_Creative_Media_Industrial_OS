@@ -160,6 +160,30 @@ class Settings(BaseSettings):
     # 模型网关（双模式计费）
     model_gateway_billing_mode: str = "USER_OWN_KEY"
     model_gateway_api_key: SecretStr = SecretStr("")
+    # 网关地址：留空表示「不接真网关」，生成 Worker 以 UnconfiguredExecutor
+    # 诚实失败（ADR-R12：无实现时强制配置只会阻止启动，不会让功能可用）。
+    # 填了地址就必须同时填 KEY，否则属于配置矛盾，装配时 fail-closed。
+    model_gateway_base_url: str = ""
+    # 协议形态：当前只实现 openai_compatible（POST {base}/images/generations）。
+    model_gateway_protocol: str = "openai_compatible"
+    # 请求未指定 model 时的默认值。预算按模型计价，因此这是计价口径的一部分。
+    model_gateway_default_model: str = ""
+    model_gateway_timeout_seconds: float = 120.0
+    # b64_json 少一次下载往返；url 更适合大文件。两者都支持，由部署选。
+    model_gateway_response_format: str = "b64_json"
+    model_gateway_max_artifact_bytes: int = 256 * 1024 * 1024
+
+    # 产物存储（P1-07：受控定位符 + 内容寻址，不暴露文件系统路径）
+    # local 是当前唯一实现；s3 端点配置已存在但适配器未实现，配成 s3 会
+    # 在装配时明确报错，而不是静默回落到本地（那会让「产物在哪」变成谜）。
+    storage_backend: str = "local"
+    storage_local_root: str = ""
+    storage_max_object_bytes: int = 256 * 1024 * 1024
+
+    # 生成产物默认类型与尺寸。理论上应由生产路由 / 约束快照给出，但两者的
+    # 解析尚未建模，因此先用配置默认值，并在交接单里登记为已知缺口。
+    generation_default_media_type: str = "image/png"
+    generation_default_size: str = ""
 
     # 身份治理（决策 4：RS256 JWT）
     # issuer / audience 严格校验，拒绝跨服务令牌；密钥来源默认从环境变量

@@ -58,9 +58,11 @@ jobs:
         run: uv run ruff check .
 
       - name: Type check (mypy)
-        # 只检查当前有代码的目录；agents/adapters 仍为占位（仅 .gitkeep），
-        # 待其落地 .py 后纳入本步骤，避免 mypy 对空目录报 "no .py files" 而误判失败。
-        run: uv run mypy packages services apps workers
+        # 检查目录由 scripts/mypy_targets.py 从 architecture_check.LAYERS 派生，
+        # 与本地 merge_readiness 共用同一个口径：写死清单在新增一层时不报错，
+        # 它只是漏掉——而漏掉的层默认没有类型保护（adapters 落地后即如此）。
+        # agents/ 只有 .gitkeep，派生时按「含 .py」过滤，不会让 mypy 报空目录。
+        run: uv run mypy $(uv run python scripts/mypy_targets.py)
 
       - name: Wait for PostgreSQL
         # GitHub Actions 的 service 容器 health check 不会阻塞主 job 步骤，

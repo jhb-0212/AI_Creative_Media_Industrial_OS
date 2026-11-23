@@ -26,6 +26,8 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
+from adapters.model_gateway.openai_compatible import OpenAICompatibleGateway
+from adapters.storage.local_fs import LocalFsObjectStorage
 from packages.shared.config import get_process_settings
 from packages.shared.database import (
     create_production_planning_engine,
@@ -42,6 +44,11 @@ from services.project_planning.repository.sqlalchemy_outbox_writer import (
 )
 from services.qc_governance.repository.qc_task_repo import SqlAlchemyQCTaskRepository
 from services.qc_governance.service.qc_task_service import QCTaskService
+from workers.generation.executor import (
+    StorageBackedGenerationExecutor,
+    UnwiredAssetRegistrar,
+    resolve_inline_prompt,
+)
 from workers.generation.worker import (
     GenerationExecutor,
     GenerationOutcome,
@@ -116,16 +123,87 @@ def _build_worker(
     args: argparse.Namespace,
     qc_enqueuer: Any | None = None,
     qc_lookup: Any | None = None,
+    executor: Any | None = None,
 ) -> GenerationWorker:
     return GenerationWorker(
         scope=scope,
-        executor=UnconfiguredExecutor(),
+        # 默认仍是「诚实失败」占位：未配网关时不伪造产物。
+        executor=executor or UnconfiguredExecutor(),
         worker_id=args.worker_id,
         lease_seconds=args.lease_seconds,
         idle_sleep=args.idle_sleep,
         qc_enqueuer=qc_enqueuer,
         qc_lookup=qc_lookup,
     )
+
+
+def _build_executor(settings: Any) -> tuple[Any, Any | None]:
+    """按配置装配执行器，返回 ``(executor, 需要关闭的网关)``。
+
+    三档行为，都是显式的：
+
+    | 配置 | 执行器 | 后果 |
+    |---|---|---|
+    | 未配 ``MODEL_GATEWAY_BASE_URL`` | ``UnconfiguredExecutor`` | 任务 FAILED，证据写明未配置 |
+    | 配了地址但缺 KEY / 存储根目录 | 抛错，进程不启动 | 配置矛盾必须在启动时暴露 |
+    | 配齐 | ``StorageBackedGenerationExecutor`` | 真实调用 |
+
+    第二档刻意不降级：若「配了地址但没配 KEY」静默回落到未配置执行器，
+    运维会看到「任务一直失败」而去查网关，而真正的原因是本机的配置缺一项。
+
+    资产登记器仍接 ``UnwiredAssetRegistrar``：系统主体 / 跨租户上下文 /
+    跨域事务尚未裁定（P2-01）。因此即便网关配齐，任务仍会以
+    ``asset-registration-unwired`` 失败——这是真实的当前状态，不是 bug。
+    """
+    base_url = getattr(settings, "model_gateway_base_url", "")
+    if not base_url:
+        return UnconfiguredExecutor(), None
+
+    protocol = getattr(settings, "model_gateway_protocol", "openai_compatible")
+    if protocol != "openai_compatible":
+        raise ValueError(
+            f"MODEL_GATEWAY_PROTOCOL={protocol!r} 尚无实现（当前只有 openai_compatible）"
+        )
+    if getattr(settings, "storage_backend", "local") != "local":
+        raise ValueError(
+            "STORAGE_BACKEND 目前只实现 local；s3 端点配置存在但适配器未实现，"
+            "不允许静默回落到本地（否则「产物在哪」将无从判断）"
+        )
+    storage_root = getattr(settings, "storage_local_root", "")
+    if not storage_root:
+        raise ValueError(
+            "已配置 MODEL_GATEWAY_BASE_URL 但 STORAGE_LOCAL_ROOT 为空："
+            "产物无处落地，拒绝启动"
+        )
+
+    gateway = OpenAICompatibleGateway(
+        base_url=base_url,
+        api_key=settings.model_gateway_api_key.get_secret_value(),
+        default_model=getattr(settings, "model_gateway_default_model", ""),
+        timeout_seconds=getattr(settings, "model_gateway_timeout_seconds", 120.0),
+        max_bytes=getattr(settings, "model_gateway_max_artifact_bytes", 256 * 1024 * 1024),
+        response_format=getattr(settings, "model_gateway_response_format", "b64_json"),
+    )
+    storage = LocalFsObjectStorage(
+        storage_root,
+        max_bytes=getattr(settings, "storage_max_object_bytes", 256 * 1024 * 1024),
+    )
+    executor = StorageBackedGenerationExecutor(
+        gateway=gateway,
+        storage=storage,
+        resolve_prompt=resolve_inline_prompt,
+        registrar=UnwiredAssetRegistrar(),
+        default_model=getattr(settings, "model_gateway_default_model", ""),
+        media_type=getattr(settings, "generation_default_media_type", "image/png"),
+        size=getattr(settings, "generation_default_size", ""),
+    )
+    logger.info(
+        "generation executor wired to %s (model=%s, storage_root=%s)",
+        base_url,
+        getattr(settings, "model_gateway_default_model", "") or "<per-task>",
+        storage_root,
+    )
+    return executor, gateway
 
 
 def _make_qc_enqueuer(qc_sessionmaker: Any) -> Any:
@@ -182,7 +260,8 @@ async def _main(argv: list[str] | None = None) -> int:
     scope = _make_scope(sessionmaker)
     qc_enqueuer = _make_qc_enqueuer(qc_sessionmaker)
     qc_lookup = _make_qc_lookup(qc_sessionmaker)
-    worker = _build_worker(scope, args, qc_enqueuer, qc_lookup)
+    executor, gateway = _build_executor(settings)
+    worker = _build_worker(scope, args, qc_enqueuer, qc_lookup, executor)
     try:
         if args.sweep or args.once:
             await _run_cycle(worker, args)
@@ -196,6 +275,8 @@ async def _main(argv: list[str] | None = None) -> int:
             if not busy:
                 await asyncio.sleep(args.idle_sleep)
     finally:
+        if gateway is not None:
+            await gateway.aclose()
         await qc_engine.dispose()
         await engine.dispose()
     return 0
