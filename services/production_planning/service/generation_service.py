@@ -1,8 +1,10 @@
 """GenerationTask 应用服务（生成请求 + 异步租约，R16-D3 / Phase 2 §1）。
 
-两种执行模式：
-- 同步（MVP）：``result`` 显式给出，REQUESTED 与终态同事务；
-- 异步（Phase 2）：``result=None``，任务停在 REQUESTED 等 Worker 持租约领取。
+请求与执行是两个事实，两个入口
+------------------------------
+``request_generation`` 只创建任务（停在 REQUESTED）；执行结果由持有租约的
+执行器经 ``claim`` → ``finish`` 提交。请求方不能声明「成功了」——执行结果是
+执行事实，不是请求参数。
 
 为什么租约操作全部走本服务而不是端点里直接改字段
 --------------------------------------------------
@@ -20,10 +22,7 @@ from uuid import UUID, uuid4
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from services.production_planning.domain.generation_task import GenerationTask
 from services.project_planning.domain.enums import GenerationTaskStatus
-from services.project_planning.domain.state_machine import (
-    GENERATION_PROCESS_ACTION,
-    GENERATION_REQUEST_ACTION,
-)
+from services.project_planning.domain.state_machine import GENERATION_PROCESS_ACTION
 from services.project_planning.service.transition import advance_status, save_versioned_entity
 
 
@@ -47,11 +46,26 @@ class GenerationService:
         constraint_snapshot_id: str,
         budget_ref: str,
         prompt_ref: str,
-        result: Literal["SUCCEEDED", "FAILED"] | None,
         created_by: str,
         tenant_id: UUID,
         generation_task_id: str = "",
     ) -> GenerationTask:
+        """创建生成任务，一律停在 REQUESTED，等 Worker 持租约领取。
+
+        请求方不能声明执行结果
+        ----------------------
+        这里曾经接受 ``result`` 参数且默认 ``SUCCEEDED``：调用方不传就算成功，
+        既没有真实产物也没有执行证据，却能把任务推进到终态。执行成功是执行事实，
+        只能由持有租约的执行器经 ``claim`` / ``finish`` 提交——成功必须绑定真实
+        产物版本与质量档案版本。
+
+        创建不是状态迁移
+        ----------------
+        ``GenerationTask`` 的初始态就是 REQUESTED，创建没有 ``from_status``。
+        ``advance_status`` 要求真实的状态边（同态会被生命周期守卫拒绝，事实表
+        也会因 ``ck_status_transition_advances`` 违约），所以这里用 ``record``
+        只登记事件：审计看得到「有人请求了生成」，事实表却不该凭空造一条迁移。
+        """
         task = GenerationTask(
             entity_id=str(uuid4()),
             created_by=created_by,
@@ -67,20 +81,11 @@ class GenerationService:
             prompt_ref=prompt_ref,
         )
         await self._repository.add(task)
-
-        # 异步模式：创建即返回 REQUESTED，等 Worker 领取。同步模式保留 MVP 行为。
-        if result is None:
-            return task
-
-        target = GenerationTaskStatus(result)
-        await advance_status(
-            task,
-            target,
-            repository=self._repository,
-            outbox_writer=self._outbox_writer,
+        self._outbox_writer.record(
             aggregate_type="GenerationTask",
-            event_type="GENERATION_REQUESTED",
+            aggregate_id=task.entity_id,
             tenant_id=tenant_id,
+            event_type="GENERATION_REQUESTED",
             payload={
                 "generation_task_id": task.generation_task_id,
                 "project_id": task.project_id,
@@ -90,11 +95,6 @@ class GenerationService:
                 "created_by": created_by,
                 "tenant_id": str(tenant_id),
             },
-            resource_type="GenerationTask",
-            owner_action=GENERATION_REQUEST_ACTION,
-            conflict_detail="生成任务并发冲突，请基于最新状态重试",
-            actor_field="created_by",
-            actor=created_by,
         )
         return task
 
@@ -189,13 +189,15 @@ class GenerationService:
     ) -> GenerationTask:
         """RUNNING → SUCCEEDED / FAILED：只有租约持有者能终结。
 
-        SUCCEEDED 可同时登记产物引用（同一次版本推进落库）。FAILED 不接受产物引用：
-        失败任务不该出现在 QC 队列，也就不该留下「可被扫描到」的成功标记。
+        SUCCEEDED **必须**登记产物引用（同一次版本推进落库）。没有产物版本的成功
+        是自报成功：后续 QC 入队与漏入队对账会拿到一个查不到产物的任务，而「谁
+        生成了这份资产」这一事实无从判定。失败任务不接受产物引用——它不该出现在
+        QC 队列，也就不该留下可被扫描到的成功标记。
         """
         task = await self._load(task_id)
         task.require_lease_owner(worker_id)
         target = GenerationTaskStatus(result)
-        if target is GenerationTaskStatus.SUCCEEDED and asset_version_id:
+        if target is GenerationTaskStatus.SUCCEEDED:
             task.attach_product_refs(asset_version_id, quality_profile_version)
         payload = {
             "generation_task_id": task.generation_task_id,

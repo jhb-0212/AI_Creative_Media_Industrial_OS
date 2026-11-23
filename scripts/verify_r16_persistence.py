@@ -84,7 +84,7 @@ async def _run() -> None:
             await uow.commit()
         assert route.status.value == "VERIFIED"
 
-        # 2. 生成任务（同步终态）
+        # 2. 生成任务（创建即 REQUESTED；执行结果只能由持租约的执行器提交）
         async with unit_of_work(maker) as uow:
             task_repo = SqlAlchemyGenerationTaskRepository(uow.session)
             writer = SqlAlchemyOutboxWriter(uow.session)
@@ -98,12 +98,11 @@ async def _run() -> None:
                 constraint_snapshot_id="snap-v",
                 budget_ref="budget-v",
                 prompt_ref="prompt-v",
-                result="SUCCEEDED",
                 created_by="verifier",
                 tenant_id=tenant,
             )
             await uow.commit()
-        assert task.status.value == "SUCCEEDED"
+        assert task.status.value == "REQUESTED"
 
         # 3. 预算申请 + 审批 + 账本追加
         async with unit_of_work(maker) as uow:

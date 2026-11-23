@@ -56,7 +56,14 @@ class FakeTaskRepository(InMemoryRepository):
 
 class RecordingExecutor:
     def __init__(self, outcome: GenerationOutcome | None = None, *, raise_exc=None, delay=0.0):
-        self.outcome = outcome or GenerationOutcome("SUCCEEDED", "asset://out.mp4")
+        # 默认给「合法成功」：SUCCEEDED 必须带产物引用，否则 Worker 会按
+        # 执行器违约落 FAILED（见 test_executor_success_without_product_falls_back_to_failed）。
+        self.outcome = outcome or GenerationOutcome(
+            "SUCCEEDED",
+            "asset://out.mp4",
+            asset_version_id="asset-ver-1",
+            quality_profile_version="qp-ver-1",
+        )
         self._raise = raise_exc
         self._delay = delay
         self.calls = 0
@@ -102,7 +109,6 @@ async def _requested(service: GenerationService, repo: FakeTaskRepository):
         constraint_snapshot_id="snap-1",
         budget_ref="budget-1",
         prompt_ref="prompt-1",
-        result=None,
         created_by="director",
         tenant_id=_TENANT,
     )
@@ -299,3 +305,45 @@ async def test_success_without_asset_reference_skips_qc() -> None:
 
     assert await worker.process_one() is True
     assert called == []
+
+
+async def test_executor_success_without_product_falls_back_to_failed() -> None:
+    """执行器声明 SUCCEEDED 却未给产物 → 必须落 FAILED，不能落 SUCCEEDED。
+
+    无产物的成功会让 QC 入队与漏入队对账拿到一个查不到资产的任务。
+    这里也不用「停在 RUNNING 等租约过期」兜底：过期回收会把同一个违约执行器
+    无限重试，问题只表现为一条含糊的 finish rejected 日志，永远不显式失败。
+    """
+    worker, repo, service = _setup(
+        RecordingExecutor(GenerationOutcome("SUCCEEDED", "asset://out.mp4"))
+    )
+    task = await _requested(service, repo)
+
+    assert await worker.process_one() is True
+
+    done = repo.snapshot()[task.entity_id]
+    assert done.status is GenerationTaskStatus.FAILED
+    assert done.asset_version_id == ""
+    assert done.lease_owner == ""
+
+
+async def test_executor_success_with_product_refs_succeeds() -> None:
+    """对照组：产物齐全时照常成功，证明上一条不是「一律失败」。"""
+    worker, repo, service = _setup(
+        RecordingExecutor(
+            GenerationOutcome(
+                "SUCCEEDED",
+                "asset://out.mp4",
+                asset_version_id="av-9",
+                quality_profile_version="qp-9",
+            )
+        )
+    )
+    task = await _requested(service, repo)
+
+    assert await worker.process_one() is True
+
+    done = repo.snapshot()[task.entity_id]
+    assert done.status is GenerationTaskStatus.SUCCEEDED
+    assert done.asset_version_id == "av-9"
+    assert done.quality_profile_version == "qp-9"

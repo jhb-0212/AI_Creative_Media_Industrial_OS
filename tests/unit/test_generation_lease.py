@@ -38,7 +38,6 @@ async def _requested(service: GenerationService):
         constraint_snapshot_id="snap-1",
         budget_ref="budget-1",
         prompt_ref="prompt-1",
-        result=None,
         created_by="director",
         tenant_id=_TENANT,
     )
@@ -51,8 +50,9 @@ async def test_async_request_stays_requested() -> None:
     assert task.lease_owner == ""
     assert task.lease_expires_at is None
     assert task.attempt_count == 0
-    # 异步模式不产生终态事件：任务只是「已受理」。
-    assert outbox.events == []
+    # 创建只登记「已受理」事件，不产生终态事件，也不写状态迁移事实。
+    assert [e["event_type"] for e in outbox.events] == ["GENERATION_REQUESTED"]
+    assert "from_status" not in outbox.events[0]["payload"]
 
 
 async def test_claim_moves_to_running_with_lease() -> None:
@@ -121,6 +121,8 @@ async def test_finish_requires_lease_owner_and_clears_lease() -> None:
         worker_id="worker-1",
         result="SUCCEEDED",
         evidence_ref="asset-1",
+        asset_version_id="av-1",
+        quality_profile_version="qp-1",
     )
     assert done.status is GenerationTaskStatus.SUCCEEDED
     assert done.lease_owner == ""
@@ -176,10 +178,13 @@ async def test_act_gen_neg_002_finish_without_lease_is_rejected() -> None:
             worker_id="worker-1",
             result="SUCCEEDED",
             evidence_ref="asset-1",
+            asset_version_id="av-1",
+            quality_profile_version="qp-1",
         )
 
     assert task.status is GenerationTaskStatus.REQUESTED
-    assert outbox.events == []
+    # 只有创建时的受理事件；没有终态事件，证明终结确实被拒绝。
+    assert [e["event_type"] for e in outbox.events] == ["GENERATION_REQUESTED"]
 
 
 async def test_to_dict_exposes_lease_fields() -> None:
@@ -192,3 +197,61 @@ async def test_to_dict_exposes_lease_fields() -> None:
     assert isinstance(data["lease_expires_at"], str)
     assert data["attempt_count"] == 1
     assert data["status"] == "RUNNING"
+
+
+async def test_succeeded_without_product_refs_is_rejected() -> None:
+    """SUCCEEDED 必须绑定产物：没有产物的成功是自报成功。
+
+    审据是「任务最终状态」而不是「是否抛错」：拒绝之后任务必须仍是 RUNNING
+    （租约仍在、可续租重试），既不能留成 SUCCEEDED，也不能被顺手改成 FAILED
+    ——一次入参错误的调用不该终结掉一个仍被持有的任务。
+    """
+    service, _repo, _outbox = _service()
+    task = await _requested(service)
+    await service.claim(task_id=task.entity_id, worker_id="worker-1", lease_seconds=120)
+
+    with pytest.raises(DomainError, match="asset_version_id"):
+        await service.finish(
+            task_id=task.entity_id,
+            worker_id="worker-1",
+            result="SUCCEEDED",
+            evidence_ref="asset-1",
+        )
+
+    assert task.status is GenerationTaskStatus.RUNNING
+    assert task.asset_version_id == ""
+
+
+async def test_succeeded_requires_quality_profile_version_too() -> None:
+    """只有asset_version_id 不够：质量档案版本同样是成功事实的一部分。"""
+    service, _repo, _outbox = _service()
+    task = await _requested(service)
+    await service.claim(task_id=task.entity_id, worker_id="worker-1", lease_seconds=120)
+
+    with pytest.raises(DomainError, match="quality_profile_version"):
+        await service.finish(
+            task_id=task.entity_id,
+            worker_id="worker-1",
+            result="SUCCEEDED",
+            asset_version_id="av-1",
+            quality_profile_version="",
+        )
+
+    assert task.status is GenerationTaskStatus.RUNNING
+
+
+async def test_failed_needs_no_product_refs() -> None:
+    """失败任务不需要产物引用——它不该出现在 QC 队列。"""
+    service, _repo, outbox = _service()
+    task = await _requested(service)
+    await service.claim(task_id=task.entity_id, worker_id="worker-1", lease_seconds=120)
+
+    done = await service.finish(
+        task_id=task.entity_id,
+        worker_id="worker-1",
+        result="FAILED",
+        evidence_ref="gateway-error",
+    )
+
+    assert done.status is GenerationTaskStatus.FAILED
+    assert outbox.events[-1]["event_type"] == "GENERATION_FAILED"

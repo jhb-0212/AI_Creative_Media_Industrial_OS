@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.shared.unit_of_work import UnitOfWork
@@ -52,8 +52,13 @@ def _get_service(
 class RequestGenerationRequest(BaseModel):
     """创建生成任务。
 
-    ``result`` 为 null 表示异步模式：任务停在 REQUESTED，等 Worker 领取。
+    请求方只能提出生成请求，不能声明执行结果：本模型没有 ``result`` 字段，
+    且 ``extra="forbid"`` 让旧调用方传 ``result`` 时立刻收到 422，而不是被
+    静默忽略后误以为自己「提交了成功」。任务创建后一律停在 REQUESTED，
+    由持租约的执行器经 ``/{entity_id}/finish`` 提交执行事实。
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     project_id: str = Field(..., min_length=1, max_length=64)
     shot_id: str = Field(..., min_length=1, max_length=64)
@@ -63,7 +68,6 @@ class RequestGenerationRequest(BaseModel):
     constraint_snapshot_id: str = Field(..., min_length=1, max_length=128)
     budget_ref: str = Field(..., min_length=1, max_length=128)
     prompt_ref: str = Field(..., min_length=1, max_length=200)
-    result: Literal["SUCCEEDED", "FAILED"] | None = "SUCCEEDED"
     generation_task_id: str = Field("", max_length=64)
 
 
@@ -82,11 +86,18 @@ class LeaseRenewRequest(BaseModel):
 
 
 class FinishRequest(BaseModel):
-    """终结（RUNNING → SUCCEEDED / FAILED）。"""
+    """终结（RUNNING → SUCCEEDED / FAILED）。
+
+    ``SUCCEEDED`` 必须同时给出 ``asset_version_id`` 与 ``quality_profile_version``：
+    成功是「产出了哪一份资产、按哪一版质量档案」这一事实，缺任一项就不是成功。
+    服务层对空值直接拒绝，不在这里用默认值兜底。
+    """
 
     worker_id: str = Field(..., min_length=1, max_length=128)
     result: Literal["SUCCEEDED", "FAILED"]
     evidence_ref: str = Field("", max_length=200)
+    asset_version_id: str = Field("", max_length=64)
+    quality_profile_version: str = Field("", max_length=64)
 
 
 @router.post("", status_code=201)
@@ -96,7 +107,7 @@ async def request_generation(
     uow: UnitOfWork = Depends(get_production_planning_tenant_uow),
     service: GenerationService = Depends(_get_service),
 ) -> dict[str, Any]:
-    """创建生成任务：同步模式同事务推进终态，异步模式停在 REQUESTED。"""
+    """创建生成任务：一律停在 REQUESTED，由持租约的执行器提交执行结果。"""
     await authorize_on_parent(
         "GENERATION.REQUEST",
         principal,
@@ -113,7 +124,6 @@ async def request_generation(
         constraint_snapshot_id=body.constraint_snapshot_id,
         budget_ref=body.budget_ref,
         prompt_ref=body.prompt_ref,
-        result=body.result,
         created_by=principal.subject_id,
         tenant_id=principal.tenant_id,
         generation_task_id=body.generation_task_id,
@@ -179,12 +189,14 @@ async def finish_task(
     uow: UnitOfWork = Depends(get_production_planning_tenant_uow),
     service: GenerationService = Depends(_get_service),
 ) -> dict[str, Any]:
-    """终结任务：只有租约持有者可推进终态。"""
+    """终结任务：只有租约持有者可推进终态；成功必须携带产物引用。"""
     task = await service.finish(
         task_id=entity_id,
         worker_id=body.worker_id,
         result=body.result,
         evidence_ref=body.evidence_ref,
+        asset_version_id=body.asset_version_id,
+        quality_profile_version=body.quality_profile_version,
     )
     await uow.commit()
     return task.to_dict()

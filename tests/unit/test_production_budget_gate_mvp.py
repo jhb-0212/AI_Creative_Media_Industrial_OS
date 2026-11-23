@@ -115,7 +115,12 @@ async def test_production_route_service_emits_event() -> None:
     assert outbox.events[0]["payload"]["tenant_id"] == str(_TENANT)
 
 
-async def test_generation_request_advances_to_succeeded() -> None:
+async def test_generation_request_stays_requested() -> None:
+    """创建只登记请求，不推进终态：执行结果只能由持租约的执行器提交。
+
+    曾经的实现接受 ``result`` 且默认 ``SUCCEEDED``——调用方不传就算成功，
+    既无真实产物也无执行证据。这条测试钉住「请求方不能声明执行结果」。
+    """
     repo = InMemoryRepository()
     outbox = InMemoryOutboxWriter()
     service = GenerationService(repo, outbox)
@@ -128,18 +133,23 @@ async def test_generation_request_advances_to_succeeded() -> None:
         constraint_snapshot_id="snap-1",
         budget_ref="budget-1",
         prompt_ref="prompt-1",
-        result="SUCCEEDED",
         created_by="director",
         tenant_id=_TENANT,
     )
-    assert task.status is GenerationTaskStatus.SUCCEEDED
-    assert task.entity_version == 2
-    assert outbox.events[0]["event_type"] == "GENERATION_REQUESTED"
-    assert outbox.events[0]["payload"]["from_status"] == "REQUESTED"
-    assert outbox.events[0]["payload"]["to_status"] == "SUCCEEDED"
+    assert task.status is GenerationTaskStatus.REQUESTED
+    assert task.entity_version == 1
+    assert task.asset_version_id == ""
+    assert task.quality_profile_version == ""
 
 
-async def test_generation_request_advances_to_failed() -> None:
+async def test_generation_request_event_is_not_a_transition_fact() -> None:
+    """创建事件不得带上 ``from_status`` / ``to_status``。
+
+    创建没有前驱状态，把它写成状态迁移会让事实表撒谎
+    （``ck_status_transition_advances`` 要求 from ≠ to）。审计要看到
+    「有人请求了生成」，事实表却不该凭空出现一条迁移。
+    ``advance_status`` 恒补这两个键，``record`` 恒不补——用它区分两者。
+    """
     repo = InMemoryRepository()
     outbox = InMemoryOutboxWriter()
     service = GenerationService(repo, outbox)
@@ -152,11 +162,16 @@ async def test_generation_request_advances_to_failed() -> None:
         constraint_snapshot_id="snap-1",
         budget_ref="budget-1",
         prompt_ref="prompt-1",
-        result="FAILED",
         created_by="director",
         tenant_id=_TENANT,
     )
-    assert task.status is GenerationTaskStatus.FAILED
+    assert len(outbox.events) == 1
+    event = outbox.events[0]
+    assert event["event_type"] == "GENERATION_REQUESTED"
+    assert event["aggregate_id"] == task.entity_id
+    assert "from_status" not in event["payload"]
+    assert "to_status" not in event["payload"]
+    assert event["payload"]["created_by"] == "director"
 
 
 async def test_budget_request_then_approve_appends_ledger() -> None:

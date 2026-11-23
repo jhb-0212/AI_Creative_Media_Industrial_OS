@@ -106,29 +106,40 @@ class GenerationWorker:
                 evidence_ref=f"worker-error:{type(exc).__name__}",
             )
         product_refs: dict[str, str] = {}
-        if (
-            outcome.result == "SUCCEEDED"
-            and outcome.asset_version_id.strip()
-            and outcome.quality_profile_version.strip()
-        ):
-            product_refs = {
-                "asset_version_id": outcome.asset_version_id,
-                "quality_profile_version": outcome.quality_profile_version,
-            }
+        finish_result = outcome.result
+        finish_evidence = outcome.evidence_ref
+        if outcome.result == "SUCCEEDED":
+            if outcome.asset_version_id.strip() and outcome.quality_profile_version.strip():
+                product_refs = {
+                    "asset_version_id": outcome.asset_version_id,
+                    "quality_profile_version": outcome.quality_profile_version,
+                }
+            else:
+                # 执行器声明成功却没给产物引用：这是执行器违反契约，不是并发冲突。
+                # 不落 SUCCEEDED（无产物的成功会让 QC 入队与对账拿到查不到资产的任务），
+                # 也不能让任务停在 RUNNING 等租约过期——过期回收会把同一个违约执行器
+                # 无限重试，而问题只表现为一条含糊的「finish rejected」日志。
+                logger.error(
+                    "executor declared SUCCEEDED without product refs for task %s; "
+                    "recording FAILED (executor contract violation)",
+                    claimed.entity_id,
+                )
+                finish_result = "FAILED"
+                finish_evidence = "executor-contract-violation:missing-product-refs"
         finished = False
         try:
             await self._service.finish(
                 task_id=claimed.entity_id,
                 worker_id=self.worker_id,
-                result=outcome.result,
-                evidence_ref=outcome.evidence_ref,
+                result=finish_result,
+                evidence_ref=finish_evidence,
                 **product_refs,
             )
             finished = True
         except DomainError as exc:
             # 执行期间租约被别人回收：结果作废，状态以回收方为准，不能覆盖。
             logger.warning("finish rejected for task %s: %s", claimed.entity_id, exc)
-        if finished and outcome.result == "SUCCEEDED":
+        if finished and finish_result == "SUCCEEDED":
             await self._enqueue_qc(claimed, outcome)
         return True
 
