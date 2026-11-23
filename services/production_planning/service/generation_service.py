@@ -20,6 +20,7 @@ from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.quality_profile import require_quality_profile
 from packages.shared.storage_locator import parse_locator, validate_locator_or_raise
 from services.production_planning.domain.artifact_manifest import ArtifactManifest
 from services.production_planning.domain.generation_task import GenerationTask
@@ -74,7 +75,32 @@ class GenerationService:
         ``advance_status`` 要求真实的状态边（同态会被生命周期守卫拒绝，事实表
         也会因 ``ck_status_transition_advances`` 违约），所以这里用 ``record``
         只登记事件：审计看得到「有人请求了生成」，事实表却不该凭空造一条迁移。
+
+        质量策略冻结（ADR-R42 C4）
+        --------------------------
+        任务创建时按 ``production_route_ref`` 读取已 VERIFIED 的路线，核对它确实
+        属于同一 project / shot / tenant，再从路线取出权威质量策略冻结进任务。
+        此后 T1/T2/T3 与 QC 只读任务冻结值，绝不重新解析「当前版本」——路线可
+        被撤销、契约可演进，但一个已受理的任务对自己受理时的质量口径负责。
+
+        仓储方法在归属不符或路线已撤销时返回 None，这里统一转成 NOT_FOUND：
+        不区分「路线不存在」与「路线不属于你」，避免泄露他人路线是否存在。
         """
+        route = await self._repository.get_route_by_ref(
+            production_route_ref,
+            project_id=project_id,
+            shot_id=shot_id,
+            tenant_id=tenant_id,
+        )
+        if route is None:
+            raise DomainError(
+                ErrorRegistry.NOT_FOUND,
+                detail=(
+                    f"生成任务引用的生产路线不可用（route={production_route_ref}）："
+                    "须为同一项目/镜头/租户下已 VERIFIED 的路线"
+                ),
+            )
+        frozen_quality_profile = require_quality_profile(route.quality_profile_version)
         task = GenerationTask(
             entity_id=str(uuid4()),
             created_by=created_by,
@@ -88,6 +114,7 @@ class GenerationService:
             constraint_snapshot_id=constraint_snapshot_id,
             budget_ref=budget_ref,
             prompt_ref=prompt_ref,
+            quality_profile_version=frozen_quality_profile,
         )
         await self._repository.add(task)
         self._outbox_writer.record(

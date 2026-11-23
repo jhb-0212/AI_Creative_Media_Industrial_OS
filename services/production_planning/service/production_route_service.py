@@ -6,6 +6,7 @@ from typing import Any, cast
 from uuid import UUID, uuid4
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.quality_profile import UNIFIED_HIGH_QUALITY
 from services.production_planning.domain.production_route import ProductionRoute
 from services.project_planning.domain.enums import ProductionRouteStatus
 from services.project_planning.domain.state_machine import PRODUCTION_ROUTE_SELECT_ACTION
@@ -52,6 +53,9 @@ class ProductionRouteService:
             route_type=route_type,
             capability_ref=capability_ref,
             basis_ref=basis_ref,
+            # C4：路线创建即绑定契约裁定的唯一质量策略。不在请求体开放该字段，
+            # 也不查库「取当前版本」——权威源是契约单值，调用方无可自报余地。
+            quality_profile_version=UNIFIED_HIGH_QUALITY,
         )
         await self._repository.add(route)
         self._outbox_writer.record(

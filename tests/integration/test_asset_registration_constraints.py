@@ -28,6 +28,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from packages.shared.database import build_migration_url
+from packages.shared.quality_profile import UNIFIED_HIGH_QUALITY
 from packages.shared.storage_locator import build_locator
 
 _FK_VIOLATION = "23503"
@@ -88,11 +89,11 @@ async def sample(admin_engine: AsyncEngine) -> AsyncIterator[dict[str, object]]:
                 " asset_version_id, quality_profile_version) "
                 "VALUES (:eid, 'GenerationTask', 205, 1, 'REQUESTED', "
                 " 'production_planning', :tid, :now, 'test-seeder', :now, "
-                " :task_id, :pid, '', '', '', '', '', '', '', '', 0, '', 'qp-v1')"
+                " :task_id, :pid, '', '', '', '', '', '', '', '', 0, '', :qp)"
             ),
             {
                 "eid": task_entity, "tid": tenant, "now": now,
-                "task_id": task_id, "pid": project_id,
+                "task_id": task_id, "pid": project_id, "qp": UNIFIED_HIGH_QUALITY,
             },
         )
     payload: dict[str, object] = {
@@ -387,6 +388,7 @@ async def test_receipt_rejects_asset_from_another_project_same_tenant(
         "asset_id": asset_id,
         "digest": digest,
         "locator": build_locator(digest, "png"),
+        "qp": UNIFIED_HIGH_QUALITY,
     }
     async with admin_engine.begin() as conn:
         await conn.execute(
@@ -423,7 +425,7 @@ async def test_receipt_rejects_asset_from_another_project_same_tenant(
                 " asset_version_id, quality_profile_version) "
                 "VALUES (:task_entity, 'GenerationTask', 205, 1, 'REQUESTED', "
                 " 'production_planning', :tid, :now, 'test-seeder', :now, "
-                " :task_id, :pid, '', '', '', '', '', '', '', '', 0, '', 'qp-v1')"
+                " :task_id, :pid, '', '', '', '', '', '', '', '', 0, '', :qp)"
             ),
             params,
         )

@@ -26,8 +26,12 @@ from packages.shared.rls import set_tenant_context
 from packages.shared.storage_locator import build_locator
 from services.production_planning.repository.sqlalchemy_repos import (
     SqlAlchemyGenerationTaskRepository,
+    SqlAlchemyProductionRouteRepository,
 )
 from services.production_planning.service.generation_service import GenerationService
+from services.production_planning.service.production_route_service import (
+    ProductionRouteService,
+)
 from services.project_planning.repository.sqlalchemy_outbox_writer import (
     SqlAlchemyOutboxWriter,
 )
@@ -66,12 +70,20 @@ async def asset_sm() -> AsyncIterator[object]:
         await engine.dispose()
 
 
-async def _seed(admin_engine: AsyncEngine) -> dict[str, object]:
+async def _seed(admin_engine: AsyncEngine, prod_sm: object) -> dict[str, object]:
+    """经正式业务入口创建 Route → GenerationTask → RUNNING。
+
+    C4 审查要求：E2E 不得手工 SQL 写死 quality_profile_version（那会让测试证明的
+    只是「已有 QP 的任务能跑 T0–T3」）。这里经 ProductionRouteService 绑定权威
+    质量策略、经 GenerationService 冻结到任务、经 claim 进入 RUNNING，让正式入口
+    本身成为被测事实。
+    """
     run = uuid4()
     project_id = f"saga-proj-{run}"
     task_id = f"saga-task-{run}"
-    task_entity = f"saga-entity-{run}"
+    route_id = f"saga-route-{run}"
     now = datetime.now(UTC)
+    # 项目属另一 schema，仍由迁移角色建（域角色对 project_planning 无写权）。
     async with admin_engine.begin() as conn:
         await conn.execute(
             sa.text(
@@ -84,29 +96,44 @@ async def _seed(admin_engine: AsyncEngine) -> dict[str, object]:
             ),
             {"pid": project_id, "tid": _TENANT, "now": now},
         )
-        await conn.execute(
-            sa.text(
-                "INSERT INTO production_planning.generation_tasks "
-                "(entity_id, entity_type, schema_version, entity_version, status, "
-                " owner_module, tenant_id, created_at, created_by, updated_at, "
-                " generation_task_id, project_id, shot_id, shot_revision_id, "
-                " production_route_ref, model_adapter_ref, constraint_snapshot_id, "
-                " budget_ref, prompt_ref, lease_owner, lease_expires_at, attempt_count, "
-                " asset_version_id, quality_profile_version) "
-                "VALUES (:eid, 'GenerationTask', 205, 1, 'RUNNING', "
-                " 'production_planning', :tid, :now, 'e2e-seeder', :now, "
-                " :task_id, :pid, 'shot-1', 'rev-1', 'route-1', 'adapter-1', 'snap-1', "
-                " 'budget-1', 'inline:lighthouse', 'worker-e2e', :expiry, 1, '', 'qp-e2e')"
-            ),
-            {
-                "eid": task_entity,
-                "tid": _TENANT,
-                "now": now,
-                "task_id": task_id,
-                "pid": project_id,
-                "expiry": now.replace(year=now.year + 1),
-            },
+    # 路线、任务、租约全部走正式 service；QP 由契约权威源经路线冻结到任务。
+    async with prod_sm() as session:  # type: ignore[operator]
+        await set_tenant_context(session, _TENANT)
+        outbox = SqlAlchemyOutboxWriter(session)
+        route = await ProductionRouteService(
+            SqlAlchemyProductionRouteRepository(session), outbox
+        ).select_route(
+            project_id=project_id,
+            shot_id="shot-1",
+            task_ref="task-1",
+            route_type="IMAGE_TO_VIDEO",
+            capability_ref="cap-1",
+            basis_ref="basis-1",
+            created_by="e2e-seeder",
+            tenant_id=_TENANT,
+            route_id=route_id,
         )
+        service = GenerationService(
+            SqlAlchemyGenerationTaskRepository(session), outbox
+        )
+        task = await service.request_generation(
+            project_id=project_id,
+            shot_id="shot-1",
+            shot_revision_id="rev-1",
+            production_route_ref=route.route_id,
+            model_adapter_ref="adapter-1",
+            constraint_snapshot_id="snap-1",
+            budget_ref="budget-1",
+            prompt_ref="inline:lighthouse",
+            created_by="e2e-seeder",
+            tenant_id=_TENANT,
+            generation_task_id=task_id,
+        )
+        claimed = await service.claim(
+            task_id=task.entity_id, worker_id="worker-e2e", lease_seconds=3600
+        )
+        task_entity = claimed.entity_id
+        await session.commit()
     return {
         "run": run,
         "project_id": project_id,
@@ -116,9 +143,9 @@ async def _seed(admin_engine: AsyncEngine) -> dict[str, object]:
 
 
 @pytest.fixture(scope="module")
-async def seed(admin_engine: AsyncEngine) -> AsyncIterator[dict[str, object]]:
+async def seed(admin_engine: AsyncEngine, prod_sm: object) -> AsyncIterator[dict[str, object]]:
     """失败路径也必须复位等待态：CI 在 pytest 之后还要 downgrade -1。"""
-    data = await _seed(admin_engine)
+    data = await _seed(admin_engine, prod_sm)
     try:
         yield data
     finally:

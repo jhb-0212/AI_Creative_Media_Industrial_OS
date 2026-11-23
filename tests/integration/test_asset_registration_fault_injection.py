@@ -38,6 +38,7 @@ from packages.shared.database import (
     create_production_planning_engine,
     create_sessionmaker,
 )
+from packages.shared.quality_profile import UNIFIED_HIGH_QUALITY
 from packages.shared.rls import set_tenant_context
 from packages.shared.storage_locator import build_locator
 from services.asset_service.service.asset_service import AssetService
@@ -126,7 +127,7 @@ async def _seed(admin_engine: AsyncEngine, *, status: str = "RUNNING") -> dict[s
                 "VALUES (:eid, 'GenerationTask', 205, 1, :status, "
                 " 'production_planning', :tid, :now, 'fault-injector', :now, "
                 " :task_id, :pid, 'shot-1', 'rev-1', 'route-1', 'adapter-1', 'snap-1', "
-                " 'budget-1', 'inline:lighthouse', 'worker-fi', :expiry, 1, '', 'qp-fi')"
+                " 'budget-1', 'inline:lighthouse', 'worker-fi', :expiry, 1, '', :qp)"
             ),
             {
                 "eid": task_entity,
@@ -135,6 +136,7 @@ async def _seed(admin_engine: AsyncEngine, *, status: str = "RUNNING") -> dict[s
                 "status": status,
                 "task_id": task_id,
                 "pid": project_id,
+                "qp": UNIFIED_HIGH_QUALITY,
                 "expiry": now.replace(year=now.year + 1),
             },
         )

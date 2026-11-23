@@ -16,6 +16,8 @@ import pytest
 
 from packages.errors.error_codes import DomainError
 from packages.shared.in_memory import InMemoryOutboxWriter, InMemoryRepository
+from packages.shared.quality_profile import UNIFIED_HIGH_QUALITY
+from services.production_planning.domain.production_route import ProductionRoute
 from services.production_planning.service.generation_service import GenerationService
 from services.project_planning.domain.enums import GenerationTaskStatus
 
@@ -28,7 +30,28 @@ def _service() -> tuple[GenerationService, InMemoryRepository, InMemoryOutboxWri
     return GenerationService(repo, outbox), repo, outbox
 
 
+async def _seed_route(repo: InMemoryRepository) -> None:
+    """C4：任务创建要求存在归属一致的 VERIFIED 路线，先于 request_generation 落库。"""
+    if await repo.get_by_id("route-1") is None:
+        await repo.add(
+            ProductionRoute(
+                entity_id="route-1",
+                created_by="test-seeder",
+                tenant_id=_TENANT,
+                route_id="route-1",
+                project_id="proj-1",
+                shot_id="shot-1",
+                task_ref="task-1",
+                route_type="IMAGE_TO_VIDEO",
+                capability_ref="cap-1",
+                basis_ref="basis-1",
+                quality_profile_version=UNIFIED_HIGH_QUALITY,
+            )
+        )
+
+
 async def _requested(service: GenerationService):
+    await _seed_route(service._repository)
     return await service.request_generation(
         project_id="proj-1",
         shot_id="shot-1",

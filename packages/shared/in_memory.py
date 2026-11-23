@@ -28,6 +28,33 @@ class InMemoryRepository:
     async def get_by_id(self, entity_id: str) -> Any | None:
         return self._rows.get(entity_id)
 
+    async def get_route_by_ref(
+        self,
+        route_ref: str,
+        *,
+        project_id: str,
+        shot_id: str,
+        tenant_id: object,
+    ) -> Any | None:
+        """与 SQL 仓储同语义：按 route_id 找已 VERIFIED 且归属一致的生产路线。
+
+        内存仓储按 entity_id 索引，生产路线的 route_id 可能与 entity_id 不同，
+        这里线性扫描并按属性过滤；测试规模小，可读性优先。
+        """
+        for row in self._rows.values():
+            if getattr(row, "ENTITY_TYPE", None) != "ProductionRoute":
+                continue
+            if getattr(row, "route_id", None) != route_ref:
+                continue
+            if (
+                getattr(row, "project_id", None) == project_id
+                and getattr(row, "shot_id", None) == shot_id
+                and getattr(row, "tenant_id", None) == tenant_id
+                and getattr(getattr(row, "status", None), "value", None) == "VERIFIED"
+            ):
+                return row
+        return None
+
     async def add(self, entity: Any) -> Any:
         if entity.entity_id in self._rows:
             raise DomainError(

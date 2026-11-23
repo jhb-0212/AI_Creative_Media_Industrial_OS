@@ -44,6 +44,7 @@ def _route_to_orm(route: ProductionRoute) -> ProductionRouteModel:
         route_type=route.route_type,
         capability_ref=route.capability_ref,
         basis_ref=route.basis_ref,
+        quality_profile_version=route.quality_profile_version,
     )
 
 
@@ -72,6 +73,7 @@ def _route_to_domain(model: ProductionRouteModel) -> ProductionRoute:
         route_type=model.route_type,
         capability_ref=model.capability_ref,
         basis_ref=model.basis_ref,
+        quality_profile_version=model.quality_profile_version,
         status=status,
     )
 
@@ -219,6 +221,33 @@ class SqlAlchemyGenerationTaskRepository:
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def get_route_by_ref(
+        self,
+        route_ref: str,
+        *,
+        project_id: str,
+        shot_id: str,
+        tenant_id: object,
+    ) -> ProductionRoute | None:
+        """按 route_id 读取路线，并核对它确实归属本次生成的项目/镜头/租户。
+
+        C4 冻结链的一环：任务创建必须证明 production_route_ref 指向一条属于同一
+        项目/镜头/租户的 VERIFIED 路线。只按 route_id 读会让 A 项目的任务借用 B
+        项目的路线（route_id 是业务短号，不是全局身份键），因此归属三列必须在此
+        一并比对；状态过滤挡掉 REVOKED 路线。
+        """
+        result = await self._session.execute(
+            select(ProductionRouteModel).where(
+                ProductionRouteModel.route_id == route_ref,
+                ProductionRouteModel.project_id == project_id,
+                ProductionRouteModel.shot_id == shot_id,
+                ProductionRouteModel.tenant_id == tenant_id,
+                ProductionRouteModel.status == ProductionRouteStatus.VERIFIED.value,
+            )
+        )
+        model = result.scalar_one_or_none()
+        return _route_to_domain(model) if model is not None else None
 
     async def add(self, task: GenerationTask) -> GenerationTask:
         self._session.add(_task_to_orm(task))

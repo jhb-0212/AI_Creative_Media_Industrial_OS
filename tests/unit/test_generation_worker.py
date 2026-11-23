@@ -21,6 +21,8 @@ import pytest
 
 from packages.errors.error_codes import DomainError
 from packages.shared.in_memory import InMemoryOutboxWriter, InMemoryRepository
+from packages.shared.quality_profile import UNIFIED_HIGH_QUALITY
+from services.production_planning.domain.production_route import ProductionRoute
 from services.production_planning.service.generation_service import GenerationService
 from services.project_planning.domain.enums import GenerationTaskStatus
 from workers.generation.worker import GenerationOutcome, GenerationWorker, LeaseLostError
@@ -40,11 +42,19 @@ class FakeTaskRepository(InMemoryRepository):
         self.opened = 0
         self.commits: list[str] = []
 
+    def _tasks(self):
+        """只取生成任务：C4 后同一内存仓储里还有冻结 QP 用的 ProductionRoute。"""
+        return [
+            task
+            for task in self.snapshot().values()
+            if getattr(task, "ENTITY_TYPE", None) == "GenerationTask"
+        ]
+
     async def get_by_generation_task_id(self, generation_task_id: str):
         return next(
             (
                 task
-                for task in self.snapshot().values()
+                for task in self._tasks()
                 if task.generation_task_id == generation_task_id
             ),
             None,
@@ -53,7 +63,7 @@ class FakeTaskRepository(InMemoryRepository):
     async def next_claimable_for_claim(self):
         requested = [
             task
-            for task in self.snapshot().values()
+            for task in self._tasks()
             if task.status is GenerationTaskStatus.REQUESTED
         ]
         if not requested:
@@ -63,7 +73,7 @@ class FakeTaskRepository(InMemoryRepository):
     async def list_expired(self, now: datetime):
         return [
             task
-            for task in self.snapshot().values()
+            for task in self._tasks()
             if task.status is GenerationTaskStatus.RUNNING
             and task.lease_expires_at is not None
             and task.lease_expires_at < now
@@ -72,7 +82,7 @@ class FakeTaskRepository(InMemoryRepository):
     async def list_succeeded_with_asset(self, limit: int = 50):
         succeeded = [
             task
-            for task in self.snapshot().values()
+            for task in self._tasks()
             if task.status is GenerationTaskStatus.SUCCEEDED
             and task.asset_version_id
         ]
@@ -138,7 +148,28 @@ def _setup(
     return worker, repo, service
 
 
+async def _seed_route(repo: FakeTaskRepository) -> None:
+    """C4：任务创建要求存在归属一致的 VERIFIED 路线。"""
+    if await repo.get_by_id("route-1") is None:
+        await repo.add(
+            ProductionRoute(
+                entity_id="route-1",
+                created_by="test-seeder",
+                tenant_id=_TENANT,
+                route_id="route-1",
+                project_id="proj-1",
+                shot_id="shot-1",
+                task_ref="task-1",
+                route_type="IMAGE_TO_VIDEO",
+                capability_ref="cap-1",
+                basis_ref="basis-1",
+                quality_profile_version=UNIFIED_HIGH_QUALITY,
+            )
+        )
+
+
 async def _requested(service: GenerationService, repo: FakeTaskRepository):
+    await _seed_route(repo)
     task = await service.request_generation(
         project_id="proj-1",
         shot_id="shot-1",

@@ -36,8 +36,12 @@ from packages.shared.database import (
 from packages.shared.outbox_writer import SqlAlchemyOutboxWriter
 from services.production_planning.repository.sqlalchemy_repos import (
     SqlAlchemyGenerationTaskRepository,
+    SqlAlchemyProductionRouteRepository,
 )
 from services.production_planning.service.generation_service import GenerationService
+from services.production_planning.service.production_route_service import (
+    ProductionRouteService,
+)
 from services.project_planning.domain.enums import GenerationTaskStatus
 from tests.conftest import set_test_scope
 from tests.integration.planning_seed import seed_project
@@ -92,12 +96,31 @@ async def _create_task(
     project_id: str,
     suffix: str,
 ) -> str:
-    """用真实域角色创建一个 REQUESTED 任务，返回 entity_id。"""
+    """用真实域角色创建一个 REQUESTED 任务，返回 entity_id。
+
+    C4：先经 ProductionRouteService 落一条归属一致的 VERIFIED 路线，任务创建
+    才会冻结质量策略。这里走正式入口而非手工 SQL，确保这条主链被测到。
+    """
     async with _prod_sm()() as session:
         await set_test_scope(session, tenant_id=tenant)
+        outbox = SqlAlchemyOutboxWriter(session)
+        route_service = ProductionRouteService(
+            SqlAlchemyProductionRouteRepository(session), outbox
+        )
+        await route_service.select_route(
+            project_id=project_id,
+            shot_id=f"shot-{suffix}",
+            task_ref=f"task-{suffix}",
+            route_type="IMAGE_TO_VIDEO",
+            capability_ref="cap-1",
+            basis_ref="test-basis",
+            created_by="pg-concurrency-test",
+            tenant_id=tenant,
+            route_id=f"route-{suffix}",
+        )
         service = GenerationService(
             SqlAlchemyGenerationTaskRepository(session),
-            SqlAlchemyOutboxWriter(session),
+            outbox,
         )
         task = await service.request_generation(
             project_id=project_id,

@@ -18,6 +18,7 @@ import pytest
 
 from packages.errors.error_codes import DomainError
 from packages.shared.in_memory import InMemoryOutboxWriter, InMemoryRepository
+from packages.shared.quality_profile import UNIFIED_HIGH_QUALITY
 from services.budget_quota.domain.budget_ledger import BudgetLedger
 from services.budget_quota.service.budget_service import BudgetService
 from services.production_planning.domain.production_route import ProductionRoute
@@ -52,6 +53,7 @@ def _route(*, status: ProductionRouteStatus = ProductionRouteStatus.VERIFIED) ->
         route_type="IMAGE_TO_VIDEO",
         capability_ref="cap-1",
         basis_ref="basis-1",
+        quality_profile_version=UNIFIED_HIGH_QUALITY,
         status=status,
     )
 
@@ -128,6 +130,7 @@ async def test_generation_request_stays_requested() -> None:
     repo = InMemoryRepository()
     outbox = InMemoryOutboxWriter()
     service = GenerationService(repo, outbox)
+    await repo.add(_route())  # C4：先有归属一致的 VERIFIED 路线
     task = await service.request_generation(
         project_id="proj-1",
         shot_id="shot-1",
@@ -143,7 +146,8 @@ async def test_generation_request_stays_requested() -> None:
     assert task.status is GenerationTaskStatus.REQUESTED
     assert task.entity_version == 1
     assert task.asset_version_id == ""
-    assert task.quality_profile_version == ""
+    # C4：任务创建即从路线冻结权威质量策略，不再等到 T1 才发现为空。
+    assert task.quality_profile_version == UNIFIED_HIGH_QUALITY
 
 
 async def test_generation_request_event_is_not_a_transition_fact() -> None:
@@ -157,6 +161,7 @@ async def test_generation_request_event_is_not_a_transition_fact() -> None:
     repo = InMemoryRepository()
     outbox = InMemoryOutboxWriter()
     service = GenerationService(repo, outbox)
+    await repo.add(_route())  # C4：先有归属一致的 VERIFIED 路线
     task = await service.request_generation(
         project_id="proj-1",
         shot_id="shot-1",
@@ -176,6 +181,107 @@ async def test_generation_request_event_is_not_a_transition_fact() -> None:
     assert "from_status" not in event["payload"]
     assert "to_status" not in event["payload"]
     assert event["payload"]["created_by"] == "director"
+
+
+async def test_selection_routes_bind_authoritative_quality_profile() -> None:
+    """C4：路线一创建就绑定契约单值，不靠请求方填写。"""
+    repo = InMemoryRepository()
+    outbox = InMemoryOutboxWriter()
+    service = ProductionRouteService(repo, outbox)
+    route = await service.select_route(
+        project_id="proj-1",
+        shot_id="shot-1",
+        task_ref="task-1",
+        route_type="IMAGE_TO_VIDEO",
+        capability_ref="cap-1",
+        basis_ref="basis-1",
+        created_by="td",
+        tenant_id=_TENANT,
+    )
+    assert route.quality_profile_version == UNIFIED_HIGH_QUALITY
+
+
+async def test_task_freezes_route_quality_profile_at_creation() -> None:
+    """C4：任务从路线冻结 QP，且路线撤销后不能再作为新任务的依据。"""
+    repo = InMemoryRepository()
+    outbox = InMemoryOutboxWriter()
+    route = await ProductionRouteService(repo, outbox).select_route(
+        project_id="proj-1",
+        shot_id="shot-1",
+        task_ref="task-1",
+        route_type="IMAGE_TO_VIDEO",
+        capability_ref="cap-1",
+        basis_ref="basis-1",
+        created_by="td",
+        tenant_id=_TENANT,
+        route_id="route-1",
+    )
+    service = GenerationService(repo, outbox)
+    task = await service.request_generation(
+        project_id="proj-1",
+        shot_id="shot-1",
+        shot_revision_id="rev-1",
+        production_route_ref=route.route_id,
+        model_adapter_ref="adapter-1",
+        constraint_snapshot_id="snap-1",
+        budget_ref="budget-1",
+        prompt_ref="prompt-1",
+        created_by="director",
+        tenant_id=_TENANT,
+    )
+    assert task.quality_profile_version == UNIFIED_HIGH_QUALITY
+
+    # 撤销路线后，同一引用不可再创建新任务（不能借已失效的 QP 依据受理）。
+    # 内存仓储按引用存储，原地 transition_to 即反映为库里的状态。
+    route.transition_to(
+        ProductionRouteStatus.REVOKED,
+        "audit-revoke",
+        PRODUCTION_ROUTE_SELECT_ACTION,
+    )
+    with pytest.raises(DomainError):
+        await service.request_generation(
+            project_id="proj-1",
+            shot_id="shot-1",
+            shot_revision_id="rev-2",
+            production_route_ref=route.route_id,
+            model_adapter_ref="adapter-1",
+            constraint_snapshot_id="snap-1",
+            budget_ref="budget-1",
+            prompt_ref="prompt-1",
+            created_by="director",
+            tenant_id=_TENANT,
+        )
+
+
+async def test_task_rejects_route_from_another_project() -> None:
+    """C4：跨项目借用路线必须在创建时拒绝（route_id 是业务短号，非全局身份键）。"""
+    repo = InMemoryRepository()
+    outbox = InMemoryOutboxWriter()
+    await ProductionRouteService(repo, outbox).select_route(
+        project_id="proj-OTHER",
+        shot_id="shot-1",
+        task_ref="task-1",
+        route_type="IMAGE_TO_VIDEO",
+        capability_ref="cap-1",
+        basis_ref="basis-1",
+        created_by="td",
+        tenant_id=_TENANT,
+        route_id="route-1",
+    )
+    service = GenerationService(repo, outbox)
+    with pytest.raises(DomainError):
+        await service.request_generation(
+            project_id="proj-1",
+            shot_id="shot-1",
+            shot_revision_id="rev-1",
+            production_route_ref="route-1",
+            model_adapter_ref="adapter-1",
+            constraint_snapshot_id="snap-1",
+            budget_ref="budget-1",
+            prompt_ref="prompt-1",
+            created_by="director",
+            tenant_id=_TENANT,
+        )
 
 
 async def test_budget_request_then_approve_appends_ledger() -> None:
