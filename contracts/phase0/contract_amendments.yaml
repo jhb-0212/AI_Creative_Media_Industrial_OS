@@ -1497,6 +1497,94 @@ amendments:
       - '核验与判定不在同一事务快照：核验读资产域、判定写 QC 域，两者之间报告若被删改，核验结论会过期。当前不构成窗口，因为 qc_reports 是 append-only（无更新/删除路径）且 asset_version_id 有物理外键；若将来允许改报告的归属字段，本窗口才会真实打开，届时须改为判定事务内取证。'
       - '报告到资产状态推进的语义未变：检测器仍会把资产从 GENERATED 推进到 TECHNICAL_QC，但 QC 任务的 PASSED 与资产最终验收（Gate）之间的映射不在本条目范围。'
 
+  - id: 'V205-R15-A33'
+    title: '授权面补齐 schema USAGE：USAGE 集合改为从矩阵派生'
+    retroactive: false
+    recorded_at: '2026-11-23'
+    discovered_by: '2026-11-23 P1-06 端到端用例首次真实调用 GENERATION.PROCESS（此前无任何用例触达真实写路径）'
+    reason: >-
+      R16 三域（production_planning / budget_quota / qc_governance）的角色在
+      outbox / audit / auth 上都有表权限，却没有 USAGE ON SCHEMA。PostgreSQL 里
+      表权限与 schema USAGE 是两道独立的门，缺后者时第一次读写即 42501。因此
+      这三个域的所有写路径在真实环境下都是 500：GENERATION.* 推不动状态、
+      BUDGET.SHOT.APPROVE 与同事务事件一起回滚、GATE/QC.TASK 同理——R16-D3 的
+      MVP 链在库里没有任何一条可写路径。
+      此前所有静态与半动态信号都是绿的：单测用替身会话；集成测试用域角色直接写
+      自有表、从不写 outbox；授权守卫比对 pg_class.relacl（表级），而 nspacl
+      （schema 级）在结构上不在它视野内。「表权限在、ACL 对账绿、功能整体不可用」
+      是本条最危险之处——没有一条断言会在合并前报红。
+      根因不是某条迁移漏写一句，而是授权面存在两个 ACL 位置、矩阵只声明了一个：
+      8f3b2c1d4e5a 用一句手写的 GRANT USAGE 覆盖了当时存在的两个域角色，矩阵接管
+      授权面后只硬编码补了「本域 + project_planning」，于是矩阵之后新建的域天生
+      缺共享 schema 的 USAGE，每新建一个域就复发一次。
+      修法是让 USAGE 集合从矩阵派生（referenced_schemas：他在这个 schema 下有表
+      权限 ⇒ 他需要这个 schema 的 USAGE），删掉硬编码分支；存量由 b8c9d0e1f2a3
+      补到一致（升级对全部域幂等收敛，降级只撤三个被修复域——project_planning /
+      asset_service 的 USAGE 来自 8f3b2c1d4e5a，不是本迁移的净变化）。
+      新增守卫 test_domain_role_has_usage_on_every_referenced_schema，判据集合同样
+      从矩阵派生；先在坏状态跑红并点名 3 域 × 3 schema（附「矩阵在此有表权限」的
+      证据），修复后转绿。该迁移只改 ACL，不含动作/Schema/状态机增删
+      （Action 105 / Schema 89 / 状态机 48 不变）。
+    adr: 'docs/architecture/amendment-pack-r16-phase2.md'
+    approved_by: '项目所有者（2026-11-23 会话内指令「全部整改」，授权修复授权面缺口）'
+    approved_at: '2026-11-23'
+    source_commits:
+      - 'adb60ca'
+    counts_after:
+      actions: 105
+      openapi_operations: 105
+      schema_objects: 89
+      state_machines: 48
+    residual_risks:
+      - '派生口径的边界：USAGE 集合只覆盖「矩阵里有表授权的 schema」。若某域将来需要访问一个它没有任何表权限的 schema（例如只调用一个 SECURITY DEFINER 函数），本派生不会带上它。当前五个域没有这种访问形态；真出现时应在矩阵里显式声明该 schema 的用途，而不是在迁移里手写一句 GRANT——那会重新分裂出第二个事实源。'
+      - '本迁移的降级只回滚三个被修复域。若将来把某个域从「被修复」名单里误删（例如重构 _REPAIRED_DOMAINS），降级会留下无法回到升级前状态的半程，而升级侧因全量幂等不会报错。判据是「降级后 has_schema_privilege 逐域比对」，目前只有迁移回环手工验证，未固化为自动化用例。'
+      - '授权面变更的运行时验证依赖真实 PG（tests/integration/test_least_privilege_grants.py）。无 PG 的环境里 DATA-6 只做静态渲染比对，能挡住「矩阵与迁移不一致」，但挡不住「部署库被手工 REVOKE 过」——后者只能运行库实测。'
+
+  - id: 'V205-R15-A34'
+    title: '租约持有者与审批人取自 Principal；资源级授权表名断链修复'
+    retroactive: false
+    recorded_at: '2026-11-23'
+    discovered_by: '2026-11-23 第五轮工程审查 P1-06（身份可信化）'
+    reason: >-
+      同一个病根（把身份当参数）在两处表现：
+      ① worker_id 是 lease_owner 的唯一写入源，而 lease_owner 又是
+      require_lease_owner 的唯一判据。它出自请求体时，判定等价于「谁知道这个名字，
+      谁就是持有者」——租约退化成一次公开的字符串比较。QC 侧后果更直接：接管他人
+      检测任务即可亲手写出 PASSED 判定。
+      ② approver 是「自批拒绝」（approver != requested_by）的唯一输入。出自请求体
+      时，申请人填别人的名字即可自批，且库里留下的是看不出错的审计记录——错误不在
+      数据里，事后复核也查不出来。
+      修法不是加校验，而是让请求模型里没有这个槽位：生成任务三端点与 QC 三端点的
+      worker_id、审批端点的 approver 一并删除，四个模型加 extra="forbid"（旧调用方
+      得到 422 而不是被静默忽略后以为身份生效），路由改传 principal.subject_id。
+      operator_ref 保留在请求体并写明理由：它不参与任何授权或 SoD 判定，是溯源声明
+      而非身份；判据是「不可伪的必要性」而非字段名。
+      同一条整改顺带修复一条真实的生产级断链：packages/identity/ownership.py 的
+      _RESOLVE_SQL 里四张 R16 表仍写着 project_planning.<table>，而分域迁移
+      （a0b1c2d3e4f5）早已把它们搬到自有 schema，导致 ShotBudgetRequest /
+      GenerationTask / GateDecision / ProductionRoute 的资源级授权在解析归属时
+      42P01 → 500，审批端点根本不可用；而它的服务层单测全绿（单测不经授权依赖）。
+      为此新增 test_ownership_resolve_targets.py：从源码正则抽 FROM|JOIN a.b、
+      to_regclass 逐个判存在、再真跑一遍，并实证坏状态会报红。
+      本条目不含动作/Schema/状态机增删（Action 105 / Schema 89 / 状态机 48 不变）；
+      事件载荷与实体字段里的 worker_id / approver 保持不变——记录「谁持有租约、
+      谁审批」是事实，改变的是它的来源，不是它是否存在。
+    adr: 'docs/architecture/amendment-pack-r16-phase2.md'
+    approved_by: '项目所有者（2026-11-23 会话内指令「全部整改」，授权按审查 P1-06 整改身份可信化）'
+    approved_at: '2026-11-23'
+    source_commits:
+      - '7057aa7'
+    counts_after:
+      actions: 105
+      openapi_operations: 105
+      schema_objects: 89
+      state_machines: 48
+    residual_risks:
+      - 'operator_ref 仍可由请求体自称。当前判定成立，因为它不参与任何授权或 SoD；一旦有人用它做「谁执行的检测」审计比对或统计考核，该字段就变成可伪造的身份事实，必须改为取自 Principal。可机检前提：全仓不得出现 operator_ref 与 Principal/approver 的比较。'
+      - '旧调用方兼容是硬切断：删除字段 + extra="forbid" 会让带 worker_id / approver 的既有客户端立刻 422。这是刻意的（静默忽略比报错更危险），但对外契约属破坏性变更，需在发布说明里显式列出这两个字段的迁移方式。'
+      - 'AST 不变量只比对「同一端点内由 principal 填充的槽位」与「该端点请求模型的字段」。若某端点把标识经中间变量转发（x = principal.subject_id; ...=x），或经由依赖注入的 DTO 携带，本判据看不到。当前所有端点都是直接透传，无此形态；引入间接转发时应扩展判据而不是放宽它。'
+      - '租约并发窗口未变：require_lease_owner 是读后判定，判定与写入之间若有另一事务抢占，仍依赖乐观锁版本冲突兜底（advisory/lock 未上）。本条目只解决「身份可自称」，不解决「租约判定的串行化」。'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——
