@@ -16,10 +16,14 @@ import contextlib
 import signal
 
 from packages.shared.config import get_process_settings
-from packages.shared.database import create_relay_engine, create_sessionmaker
+from packages.shared.database import (
+    create_qc_governance_engine,
+    create_relay_engine,
+    create_sessionmaker,
+)
 from packages.shared.logging import get_logger, setup_logging
 from workers.relay.consumer import OutboxRelay
-from workers.relay.handlers import HANDLERS
+from workers.relay.handlers import build_handlers
 from workers.relay.webhook import WebhookDispatcher
 
 logger = get_logger(__name__)
@@ -44,6 +48,11 @@ async def _main_async(*, interval: float, batch_size: int, once: bool) -> None:
     # 也不让 DSN 构造回落到 api 角色的全局配置（审查 P1-04 / R7 的根因）。
     engine = create_relay_engine(settings)
     sessionmaker = create_sessionmaker(engine)
+    # 业务域处理器需要**自己的**连接角色：relay 角色只有 outbox 的 SELECT/UPDATE，
+    # 写 qc_tasks 必须用 qc_governance 角色（ADR-R06 方案 B 的刻意隔离）。
+    qc_engine = create_qc_governance_engine()
+    qc_sessionmaker = create_sessionmaker(qc_engine)
+    handlers = build_handlers(qc_sessionmaker=qc_sessionmaker)
     # 兜底处理器：配了 webhook 才存在。没配时事件保持未投递（积压可见），
     # 而不是被「成功」丢弃。
     # 熔断开关：配置口径「阈值 0 = 关闭熔断」，因此 enabled 由阈值派生；原值原样
@@ -61,7 +70,7 @@ async def _main_async(*, interval: float, batch_size: int, once: bool) -> None:
         else None
     )
     relay = OutboxRelay(
-        sessionmaker, HANDLERS, batch_size=batch_size, default_handler=dispatcher
+        sessionmaker, handlers, batch_size=batch_size, default_handler=dispatcher
     )
     if dispatcher is None:
         logger.warning(
@@ -93,6 +102,7 @@ async def _main_async(*, interval: float, batch_size: int, once: bool) -> None:
         # 先停投递再释放连接池：连接池关闭时在途事务会被强断。
         if dispatcher is not None:
             await dispatcher.aclose()
+        await qc_engine.dispose()
         await engine.dispose()
 
 

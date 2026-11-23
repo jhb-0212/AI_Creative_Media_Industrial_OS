@@ -459,6 +459,12 @@ events:
       - worker_id
       - evidence_ref
       - attempt_count
+      # 产物与归属必须随事件外发：QC 域按此事件入队（workers/relay/handlers.py），
+      # 消费方没有产物引用就无从确定待检资产，也失去了「入队内容来自哪次成功」的判据。
+      - asset_version_id
+      - quality_profile_version
+      - project_id
+      - shot_id
   - event_type: GENERATION_FAILED
     aggregate_type: GenerationTask
     emitted_by: services/production_planning/service/generation_service.py

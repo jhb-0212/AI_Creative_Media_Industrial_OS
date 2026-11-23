@@ -216,7 +216,16 @@ class GenerationService:
                 aggregate_type="GenerationTask",
                 event_type="GENERATION_SUCCEEDED",
                 tenant_id=task.tenant_id,
-                payload=payload,
+                # 成功事件必须自带产物与归属：QC 域靠它入队（relay 消费），
+                # 消费方拿不到产物就无法确定要检哪一份资产，只能放弃或反查——
+                # 反查意味着为一条事件多一次跨域读，且读到的可能已经是新版本。
+                payload={
+                    **payload,
+                    "asset_version_id": task.asset_version_id,
+                    "quality_profile_version": task.quality_profile_version,
+                    "project_id": task.project_id,
+                    "shot_id": task.shot_id,
+                },
                 resource_type="GenerationTask",
                 owner_action=GENERATION_PROCESS_ACTION,
                 conflict_detail="任务终结并发冲突，请重试",

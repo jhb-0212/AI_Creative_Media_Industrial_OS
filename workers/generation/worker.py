@@ -126,7 +126,6 @@ class GenerationWorker:
                 )
                 finish_result = "FAILED"
                 finish_evidence = "executor-contract-violation:missing-product-refs"
-        finished = False
         try:
             await self._service.finish(
                 task_id=claimed.entity_id,
@@ -135,12 +134,14 @@ class GenerationWorker:
                 evidence_ref=finish_evidence,
                 **product_refs,
             )
-            finished = True
         except DomainError as exc:
             # 执行期间租约被别人回收：结果作废，状态以回收方为准，不能覆盖。
             logger.warning("finish rejected for task %s: %s", claimed.entity_id, exc)
-        if finished and finish_result == "SUCCEEDED":
-            await self._enqueue_qc(claimed, outcome)
+        # 入队**不在这里做**：GENERATION_SUCCEEDED 已随终态在同一事务写入 outbox，
+        # 由 relay 消费后入队（workers/relay/handlers.py）。此处直接写 QC 表会出现
+        # 「QCTask 先提交、GenerationTask 后提交」——生成域提交失败就留下一条指向
+        # 不存在生成任务的待检项，而 qc_tasks.generation_task_id 是跨域引用、没有
+        # 物理外键，数据库拦不住。漏入队由 reconcile_qc 扫描补偿。
         return True
 
     async def _enqueue_qc(self, task: Any, outcome: GenerationOutcome) -> None:

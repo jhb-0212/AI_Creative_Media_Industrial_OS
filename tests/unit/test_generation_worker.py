@@ -193,8 +193,13 @@ def test_lease_lost_error_is_runtime_error() -> None:
     assert issubclass(LeaseLostError, RuntimeError)
 
 
-async def test_success_enqueues_qc_with_asset_reference() -> None:
-    """成功产物必须带着权威资产引用入队，QC 才能检对对象。"""
+async def test_success_does_not_enqueue_qc_directly() -> None:
+    """成功**不再**直接写 QC 表：入队只能由 GENERATION_SUCCEEDED 事件触发。
+
+    直接写会出现「QCTask 先提交、GenerationTask 后提交」——生成域提交失败就留下
+    一条指向不存在生成任务的待检项，而 qc_tasks.generation_task_id 没有物理外键。
+    这条测试是回归闸门：若有人把入队挪回 process_one，它立刻红。
+    """
     seen: list[tuple[str, str, str]] = []
 
     async def enqueue(task, outcome) -> None:
@@ -212,7 +217,46 @@ async def test_success_enqueues_qc_with_asset_reference() -> None:
     task = await _requested(service, repo)
 
     assert await worker.process_one() is True
-    assert seen == [(task.entity_id, "asset-ver-1", "qp-r16-v1")]
+    assert seen == []
+    assert repo.snapshot()[task.entity_id].status is GenerationTaskStatus.SUCCEEDED
+
+
+async def test_success_event_carries_product_refs_and_ownership() -> None:
+    """GENERATION_SUCCEEDED 必须自带产物与归属——QC 域就靠这条事件入队。
+
+    消费方拿不到产物引用就无从确定待检资产；拿不到 project_id/shot_id 就得反查，
+    而反查可能读到新版本。事件是自足的事实，不是「去库里再问一次」的通知。
+    """
+    repo = FakeTaskRepository()
+    outbox = InMemoryOutboxWriter()
+    service = GenerationService(repo, outbox)
+    worker = GenerationWorker(
+        service=service,
+        repository=repo,
+        executor=RecordingExecutor(
+            GenerationOutcome(
+                "SUCCEEDED",
+                "asset://out.mp4",
+                asset_version_id="av-42",
+                quality_profile_version="qp-42",
+            )
+        ),
+        worker_id="worker-1",
+        lease_seconds=60,
+        idle_sleep=0.05,
+    )
+    task = await _requested(service, repo)
+
+    assert await worker.process_one() is True
+
+    succeeded = [e for e in outbox.events if e["event_type"] == "GENERATION_SUCCEEDED"]
+    assert len(succeeded) == 1
+    payload = succeeded[0]["payload"]
+    assert payload["asset_version_id"] == "av-42"
+    assert payload["quality_profile_version"] == "qp-42"
+    assert payload["project_id"] == "proj-1"
+    assert payload["shot_id"] == "shot-1"
+    assert payload["generation_task_id"] == task.generation_task_id
 
 
 async def test_success_persists_product_refs_on_task() -> None:
