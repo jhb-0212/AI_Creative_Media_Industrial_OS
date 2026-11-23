@@ -17,7 +17,7 @@ from sqlalchemy import CheckConstraint, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from packages.shared.database import Base
-from packages.shared.orm import EntityMixin
+from packages.shared.orm import EntityMixin, project_tenant_fk
 from packages.shared.status_constraint import status_check
 from services.budget_quota.domain.enums import transaction_kind_values
 from services.project_planning.domain.enums import (
@@ -33,6 +33,9 @@ class ShotBudgetRequestModel(Base, EntityMixin):
 
     __tablename__ = "shot_budget_requests"
     __table_args__ = (
+        # 归属外键：本表此前对 projects **一条外键都没有**，project_id 可以指向
+        # 任意字符串。预算申请挂在不存在的项目上，审批链就跟着一个幻影项目走。
+        project_tenant_fk("shot_budget_requests"),
         CheckConstraint("amount_limit >= 0", name="ck_shot_budget_requests_amount_nonneg"),
         Index("ix_budget_quota_shot_budget_requests_project_id", "project_id"),
         Index("ix_budget_quota_shot_budget_requests_tenant_id", "tenant_id"),

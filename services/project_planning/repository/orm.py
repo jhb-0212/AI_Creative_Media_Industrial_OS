@@ -34,7 +34,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from packages.shared.database import Base
-from packages.shared.orm import EntityMixin
+from packages.shared.orm import EntityMixin, project_tenant_fk
 from packages.shared.status_constraint import status_check
 from services.project_planning.domain.constraint_pack import LOCKED_DIMENSIONS
 from services.project_planning.domain.enums import (
@@ -172,6 +172,8 @@ class ScriptModel(EntityMixin, Base):
             [f"{SCHEMA_NAME}.episodes.project_id", f"{SCHEMA_NAME}.episodes.episode_ref"],
             name="fk_script_revisions_episode",
         ),
+        # 归属外键：父链只保证「同一 project_id」，不保证本行租户与项目租户一致。
+        project_tenant_fk("script_revisions"),
         # status 收口（DRAFT / LOCK_PENDING / LOCKED / SUPERSEDED）。
         status_check((s.value for s in ScriptStatus), table="script_revisions"),
         {"schema": SCHEMA_NAME},
@@ -213,6 +215,8 @@ class SceneModel(EntityMixin, Base):
             ],
             name="fk_scenes_episode",
         ),
+        # 归属外键：父链到 episodes 只保证「同一 project_id」，租户一致性另需本约束。
+        project_tenant_fk("scenes"),
         CheckConstraint("scene_id = entity_id", name="ck_scenes_identity_single"),
         status_check((s.value for s in SceneStatus), table="scenes"),
         {"schema": SCHEMA_NAME},
@@ -266,6 +270,8 @@ class ShotModel(EntityMixin, Base):
             ],
             name="fk_shots_rework_basis",
         ),
+        # 归属外键：父链到 scenes 只保证「同一 project_id」，租户一致性另需本约束。
+        project_tenant_fk("shots"),
         CheckConstraint("shot_id = entity_id", name="ck_shots_identity_single"),
         CheckConstraint(
             "(status = 'BLOCKED' AND blocked_reason IS NOT NULL) "
@@ -331,6 +337,8 @@ class ShotRevisionModel(EntityMixin, Base):
             [f"{SCHEMA_NAME}.shots.project_id", f"{SCHEMA_NAME}.shots.entity_id"],
             name="fk_shot_revisions_shot",
         ),
+        # 归属外键：父链只保证「同一 project_id」，租户一致性另需本约束。
+        project_tenant_fk("shot_revisions"),
         CheckConstraint(
             "shot_revision_id = entity_id", name="ck_shot_revisions_identity_single"
         ),
@@ -417,6 +425,8 @@ class ShotSpecModel(EntityMixin, Base):
             ],
             name="fk_shot_specs_revision",
         ),
+        # 归属外键：父链只保证「同一 project_id」，租户一致性另需本约束。
+        project_tenant_fk("shot_specs"),
         CheckConstraint(
             "shot_spec_id = entity_id", name="ck_shot_specs_identity_single"
         ),
@@ -508,14 +518,8 @@ class ConstraintPackModel(EntityMixin, Base):
         UniqueConstraint(
             "project_id", "entity_id", name="uq_constraint_packs_entity_project"
         ),
-        ForeignKeyConstraint(
-            ["project_id", "tenant_id"],
-            [
-                f"{SCHEMA_NAME}.projects.entity_id",
-                f"{SCHEMA_NAME}.projects.tenant_id",
-            ],
-            name="fk_constraint_packs_project_tenant",
-        ),
+        # 归属外键：与 asset_versions 同一构造，见 project_tenant_fk 的注释。
+        project_tenant_fk("constraint_packs"),
         Index(
             "uq_constraint_pack_single_active",
             "constraint_pack_id",
@@ -591,11 +595,9 @@ class ShotBreakdownDraftModel(EntityMixin, Base):
 
     __tablename__ = "shot_breakdown_drafts"
     __table_args__ = (
-        ForeignKeyConstraint(
-            ["project_id"],
-            [f"{SCHEMA_NAME}.projects.entity_id"],
-            name="fk_shot_draft_project",
-        ),
+        # 归属外键：原为单列 fk_shot_draft_project（名字与表名还不一致），
+        # 只能证明项目存在、不能证明租户一致，改为复合并由表名派生约束名。
+        project_tenant_fk("shot_breakdown_drafts"),
         status_check((s.value for s in ShotDraftStatus), table="shot_breakdown_drafts"),
         {"schema": SCHEMA_NAME},
     )
@@ -651,11 +653,9 @@ class ReworkTaskModel(EntityMixin, Base):
             "entity_id",
             name="uq_rework_tasks_entity_project",
         ),
-        ForeignKeyConstraint(
-            ["project_id"],
-            [f"{SCHEMA_NAME}.projects.entity_id"],
-            name="fk_rework_tasks_project",
-        ),
+        # 归属外键：原为单列 fk_rework_tasks_project，只能证明项目存在、
+        # 不能证明租户一致，改为复合并由表名派生约束名。
+        project_tenant_fk("rework_tasks"),
         status_check((s.value for s in ReworkTaskStatus), table="rework_tasks"),
         {"schema": SCHEMA_NAME},
     )
@@ -701,12 +701,10 @@ class EpisodeModel(EntityMixin, Base):
             "entity_id",
             name="uq_episodes_entity_project",
         ),
-        # 归属外键：episodes.project_id -> projects.entity_id。
-        ForeignKeyConstraint(
-            ["project_id"],
-            [f"{SCHEMA_NAME}.projects.entity_id"],
-            name="fk_episodes_project",
-        ),
+        # 归属外键：episodes(project_id, tenant_id) -> projects(entity_id, tenant_id)。
+        # 这里原本是单列 project_id -> projects.entity_id，只能证明项目存在、
+        # 不能证明本行租户与该项目租户一致（理由见 project_tenant_fk 的注释）。
+        project_tenant_fk("episodes"),
         # status 收口（DRAFT / ACTIVE / ARCHIVED）。
         status_check((s.value for s in EpisodeStatus), table="episodes"),
         {"schema": SCHEMA_NAME},

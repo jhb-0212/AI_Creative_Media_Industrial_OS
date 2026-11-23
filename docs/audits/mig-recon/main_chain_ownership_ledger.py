@@ -29,9 +29,15 @@ episodes(project_id, entity_id)`，而 episodes 的 project_id 指 projects。
 
 「租户一致」为什么不参与闭包
 ----------------------------
-`scenes.tenant_id` 没有任何外键约束它。父链只保证「同一个 project_id」，
-不保证「同一行的 tenant_id 等于该项目的租户」。这是实测可违反的（见
-``--selftest``：插入一行租户不一致的 episode 会被接受）。
+父链只保证「同一个 project_id」，**推不出**「同一行的 tenant_id 等于该项目
+的租户」。补约束之前这一点是实测可违反的（首轮 ``--selftest`` 插入一行租户
+不一致的 episode 被接受，违规计数变成 1）。
+
+``c9d0e1f2a3b4`` 之后 13 张表已挂 ``(project_id, tenant_id) -> projects``
+复合外键，同一行写入会以 23503 被拒。但本判据**仍然独立存在**：租户一致是
+归属真实性的另一个事实，不是「项目真实」的推论——将来若有表只挂了单列外键，
+闭包会判它「项目真实 = 是」，而租户一致仍是「否」。把它并进闭包，就等于让
+一个维度替另一个维度作证。
 
 用法::
 
@@ -261,11 +267,15 @@ async def _collect(
 
     candidates = await conn.fetch(
         """
-        SELECT table_schema, table_name
-        FROM information_schema.columns
-        WHERE column_name = 'project_id'
-          AND table_schema NOT IN ('pg_catalog', 'information_schema')
-        ORDER BY table_schema, table_name
+        SELECT c.table_schema, c.table_name
+        FROM information_schema.columns c
+        JOIN information_schema.tables tb
+          ON tb.table_schema = c.table_schema
+         AND tb.table_name = c.table_name
+        WHERE c.column_name = 'project_id'
+          AND tb.table_type = 'BASE TABLE'
+          AND c.table_schema NOT IN ('pg_catalog', 'information_schema')
+        ORDER BY c.table_schema, c.table_name
         """
     )
 
@@ -505,45 +515,103 @@ def _render_md(
     return "\n".join(lines)
 
 
-async def _selftest(conn: asyncpg.Connection, projects: str) -> int:
-    """证明判定可 FAIL：写入一行租户不一致的数据，违规计数必须变成 1。
+async def _tenant_fk_name(conn: asyncpg.Connection, rel: str, projects: str) -> str:
+    """取 rel 上「(project_id, tenant_id) -> projects」的约束名，**不写死**。
 
-    刻意不用「删掉约束再断言」：那证明的是「没有约束时能查出来」，
-    而被测命题是「有约束、但约束没覆盖 tenant_id 时，这个计数能发现」。
+    名字写死会让自检在约束被重命名后报出「找不到约束」，而那看起来跟「约束
+    真的不存在」一模一样——自检自己变成一个假信号源。列集从 catalog 实读，
+    与迁移里的派生命名互为校验。
+    """
+    rows = await conn.fetch(
+        """
+        SELECT con.conname,
+               (SELECT array_agg(a.attname::text ORDER BY k.ord)
+                FROM unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord)
+                JOIN pg_attribute a
+                  ON a.attrelid = con.conrelid AND a.attnum = k.attnum) AS cols
+        FROM pg_constraint con
+        WHERE con.contype = 'f'
+          AND con.conrelid = $1::regclass
+          AND con.confrelid = $2::regclass
+        """,
+        rel,
+        projects,
+    )
+    for row in rows:
+        if sorted(row["cols"]) == ["project_id", "tenant_id"]:
+            return str(row["conname"])
+    raise SystemExit(
+        f"{rel} 上没有覆盖 (project_id, tenant_id) 的归属外键：先跑迁移 c9d0e1f2a3b4"
+    )
+
+
+_SELFTEST_INSERT = """
+    INSERT INTO project_planning.episodes
+      (entity_id, entity_type, schema_version, entity_version, status,
+       owner_module, created_at, created_by, updated_at, project_id,
+       episode_ref, title, tenant_id)
+    VALUES ('selftest-tenant-mismatch', 'Episode', 205, 1, 'DRAFT',
+            'project_planning', now(), 'selftest', now(), $1,
+            'EP-SELFTEST', '自检探针', $2)
+"""
+
+_SELFTEST_COUNT = """
+    SELECT count(*) FROM project_planning.episodes e
+    JOIN project_planning.projects p ON p.entity_id = e.project_id
+    WHERE e.tenant_id <> p.tenant_id
+"""
+
+
+async def _selftest(conn: asyncpg.Connection, projects: str) -> int:
+    """证明这条判据能 FAIL——两侧各证伪一次，缺一侧就是假阳性。
+
+    修复前（``c9d0e1f2a3b4`` 之前）的写法是「插入租户不一致的行，计数须变 1」。
+    约束补上之后，同一行**写不进去**了，旧写法会以「计数 = 0」失败——而那会被
+    误读成「判据失效」。所以判据本身要跟着事实升级，而不是把失败解释掉。
+
+    A. **约束在位**：同一行必须被外键拒绝，且 SQLSTATE 恰为 23503。
+       只断言「抛异常」不够——RLS（42501）、check（23514）、列类型错都可能抛，
+       它们证明的是别的东西在拦，不是归属约束。
+    B. **摘掉约束**（事务内，最后回滚）：同一行必须能写入，且违规计数查询
+       返回 ≥ 1。这一侧证明的是「计数不是恒 0」——否则 A 通过 + 计数恒 0
+       会让台账永远绿，而绿的原因是它算不出来。
+
+    两步在同一个事务里：``tr.rollback()`` 把 ``DROP CONSTRAINT`` 与插入一并
+    撤销，所以自检对库不留痕迹（PostgreSQL 的 DDL 是事务性的）。
     """
     project = await conn.fetchrow(f"SELECT entity_id, tenant_id FROM {projects} LIMIT 1")
     if project is None:
         raise SystemExit("自检需要至少一个项目：请先在目标库播种")
     other_tenant = "11111111-1111-1111-1111-111111111111"
+    rel = "project_planning.episodes"
+    fk_name = await _tenant_fk_name(conn, rel, projects)
+
+    rejected_by_fk = False
+    counted = -1
 
     tr = conn.transaction()
     await tr.start()
     try:
-        await conn.execute(
-            """
-            INSERT INTO project_planning.episodes
-              (entity_id, entity_type, schema_version, entity_version, status,
-               owner_module, created_at, created_by, updated_at, project_id,
-               episode_ref, title, tenant_id)
-            VALUES ('selftest-tenant-mismatch', 'Episode', 205, 1, 'DRAFT',
-                    'project_planning', now(), 'selftest', now(), $1,
-                    'EP-SELFTEST', '自检探针', $2)
-            """,
-            project["entity_id"],
-            other_tenant,
-        )
-        counted = await conn.fetchval(
-            """
-            SELECT count(*) FROM project_planning.episodes e
-            JOIN project_planning.projects p ON p.entity_id = e.project_id
-            WHERE e.tenant_id <> p.tenant_id
-            """
-        )
+        # A. 约束在位：写入必须被外键拒绝（嵌套 transaction 即 SAVEPOINT，
+        #    失败只回滚到存盘点，不会把外层事务打成 aborted）。
+        try:
+            async with conn.transaction():
+                await conn.execute(_SELFTEST_INSERT, project["entity_id"], other_tenant)
+        except asyncpg.ForeignKeyViolationError:
+            rejected_by_fk = True
+
+        # B. 摘掉约束：同一行必须能写入，且计数必须发现它。
+        await conn.execute(f'ALTER TABLE {rel} DROP CONSTRAINT "{fk_name}"')
+        await conn.execute(_SELFTEST_INSERT, project["entity_id"], other_tenant)
+        counted = int(await conn.fetchval(_SELFTEST_COUNT))
     finally:
         await tr.rollback()
 
-    print(f"selftest: 租户不一致行数 = {counted}（期望 ≥ 1）")
-    return 0 if int(counted) >= 1 else 1
+    print(f"selftest A: 约束在位时写入被外键拒绝 = {rejected_by_fk}（期望 True，23503）")
+    print(f"selftest B: 摘除约束后违规行计数 = {counted}（期望 ≥ 1）")
+    ok = rejected_by_fk and counted >= 1
+    print("selftest: " + ("通过（判据两侧均可证伪）" if ok else "**失败**"))
+    return 0 if ok else 1
 
 
 async def main_async(args: argparse.Namespace) -> int:

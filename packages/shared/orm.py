@@ -13,11 +13,60 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import DateTime, Integer, String, Uuid
+from sqlalchemy import DateTime, ForeignKeyConstraint, Integer, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 # 契约 C.3.1 通用实体信封的 schema_version 固定值（V2.0.5）。
 SCHEMA_VERSION = 205
+
+# 归属根：每个域表的 (project_id, tenant_id) 最终都指向这一张表。
+# 写成一处是因为它是**平台级事实**——各域手抄 ``project_planning.projects``
+# 时一旦哪处抄错（schema 名或表名），得到的是一个指向不存在表的约束，
+# 迁移期报错还好，最怕的是同一事实在两个域里被写成两种目标。
+OWNERSHIP_ROOT = "project_planning.projects"
+
+
+def project_tenant_fk(table: str) -> ForeignKeyConstraint:
+    """把「项目真实 ∧ 租户一致」压成一条数据库事实（域表归属外键的统一构造）。
+
+    为什么每个域表都要一条，而不是只靠父链
+    -------------------------------------
+    ``scenes.project_id`` 经 ``episodes`` 到 ``projects`` 的父链只保证
+    「同一个 project_id」，**不保证**「本行的 tenant_id 等于该项目的租户」；
+    单列外键 ``project_id -> projects.entity_id`` 同样只证明项目存在。
+
+    于是这一行可以合法存在：
+
+        episodes(project_id=P_A, tenant_id=T_B)   -- P_A 实际属于 T_A
+
+    而 ``tenant_id`` 是 RLS 的作用域键——写错租户不是「数据脏一点」，是这个
+    实体出现在它不属于的租户视图里。所以本条约束守的不是引用完整性，是
+    **归属真实性**：目标键 ``uq_projects_entity_tenant`` 存在 ⇒
+    (project_id, tenant_id) 这一对必须真实指向某个项目行，两列不能各自
+    来自不同项目。
+
+    为什么不需要新增列
+    ------------------
+    ``project_id`` 与 ``tenant_id`` 本来就在每张域表上（信封列）。本函数只是
+    把已经存下来的事实约束住，不是引入冗余建模。
+
+    为什么约束名由表名派生
+    ----------------------
+    历史上三张表的单列外键分别叫 ``fk_episodes_project`` /
+    ``fk_rework_tasks_project`` / ``fk_shot_draft_project``——最后一个的表名
+    其实是 ``shot_breakdown_drafts``。名字手抄必然漂移，而漂移后的名字会让
+    「按名字找约束」的审计脚本静默漏项。派生名消除这种可能。
+
+    复合外键**蕴含**单列外键（前者成立时后者必成立），因此调用方应当用它
+    **替换**单列外键而不是并存：两条约束守同一个事实是两份事实源，且每次
+    写入多一次索引查找。``asset_versions`` / ``constraint_packs`` 早已是
+    「只有复合、没有单列」的形态，本函数把那个范式收敛到一处。
+    """
+    return ForeignKeyConstraint(
+        ["project_id", "tenant_id"],
+        [f"{OWNERSHIP_ROOT}.entity_id", f"{OWNERSHIP_ROOT}.tenant_id"],
+        name=f"fk_{table}_project_tenant",
+    )
 
 
 class EntityMixin:

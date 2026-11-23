@@ -19,7 +19,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from packages.shared.database import Base
-from packages.shared.orm import EntityMixin
+from packages.shared.orm import EntityMixin, project_tenant_fk
 from packages.shared.status_constraint import status_check
 from services.project_planning.domain.enums import NoLifecycleStatus, QCTaskStatus
 
@@ -31,6 +31,9 @@ class GateDecisionModel(Base, EntityMixin):
 
     __tablename__ = "gate_decisions"
     __table_args__ = (
+        # 归属外键：本表此前对 projects **一条外键都没有**。Gate 决策是
+        # 「这个 Gate 裁决过」的唯一证据，挂在幻影项目上的放行结论不可审计。
+        project_tenant_fk("gate_decisions"),
         CheckConstraint(
             "decision IN ('APPROVED', 'REJECTED')",
             name="ck_gate_decisions_decision_controlled",
@@ -80,6 +83,8 @@ class QCTaskModel(Base, EntityMixin):
 
     __tablename__ = "qc_tasks"
     __table_args__ = (
+        # 归属外键：本表此前对 projects **一条外键都没有**。
+        project_tenant_fk("qc_tasks"),
         Index("ix_qc_governance_qc_tasks_tenant_id", "tenant_id"),
         Index("ix_qc_governance_qc_tasks_status", "status"),
         Index(

@@ -3,8 +3,8 @@
 - 目标库：`ai_film_api_tests` @ `localhost:15444`（**main 正式链**，非分叉库）
 - 判据：`PASS ⇔ 项目真实 ∧ 租户一致 ∧ 数据干净 ∧ 相关外键已 VALIDATE`
 - 目标集合：从 `information_schema` / `pg_constraint` **实读派生**，不抄清单
-- **整体判定：FAIL**
-  - 「真实」+「租户一致」：2/15 通过
+- **整体判定：PASS**
+  - 「真实」+「租户一致」：15/15 通过
   - 「一致」（复合外键同项目）：6/6 通过
 
 > 与分叉库台账（`acceptance-ledger.md`，35/35）不可互推：两库谱系不同。
@@ -16,36 +16,20 @@
 | # | 表 | tenant_id | 直接外键 | 项目真实可达 | 依据 | 覆盖 tenant | validated | 孤儿 | 租户不一致 | 判定 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `asset_service.asset_versions` | 是 | `fk_asset_versions_project_tenant` | 是 | 直接 ← fk_asset_versions_project_tenant | 是 | true | 0 | 0 | PASS |
-| 2 | `budget_quota.shot_budget_requests` | 是 | **无** | **否** | — | 否 | - | 0 | 0 | FAIL_NO_PATH |
-| 3 | `production_planning.generation_tasks` | 是 | **无** | **否** | — | 否 | - | 0 | 0 | FAIL_NO_PATH |
-| 4 | `production_planning.production_routes` | 是 | **无** | **否** | — | 否 | - | 0 | 0 | FAIL_NO_PATH |
+| 2 | `budget_quota.shot_budget_requests` | 是 | `fk_shot_budget_requests_project_tenant` | 是 | 直接 ← fk_shot_budget_requests_project_tenant | 是 | true | 0 | 0 | PASS |
+| 3 | `production_planning.generation_tasks` | 是 | `fk_generation_tasks_project_tenant` | 是 | 直接 ← fk_generation_tasks_project_tenant | 是 | true | 0 | 0 | PASS |
+| 4 | `production_planning.production_routes` | 是 | `fk_production_routes_project_tenant` | 是 | 直接 ← fk_production_routes_project_tenant | 是 | true | 0 | 0 | PASS |
 | 5 | `project_planning.constraint_packs` | 是 | `fk_constraint_packs_project_tenant` | 是 | 直接 ← fk_constraint_packs_project_tenant | 是 | true | 0 | 0 | PASS |
-| 6 | `project_planning.episodes` | 是 | `fk_episodes_project` | 是 | 直接 ← fk_episodes_project | 否 | true | 0 | 0 | GAP_TENANT_UNCOVERED |
-| 7 | `project_planning.rework_tasks` | 是 | `fk_rework_tasks_project` | 是 | 直接 ← fk_rework_tasks_project | 否 | true | 0 | 0 | GAP_TENANT_UNCOVERED |
-| 8 | `project_planning.scenes` | 是 | **无** | 是 | 经 project_planning.episodes（fk_scenes_episode） | 否 | - | 0 | 0 | GAP_TENANT_UNCOVERED |
-| 9 | `project_planning.script_revisions` | 是 | **无** | 是 | 经 project_planning.episodes（fk_script_revisions_episode） | 否 | - | 0 | 0 | GAP_TENANT_UNCOVERED |
-| 10 | `project_planning.shot_breakdown_drafts` | 是 | `fk_shot_draft_project` | 是 | 直接 ← fk_shot_draft_project | 否 | true | 0 | 0 | GAP_TENANT_UNCOVERED |
-| 11 | `project_planning.shot_revisions` | 是 | **无** | 是 | 经 project_planning.shots（fk_shot_revisions_shot） | 否 | - | 0 | 0 | GAP_TENANT_UNCOVERED |
-| 12 | `project_planning.shot_specs` | 是 | **无** | 是 | 经 project_planning.shot_revisions（fk_shot_specs_revision） | 否 | - | 0 | 0 | GAP_TENANT_UNCOVERED |
-| 13 | `project_planning.shots` | 是 | **无** | 是 | 经 project_planning.scenes（fk_shots_scene） | 否 | - | 0 | 0 | GAP_TENANT_UNCOVERED |
-| 14 | `qc_governance.gate_decisions` | 是 | **无** | **否** | — | 否 | - | 0 | 0 | FAIL_NO_PATH |
-| 15 | `qc_governance.qc_tasks` | 是 | **无** | **否** | — | 否 | - | 0 | 0 | FAIL_NO_PATH |
-
-### 未通过项与原因
-
-- `budget_quota.shot_budget_requests` — **FAIL_NO_PATH**：既无指向 projects 的外键，也无法经复合父链到达 projects：project_id 可以指向任意字符串
-- `production_planning.generation_tasks` — **FAIL_NO_PATH**：既无指向 projects 的外键，也无法经复合父链到达 projects：project_id 可以指向任意字符串
-- `production_planning.production_routes` — **FAIL_NO_PATH**：既无指向 projects 的外键，也无法经复合父链到达 projects：project_id 可以指向任意字符串
-- `project_planning.episodes` — **GAP_TENANT_UNCOVERED**：项目真实但 tenant_id 未被任何外键约束：本行租户可与父项目租户不一致（实测可写入）
-- `project_planning.rework_tasks` — **GAP_TENANT_UNCOVERED**：项目真实但 tenant_id 未被任何外键约束：本行租户可与父项目租户不一致（实测可写入）
-- `project_planning.scenes` — **GAP_TENANT_UNCOVERED**：项目真实但 tenant_id 未被任何外键约束：本行租户可与父项目租户不一致（实测可写入）
-- `project_planning.script_revisions` — **GAP_TENANT_UNCOVERED**：项目真实但 tenant_id 未被任何外键约束：本行租户可与父项目租户不一致（实测可写入）
-- `project_planning.shot_breakdown_drafts` — **GAP_TENANT_UNCOVERED**：项目真实但 tenant_id 未被任何外键约束：本行租户可与父项目租户不一致（实测可写入）
-- `project_planning.shot_revisions` — **GAP_TENANT_UNCOVERED**：项目真实但 tenant_id 未被任何外键约束：本行租户可与父项目租户不一致（实测可写入）
-- `project_planning.shot_specs` — **GAP_TENANT_UNCOVERED**：项目真实但 tenant_id 未被任何外键约束：本行租户可与父项目租户不一致（实测可写入）
-- `project_planning.shots` — **GAP_TENANT_UNCOVERED**：项目真实但 tenant_id 未被任何外键约束：本行租户可与父项目租户不一致（实测可写入）
-- `qc_governance.gate_decisions` — **FAIL_NO_PATH**：既无指向 projects 的外键，也无法经复合父链到达 projects：project_id 可以指向任意字符串
-- `qc_governance.qc_tasks` — **FAIL_NO_PATH**：既无指向 projects 的外键，也无法经复合父链到达 projects：project_id 可以指向任意字符串
+| 6 | `project_planning.episodes` | 是 | `fk_episodes_project_tenant` | 是 | 直接 ← fk_episodes_project_tenant | 是 | true | 0 | 0 | PASS |
+| 7 | `project_planning.rework_tasks` | 是 | `fk_rework_tasks_project_tenant` | 是 | 直接 ← fk_rework_tasks_project_tenant | 是 | true | 0 | 0 | PASS |
+| 8 | `project_planning.scenes` | 是 | `fk_scenes_project_tenant` | 是 | 直接 ← fk_scenes_project_tenant | 是 | true | 0 | 0 | PASS |
+| 9 | `project_planning.script_revisions` | 是 | `fk_script_revisions_project_tenant` | 是 | 直接 ← fk_script_revisions_project_tenant | 是 | true | 0 | 0 | PASS |
+| 10 | `project_planning.shot_breakdown_drafts` | 是 | `fk_shot_breakdown_drafts_project_tenant` | 是 | 直接 ← fk_shot_breakdown_drafts_project_tenant | 是 | true | 0 | 0 | PASS |
+| 11 | `project_planning.shot_revisions` | 是 | `fk_shot_revisions_project_tenant` | 是 | 直接 ← fk_shot_revisions_project_tenant | 是 | true | 0 | 0 | PASS |
+| 12 | `project_planning.shot_specs` | 是 | `fk_shot_specs_project_tenant` | 是 | 直接 ← fk_shot_specs_project_tenant | 是 | true | 0 | 0 | PASS |
+| 13 | `project_planning.shots` | 是 | `fk_shots_project_tenant` | 是 | 直接 ← fk_shots_project_tenant | 是 | true | 0 | 0 | PASS |
+| 14 | `qc_governance.gate_decisions` | 是 | `fk_gate_decisions_project_tenant` | 是 | 直接 ← fk_gate_decisions_project_tenant | 是 | true | 0 | 0 | PASS |
+| 15 | `qc_governance.qc_tasks` | 是 | `fk_qc_tasks_project_tenant` | 是 | 直接 ← fk_qc_tasks_project_tenant | 是 | true | 0 | 0 | PASS |
 
 ## 二、「一致」半边：复合外键保证本行与父行同项目
 

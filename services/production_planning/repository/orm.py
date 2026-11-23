@@ -23,7 +23,7 @@ from sqlalchemy import DateTime, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from packages.shared.database import Base
-from packages.shared.orm import EntityMixin
+from packages.shared.orm import EntityMixin, project_tenant_fk
 from packages.shared.status_constraint import status_check
 from services.project_planning.domain.enums import (
     GenerationTaskStatus,
@@ -39,6 +39,9 @@ class ProductionRouteModel(Base, EntityMixin):
     __tablename__ = "production_routes"
     __table_args__ = (
         UniqueConstraint("project_id", "entity_id", name="uq_production_routes_entity_project"),
+        # 归属外键：本表此前对 projects **一条外键都没有**。路线选择是
+        # 「当时为什么选这条路」的证据，指向幻影项目的证据链不成立。
+        project_tenant_fk("production_routes"),
         Index("ix_production_planning_production_routes_project_id", "project_id"),
         Index("ix_production_planning_production_routes_tenant_id", "tenant_id"),
         status_check((s.value for s in ProductionRouteStatus), table="production_routes"),
@@ -60,6 +63,9 @@ class GenerationTaskModel(Base, EntityMixin):
     __tablename__ = "generation_tasks"
     __table_args__ = (
         UniqueConstraint("project_id", "entity_id", name="uq_generation_tasks_entity_project"),
+        # 归属外键：本表此前对 projects **一条外键都没有**。生成任务是
+        # 「谁在什么约束下生成了什么」的证据，其 project_id 必须指向真实项目。
+        project_tenant_fk("generation_tasks"),
         Index("ix_production_planning_generation_tasks_project_id", "project_id"),
         Index("ix_production_planning_generation_tasks_tenant_id", "tenant_id"),
         status_check((s.value for s in GenerationTaskStatus), table="generation_tasks"),

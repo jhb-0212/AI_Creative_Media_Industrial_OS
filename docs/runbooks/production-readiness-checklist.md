@@ -45,23 +45,31 @@
 ### D. 架构事实边界
 
 - [x] **D1 数据库谱系边界已裁定** — 证据：`docs/adr/ADR-R41-migration-lineage-decision.md`（main 正式链为唯一部署事实，pending 链为验证载体，禁止合并/同时部署/跨链挪用证据）。
-- [ ] **D2 正式链归属验收独立取证** — **已取证，结论为不通过**。
+- [x] **D2 正式链归属验收独立取证** — **已取证并通过（15/15）**。
   证据：`docs/audits/mig-recon/main-chain/ownership-ledger.md`（机器生成，2026-11-23）。
-  目标集合从 `information_schema` / `pg_constraint` 实读派生（15 张含 `project_id` 的表），
+  目标集合从 `information_schema` / `pg_constraint` 实读派生（15 张含 `project_id` 的基表），
   判据 `PASS ⇔ 项目真实 ∧ 租户一致 ∧ 数据干净 ∧ 相关外键已 VALIDATE`。
-  实测：**2 通过 / 8 项「项目真实但 tenant_id 未被约束」/ 5 项「无任何归属路径」**。
-  脚本 `--selftest` 已证明判定可 FAIL（插入一行租户不一致的 episode 后计数 = 1）。
-  **未勾选**：缺口修复前，「已取证」不等于「已通过」；分叉库 35/35 不得挪用（ADR-R41 D5）。
+  **整体判定 PASS：15/15 通过**（复合外键同项目维度 6/6）。
+  缺口修复：迁移 `c9d0e1f2a3b4`（13 张表补 `(project_id, tenant_id) → projects`
+  复合外键，`NOT VALID → VALIDATE`；其中 3 张的单列外键被复合外键**替换**而非并存）。
+  修复前实测：2 通过 / 8 项「项目真实但 `tenant_id` 未被约束」/ 5 项「无任何归属路径」。
+  `--selftest` 已升级为**两侧各证伪一次**：A 约束在位时同一行写入被 23503 拒绝；
+  B 事务内摘除约束后同一行可写入且违规计数 = 1（证明计数不是恒 0）。
+  防复发闸门：`test_every_project_scoped_table_has_tenant_covering_fk`
+  （集合派生 / 断言 `convalidated` / 拒绝冗余单列外键）在修复前状态实测点名 13 张表。
+  **未勾选项不受此项影响**：分叉库 35/35 仍不得挪用（ADR-R41 D5）。
 
 ## 三、勾选统计
 
-- 已勾选：A3（骨架）、C1（密钥扫描）、D1（谱系裁定）— 共 3 项
-- 未勾选：A1、A2、B1~B5、D2 — 共 9 项
-- **注**：D2 的未勾选性质已改变——此前是「未取证」，现在是「已取证且发现缺口」。
-  缺口清单见 `docs/audits/mig-recon/main-chain/ownership-ledger.md`，
-  其中 5 张表完全无归属路径（`shot_budget_requests` / `generation_tasks` /
-  `production_routes` / `gate_decisions` / `qc_tasks`），属结构性缺陷而非配置问题。
-- **结论：未达到生产准入。已勾选的 3 项只是"可机检的治理/骨架"落地，不代表 Phase 1 可放行。**
+- 已勾选：A3（骨架）、C1（密钥扫描）、D1（谱系裁定）、D2（正式链归属验收）— 共 4 项
+- 未勾选：A1、A2、B1~B5 — 共 8 项
+- **注**：D2 经历三个阶段——「未取证」→「已取证且发现缺口（FAIL）」→「缺口修复后 PASS」。
+  第二阶段产出的缺口清单不是被解释掉的，是由迁移 `c9d0e1f2a3b4` 逐条消除的：
+  5 张完全无归属路径的表（`shot_budget_requests` / `generation_tasks` /
+  `production_routes` / `gate_decisions` / `qc_tasks`）此前**一条外键都没有**，
+  8 张表的 `tenant_id` 未被任何约束覆盖。两类都是结构性缺陷，不是配置问题。
+- **结论：未达到生产准入。D2 的勾选只说明「库层归属事实已成立且可复算」，
+  不等于 Phase 1 可放行**——A1/A2（真实网关与外部签署）与 B 组仍未完成。
 
 ## 四、解除准入的前置条件（按责任人分组的取证要求）
 
@@ -92,7 +100,7 @@
 
 | 项 | 需交付的证据 | 验收判据 |
 |---|---|---|
-| D2 | 在正式链测试库 `ai_film_api_tests` 上重跑归属验收，出具独立台账 | **已完成取证**（`main-chain/ownership-ledger.md`）：判据三要素逐行可复算、`--selftest` 可 FAIL；结论 FAIL（13/15 未通过）。**后续动作**：按台账「未通过项与原因」补归属约束（`NOT VALID` → 订正 → `VALIDATE`），再复跑至全 PASS 才可勾选 |
+| D2 | 在正式链测试库 `ai_film_api_tests` 上重跑归属验收，出具独立台账 | **已通过**（`main-chain/ownership-ledger.md`，15/15 PASS）：判据三要素逐行可复算、`--selftest` 两侧均可证伪。缺口由迁移 `c9d0e1f2a3b4` 消除，`NOT VALID → 存量订正（实测 0 脏行）→ VALIDATE` 全程在真库执行。**防复发**：`test_every_project_scoped_table_has_tenant_covering_fk` 从 catalog 派生集合，修复前状态实测点名 13 张表 |
 
 ### 最终签署
 

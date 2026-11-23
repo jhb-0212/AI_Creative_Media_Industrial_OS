@@ -29,18 +29,18 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, ForeignKeyConstraint, Index, String, Uuid
+from sqlalchemy import DateTime, ForeignKey, Index, String, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from packages.shared.database import Base
-from packages.shared.orm import EntityMixin
+from packages.shared.orm import EntityMixin, project_tenant_fk
 from packages.shared.status_constraint import status_check
 from services.asset_service.domain.enums import AssetStatus
 
 SCHEMA_NAME = "asset_service"
-# 归属目标（跨 schema 只引用，不拥有）。
-PROJECT_SCHEMA = "project_planning"
+# 归属目标（跨 schema 只引用，不拥有）由 packages.shared.orm.OWNERSHIP_ROOT
+# 统一声明，本模块不再自带一份——同一个事实写在两处，改一处就会不一致。
 
 
 class AssetVersionModel(EntityMixin, Base):
@@ -53,14 +53,8 @@ class AssetVersionModel(EntityMixin, Base):
         # 归属索引：按项目列举资产（授权与业务查询共用）。
         Index("ix_asset_service_asset_versions_project", "project_id"),
         # 复合外键：资产所属项目必须与资产同租户（跨租户挂靠被数据库拒绝）。
-        ForeignKeyConstraint(
-            ["project_id", "tenant_id"],
-            [
-                f"{PROJECT_SCHEMA}.projects.entity_id",
-                f"{PROJECT_SCHEMA}.projects.tenant_id",
-            ],
-            name="fk_asset_versions_project_tenant",
-        ),
+        # 构造已收敛到 packages.shared.orm.project_tenant_fk（全平台唯一出处）。
+        project_tenant_fk("asset_versions"),
         # status 收口（十态）：资产版本是唯一允许「GOLD / QUARANTINED」等旁支的
         # 对象，库里若只认有入边的五态，真实数据一出现旁支就会被 CHECK 打回。
         status_check((s.value for s in AssetStatus), table="asset_versions"),

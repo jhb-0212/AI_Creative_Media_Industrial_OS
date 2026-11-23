@@ -11,6 +11,14 @@
    projects(entity_id, tenant_id) —— 资产必须挂到真实存在且**同租户**的项目上；
    跨租户挂靠在数据库层被拒（第二轮审查 P1-04）。
 4. organizations 自身纳入租户 RLS —— 归属根不得跨租户可读。
+5. 归属外键的**覆盖率**（SCOPE-5）：每一张含 ``project_id`` 的表都必须有
+   「覆盖 ``tenant_id`` 且已 ``VALIDATE``」的 projects 外键，集合从
+   ``information_schema`` **派生**，不抄清单。前面四条是逐点负向测试，
+   它们的集合是人写的——13 张表集体漏约束时，一条都不会红（D2 出证即如此：
+   台账 FAIL 2/15，而这四条全绿）。所以「集合」本身必须成为判据。
+6. 归属数据的**可复算违例行数**（SCOPE-6）：孤儿行与租户不一致行必须为 0，
+   且必须用**超级用户**连接统计——RLS 会把越权行静默过滤，「0 条违规」可能
+   只是「我看不到的那些里没有违规」。
 
 **为什么有些用例要跑两遍（ADR-R24 之后新增）**
 ------------------------------------------------
@@ -438,3 +446,232 @@ async def test_organizations_are_tenant_isolated(
             await session.rollback()
     finally:
         await _drop_organization(admin_sessionmaker, org_in_a)
+
+
+# ---------------------------------------------------------------------------
+# SCOPE-5 / SCOPE-6：集合派生式归属闸门
+#
+# 前面四条用例验的是「某条外键真的会拒绝越权写入」，但它们的**集合是人写的**。
+# 于是 D2 出证时出现了一个悖论：台账判定 FAIL（2/15），而本文件全绿——因为漏掉
+# 的那 13 张表从来没有被任何用例提到过。
+#
+# 「清单不会自己举手」：漏掉的条目不报错，它只是不在那里。所以下面两条用例
+# 的目标集合一律从 catalog 派生——新增一张带 project_id 的表，若忘了挂约束，
+# 用例立刻红，不需要有人记得来加一行。
+# ---------------------------------------------------------------------------
+
+
+async def _derived_project_scoped_tables(session) -> list[tuple[str, str, bool]]:
+    """派生「含 project_id 的基表」及「该表是否含 tenant_id」。
+
+    只取 ``BASE TABLE``：``information_schema.columns`` 同时覆盖视图，把视图
+    算进来会要求给视图挂外键——一个既做不到也不该做的事，最后只能加豁免，
+    而豁免一旦加上就再没人回头看它是否仍然必要。
+    """
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT c.table_schema, c.table_name,
+                       EXISTS (
+                           SELECT 1 FROM information_schema.columns t
+                           WHERE t.table_schema = c.table_schema
+                             AND t.table_name = c.table_name
+                             AND t.column_name = 'tenant_id'
+                       ) AS has_tenant
+                FROM information_schema.columns c
+                JOIN information_schema.tables tb
+                  ON tb.table_schema = c.table_schema
+                 AND tb.table_name = c.table_name
+                WHERE c.column_name = 'project_id'
+                  AND tb.table_type = 'BASE TABLE'
+                  AND c.table_schema NOT IN ('pg_catalog', 'information_schema')
+                ORDER BY 1, 2
+                """
+            )
+        )
+    ).all()
+    return [
+        (str(r.table_schema), str(r.table_name), bool(r.has_tenant)) for r in rows
+    ]
+
+
+async def _projects_table(session) -> str:
+    """定位归属根表，多一张同名表就报错而不是挑一个。"""
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT n.nspname
+                FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE c.relname = 'projects' AND c.relkind IN ('r', 'p')
+                  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+                """
+            )
+        )
+    ).all()
+    schemas = [str(r.nspname) for r in rows]
+    assert len(schemas) == 1, (
+        f"归属根 projects 应恰好存在于一个 schema，实际 {schemas}；"
+        "多个同名表意味着归属模型分叉，必须先裁定再谈约束"
+    )
+    return f"{schemas[0]}.projects"
+
+
+async def _project_fk_edges(session, projects: str) -> dict[str, list[tuple[str, bool, list[str]]]]:
+    """取所有「子表 -> projects」的外键：子表名 -> [(约束名, 是否已验证, 列集)]。"""
+    rows = (
+        await session.execute(
+            text(
+                """
+                SELECT cn.nspname || '.' || cc.relname AS child,
+                       con.conname,
+                       con.convalidated,
+                       COALESCE(
+                           (SELECT array_agg(a.attname::text ORDER BY k.ord)
+                            FROM unnest(con.conkey) WITH ORDINALITY AS k(attnum, ord)
+                            JOIN pg_attribute a
+                              ON a.attrelid = con.conrelid AND a.attnum = k.attnum),
+                           ARRAY[]::text[]
+                       ) AS cols
+                FROM pg_constraint con
+                JOIN pg_class cc ON cc.oid = con.conrelid
+                JOIN pg_namespace cn ON cn.oid = cc.relnamespace
+                JOIN pg_class pc ON pc.oid = con.confrelid
+                JOIN pg_namespace pn ON pn.oid = pc.relnamespace
+                WHERE con.contype = 'f'
+                  AND pn.nspname || '.' || pc.relname = :projects
+                """
+            ),
+            {"projects": projects},
+        )
+    ).all()
+    edges: dict[str, list[tuple[str, bool, list[str]]]] = {}
+    for row in rows:
+        edges.setdefault(str(row.child), []).append(
+            (str(row.conname), bool(row.convalidated), [str(c) for c in row.cols])
+        )
+    return edges
+
+
+async def test_every_project_scoped_table_has_tenant_covering_fk(
+    admin_sessionmaker,
+) -> None:
+    """每张含 project_id 的表都必须有覆盖 tenant_id 且已 VALIDATE 的 projects 外键。
+
+    判据（三件事同时成立，任一条单独成立都不够）：
+
+    1. **有**一条指向 projects 的外键，且其列集覆盖 ``{project_id, tenant_id}``
+       （无 tenant_id 的表退化为 ``{project_id}``）；
+    2. 该外键 ``convalidated = true``。``NOT VALID`` 的外键只对**新写入**生效，
+       存量行从未被检查过——台账要求的是「存在 ∧ convalidated ∧ 违规行数 0」，
+       只建不验等于「拒绝永久豁免」那条红线被绕过；
+    3. **没有**冗余的单列 ``project_id -> projects`` 外键。复合外键蕴含单列，
+       并存就是两份事实源，且每次写入多一次索引查找。这一条同时防止「修 CI 的
+       人把复合外键删掉、退回单列」。
+
+    为什么这条不能用「逐表硬编码」实现：D2 的缺口正是「15 张表里 13 张漏了」，
+    而写死的清单在新增第 16 张表时只是漏掉——不报错。
+    """
+    async with admin_sessionmaker() as session:
+        projects = await _projects_table(session)
+        targets = await _derived_project_scoped_tables(session)
+        assert targets, (
+            "派生不到任何含 project_id 的基表：库可能未迁移到 head，"
+            "或归属模型被改得面目全非——两种情况都必须先查清再放行"
+        )
+        edges = await _project_fk_edges(session, projects)
+
+    missing: list[str] = []
+    unvalidated: list[str] = []
+    redundant: list[str] = []
+
+    for schema, table, has_tenant in targets:
+        child = f"{schema}.{table}"
+        required = {"project_id", "tenant_id"} if has_tenant else {"project_id"}
+        child_edges = edges.get(child, [])
+        covering = [edge for edge in child_edges if required <= set(edge[2])]
+        if not covering:
+            missing.append(f"{child}（需要覆盖 {sorted(required)}）")
+            continue
+        if not any(edge[1] for edge in covering):
+            unvalidated.append(
+                f"{child}（{', '.join(e[0] for e in covering)} 尚未 VALIDATE）"
+            )
+        if has_tenant and any(set(edge[2]) == {"project_id"} for edge in child_edges):
+            redundant.append(child)
+
+    assert not missing, (
+        "以下表有 project_id 列但对 projects 没有覆盖 tenant_id 的外键——"
+        "project_id 可以指向任意字符串，租户可以与项目租户不一致：\n  "
+        + "\n  ".join(missing)
+        + "\n修法：packages.shared.orm.project_tenant_fk(表名)，"
+        "并写一条 ADD CONSTRAINT ... NOT VALID + VALIDATE 的迁移。"
+    )
+    assert not unvalidated, (
+        "以下表的归属外键从未被验证（NOT VALID 只约束新写入，存量行是免检的）：\n  "
+        + "\n  ".join(unvalidated)
+    )
+    assert not redundant, (
+        "以下表同时有复合与单列 projects 外键——复合已蕴含单列，并存即两份事实源：\n  "
+        + "\n  ".join(redundant)
+    )
+
+
+async def test_project_scoped_rows_have_consistent_tenant(admin_sessionmaker) -> None:
+    """不允许孤儿行与租户不一致行（可复算的违例行数，能真 FAIL）。
+
+    为什么必须用超级用户连接统计
+    ----------------------------
+    业务角色读这些表时 RLS 生效，越权行被**静默过滤**。于是「违规 0 行」可能
+    只是「我看不到的那些里没有违规」——一个恒真的结论。管理连接绕过 RLS，
+    数的是全表，这个数才有裁判意义。
+
+    为什么这条不能只留在台账里
+    --------------------------
+    台账是**按需执行**的文档产物（人工跑脚本），CI 不跑它。数据层不变量若只
+    存在于台账里，它就不是闸门，是一份快照。
+    """
+    async with admin_sessionmaker() as session:
+        projects = await _projects_table(session)
+        targets = await _derived_project_scoped_tables(session)
+
+        orphan_report: list[str] = []
+        mismatch_report: list[str] = []
+        for schema, table, has_tenant in targets:
+            qualified = f"{schema}.{table}"
+            orphans = await session.scalar(
+                text(
+                    f"""
+                    SELECT count(*) FROM {qualified} c
+                    WHERE c.project_id IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM {projects} p WHERE p.entity_id = c.project_id
+                      )
+                    """
+                )
+            )
+            if orphans:
+                orphan_report.append(f"{qualified}: {orphans} 行")
+            if not has_tenant:
+                continue
+            mismatches = await session.scalar(
+                text(
+                    f"""
+                    SELECT count(*) FROM {qualified} c
+                    JOIN {projects} p ON p.entity_id = c.project_id
+                    WHERE c.tenant_id <> p.tenant_id
+                    """
+                )
+            )
+            if mismatches:
+                mismatch_report.append(f"{qualified}: {mismatches} 行")
+
+    assert not orphan_report, (
+        "以下表存在指向不存在项目的孤儿行（project_id 是悬空字符串）：\n  "
+        + "\n  ".join(orphan_report)
+    )
+    assert not mismatch_report, (
+        "以下表的 tenant_id 与其项目的租户不一致"
+        "（该行会出现在它不属于的租户视图里）：\n  " + "\n  ".join(mismatch_report)
+    )
