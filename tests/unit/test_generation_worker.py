@@ -11,9 +11,15 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import uuid4
 
+import pytest
+
+from packages.errors.error_codes import DomainError
 from packages.shared.in_memory import InMemoryOutboxWriter, InMemoryRepository
 from services.production_planning.service.generation_service import GenerationService
 from services.project_planning.domain.enums import GenerationTaskStatus
@@ -23,9 +29,18 @@ _TENANT = uuid4()
 
 
 class FakeTaskRepository(InMemoryRepository):
-    """在内存仓储上补 Worker 需要的两条查询（真实现走 SQL 索引）。"""
+    """在内存仓储上补 Worker 需要的两条查询（真实现走 SQL 索引）。
 
-    async def next_claimable(self):
+    额外记录「作用域打开次数」与「提交次数」：短事务改造的判据是每个阶段各自
+    开一个作用域并提交，而不是全程共用一个——这两组计数就是它的可观测形式。
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.opened = 0
+        self.commits: list[str] = []
+
+    async def next_claimable_for_claim(self):
         requested = [
             task
             for task in self.snapshot().values()
@@ -77,6 +92,26 @@ class RecordingExecutor:
         return self.outcome
 
 
+@dataclass
+class _Unit:
+    """内存版短工作单元：提交只是记账，没有真实事务可提交。"""
+
+    service: Any
+    repository: FakeTaskRepository
+
+    async def commit(self) -> None:
+        self.repository.commits.append("commit")
+
+
+def _scope_factory(repo: FakeTaskRepository, service: GenerationService):
+    @asynccontextmanager
+    async def scope():
+        repo.opened += 1
+        yield _Unit(service=service, repository=repo)
+
+    return scope
+
+
 def _setup(
     executor,
     *,
@@ -87,8 +122,7 @@ def _setup(
     repo = FakeTaskRepository()
     service = GenerationService(repo, InMemoryOutboxWriter())
     worker = GenerationWorker(
-        service=service,
-        repository=repo,
+        scope=_scope_factory(repo, service),
         executor=executor,
         worker_id="worker-1",
         lease_seconds=lease_seconds,
@@ -231,8 +265,9 @@ async def test_success_event_carries_product_refs_and_ownership() -> None:
     outbox = InMemoryOutboxWriter()
     service = GenerationService(repo, outbox)
     worker = GenerationWorker(
-        service=service,
-        repository=repo,
+        # P1-01 起 Worker 按阶段开短工作单元，构造时只接受作用域工厂：
+        # 绑死一个 Session 会让租约与终态回到同一事务里。
+        scope=_scope_factory(repo, service),
         executor=RecordingExecutor(
             GenerationOutcome(
                 "SUCCEEDED",
@@ -365,6 +400,7 @@ async def test_executor_success_without_product_falls_back_to_failed() -> None:
 
     assert await worker.process_one() is True
 
+
     done = repo.snapshot()[task.entity_id]
     assert done.status is GenerationTaskStatus.FAILED
     assert done.asset_version_id == ""
@@ -391,3 +427,75 @@ async def test_executor_success_with_product_refs_succeeds() -> None:
     assert done.status is GenerationTaskStatus.SUCCEEDED
     assert done.asset_version_id == "av-9"
     assert done.quality_profile_version == "qp-9"
+
+
+async def test_claim_and_finish_use_separate_short_transactions() -> None:
+    """P1-01 判据：领取与终结各自开作用域并提交。
+
+    原实现全程一个事务、执行完才 commit：租约在执行期间不可见、行锁不释放，
+    多 Worker 只能串行。作用域与提交计数是这条语义的可观测形式。
+
+    替身默认给「合法成功」（带产物引用），因此这里断言 SUCCEEDED 与 P1-02 的
+    产物契约不冲突：`_setup(RecordingExecutor())` 不会触发违约分支。
+    """
+    worker, repo, service = _setup(RecordingExecutor())
+    task = await _requested(service, repo)
+
+    assert await worker.process_one() is True
+
+
+    assert repo.opened == 2  # 领取 + 终结
+    assert repo.commits == ["commit", "commit"]
+    assert repo.snapshot()[task.entity_id].status is GenerationTaskStatus.SUCCEEDED
+
+
+async def test_lease_is_committed_before_executor_runs() -> None:
+    """执行器开跑的那一刻，领取必须已经提交。
+
+    这是「租约作为并发事实」的最小判据：若执行期间才提交，其他 Worker 读到的
+    仍是 REQUESTED，看不见任务已被持有。
+    """
+    repo = FakeTaskRepository()
+    service = GenerationService(repo, InMemoryOutboxWriter())
+    commits_at_start: list[int] = []
+
+    class ObservingExecutor:
+        async def execute(self, task):
+            commits_at_start.append(len(repo.commits))
+            return GenerationOutcome("SUCCEEDED", "ev")
+
+    worker = GenerationWorker(
+        scope=_scope_factory(repo, service),
+        executor=ObservingExecutor(),
+        worker_id="worker-1",
+        lease_seconds=60,
+        idle_sleep=0.05,
+    )
+    await _requested(service, repo)
+
+    assert await worker.process_one() is True
+
+    assert commits_at_start == [1], "领取必须已提交，终结尚未提交"
+
+
+async def test_expired_lease_cannot_renew_or_finish() -> None:
+    """租约过期后，即使 owner 一致也不得续租/终结。
+
+    回收扫描是周期性的，到期到被扫到之间有空窗；只看 owner 不看时间，
+    旧 Worker 能在这个空窗里续租或落终态，产出「已失去租约的人写的结果」。
+    """
+    _worker, repo, service = _setup(RecordingExecutor())
+    task = await _requested(service, repo)
+    await service.claim(task_id=task.entity_id, worker_id="worker-1", lease_seconds=60)
+    repo.snapshot()[task.entity_id].lease_expires_at = datetime.now(UTC) - timedelta(
+        seconds=1
+    )
+
+    with pytest.raises(DomainError, match="过期"):
+        await service.renew(
+            task_id=task.entity_id, worker_id="worker-1", lease_seconds=60
+        )
+    with pytest.raises(DomainError, match="过期"):
+        await service.finish(
+            task_id=task.entity_id, worker_id="worker-1", result="SUCCEEDED"
+        )

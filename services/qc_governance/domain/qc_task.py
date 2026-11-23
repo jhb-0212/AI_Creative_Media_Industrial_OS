@@ -15,7 +15,7 @@ QC 任务归 qc_governance，生成任务归 production_planning，不能借一�
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
@@ -99,7 +99,7 @@ class QCTask(Entity):
 
     # ---- 租约（QC.TASK.PROCESS）------------------------------------------- #
 
-    def require_lease_owner(self, worker_id: str) -> None:
+    def require_lease_owner(self, worker_id: str, now: datetime | None = None) -> None:
         if self.status is not QCTaskStatus.RUNNING:
             raise DomainError(
                 ErrorRegistry.STATE_TRANSITION_DENIED,
@@ -109,6 +109,22 @@ class QCTask(Entity):
             raise DomainError(
                 ErrorRegistry.STATE_TRANSITION_DENIED,
                 detail="租约不属于该 Worker：只有持有者才能续租或判定",
+            )
+        # 同生成域：过期到被扫到之间有窗口，只比对 owner 会让旧 Worker 在该窗口内
+        # 继续续租或判定，产出「由已失去租约的人写的结论」。
+        if self.lease_expires_at is None:
+            raise DomainError(
+                ErrorRegistry.STATE_TRANSITION_DENIED,
+                detail="租约为 RUNNING 却缺少到期时间，无法判定是否仍有效",
+            )
+        moment = now or datetime.now(UTC)
+        if moment >= self.lease_expires_at:
+            raise DomainError(
+                ErrorRegistry.STATE_TRANSITION_DENIED,
+                detail=(
+                    f"租约已于 {self.lease_expires_at.isoformat()} 过期，"
+                    "必须先重新领取才能续租或判定"
+                ),
             )
 
     def claim(

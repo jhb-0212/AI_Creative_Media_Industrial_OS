@@ -7,7 +7,10 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -22,6 +25,9 @@ _TENANT = uuid4()
 class FakeRepo:
     def __init__(self) -> None:
         self.rows: dict[str, object] = {}
+        # 短事务改造的可观测判据：每个阶段各开一个作用域并提交
+        self.opened = 0
+        self.commits: list[str] = []
 
     async def find_by_generation_task(self, generation_task_id: str):
         for task in self.rows.values():
@@ -40,7 +46,7 @@ class FakeRepo:
     async def get_by_id(self, entity_id: str):
         return self.rows.get(entity_id)
 
-    async def next_claimable(self):
+    async def next_claimable_for_claim(self):
         queued = [t for t in self.rows.values() if t.status is QCTaskStatus.QUEUED]
         return min(queued, key=lambda t: t.created_at) if queued else None
 
@@ -73,6 +79,24 @@ class FakeInspector:
         return self.inspection
 
 
+@dataclass
+class _Unit:
+    service: Any
+    repository: FakeRepo
+
+    async def commit(self) -> None:
+        self.repository.commits.append("commit")
+
+
+def _scope_factory(repo: FakeRepo, service: Any):
+    @asynccontextmanager
+    async def scope():
+        repo.opened += 1
+        yield _Unit(service=service, repository=repo)
+
+    return scope
+
+
 def _report_lookup(
     *,
     asset_version_id: str = "asset-1",
@@ -100,8 +124,7 @@ def _setup(inspector, *, report_lookup=None) -> tuple[QCWorker, FakeRepo, object
         report_lookup=report_lookup or _report_lookup(),
     )
     worker = QCWorker(
-        service=service,
-        repository=repo,
+        scope=_scope_factory(repo, service),
         executor=inspector,
         worker_id="qc-worker-1",
         lease_seconds=120,
@@ -249,3 +272,15 @@ def test_integrity_checks_reject_unverifiable_storage_ref() -> None:
     findings = insp._check(task, asset)
     content = next(f for f in findings if f["check"] == "content_verifiable")
     assert content["passed"] is False
+
+
+async def test_claim_and_finish_use_separate_short_transactions() -> None:
+    """P1-01 判据：领取与判定各自开作用域并提交，执行期间不持有长事务。"""
+    worker, repo, service = _setup(FakeInspector())
+    task = await _queued(service)
+
+    assert await worker.process_one() is True
+
+    assert repo.opened == 2
+    assert repo.commits == ["commit", "commit"]
+    assert repo.rows[task.entity_id].status is QCTaskStatus.PASSED

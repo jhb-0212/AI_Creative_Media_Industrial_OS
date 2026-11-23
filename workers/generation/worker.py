@@ -3,6 +3,20 @@
 职责边界：只负责「领任务 → 心跳续租 → 回写终态 → 回收过期租约」这套调度。
 真正的生成动作由注入的 ``GenerationExecutor`` 完成，Worker 不碰模型、不碰供应商。
 
+事务边界（P1-01 重构的核心）
+---------------------------
+**每个阶段一个短工作单元，各自提交**：
+
+- 领取：``SKIP LOCKED`` 读候选 → claim → 立即 commit。租约在这一刻成为其他会话
+  可见的事实，行锁同时释放；执行阶段不持有任何数据库事务。
+- 心跳：renew → commit，独立短事务。
+- 终结：finish → commit，独立短事务。
+- 回收：逐条 release_expired → commit。
+
+为什么必须这样：原实现把四个阶段塞进一个事务，执行期间租约未提交（其他 Worker
+仍看到 REQUESTED，以为任务没人领），行锁也一直被持有（其他 Worker 领不到后续
+任务）。「加锁」修不了，只能重画事务边界。
+
 调度语义：
 - 每轮从仓储取**最早创建**的 REQUESTED 任务（FIFO，防止新任务把老任务饿死）；
 - ``claim`` 走服务层，状态迁移与事件都由领域对象自己完成，Worker 不直改状态；
@@ -21,6 +35,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal, Protocol
 
 from packages.errors.error_codes import DomainError
+from packages.shared.lease import LeaseScopeFactory
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +67,12 @@ class LeaseLostError(RuntimeError):
 
 
 class GenerationWorker:
-    """常驻生成 Worker。单进程串行领取，多进程靠租约互斥。"""
+    """常驻生成 Worker。单进程串行领取，多进程靠租约 + SKIP LOCKED 并行。"""
 
     def __init__(
         self,
         *,
-        service: Any,
-        repository: Any,
+        scope: LeaseScopeFactory,
         executor: GenerationExecutor,
         worker_id: str,
         lease_seconds: int = 60,
@@ -68,8 +82,7 @@ class GenerationWorker:
     ) -> None:
         if lease_seconds <= 0:
             raise ValueError("lease_seconds 必须为正")
-        self._service = service
-        self._repository = repository
+        self._scope = scope
         self._executor = executor
         self.worker_id = worker_id
         self.lease_seconds = lease_seconds
@@ -84,14 +97,9 @@ class GenerationWorker:
 
     async def process_one(self) -> bool:
         """领一个任务并跑完。返回 False 表示当前没有可领任务。"""
-        task = await self._repository.next_claimable()
-        if task is None:
+        claimed = await self._claim_next()
+        if claimed is None:
             return False
-        claimed = await self._service.claim(
-            task_id=task.entity_id,
-            worker_id=self.worker_id,
-            lease_seconds=self.lease_seconds,
-        )
         try:
             outcome = await self._execute_with_heartbeat(claimed)
         except LeaseLostError:
@@ -99,12 +107,44 @@ class GenerationWorker:
                 "lease lost while running task %s, abandon result", claimed.entity_id
             )
             return True
-        except Exception as exc:  # 执行器把异常抛出来也必须落终态
-            logger.exception("executor failed for task %s", claimed.entity_id)
-            outcome = GenerationOutcome(
-                result="FAILED",
-                evidence_ref=f"worker-error:{type(exc).__name__}",
+        # 入队**不在这里做**（P1-03）：GENERATION_SUCCEEDED 与终态同事务进 outbox，
+        # 由 relay 消费后入队。此处若直接写 QC 表，就会重新出现「待检项先于生成
+        # 成功」的跨域提交顺序缺陷；漏入队由 reconcile_qc 扫描补偿。
+        await self._finish(claimed, outcome)
+        return True
+
+    # ---- 四个阶段各自成事务 ------------------------------------------------ #
+
+    async def _claim_next(self) -> Any | None:
+        """短事务领取：读候选 → claim → 立即提交，把租约变成可见事实。"""
+        async with self._scope() as unit:
+            candidate = await unit.repository.next_claimable_for_claim()
+            if candidate is None:
+                return None
+            try:
+                claimed = await unit.service.claim(
+                    task_id=candidate.entity_id,
+                    worker_id=self.worker_id,
+                    lease_seconds=self.lease_seconds,
+                )
+            except DomainError as exc:
+                # 行已被锁住却仍 claim 失败：状态在读到之后被改掉了（例如刚被终结）。
+                # 这不是故障，交回主循环下一轮重试即可，不能让整轮崩掉。
+                logger.info("skip claim %s: %s", candidate.entity_id, exc)
+                return None
+            await unit.commit()
+            return claimed
+
+    async def _renew(self, task_id: str) -> None:
+        async with self._scope() as unit:
+            await unit.service.renew(
+                task_id=task_id,
+                worker_id=self.worker_id,
+                lease_seconds=self.lease_seconds,
             )
+            await unit.commit()
+
+    async def _finish(self, task: Any, outcome: GenerationOutcome) -> bool:
         product_refs: dict[str, str] = {}
         finish_result = outcome.result
         finish_evidence = outcome.evidence_ref
@@ -122,27 +162,56 @@ class GenerationWorker:
                 logger.error(
                     "executor declared SUCCEEDED without product refs for task %s; "
                     "recording FAILED (executor contract violation)",
-                    claimed.entity_id,
+                    task.entity_id,
                 )
                 finish_result = "FAILED"
                 finish_evidence = "executor-contract-violation:missing-product-refs"
-        try:
-            await self._service.finish(
-                task_id=claimed.entity_id,
-                worker_id=self.worker_id,
-                result=finish_result,
-                evidence_ref=finish_evidence,
-                **product_refs,
-            )
-        except DomainError as exc:
-            # 执行期间租约被别人回收：结果作废，状态以回收方为准，不能覆盖。
-            logger.warning("finish rejected for task %s: %s", claimed.entity_id, exc)
+        async with self._scope() as unit:
+            try:
+                await unit.service.finish(
+                    task_id=task.entity_id,
+                    worker_id=self.worker_id,
+                    result=finish_result,
+                    evidence_ref=finish_evidence,
+                    **product_refs,
+                )
+            except DomainError as exc:
+                # 执行期间租约被别人回收：结果作废，状态以回收方为准，不能覆盖。
+                logger.warning("finish rejected for task %s: %s", task.entity_id, exc)
+                return False
+            await unit.commit()
         # 入队**不在这里做**：GENERATION_SUCCEEDED 已随终态在同一事务写入 outbox，
         # 由 relay 消费后入队（workers/relay/handlers.py）。此处直接写 QC 表会出现
         # 「QCTask 先提交、GenerationTask 后提交」——生成域提交失败就留下一条指向
         # 不存在生成任务的待检项，而 qc_tasks.generation_task_id 是跨域引用、没有
         # 物理外键，数据库拦不住。漏入队由 reconcile_qc 扫描补偿。
         return True
+
+    async def _execute_with_heartbeat(self, task: Any) -> GenerationOutcome:
+        work = asyncio.create_task(self._executor.execute(task))
+        try:
+            while True:
+                done, _ = await asyncio.wait({work}, timeout=self.heartbeat_interval)
+                if work in done:
+                    return work.result()
+                try:
+                    await self._renew(task.entity_id)
+                except DomainError as exc:
+                    raise LeaseLostError(
+                        f"renew denied for {task.entity_id}: {exc}"
+                    ) from exc
+        except LeaseLostError:
+            raise
+        except Exception as exc:  # 执行器把异常抛出来也必须落终态
+            logger.exception("executor failed for task %s", task.entity_id)
+            return GenerationOutcome(
+                result="FAILED",
+                evidence_ref=f"worker-error:{type(exc).__name__}",
+            )
+        finally:
+            if not work.done():
+                work.cancel()
+                await asyncio.gather(work, return_exceptions=True)
 
     async def _enqueue_qc(self, task: Any, outcome: GenerationOutcome) -> None:
         """成功产物进入 QC 待检队列；没有权威产物引用就不入队（不猜）。"""
@@ -169,39 +238,20 @@ class GenerationWorker:
             # 入队失败不回滚生成终态：任务已完成，QC 队列缺口必须留日志待补。
             logger.exception("QC enqueue failed for task %s", task.entity_id)
 
-    async def _execute_with_heartbeat(self, task: Any) -> GenerationOutcome:
-        work = asyncio.create_task(self._executor.execute(task))
-        try:
-            while True:
-                done, _ = await asyncio.wait({work}, timeout=self.heartbeat_interval)
-                if work in done:
-                    return work.result()
-                try:
-                    await self._service.renew(
-                        task_id=task.entity_id,
-                        worker_id=self.worker_id,
-                        lease_seconds=self.lease_seconds,
-                    )
-                except DomainError as exc:
-                    raise LeaseLostError(
-                        f"renew denied for {task.entity_id}: {exc}"
-                    ) from exc
-        finally:
-            if not work.done():
-                work.cancel()
-                await asyncio.gather(work, return_exceptions=True)
-
     async def sweep_expired(self) -> int:
-        """回收过期 RUNNING 任务，返回成功回收条数。"""
-        expired = await self._repository.list_expired(_now())
+        """回收过期 RUNNING 任务，返回成功回收条数（逐条独立事务）。"""
+        async with self._scope() as unit:
+            expired = [task.entity_id for task in await unit.repository.list_expired(_now())]
         reclaimed = 0
-        for task in expired:
-            try:
-                await self._service.release_expired(task_id=task.entity_id)
-            except DomainError as exc:
-                # 别人先回收了 / 状态已变：不是错误，跳过即可
-                logger.info("skip reclaim %s: %s", task.entity_id, exc)
-                continue
+        for task_id in expired:
+            async with self._scope() as unit:
+                try:
+                    await unit.service.release_expired(task_id=task_id)
+                    await unit.commit()
+                except DomainError as exc:
+                    # 别人先回收了 / 状态已变：不是错误，跳过即可
+                    logger.info("skip reclaim %s: %s", task_id, exc)
+                    continue
             reclaimed += 1
         return reclaimed
 
@@ -213,10 +263,11 @@ class GenerationWorker:
         """
         if self._qc_enqueuer is None:
             return 0
-        lister = getattr(self._repository, "list_succeeded_with_asset", None)
-        if lister is None:
-            return 0
-        succeeded = await lister(limit)
+        async with self._scope() as unit:
+            lister = getattr(unit.repository, "list_succeeded_with_asset", None)
+            if lister is None:
+                return 0
+            succeeded = await lister(limit)
         enqueued = 0
         for task in succeeded:
             if self._qc_lookup is not None and await self._qc_lookup(task.entity_id):

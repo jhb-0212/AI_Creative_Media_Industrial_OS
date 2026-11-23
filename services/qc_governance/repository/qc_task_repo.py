@@ -114,12 +114,18 @@ class SqlAlchemyQCTaskRepository:
         model = result.scalar_one_or_none()
         return _to_domain(model) if model is not None else None
 
-    async def next_claimable(self) -> QCTask | None:
+    async def next_claimable_for_claim(self) -> QCTask | None:
+        """领取专用：FIFO 取最早 QUEUED，并加 ``FOR UPDATE SKIP LOCKED``。
+
+        只读查询会让多个 Worker 读到同一条任务、在行锁上排队；``SKIP LOCKED``
+        让被占住的行直接跳过。锁只覆盖领取一步，调用方必须同事务 claim 后立即提交。
+        """
         result = await self._session.execute(
             select(QCTaskModel)
             .where(QCTaskModel.status == QCTaskStatus.QUEUED.value)
             .order_by(QCTaskModel.created_at.asc())
             .limit(1)
+            .with_for_update(skip_locked=True)
         )
         model = result.scalar_one_or_none()
         return _to_domain(model) if model is not None else None

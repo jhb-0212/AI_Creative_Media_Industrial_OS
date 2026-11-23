@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
@@ -118,7 +118,7 @@ class GenerationTask(Entity):
 
     # ---- 租约（GENERATION.PROCESS）---------------------------------------- #
 
-    def require_lease_owner(self, worker_id: str) -> None:
+    def require_lease_owner(self, worker_id: str, now: datetime | None = None) -> None:
         if self.status is not GenerationTaskStatus.RUNNING:
             raise DomainError(
                 ErrorRegistry.STATE_TRANSITION_DENIED,
@@ -128,6 +128,23 @@ class GenerationTask(Entity):
             raise DomainError(
                 ErrorRegistry.STATE_TRANSITION_DENIED,
                 detail="租约不属于该 Worker：只有持有者才能续租或终结",
+            )
+        # 过期即失效：回收扫描是周期性的，从「到期」到「被扫到」之间存在空窗。
+        # 只比对 owner 不比对时间，旧 Worker 就能在这个空窗里续租或终结，
+        # 把本该重领的任务变成「由已失去租约的人写入的结果」。
+        if self.lease_expires_at is None:
+            raise DomainError(
+                ErrorRegistry.STATE_TRANSITION_DENIED,
+                detail="租约为 RUNNING 却缺少到期时间，无法判定是否仍有效",
+            )
+        moment = now or datetime.now(UTC)
+        if moment >= self.lease_expires_at:
+            raise DomainError(
+                ErrorRegistry.STATE_TRANSITION_DENIED,
+                detail=(
+                    f"租约已于 {self.lease_expires_at.isoformat()} 过期，"
+                    "必须先重新领取才能续租或终结"
+                ),
             )
 
     def claim(
@@ -180,7 +197,8 @@ class GenerationTask(Entity):
         self.quality_profile_version = quality_profile_version
         return self
 
-    def renew(        self,
+    def renew(
+        self,
         worker_id: str,
         lease_expires_at: datetime,
         audit_ref: str,

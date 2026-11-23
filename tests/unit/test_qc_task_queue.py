@@ -31,23 +31,6 @@ class FakeQCTaskRepository(InMemoryRepository):
                 return task
         return None
 
-    async def next_claimable(self):
-        queued = [
-            task
-            for task in self.snapshot().values()
-            if task.status is QCTaskStatus.QUEUED
-        ]
-        return min(queued, key=lambda t: t.created_at) if queued else None
-
-    async def list_expired(self, now: datetime):
-        return [
-            task
-            for task in self.snapshot().values()
-            if task.status is QCTaskStatus.RUNNING
-            and task.lease_expires_at is not None
-            and task.lease_expires_at < now
-        ]
-
 
 def _service(
     *,

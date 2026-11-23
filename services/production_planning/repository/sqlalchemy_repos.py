@@ -198,13 +198,23 @@ class SqlAlchemyGenerationTaskRepository:
         model = result.scalar_one_or_none()
         return _task_to_domain(model) if model is not None else None
 
-    async def next_claimable(self) -> GenerationTask | None:
-        """最早创建的 REQUESTED 任务（FIFO，避免新任务插队把老任务饿死）。"""
+    async def next_claimable_for_claim(self) -> GenerationTask | None:
+        """领取专用：FIFO 取最早 REQUESTED，并加 ``FOR UPDATE SKIP LOCKED``。
+
+        为什么不复用普通 SELECT：只读查询下 N 个 Worker 会同时读到同一条最早任务，
+        只有乐观锁成功的那一个真领到，其余在行锁上排队等它执行完——「并发」退化成
+        「串行重试」。``SKIP LOCKED`` 让被别的 Worker 占住的行直接跳过，各自领各自
+        的任务。
+
+        锁只应覆盖「领取」这一步：调用方必须在**同一事务**内完成 claim 并立即提交，
+        绝不能在提交前执行外部生成动作，否则锁会一直持有到任务结束。
+        """
         result = await self._session.execute(
             select(GenerationTaskModel)
             .where(GenerationTaskModel.status == GenerationTaskStatus.REQUESTED.value)
             .order_by(GenerationTaskModel.created_at.asc())
             .limit(1)
+            .with_for_update(skip_locked=True)
         )
         model = result.scalar_one_or_none()
         return _task_to_domain(model) if model is not None else None

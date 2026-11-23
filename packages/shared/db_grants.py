@@ -428,7 +428,7 @@ DOMAIN_GRANTS[QC_GOVERNANCE] = (
         QC_GOVERNANCE,
         "qc_tasks",
         "SELECT INSERT UPDATE",
-        "SELECT：待检队列调度（next_claimable / list_expired）与回读；"
+        "SELECT：待检队列调度（next_claimable_for_claim / list_expired）与回读；"
         "INSERT：QC.TASK.ENQUEUE 入队；"
         "UPDATE：QC.TASK.PROCESS 的领取/续租/判定/租约回收（乐观锁条件更新）。"
         "无 DELETE：队列记录是「这份产物检过没有」的证据，不能物理删除。",

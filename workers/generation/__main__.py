@@ -21,6 +21,9 @@ import os
 import socket
 import sys
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Any
 
 from packages.shared.config import get_process_settings
@@ -61,6 +64,38 @@ class UnconfiguredExecutor(GenerationExecutor):
         )
 
 
+@dataclass
+class _GenerationUnit:
+    """一个阶段用的短工作单元：服务与仓储共用同一会话，提交权显式暴露。"""
+
+    service: GenerationService
+    repository: SqlAlchemyGenerationTaskRepository
+    session: Any
+
+    async def commit(self) -> None:
+        await self.session.commit()
+
+
+def _make_scope(sessionmaker: Any) -> Any:
+    """把会话工厂包成「按阶段打开、退出即关闭」的作用域工厂。
+
+    关键点：作用域结束（含异常）时连接立即归还。执行阶段不持有它，因此长耗时
+    生成不会把事务与行锁拖到任务结束。
+    """
+
+    @asynccontextmanager
+    async def scope() -> AsyncIterator[_GenerationUnit]:
+        async with sessionmaker() as session:
+            repository = SqlAlchemyGenerationTaskRepository(session)
+            yield _GenerationUnit(
+                service=GenerationService(repository, SqlAlchemyOutboxWriter(session)),
+                repository=repository,
+                session=session,
+            )
+
+    return scope
+
+
 def _default_worker_id() -> str:
     host = socket.gethostname() or "unknown-host"
     return f"{host}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
@@ -77,17 +112,13 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 
 def _build_worker(
-    session: Any,
+    scope: Any,
     args: argparse.Namespace,
     qc_enqueuer: Any | None = None,
     qc_lookup: Any | None = None,
 ) -> GenerationWorker:
     return GenerationWorker(
-        service=GenerationService(
-            SqlAlchemyGenerationTaskRepository(session),
-            SqlAlchemyOutboxWriter(session),
-        ),
-        repository=SqlAlchemyGenerationTaskRepository(session),
+        scope=scope,
         executor=UnconfiguredExecutor(),
         worker_id=args.worker_id,
         lease_seconds=args.lease_seconds,
@@ -131,30 +162,13 @@ def _make_qc_lookup(qc_sessionmaker: Any) -> Any:
     return exists
 
 
-async def _run_cycle(
-    sessionmaker: Any,
-    args: argparse.Namespace,
-    qc_enqueuer: Any | None = None,
-    qc_lookup: Any | None = None,
-) -> bool:
-    """一个事务跑一轮：领任务或（空闲时）补漏入队 + 扫尾，提交后归还连接。"""
-    async with sessionmaker() as session:
-        worker = _build_worker(session, args, qc_enqueuer, qc_lookup)
-        if args.sweep:
-            reclaimed = await worker.sweep_expired()
-            await session.commit()
-            logger.info("reclaimed %d expired lease(s)", reclaimed)
-            return False
-        busy = await worker.process_one()
-        if not busy:
-            await worker.reconcile_qc()
-            reclaimed = await worker.sweep_expired()
-            await session.commit()
-            if reclaimed:
-                logger.info("idle; reclaimed %d lease(s)", reclaimed)
-        else:
-            await session.commit()
-        return busy
+async def _run_cycle(worker: GenerationWorker, args: argparse.Namespace) -> bool:
+    """一轮调度。每个阶段的事务边界由 Worker 内部负责，这里不再开外层事务。"""
+    if args.sweep:
+        reclaimed = await worker.sweep_expired()
+        logger.info("reclaimed %d expired lease(s)", reclaimed)
+        return False
+    return await worker.run_once()
 
 
 async def _main(argv: list[str] | None = None) -> int:
@@ -165,15 +179,17 @@ async def _main(argv: list[str] | None = None) -> int:
     sessionmaker = create_sessionmaker(engine)
     qc_engine = create_qc_governance_engine()
     qc_sessionmaker = create_sessionmaker(qc_engine)
+    scope = _make_scope(sessionmaker)
     qc_enqueuer = _make_qc_enqueuer(qc_sessionmaker)
     qc_lookup = _make_qc_lookup(qc_sessionmaker)
+    worker = _build_worker(scope, args, qc_enqueuer, qc_lookup)
     try:
         if args.sweep or args.once:
-            await _run_cycle(sessionmaker, args, qc_enqueuer, qc_lookup)
+            await _run_cycle(worker, args)
             return 0
         while True:
             try:
-                busy = await _run_cycle(sessionmaker, args, qc_enqueuer, qc_lookup)
+                busy = await _run_cycle(worker, args)
             except Exception:
                 logger.exception("generation worker cycle failed")
                 busy = False
