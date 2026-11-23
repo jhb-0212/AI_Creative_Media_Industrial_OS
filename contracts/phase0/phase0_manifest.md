@@ -16,7 +16,7 @@
 
 | 正文类目 | 文件 | 字节 | SHA-256 | 对应章节 |
 |---|---|---|---|---|
-| ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 285725 | `93ed47a1d368fd1df993ba6de502ba5f6d30d84cb5d6e5bfd99e216c35f42f0f` | 8.x 对象契约 / C.3 数据契约 |
+| ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 287181 | `fc0eb26abcd15396b49c978ddac4a3380af99e129ce4c0fa5051ac45412b3013` | 8.x 对象契约 / C.3 数据契约 |
 | ② OpenAPI 草案 | `contracts/openapi/openapi.draft.yaml` | 139315 | `419568058560926fa9a07be0aba6cd7e2e3cbf9daa17ec8677bac4867f82a43a` | 31.6（由 Action Registry 派生） |
 | ③ 状态机 | `contracts/state_machines/state_machines.yaml` | 55696 | `d3450756b201a47c5ee3c57c2fd59fb46c36ea0809c644f765f4e5ab6c821ee0` | 31.5 / 8.6 / 32.6 / 33.3 / 34.7 |
 | ④ Action Registry | `contracts/action_registry/action_registry.yaml` | 55959 | `6ccfa5f7c85b0c894f439f6547ead5ec50445ab8263ea78e51623fdd23767ffc` | 31.6 唯一注册表 |
@@ -58,6 +58,12 @@
 - `V205-R15-A26`
 - `V205-R15-A27`
 - `V205-R15-A28`
+- `V205-R15-A29`
+- `V205-R15-A30`
+- `V205-R15-A31`
+- `V205-R15-A32`
+- `V205-R15-A33`
+- `V205-R15-A34`
 
 契约名称全集必须精确等于「基线清单 ∪ 已批准修订」，由
 `scripts/freeze_manifest.py --check` 逐名称判定（不是只看数量）。
