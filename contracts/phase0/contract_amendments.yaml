@@ -1390,6 +1390,37 @@ amendments:
     residual_risks:
       - '授权时点无原始留痕（无纪要或消息快照），只能证明「早于实现」，不能证明具体时刻；补原件仍须 Owner 提供'
 
+  - id: 'V205-R15-A30'
+    title: '消除 A26 残余风险：GENERATION.REQUEST 只创建任务，成功必须绑定产物'
+    retroactive: false
+    recorded_at: '2026-11-23'
+    discovered_by: '2026-11-23 第五轮工程审查 P1-02（生成结果由请求方自报）'
+    reason: >-
+      A26 给 GenerationTask 补了 asset_version_id / quality_profile_version，但把「同步路径
+      不写产物引用」登记为残余风险。第五轮审查指出这条残余风险不能长期挂账——它把执行结果的
+      事实来源交给了请求方：RequestGenerationRequest.result 默认 SUCCEEDED，调用方不传即成功，
+      既无真实产物也无执行证据；FinishRequest 又不暴露产物字段，异步路径同样登记不了产物。
+      两条路径都能产出「查不到产物的成功任务」，QC 待检入队与漏入队对账随后全部落空。
+      本条目消灭该残余风险的根因：请求方只能提出生成请求，执行结果只能由持有租约的执行器经
+      GENERATION.PROCESS 提交，且 SUCCEEDED 必须同时携带 asset_version_id 与
+      quality_profile_version。创建不再写状态迁移事实（REQUESTED 是初始态、没有 from_status，
+      advance_status 会被生命周期守卫拒绝且事实表因 ck_status_transition_advances 违约），
+      改为只登记 GENERATION_REQUESTED 事件。本条目不含动作/Schema/状态机增删，
+      但**实质性变更 A26 第二条残余风险的状态**：该风险已消除，不再成立。
+    adr: 'docs/architecture/amendment-pack-r16-phase2.md'
+    approved_by: '项目所有者（2026-11-23 会话内指令「全部整改」，授权按审查 P1-02 整改生成结果事实来源）'
+    approved_at: '2026-11-23'
+    source_commits:
+      - '56685cb'
+    counts_after:
+      actions: 105
+      openapi_operations: 105
+      schema_objects: 89
+      state_machines: 48
+    residual_risks:
+      - '真实模型网关未接入（services/model_gateway 仅占位）：默认执行器 UnconfiguredExecutor 如实返回 FAILED，因此当前不存在能产出合法 SUCCEEDED 的生产执行器，生成能力仍未交付。这不是本条目引入的缺口，而是 P1-08 之外的独立能力缺口。'
+      - 'A26 第一条残余风险仍然成立：本修订之前的历史成功任务没有产物引用，无法回填；对账只覆盖修订后登记了引用的任务。'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——
