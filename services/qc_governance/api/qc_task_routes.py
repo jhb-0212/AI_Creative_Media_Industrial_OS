@@ -3,6 +3,14 @@
 路由只做三件事：校验入参、取 UoW、调服务；状态与租约判定在领域层。
 租约相关端点共用一个 action_key ``QC.TASK.PROCESS``：它们表达同一语义
 「推进一个已有 QC 任务」，拆成多个 action 会让同一条边出现多个准入凭据。
+
+租约持有者取自 **Principal**，不取自请求体
+------------------------------------------
+``lease_owner`` 的唯一作用，是让 ``require_lease_owner`` 拒绝非持有者续租/判定。
+只要这个字符串来自请求体，那条判定就等于「谁知道这个名字，谁就是持有者」——
+身份是自称的，租约退化成一个公开的字符串比较，任何人都能接管别人的检测任务
+并写出 PASSED 判定（判定本身是 QC 存在的意义）。所以三个租约端点没有
+``worker_id``，并由 ``extra="forbid"`` 让旧调用方带上它时直接 422。
 """
 
 from __future__ import annotations
@@ -10,7 +18,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.shared.evidence_ports import ReportLookup
@@ -74,19 +82,26 @@ class EnqueueQCTaskRequest(BaseModel):
 
 
 class LeaseClaimRequest(BaseModel):
-    worker_id: str = Field(..., min_length=1, max_length=128)
+    """领取 QC 任务：持有者取自 Principal（不由请求体自称）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
     lease_seconds: int = Field(300, ge=_LEASE_MIN_SECONDS, le=_LEASE_MAX_SECONDS)
 
 
 class LeaseRenewRequest(BaseModel):
-    worker_id: str = Field(..., min_length=1, max_length=128)
+    """心跳续租：持有者取自 Principal。"""
+
+    model_config = ConfigDict(extra="forbid")
+
     lease_seconds: int = Field(300, ge=_LEASE_MIN_SECONDS, le=_LEASE_MAX_SECONDS)
 
 
 class FinishRequest(BaseModel):
     """QC 判定（RUNNING → PASSED / REJECTED）：报告不可为空。"""
 
-    worker_id: str = Field(..., min_length=1, max_length=128)
+    model_config = ConfigDict(extra="forbid")
+
     result: Literal["PASSED", "REJECTED"]
     qc_report_id: str = Field(..., min_length=1, max_length=64)
     evidence_refs: list[str] = Field(default_factory=list)
@@ -132,7 +147,7 @@ async def claim_qc_lease(
     """领取 QC 任务：QUEUED → RUNNING，并落下租约。"""
     task = await service.claim(
         task_id=entity_id,
-        worker_id=body.worker_id,
+        worker_id=principal.subject_id,
         lease_seconds=body.lease_seconds,
     )
     await uow.commit()
@@ -150,7 +165,7 @@ async def renew_qc_lease(
     """心跳续租：非持有者被拒绝。"""
     task = await service.renew(
         task_id=entity_id,
-        worker_id=body.worker_id,
+        worker_id=principal.subject_id,
         lease_seconds=body.lease_seconds,
     )
     await uow.commit()
@@ -195,7 +210,7 @@ async def finish_qc_task(
     )
     task = await service.finish(
         task_id=entity_id,
-        worker_id=body.worker_id,
+        worker_id=principal.subject_id,
         result=body.result,
         qc_report_id=body.qc_report_id,
         evidence_refs=body.evidence_refs,

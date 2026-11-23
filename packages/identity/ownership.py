@@ -197,30 +197,38 @@ _RESOLVE_SQL: dict[str, str] = {
     # 为什么不省略「未被调用」的三条：审批端点用 ShotBudgetRequest 做资源级判定，
     # 其余三条是同一批资源的读路径入口——登记在这里等于把「资源 → 归属」的事实
     # 一次写全，而不是等第一个读端点出现时再临时补一条可能长歪的 SQL。
+    #
+    # 为什么 schema 是 production_planning / budget_quota / qc_governance 而不是
+    # project_planning：这四张表在 R16 分域迁移（a0b1c2d3e4f5）后已各自搬到自己的
+    # 域 schema，而这段 SQL 当时没有跟着改，于是资源级授权在解析归属时直接
+    # ``relation "project_planning.shot_budget_requests" does not exist``（42P01）
+    # → 500。审批端点因此**根本不可用**，而它的服务层单测全绿（单测不经授权依赖）。
+    # 教训是：SQL 里的表名不会自己举手，必须由闸门从库里实读复核——
+    # 见 tests/integration/test_ownership_resolve_targets.py。
     "ProductionRoute": """
         SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
-        FROM project_planning.production_routes AS r
+        FROM production_planning.production_routes AS r
         JOIN project_planning.projects AS p
           ON p.entity_id = r.project_id AND p.tenant_id = r.tenant_id
         WHERE r.entity_id = :rid
     """,
     "GenerationTask": """
         SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
-        FROM project_planning.generation_tasks AS t
+        FROM production_planning.generation_tasks AS t
         JOIN project_planning.projects AS p
           ON p.entity_id = t.project_id AND p.tenant_id = t.tenant_id
         WHERE t.entity_id = :rid
     """,
     "ShotBudgetRequest": """
         SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
-        FROM project_planning.shot_budget_requests AS b
+        FROM budget_quota.shot_budget_requests AS b
         JOIN project_planning.projects AS p
           ON p.entity_id = b.project_id AND p.tenant_id = b.tenant_id
         WHERE b.entity_id = :rid
     """,
     "GateDecision": """
         SELECT p.tenant_id, p.organization_id, p.entity_id AS project_id
-        FROM project_planning.gate_decisions AS g
+        FROM qc_governance.gate_decisions AS g
         JOIN project_planning.projects AS p
           ON p.entity_id = g.project_id AND p.tenant_id = g.tenant_id
         WHERE g.entity_id = :rid

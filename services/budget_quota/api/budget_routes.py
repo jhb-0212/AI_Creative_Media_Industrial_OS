@@ -1,11 +1,21 @@
-"""单镜头预算申请与审批 API 路由（薄层，R16-D3）。"""
+"""单镜头预算申请与审批 API 路由（薄层，R16-D3）。
+
+审批人取自 **Principal**，不取自请求体。领域层用 ``approver != requested_by``
+实现「自批拒绝」（职责分离），这是审批合法性的唯一输入。只要 ``approver``
+来自请求体，这条判定就退化成「换个字符串即可绕过」：申请人自己 POST
+一个别人的名字，职责分离当场失效，而库里留下的还是一条看不出发错的审计记录。
+
+请求模型一律 ``extra="forbid"``：多传字段直接 422，而不是静默忽略——
+静默忽略会让调用方以为「我传的 approver 生效了」，等到审计复核才发现记录里
+是另一个人。拒绝要发生在入口，不能靠下游"碰巧没用它"。
+"""
 
 from __future__ import annotations
 
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.shared.unit_of_work import UnitOfWork
@@ -54,10 +64,16 @@ class RequestShotBudgetRequest(BaseModel):
 
 
 class ApproveShotBudgetRequest(BaseModel):
-    """审批单镜头预算申请（DRAFT → APPROVED / REJECTED）。"""
+    """审批单镜头预算申请（DRAFT → APPROVED / REJECTED）。
+
+    刻意**没有** ``approver`` 字段：审批人由准入凭据（Principal）确定，
+    见模块 docstring。调用方若仍按老契约传 ``approver``，会因
+    ``extra="forbid"`` 得到 422，而不是被静默丢掉后留下一个假的审批人。
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     decision: Literal["APPROVED", "REJECTED"]
-    approver: str = Field(..., min_length=1, max_length=64)
     decision_reason: str = Field("", max_length=200)
 
 
@@ -112,7 +128,7 @@ async def approve_shot_budget(
     request = await service.approve_budget(
         entity_id=entity_id,
         decision=body.decision,
-        approver=body.approver,
+        approver=principal.subject_id,
         decision_reason=body.decision_reason,
         tenant_id=principal.tenant_id,
     )

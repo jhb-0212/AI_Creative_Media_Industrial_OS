@@ -3,6 +3,15 @@
 路由只做三件事：校验入参、取 UoW、调服务；所有状态与租约判定在领域层。
 租约相关端点共用一个 action_key ``GENERATION.PROCESS``——它们表达同一个语义
 「推进一个已有任务」，拆成多个 action 会让同一条边出现多个准入凭据。
+
+租约持有者取自 **Principal**，不取自请求体
+------------------------------------------
+``lease_owner`` 是「谁在跑这个任务」的事实，而它的唯一作用是让
+``require_lease_owner`` 拒绝非持有者续租/终结。只要这个字符串来自请求体，
+那条判定就等于「谁知道这个名字，谁就是持有者」——身份是自称的，租约退化成
+一个公开的字符串比较。所以三个租约端点的请求模型都没有 ``worker_id``，
+并由 ``extra="forbid"`` 让旧调用方带上它时直接 422，而不是被静默忽略后
+误以为自己指定了身份。
 """
 
 from __future__ import annotations
@@ -72,16 +81,23 @@ class RequestGenerationRequest(BaseModel):
 
 
 class LeaseClaimRequest(BaseModel):
-    """领取租约（REQUESTED → RUNNING）。"""
+    """领取租约（REQUESTED → RUNNING）。
 
-    worker_id: str = Field(..., min_length=1, max_length=128)
+    **没有** ``worker_id``：租约持有者取自已认证的 Principal（见模块文档）。
+    ``extra="forbid"`` 让旧调用方传 ``worker_id`` 时立刻 422，而不是被静默忽略后
+    误以为自己指定了身份。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
     lease_seconds: int = Field(300, ge=_LEASE_MIN_SECONDS, le=_LEASE_MAX_SECONDS)
 
 
 class LeaseRenewRequest(BaseModel):
-    """续租（不迁移状态）。"""
+    """续租（不迁移状态）。持有者同样取自 Principal。"""
 
-    worker_id: str = Field(..., min_length=1, max_length=128)
+    model_config = ConfigDict(extra="forbid")
+
     lease_seconds: int = Field(300, ge=_LEASE_MIN_SECONDS, le=_LEASE_MAX_SECONDS)
 
 
@@ -91,9 +107,12 @@ class FinishRequest(BaseModel):
     ``SUCCEEDED`` 必须同时给出 ``asset_version_id`` 与 ``quality_profile_version``：
     成功是「产出了哪一份资产、按哪一版质量档案」这一事实，缺任一项就不是成功。
     服务层对空值直接拒绝，不在这里用默认值兜底。
+
+    同样没有 ``worker_id``：持有者身份由 Principal 决定，不由请求体自称。
     """
 
-    worker_id: str = Field(..., min_length=1, max_length=128)
+    model_config = ConfigDict(extra="forbid")
+
     result: Literal["SUCCEEDED", "FAILED"]
     evidence_ref: str = Field("", max_length=200)
     asset_version_id: str = Field("", max_length=64)
@@ -143,7 +162,7 @@ async def claim_lease(
     """领取租约：只有无人持有且租约未过期时才会从 REQUESTED 推进到 RUNNING。"""
     task = await service.claim(
         task_id=entity_id,
-        worker_id=body.worker_id,
+        worker_id=principal.subject_id,
         lease_seconds=body.lease_seconds,
     )
     await uow.commit()
@@ -161,7 +180,7 @@ async def renew_lease(
     """心跳续租：非持有者会被拒绝。"""
     task = await service.renew(
         task_id=entity_id,
-        worker_id=body.worker_id,
+        worker_id=principal.subject_id,
         lease_seconds=body.lease_seconds,
     )
     await uow.commit()
@@ -192,7 +211,7 @@ async def finish_task(
     """终结任务：只有租约持有者可推进终态；成功必须携带产物引用。"""
     task = await service.finish(
         task_id=entity_id,
-        worker_id=body.worker_id,
+        worker_id=principal.subject_id,
         result=body.result,
         evidence_ref=body.evidence_ref,
         asset_version_id=body.asset_version_id,

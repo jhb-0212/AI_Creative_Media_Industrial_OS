@@ -9,6 +9,12 @@
 身份与权限：
 - created_by / approved_by 均来自可信 Principal（JWT），不接受客户端字符串。
 - 四个动作各自经 require_role 做运行时 RBAC（allowed_principals 来自契约）。
+- ``operator_ref`` 是**唯一**允许来自请求体的「人」字段，因为它是溯源声明
+  而不是身份：它不参与任何授权或职责分离判定（全仓无一处与它比较），
+  登记的是「这条资产由哪个外部算子/工具产出」。判据是不可伪的必要性——
+  谁自称都不会多拿到一点权限，所以无需从 Principal 取；反之，凡进入
+  准入或 SoD 判定的字段（worker_id / approver）都必须取自 Principal。
+  两者语义不同不可混用，判据与反例见 tests/unit/test_identity_from_principal.py。
 
 读能力边界（ADR-R08 G2 已关闭）：
 - READ 只返回版本信封与引用地址，不签发存储凭证；租户外资产由 RLS 隔离，

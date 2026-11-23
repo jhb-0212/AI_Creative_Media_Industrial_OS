@@ -1,8 +1,11 @@
-"""生成请求/终结的入参契约（P1-02）。
+"""生成请求/终结的入参契约（P1-02 / P1-06）。
 
-判据是「请求方无法表达执行结果」这一条语义，不是某个字段名：
-字段集合里不允许出现 ``result``，且传了就报错而不是被静默忽略——
-静默忽略会让调用方误以为自己提交了成功，是比拒绝更糟的失败模式。
+判据是「请求方无法表达执行结果、也无法自称身份」这一条语义，不是某个字段名：
+字段集合里不允许出现 ``result`` 与 ``worker_id``，且传了就报错而不是被静默忽略——
+静默忽略会让调用方误以为自己提交了成功/指定了执行者，两者都比拒绝更糟。
+
+``worker_id`` 自 P1-06 起从三个租约请求模型里移除：租约持有者取自 Principal。
+把它留在请求体里，``require_lease_owner`` 就退化成一次公开的字符串比较。
 """
 
 from __future__ import annotations
@@ -64,7 +67,6 @@ def test_request_accepts_clean_body() -> None:
 def test_finish_request_carries_product_refs() -> None:
     """终结请求必须能登记产物引用，否则 API 路径永远写不进 asset_version_id。"""
     body = FinishRequest(
-        worker_id="worker-1",
         result="SUCCEEDED",
         asset_version_id="av-1",
         quality_profile_version="qp-1",
@@ -80,6 +82,6 @@ def test_finish_request_allows_empty_refs_at_model_level() -> None:
     模型层无法区分「哪种结果的产物是必填」。强制点放在服务层的
     「SUCCEEDED 必须带产物」处，一处判定、语义集中。
     """
-    body = FinishRequest(worker_id="worker-1", result="FAILED")
+    body = FinishRequest(result="FAILED")
     assert body.asset_version_id == ""
     assert body.quality_profile_version == ""
