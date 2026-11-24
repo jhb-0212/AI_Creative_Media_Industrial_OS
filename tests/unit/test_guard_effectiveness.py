@@ -84,7 +84,6 @@ def _run(test_file: str) -> subprocess.CompletedProcess[str]:
 
 _STORAGE_TESTS = "tests/unit/test_local_storage_guard.py"
 _GATEWAY_TESTS = "tests/unit/test_openai_compatible_gateway.py"
-_COMFY_TESTS = "tests/unit/test_comfyui_gateway.py"
 _EXECUTOR_TESTS = "tests/unit/test_generation_executor_wiring.py"
 _CONFIG_TESTS = "tests/unit/test_generation_executor_config.py"
 _LOCATOR_TESTS = "tests/unit/test_storage_locator.py"
@@ -173,30 +172,6 @@ _CASES = [
         new="    if False:  # BAD-STATE\n        raise ValueError(",
         expected_test="test_missing_storage_root_is_rejected",
     ),
-    # 以下三条守的是 ComfyUI 特有的「静默出错」：不会抛异常，只会交付错的东西。
-    # 它们比错误码更值得固化，因为没有任何日志信号提示你出了事。
-    BadState(
-        label="ComfyUI 注入点接了连线也照塞",
-        path="adapters/model_gateway/comfyui.py",
-        old="    if not isinstance(current, str):\n        raise GatewayMisconfiguredError(",
-        new="    if False:  # BAD-STATE\n        raise GatewayMisconfiguredError(",
-        expected_test="test_prompt_node_wired_to_upstream_is_misconfigured",
-    ),
-    BadState(
-        label="ComfyUI 多候选时静默取第一张",
-        path="adapters/model_gateway/comfyui.py",
-        old="        if len(candidates) != 1:",
-        new="        if len(candidates) == 0:  # BAD-STATE",
-        expected_test="test_multiple_candidates_without_output_node_is_rejected",
-    ),
-    BadState(
-        label="ComfyUI 把 HTML 错误页当产物",
-        path="adapters/model_gateway/comfyui.py",
-        # 去掉媒体类型硬判定：错误页会按 image/png 存进资产台账。
-        old='                if header and not header.startswith(("image/", "video/")):',
-        new="                if False:  # BAD-STATE",
-        expected_test="test_view_returning_html_is_rejected",
-    ),
 ]
 
 _TEST_FILE_BY_LABEL = {
@@ -209,9 +184,6 @@ _TEST_FILE_BY_LABEL = {
     "prompt_ref 直接当正文": _EXECUTOR_TESTS,
     "可重试失败被归成拒绝": _EXECUTOR_TESTS,
     "缺存储根目录不报错": _CONFIG_TESTS,
-    "ComfyUI 注入点接了连线也照塞": _COMFY_TESTS,
-    "ComfyUI 多候选时静默取第一张": _COMFY_TESTS,
-    "ComfyUI 把 HTML 错误页当产物": _COMFY_TESTS,
 }
 
 

@@ -28,6 +28,7 @@ from packages.shared.database import (
     create_production_planning_engine,
     create_sessionmaker,
 )
+from packages.shared.event_payloads import stamp_event_payload
 from packages.shared.port_errors import DuplicateEntityError
 from packages.shared.rls import set_tenant_context
 from packages.shared.storage_locator import build_locator
@@ -121,17 +122,22 @@ def _requested_event(task_id: str, project_id: str, attempt_id: str,
         aggregate_id="",
         tenant_id=_TENANT,
         event_type="ASSET_REGISTRATION_REQUESTED",
-        payload={
-            "generation_task_id": task_id,
-            "project_id": project_id,
-            "tenant_id": str(_TENANT),
-            "locator": locator,
-            "sha256": digest,
-            "attempt_id": attempt_id,
-            "media_type": "image/png",
-            "quality_profile_version": "unified-high-quality-v1",
-            "worker_id": "worker-e2e",
-        },
+        payload=stamp_event_payload(
+            {
+                "generation_task_id": task_id,
+                "project_id": project_id,
+                "tenant_id": str(_TENANT),
+                "locator": locator,
+                "sha256": digest,
+                "attempt_id": attempt_id,
+                "media_type": "image/png",
+                "quality_profile_version": "unified-high-quality-v1",
+                "worker_id": "worker-e2e",
+                "from_status": "RUNNING",
+                "to_status": "AWAITING_ASSET_REGISTRATION",
+                "transition_id": f"tr-{attempt_id}",
+            }
+        ),
         occurred_at=datetime.now(UTC),
     )
 

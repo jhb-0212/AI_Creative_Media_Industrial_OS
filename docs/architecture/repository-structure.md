@@ -52,7 +52,7 @@ AI_Creative_Media_Industrial_OS/         # GitHub 仓库根（monorepo，与仓�
 │   └── observability/                  #   可观测：指标/追踪/告警聚合
 │
 ├── workers/                            # 异步执行层（独立进程，消费 Outbox 事件）
-│   ├── generation/                     #   图像/视频/音频/ComfyUI 生成
+│   ├── generation/                     #   图像/视频/音频生成（模型网关）
 │   ├── qc/                             #   自动检测与 QCReport
 │   ├── delivery/                       #   交付/DeliveryManifest
 │   └── notifications/                  #   飞书/邮件/站内通知
@@ -66,7 +66,6 @@ AI_Creative_Media_Industrial_OS/         # GitHub 仓库根（monorepo，与仓�
 │   ├── image_models/                   #   图像模型
 │   ├── video_models/                   #   视频模型
 │   ├── audio_models/                   #   音频模型
-│   ├── comfyui/                        #   ComfyUI
 │   ├── blocking/                       #   Blender/Three.js/UE 白模
 │   ├── external_tool/                  #   外部专业工具（剪映/Premiere/达芬奇）
 │   └── storage/                        #   S3 兼容对象存储
@@ -187,7 +186,7 @@ apps ──▶ services ──▶ (领域模型/仓储)
 | 缓存/限流/短队列 | Redis | packages/shared + infra |
 | 持久化工作流 | Temporal | workers/ + services/orchestrator |
 | 异步事件 | RabbitMQ/NATS/Kafka（Outbox） | services/orchestrator/outbox |
-| 生成执行 | ComfyUI + 模型 Adapter | adapters/ |
+| 生成执行 | 自研兼容模型网关 + 模型 Adapter | adapters/ |
 | 可观测 | OpenTelemetry | packages/telemetry |
 
 ---

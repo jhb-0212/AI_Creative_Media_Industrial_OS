@@ -36,6 +36,11 @@ from typing import Any
 from uuid import UUID
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.event_payloads import (
+    EventPayloadError,
+    GenerationSucceededPayload,
+    parse_event_payload,
+)
 from packages.shared.logging import get_logger
 from packages.shared.rls import set_tenant_context
 from services.project_planning.repository.sqlalchemy_outbox_writer import (
@@ -76,37 +81,19 @@ def parse_generation_succeeded(event: OutboxEvent) -> GenerationSucceeded:
     校验放在消费端而不是只放发出端：发出端可能被绕过（直接写 outbox 的脚本、
     历史事件、将来的第二种发出方），而消费端是必经之路。
     """
-    payload = event.payload
-    generation_task_id = str(payload.get("generation_task_id") or "").strip()
-    asset_version_id = str(payload.get("asset_version_id") or "").strip()
-    quality_profile_version = str(payload.get("quality_profile_version") or "").strip()
-    project_id = str(payload.get("project_id") or "").strip()
-    shot_id = str(payload.get("shot_id") or "").strip()
-
-    if not generation_task_id:
-        raise MalformedEventError(
-            "GENERATION_SUCCEEDED 缺少 generation_task_id，无法确定幂等键"
-        )
-    if not asset_version_id:
-        raise MalformedEventError(
-            "GENERATION_SUCCEEDED 缺少 asset_version_id，无法确定待检资产"
-        )
-    if not quality_profile_version:
-        raise MalformedEventError(
-            "GENERATION_SUCCEEDED 缺少 quality_profile_version，无法确定检测口径"
-        )
-    if not project_id:
-        raise MalformedEventError(
-            "GENERATION_SUCCEEDED 缺少 project_id，无法建立待检项的归属"
-        )
+    try:
+        payload = parse_event_payload("GENERATION_SUCCEEDED", event.payload)
+    except EventPayloadError as exc:
+        raise MalformedEventError(str(exc)) from exc
+    assert isinstance(payload, GenerationSucceededPayload)
 
     return GenerationSucceeded(
         tenant_id=event.tenant_id,
-        generation_task_id=generation_task_id,
-        asset_version_id=asset_version_id,
-        quality_profile_version=quality_profile_version,
-        project_id=project_id,
-        shot_id=shot_id,
+        generation_task_id=payload.generation_task_id,
+        asset_version_id=payload.asset_version_id,
+        quality_profile_version=payload.quality_profile_version,
+        project_id=payload.project_id,
+        shot_id=payload.shot_id,
     )
 
 

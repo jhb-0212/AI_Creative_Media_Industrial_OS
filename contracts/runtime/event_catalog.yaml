@@ -39,6 +39,10 @@ events:
     aggregate_type: GenerationTask
     emitted_by: services/production_planning/service/generation_service.py
     contract_ref: docs/adr/ADR-R42-asset-registration-saga.md#T1
+    # 专用 handler 消费的载荷模型（第四批：严格反序列化）。payload_required
+    # 是可依赖的最小集；模型的 extra=forbid 覆盖 advance_status 注入的公共字段。
+    payload_schema: packages.shared.event_payloads.AssetRegistrationRequestedPayload
+    payload_schema_version: 1
     payload_required:
       - generation_task_id
       - project_id
@@ -49,28 +53,40 @@ events:
       - media_type
       - quality_profile_version
       - worker_id
+      - schema_version
+      - from_status
+      - to_status
+      - transition_id
 
   # R42 T2：登记结果与回执同事务发出；T3 只认这两个事件推进终态。
   - event_type: ASSET_REGISTRATION_COMPLETED
     aggregate_type: AssetRegistrationReceipt
     emitted_by: workers/relay/asset_registration.py
     contract_ref: docs/adr/ADR-R42-asset-registration-saga.md#T2
+    payload_schema: packages.shared.event_payloads.AssetRegistrationCompletedPayload
+    payload_schema_version: 1
     payload_required:
       - generation_task_id
       - project_id
       - tenant_id
       - asset_version_id
       - quality_profile_version
+      - attempt_id
+      - schema_version
 
   - event_type: ASSET_REGISTRATION_REJECTED
     aggregate_type: AssetRegistrationReceipt
     emitted_by: workers/relay/asset_registration.py
     contract_ref: docs/adr/ADR-R42-asset-registration-saga.md#T2
+    payload_schema: packages.shared.event_payloads.AssetRegistrationRejectedPayload
+    payload_schema_version: 1
     payload_required:
       - generation_task_id
       - project_id
       - tenant_id
       - reason
+      - attempt_id
+      - schema_version
 
   # R42 T2 幂等冲突（PR-F）：同幂等键收到语义不同的请求时，同事务发出的
   # append-only 审计事实。不改回执、不建第二资产、不驱动任务状态机。
@@ -80,6 +96,8 @@ events:
     aggregate_type: AssetRegistrationReceipt
     emitted_by: workers/relay/asset_registration.py
     contract_ref: docs/adr/ADR-R42-asset-registration-saga.md#T2
+    payload_schema: packages.shared.event_payloads.AssetRegistrationConflictPayload
+    payload_schema_version: 1
     payload_required:
       - generation_task_id
       - project_id
@@ -87,6 +105,7 @@ events:
       - expected_fingerprint
       - observed_fingerprint
       - observed
+      - schema_version
 
   - event_type: QC_REPORT_CREATED
     aggregate_type: AssetVersion
@@ -508,6 +527,8 @@ events:
     aggregate_type: GenerationTask
     emitted_by: services/production_planning/service/generation_service.py
     contract_ref: contracts/action_registry/action_registry.yaml#GENERATION.PROCESS
+    payload_schema: packages.shared.event_payloads.GenerationSucceededPayload
+    payload_schema_version: 1
     payload_required:
       - generation_task_id
       - worker_id
@@ -519,6 +540,12 @@ events:
       - quality_profile_version
       - project_id
       - shot_id
+      # 消费模型同时覆盖 advance_status 注入的公共字段与载荷版本（缺省即拒绝）。
+      - schema_version
+      - from_status
+      - to_status
+      - tenant_id
+      - transition_id
   - event_type: GENERATION_FAILED
     aggregate_type: GenerationTask
     emitted_by: services/production_planning/service/generation_service.py
