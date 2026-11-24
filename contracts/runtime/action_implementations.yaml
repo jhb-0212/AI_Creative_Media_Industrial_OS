@@ -220,3 +220,11 @@ not_implemented:
     reason: "交付清单未落地"
   DELIVERY.MANIFEST.RELEASE:
     reason: "交付清单未落地"
+  # --- QC 人工恢复 ---
+  QC.TASK.RECOVER:
+    reason: >-
+      契约已登记、运行时未实现（A37 只做契约先行：按裁决顺序先登记、核准后再改代码）。
+      POST /qc-tasks 现有实现直接信任请求体 project_id 与 quality_profile_version，
+      不核验任务归属与生命周期，也不区分人工/自动两个入口的席位；在补齐六项核验
+      （可信身份、专项席位、权威归属、生命周期、统一幂等、追加审计）之前，不得声明已实现。
+      自动入队（GENERATION_SUCCEEDED → QCTaskService）不受影响，仍由 QC.TASK.ENQUEUE 承载。
