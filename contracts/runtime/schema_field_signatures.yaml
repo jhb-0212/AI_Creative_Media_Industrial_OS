@@ -473,6 +473,7 @@ signatures:
     id: string
     message: string|null
     owner_module: string
+    registration_fingerprint: string|null
     schema_version: integer
     status: string
     tenant_id: string

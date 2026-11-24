@@ -79,6 +79,7 @@ events:
   - event_type: ASSET_REGISTRATION_CONFLICT
     aggregate_type: AssetRegistrationReceipt
     emitted_by: workers/relay/asset_registration.py
+    contract_ref: docs/adr/ADR-R42-asset-registration-saga.md#T2
     payload_required:
       - generation_task_id
       - project_id

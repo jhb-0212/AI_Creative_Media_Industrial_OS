@@ -28,8 +28,16 @@ from packages.shared.database import (
     create_production_planning_engine,
     create_sessionmaker,
 )
+from packages.shared.port_errors import DuplicateEntityError
 from packages.shared.rls import set_tenant_context
 from packages.shared.storage_locator import build_locator
+from services.asset_service.domain.asset_registration_receipt import (
+    AssetRegistrationReceipt,
+)
+from services.asset_service.domain.enums import AssetRegistrationReceiptStatus
+from services.asset_service.repository.sqlalchemy_receipt_repo import (
+    SqlAlchemyAssetRegistrationReceiptRepository,
+)
 from services.production_planning.repository.sqlalchemy_repos import (
     SqlAlchemyGenerationTaskRepository,
 )
@@ -268,3 +276,42 @@ async def test_same_task_different_attempt_records_conflict(
         "WHERE generation_task_id=:task AND status='AWAITING_ASSET_REGISTRATION'",
         {"task": task_id},
     ) == 1  # 冲突不改任务状态
+
+
+async def test_receipt_unique_conflict_is_recoverable_for_handler_reread(
+    asset_sm: object, seeded: dict[str, object],
+) -> None:
+    """G-3 的仓储契约：唯一键冲突抛可回读的 DuplicateEntityError，session 不 aborted。
+
+    handler 的并发收敛分支依赖此契约：两个 Relay 都判空后插入，后写者撞
+    ``uq_asset_registration_receipts_tenant_task``，必须能回读既有回执转指纹比对，
+    而不是把 23505 冒泡成死信。这里用真实 PG + 真实 repo 锁住这个前提。
+    """
+    task_id = str(seeded["task_id"])
+    project_id = str(seeded["project_id"])
+
+    def make_receipt(entity_suffix: str, fingerprint: str) -> AssetRegistrationReceipt:
+        return AssetRegistrationReceipt(
+            entity_id=f"prf-reread-{entity_suffix}-{uuid4().hex[:8]}",
+            created_by="svc:asset-registration",
+            tenant_id=_TENANT,
+            generation_task_id=task_id,
+            project_id=project_id,
+            asset_version_id="",
+            message="",
+            status=AssetRegistrationReceiptStatus.REJECTED,
+            registration_fingerprint=fingerprint,
+        )
+
+    async with asset_sm() as session:  # type: ignore[operator]
+        await set_tenant_context(session, _TENANT)
+        repo = SqlAlchemyAssetRegistrationReceiptRepository(session)
+        first = make_receipt("first", "a" * 64)
+        await repo.add(first)
+        with pytest.raises(DuplicateEntityError):
+            await repo.add(make_receipt("second", "b" * 64))
+        # SAVEPOINT 生效：冲突后 session 仍可用，能回读既有回执（handler 收敛前提）。
+        reread = await repo.get_by_tenant_task(_TENANT, task_id)
+        assert reread is not None
+        assert reread.registration_fingerprint == "a" * 64
+        await session.rollback()
