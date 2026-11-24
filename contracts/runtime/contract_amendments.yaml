@@ -128,3 +128,56 @@ amendments:
       disposition 仍无权威值集，保留待裁定登记，不与本字段合并。
     contract_ref: "21.1 左右双屏对比工作台 / 9.x 审阅结果示例"
     implementation: contracts/enums/field_value_sets.yaml
+
+  - object: BlockingAsset
+    field: status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      G-A 首轮裁定：白模资产派生自 AssetVersion 谱系，不得平行建资产状态表；
+      裸 string 由无约束债务变成哨兵 NO_LIFECYCLE。真实状态在 AssetVersion 谱系与
+      A2-QC 支撑资产门禁上，信封 status 不再接受任意值。类型未变（string → string），
+      签名 diff 看不见；权威源是 status_field_taxonomy 的 envelope_only + derived_projection。
+    contract_ref: "8.15 CameraRig 与 BlockingAsset 字段契约 / 资产谱系边界"
+    implementation: contracts/enums/status_field_taxonomy.yaml
+
+  - object: ControlSignalAsset
+    field: status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      G-A 首轮裁定：可否发布从 PrevizVersion 状态 + 纯净度/权利门禁派生，不建独立
+      状态机；裸 string 收为哨兵 NO_LIFECYCLE。避免与 PrevizVersion 六态形成第二套
+      发布事实。类型未变（string → string），签名 diff 看不见。
+    contract_ref: "8.14 ControlSignalAsset 契约 / 8.6 白模与控制信号任务"
+    implementation: contracts/enums/status_field_taxonomy.yaml
+
+  - object: ContinuityConstraint
+    field: status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      G-A 首轮裁定：复用 ConstraintPack 包级五值并补 PENDING_CONFIRMATION 前置态，
+      裸 string 收为六值 enum。8.10 明确观察/推断先入待确认队列、批准后才成硬阻断，
+      DRAFT 不得直达 ACTIVE。值集与五条授权边在 state_machines；类型未变（string → string）。
+    contract_ref: "7.9 隐式连续性依赖登记 / 8.10 ContinuityConstraint 契约"
+    implementation: contracts/state_machines/state_machines.yaml
+
+  - object: ExternalToolArtifact
+    field: status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      G-A 首轮裁定：暂存链与 AssetVersion 谱系分层，自建六态状态机；裸 string 收为
+      enum。PROMOTED 仅表示可新建 AssetVersion，绝不表示 APPROVED/GOLD，否则直接
+      违反 EXTERNAL_TOOL.IMPORT.SUBMIT 的隔离验证约束。类型未变（string → string）。
+    contract_ref: "32.x Staging / Asset Intake 口径 / ACT-EXT-NEG-007"
+    implementation: contracts/state_machines/state_machines.yaml

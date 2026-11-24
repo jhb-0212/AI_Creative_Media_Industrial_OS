@@ -1942,7 +1942,15 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "PROMOTED",
+            "QUARANTINED",
+            "REJECTED",
+            "SCANNED",
+            "STAGING",
+            "VERIFIED"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -3787,7 +3795,10 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "NO_LIFECYCLE"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -3999,7 +4010,15 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "DRAFT",
+            "PENDING_CONFIRMATION",
+            "REVOKED",
+            "STALE",
+            "SUPERSEDED"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -4567,7 +4586,10 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "NO_LIFECYCLE"
+          ]
         },
         "owner_module": {
           "type": "string"

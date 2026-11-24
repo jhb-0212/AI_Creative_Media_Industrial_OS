@@ -16,7 +16,7 @@
 
 generated_by: scripts/gen_status_contracts.py
 source: contracts/state_machines/state_machines.yaml
-object_count: 50
+object_count: 52
 objects:
 - object: Appeal
   states: [CLOSED, DECISION_OVERTURNED, DECISION_UPHELD, IN_REVIEW, SUBMITTED]
@@ -42,6 +42,8 @@ objects:
   states: [APPROVED, ARCHIVED, DRAFT, PENDING_REVIEW, PUBLISHED, SUBMITTED, TAKEN_DOWN, UNLISTED]
 - object: ConstraintPack
   states: [ACTIVE, DRAFT, REVOKED, STALE, SUPERSEDED]
+- object: ContinuityConstraint
+  states: [ACTIVE, DRAFT, PENDING_CONFIRMATION, REVOKED, STALE, SUPERSEDED]
 - object: CreatorDeliveryManifest
   states: [DRAFT, REVOKED, STALE, SUPERSEDED, VALIDATED, VALIDATING]
 - object: CreatorGate
@@ -62,6 +64,8 @@ objects:
   states: [CANDIDATES_READY, DRAFT, EXPIRED, FAILED, PROMOTED, REJECTED, REVIEW, RUNNING, STOPPED]
 - object: ExportPackage
   states: [DRAFT, EXPIRED, EXPORTED, REJECTED, REVOKED, VALIDATED, VALIDATING]
+- object: ExternalToolArtifact
+  states: [PROMOTED, QUARANTINED, REJECTED, SCANNED, STAGING, VERIFIED]
 - object: ExternalToolConnection
   states: [ACTIVE, DRAFT, REVOKED, SUSPENDED, VALIDATING]
 - object: GenerationTask

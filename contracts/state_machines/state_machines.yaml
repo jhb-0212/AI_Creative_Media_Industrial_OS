@@ -30,7 +30,7 @@
 version: 2
 source: AFS-ARCH-MASTER-V2.0.5 各章节状态机定义（由 Markdown 基线派生）
 authority_rule: 同一对象多处定义时，按 31.5 唯一权威状态机 > 32.6/C.7 > 34.x > 33.3 > C.3 取权威；24.11 为摘要不计入权威；差异不静默合并，见 conflict 字段。
-total_objects: 50
+total_objects: 52
 conflict_count: 6
 object_count_note: total_objects 只计持久化领域对象；UI 投影见 projections 分区（不计入对象数，也不得进枚举注册表）。
 
@@ -1030,3 +1030,71 @@ objects:
   all_sources:
   - docs/adr/ADR-R42-asset-registration-saga.md（D5）
   - 业主 2026-11-23 设计裁决 C5
+- object: ContinuityConstraint
+  authoritative_source: 7.9 隐式连续性依赖登记 + 8.10 ContinuityConstraint 契约 + 所有者 2026-11-24 G-A 裁定
+  allowed_states: [ACTIVE, DRAFT, PENDING_CONFIRMATION, REVOKED, STALE, SUPERSEDED]
+  initial_state: DRAFT
+  transitions:
+  - from: DRAFT
+    to: PENDING_CONFIRMATION
+  - from: PENDING_CONFIRMATION
+    to: ACTIVE
+  - from: ACTIVE
+    to: STALE
+  - from: ACTIVE
+    to: SUPERSEDED
+  - from: ACTIVE
+    to: REVOKED
+  frozen_states: [REVOKED, SUPERSEDED]
+  note: >-
+    单条约束与 ConstraintPack 包级状态集的关系是「包级五值 + 待确认前置态」，不是两套命名。
+    8.10 明确「观察到的状态和模型推断先进入待确认队列，只有经批准的 Canon/Constraint
+    才能形成硬性阻断」，所以 DRAFT 不得直达 ACTIVE：观察/推断必须先落 PENDING_CONFIRMATION，
+    经 approval_ref 指向的授权人批准后才可以 ACTIVE 作为硬约束参与阻断。ACTIVE 之后的三条
+    治理边沿用包级 7.9 语义（STALE 引用失效、SUPERSEDED 换版、REVOKED 授权撤销）。
+    PENDING_CONFIRMATION 的字面值由所有者裁定给出——正文只有中文描述，禁止从中文另造同义词。
+    frozen_states 锁 REVOKED / SUPERSEDED。STALE 在本条是旁支状态：包级 7.9 也未登记
+    STALE 的出边，重复认入口属正文未授权的边，本轮不自造——需要时另立裁定并同步转移表。
+  source_kind: owner_supplied_design
+  registration_status: PENDING_PHASE1_REVIEW
+  all_sources:
+  - 7.9 隐式连续性依赖登记
+  - 8.10 ContinuityConstraint 契约
+  - docs/audits/2026-11-24-status-governance-ruling-packet.md（G-A 首轮裁定）
+- object: ExternalToolArtifact
+  authoritative_source: 32.x Staging / Asset Intake 口径 + C.3 对象表 + 所有者 2026-11-24 G-A 裁定
+  allowed_states: [PROMOTED, QUARANTINED, REJECTED, SCANNED, STAGING, VERIFIED]
+  initial_state: STAGING
+  transitions:
+  - from: STAGING
+    to: SCANNED
+  - from: STAGING
+    to: QUARANTINED
+  - from: SCANNED
+    to: VERIFIED
+  - from: SCANNED
+    to: REJECTED
+  - from: SCANNED
+    to: QUARANTINED
+  - from: VERIFIED
+    to: PROMOTED
+  - from: VERIFIED
+    to: REJECTED
+  - from: VERIFIED
+    to: QUARANTINED
+  frozen_states: [PROMOTED, REJECTED, QUARANTINED]
+  note: >-
+    暂存流程与正式资产状态分层：ExternalToolArtifact 描述的是外部工具回传后「先隔离和验证」
+    的阶段，PROMOTED 表示校验通过、可以创建新 AssetVersion，绝不表示产物已 APPROVED/GOLD。
+    转正后由 Asset Service 新建 AssetVersion 并走 8.5 生命周期，不得在 artifact 上原地升级为
+    APPROVED/GOLD，也不得让未扫描产物进入正式资产库（ACT-EXT-NEG-007）。哈希/格式校验失败走
+    REJECTED；恶意文件或版权未知走 QUARANTINED，与 AssetVersion 的 QUARANTINED 语义对齐而非
+    另起一套隔离命名。QUARANTINED 为隔离终态：权利补齐后新建 artifact 记录重走暂存链，
+    不得在原地复活（与 31.5 终态不可原地复活一致）。
+    六个字面值由所有者裁定给出——正文给出的是流程描述不是状态枚举，禁止把中文流程词当状态值。
+  source_kind: owner_supplied_design
+  registration_status: PENDING_PHASE1_REVIEW
+  all_sources:
+  - 32.x Staging / Asset Intake 口径
+  - C.3 对象总表（ExternalToolArtifact 字段）
+  - docs/audits/2026-11-24-status-governance-ruling-packet.md（G-A 首轮裁定）
