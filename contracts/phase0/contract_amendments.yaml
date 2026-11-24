@@ -1781,6 +1781,42 @@ amendments:
       - 'ExternalToolArtifact 的 QUARANTINED 为隔离终态，权利补齐须新建 artifact 重走暂存链，不得原地复活。'
       - 'G-A 剩余 14 项 lifecycle_gap 与 G-C 8 项 Schema 缺口按所有者确认顺序后续批次处理，本次未触碰。'
 
+  - id: 'V205-R35-GA-SECOND-FOUR'
+    title: '#35 G-A 第二轮：四项 lifecycle_gap 按所有者裁定销项'
+    retroactive: false
+    recorded_at: '2026-11-24'
+    discovered_by: '#35 状态治理 G-A 首轮后剩余 14 项 lifecycle_gap，第二轮取 3.1 余下 2 项与 3.2 的相机/参考集'
+    reason: >-
+      台账建议在本轮四项里仍有三处错配：CameraRig 基线 8.1/8.15 已明确属于 PrevizVersion
+      且旧版标 SUPERSEDED，另建状态机会造成两套版本事实；CharacterReferenceSet 基线 C.3 明确
+      「集合不可变版本」且 Phase 验收要求独立版本化，台账的「CharacterCard 组成部分」选项
+      与之直接冲突；ShotResourceAllocation 的字段是金额，基线 33.x/C.6 明令 QuotaReservation
+      不代表金额冻结、不得混为一个余额。所有者逐项裁定前三项收敛为 envelope_only
+      （child_structure / immutable_record / derived_projection），status 收哨兵。
+      ShotTierChangeRequest 基线 17.7 已明文给出十个状态字面值，登记为权威状态机，
+      不采用台账的三态简化或 ScriptRevision 的 LOCK_PENDING；主线七值加三个旁路终态，
+      旁路挂接点由所有者按语义推导，注册状态保持 PENDING_PHASE1_REVIEW。
+      另改进派生器漂移诊断：报红时点名具体对象/字段（原文本只说文件不一致），
+      负向测试据此精确断言 ShotTierChangeRequest，避免 ERROR 与 FAILED 混同。
+    adr: 'docs/adr/ADR-R21-status-field-authority.md'
+    approved_by: '项目所有者（2026-11-24 逐项裁定：相机 child_structure、参考集 immutable_record、资源分配派生投影、等级变更登记基线十值）'
+    approved_at: '2026-11-24'
+    source_commits:
+      - 'a5b6a6eb43644f46b37ddcf66b376e6bfc2ca71f'
+    additions:
+      state_machines:
+        - object: ShotTierChangeRequest
+    counts_after:
+      actions: 105
+      openapi_operations: 105
+      schema_objects: 91
+      state_machines: 53
+    residual_risks:
+      - '本修订只关契约层：ShotTierChangeRequest 尚无运行时 Domain Enum / DB CHECK / 动作入口，已标 PENDING_PHASE1_REVIEW。'
+      - 'CANCELLED / FAILED / ROLLED_BACK 的转移挂接点由所有者按语义推导，正文只给字面值未给边；正文若给出不同挂接须重裁定。'
+      - '基线 §17.7 的十个字面值以「状态建议」表述给出，非「状态机」章节；本轮按正文原文登记，Phase 1 验收时须复核。'
+      - 'G-A 剩余 10 项 lifecycle_gap 与 G-C 8 项 Schema 缺口按所有者确认顺序后续批次处理，本次未触碰。'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——
