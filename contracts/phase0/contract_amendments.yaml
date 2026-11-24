@@ -2024,6 +2024,55 @@ amendments:
       - 'QC.TASK.ENQUEUE 的 implemented.route 登记为 POST /qc-tasks，与自动入队实际路径（relay 直调 service）不同源。本条目不改：implemented 台账要求 route 必须是真实 HTTP 端点，非 HTTP 入口无处登记，改它须先改闸门能力。这是既有的契约表达缺口，不是本批引入。'
       - 'C7-5 的并发验收未做：库层唯一键成立是必要条件，不是充分条件。人工与自动两条路径同时入队的真实并发用例尚不存在，实现批次须补（含撞唯一键映射为 409，而不是 500 或静默成功）。'
       - 'Owner 签署未落纸：approved_by 记录的是工程审查基线。按 P4，签署缺失时本条目只证明「契约已登记」，不证明「实施已获批」。'
+  - id: 'V205-R42-C7B-IMPL'
+    title: 'C7-b 人工恢复入口实施——六项判据落地（A37 的 Owner 签署与实施记录）'
+    retroactive: false
+    recorded_at: '2026-11-24'
+    discovered_by: 'docs/audits/2026-11-24-r42-authorization-reconciliation.md §11.1（Owner 签署）；docs/proposals/r42-remaining-acceptance-c7-d6.md §5（D-1/D-2/D-3 裁决）'
+    reason: >-
+      A37 只登记契约面，并按 P4 明确写了「签署缺失时只证明契约已登记，不证明实施已获批」。
+      本条目是它的实施侧闭环，同时是签署事实的落纸处：Owner 于 2026-11-24 明确签署 A37，
+      并采纳三项裁决（D-1 新增 QC.TASK.RECOVER、D-2 入口形态为受权 REST 端点、
+      D-3 outbox.dead_letter_replays 不登记为契约对象）。签署后 C7-b 不再是「提议中的改造」，
+      而是「已获批的实现批次」，本条目记录它落到了哪一步、哪几条判据可被机器判定。
+      为什么另立条目而不回填 A37 的 approved_by：历史条目一旦落纸即冻结，事后改写会让
+      「签署发生在何时」与「条目写于何时」无法区分，签署凭空获得追溯力；同理也不能把本批
+      提交塞进 A37 的 source_commits——那条要指契约面提交 54aa49f，两段式登记的意义正是
+      让「契约先于实现」这一步在历史里留下痕迹。所以 A37 正文一字不动，签署事实记在这里。
+      实施要点（为什么是这些做法，而不是加校验）：
+      ① 身份只取 Principal 的 QC.TASK.RECOVER 专项席位，请求体收敛为服务端可判定所需的
+      三个字段（generation_task_id / project_id / reason，extra=forbid），asset_version_id 与
+      quality_profile_version 再出现即 422——自报的事实不是事实；
+      ② 归属与生命周期只取数据库：跨域读经中立端口（packages/shared/generation_ports.py）+
+      生产域适配器 + 组合根装配，不给 qc_governance_role 补 production_planning 授权，
+      那等于永久拆掉域边界；顺序固定为「读事实 → 授权 → 写」，因为归属判定对象只能是库里的
+      project_id，且授权必须先于任何写入；
+      ③ 幂等复用 uq_qc_governance_qc_tasks_generation_task，不新增幂等表或分布式锁；
+      仓储 add() 由裸 flush 改为 SAVEPOINT + translate_write_error，23505 翻译成
+      DuplicateEntityError → IDEMPOTENCY_CONFLICT(409)——原先并发重复投递会以 500 出现，
+      relay 重试到死信，而入队其实早已成功，事实与响应相反；
+      ④ 事件载荷补 source / operator_id / reason 并登记为 payload_required；EnqueueOrigin
+      值对象取代散落的 created_by 字符串，MANUAL 必填 reason，构造期 fail-closed；
+      ⑤ 闸门能力扩展而非为单个动作开豁免：implemented 台账新增 mechanism: in_process
+      （强制 module + reason、不得同时声明 route、必须 ACTIVE，授权落点检查跳过它，
+      因为其触发面由 outbox 事件与 relay 角色数据库权限决定，比 require_role 更硬），
+      使「真的实现却无 HTTP 面」的自动入队不必再借用 POST /qc-tasks 的门牌号。
+    adr: 'docs/adr/ADR-R42-asset-registration-saga.md'
+    approved_by: 'Owner 正式签署（2026-11-24 会话原话「可以，签署，按最优的来」），签署对象为 A37 的 C7-1~C7-6 六项判据与 D-1/D-2/D-3 三项裁决'
+    approved_at: '2026-11-24'
+    source_commits:
+      - 'b876105f4c13d7c872d74a0543f93a81469ab849'
+    counts_after:
+      actions: 106
+      openapi_operations: 106
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - 'P2 仍未签署：本批不追认 02a94c2 的 media_type 回填与 ABANDONED 终态，该两项的实施合法性仍为 [V-BLOCKED]。签署只能由 Owner 单独说一句，不能从 C7-b 的签署里推断——若推断成立，闸门就退化成口号。'
+      - 'D6-9 未开始：OUTBOX.DEAD_LETTER.REPLAY 需独立契约登记（actions 106→107）、新表 outbox.dead_letter_replays 与新角色 outbox_ops_role，不在本批范围内。'
+      - 'C7-3 用「SUCCEEDED + 非空产物引用」作为「产物已登记」的等价事实，不另读资产回执表：T3 只能从回执进入，多读一次只多一个 TOCTOU 窗口。若将来存在非回执路径进入 T3，该等价失效，须重新评估本条。'
+      - 'mechanism: in_process 只能证明「登记方声称无 HTTP 面」，无法证明「确实无 HTTP 面」：闸门能拦「同时又写了 route」，拦不住有人为一个有端点的动作登记 in_process 以逃避授权落点检查，那一步仍需代码评审。'
+      - '人工恢复的 reason 只校验非空与 ≤200 字符，不校验其真实性，也不与审计事件做语义关联；「为什么恢复」目前是操作者自述，不是可验证事实。'
 
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
