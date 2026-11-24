@@ -22,7 +22,20 @@
 #   否则闸门以「陈旧债务」报红；
 # - 本文件不是豁免清单：豁免只留给核心信封对象（见 resource_schema_exemptions.yaml）。
 
-gaps: {}
+gaps:
+  OutboxEvent:
+    referenced_by:
+      - OUTBOX.DEAD_LETTER.REPLAY
+    reason: >-
+      outbox 事件是平台级投递基础设施，不是 C.3 领域对象：正文没有它的字段口径，
+      也没有机器可读定义。重放动作的对象是「投递状态」而不是业务聚合——事件本身
+      不可变、不可重建（重放只清死信标记并交回正常 claim）。因此不为它发明一份
+      object_schemas 定义（那等于凭空创造契约正文），实施批次按「运维基础设施类型」
+      登记 resource_schema_exemptions.yaml。
+    contract_ref: docs/proposals/r42-remaining-acceptance-c7-d6.md §3.1 D6-1/D6-4
+    unblocks_when: >-
+      实施批次登记豁免（resource_schema_exemptions.yaml 的 OutboxEvent 条目）后删除本条；
+      若将来正文为事件总线对象补出字段口径，则改为补 schema 而不是豁免。
 
 # G-C 已把 CanonRevision / RightsCase / RightsManifest 补入 object_schemas.schema.json，
 # 三条债务按「补 schema 后必须删条目」规则删除；保留空 gaps 作为结构，新增 ACTIVE 缺口仍登记于此。

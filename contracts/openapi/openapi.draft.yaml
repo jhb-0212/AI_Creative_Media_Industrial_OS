@@ -3608,6 +3608,46 @@ paths:
           description: 幂等键冲突（同一生成任务已有有效 QC 任务）
         '422':
           description: 请求信封或载荷校验失败
+  /actions/outbox.dead_letter.replay:
+    post:
+      operationId: outbox.dead_letter.replay
+      tags:
+        - Outbox
+      summary: OUTBOX.DEAD_LETTER.REPLAY（资源 OutboxEvent，风险 HIGH）
+      description: >-
+        受权死信重放：把一条已放弃投递的事件移出死信态并交回正常领取，
+        不改写事件内容、不复制新事件、不直调处理器。审计载体是 append-only
+        运维表 outbox.dead_letter_replays（运维主体对事件总线只有读与投递状态
+        列级写，不允许写业务事件）。
+      x-afs-action-key: OUTBOX.DEAD_LETTER.REPLAY
+      x-afs-scope: tenant
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 消息总线运维操作者
+      x-afs-audit-event: outbox.dead_letter_replays
+      x-afs-negative-test: ACT-OUTBOX-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已移出死信态；返回 replay_id 与重放前失败次数
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '404':
+          description: 原始事件不存在或不在本租户内（RLS 使跨租户不可见）
+        '409':
+          description: 事件不在死信态（未死信 / 已投递 / 并发已被他人重放）
+        '422':
+          description: 请求信封或载荷校验失败
 components:
   schemas:
     ActionRequestEnvelope:

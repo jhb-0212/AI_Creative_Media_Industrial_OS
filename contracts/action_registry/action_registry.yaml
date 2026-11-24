@@ -3,7 +3,7 @@
 # 校验口径：action_key 全局唯一、命名规范、audit_event 与 negative_test_id 一一对应
 registry_source: 'AFS-ARCH-MASTER-V2.0.5 / 31.6 Action Registry'
 registry_version: 'V2.0.5'
-total_actions: 106
+total_actions: 107
 actions:
   - action_key: 'PROJECT.CREATE'
     resource_type: 'Project'
@@ -1196,4 +1196,15 @@ actions:
     audit_event: 'QC_TASK_QUEUED'
     negative_test_id: 'ACT-QC-NEG-004'
     negative_test_desc: '自报身份、跨租户归属、非终态、重复入队四类均拒绝'
+    status: 'ACTIVE'
+  - action_key: 'OUTBOX.DEAD_LETTER.REPLAY'
+    resource_type: 'OutboxEvent'
+    scope: 'tenant'
+    risk_level: 'HIGH'
+    token_required: true
+    allowed_principals: '消息总线运维操作者'
+    approval_requirement: '仅用于处置已进入死信的投递失败：必须引用真实原始事件（event_id），不得重新构造同类请求；主体须取自可信认证上下文并持有专项运维席位；须以数据库权威事实核验租户归属与死信状态（未死信、已投递、租户不符、事件类型不可推进四类均拒绝）；只允许把事件从死信态移出并交回正常 claim，不得复制新事件、不得直调处理器、不得改写事件内容。'
+    audit_event: 'outbox.dead_letter_replays'
+    negative_test_id: 'ACT-OUTBOX-NEG-001'
+    negative_test_desc: '不存在的原始事件、未死信、已投递、跨租户、并发双发五类均拒绝且不产生投递副作用'
     status: 'ACTIVE'
