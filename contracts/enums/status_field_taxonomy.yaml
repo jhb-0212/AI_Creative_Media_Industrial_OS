@@ -252,15 +252,33 @@ objects:
       仅当正文把 BlockingAsset 从 AssetVersion 谱系提升为独立聚合根，并给出与 8.5 不重叠的
       状态集与门禁归属时才解除；在此之前平行建状态机等于制造第二份资产事实。
   - object: CameraRig
-    class: lifecycle_gap
-    reason: 相机机位是版本化资产（version / camera_manifest_ref / extrinsics），与 Previz 绑定；「草案→校验→锁定→取代」是隐含流程，正文未登记状态集。
-    contract_ref: 8.15 CameraRig 与 BlockingAsset 字段契约表
-    unblocks_when: 正文补相机资产状态链，或明确它随 PrevizVersion 一同版本化（后者成立则改为 envelope_only + child_structure）
+    class: envelope_only
+    basis: child_structure
+    reason: >-
+      基线 8.1 对象表明确 CameraRig「属于 PrevizVersion」，8.15 字段契约进一步给
+      previz_revision_ref 为「所属 PrevizVersion 精确版本引用」，version 的换版规则是
+      「变更新建版本，旧版本标 SUPERSEDED」。机位是 PrevizVersion 的组成部分，其版本与
+      SUPERSEDED 事实属于 PrevizVersion 六态，不另建一套机位生命周期；两套版本事实会造出
+      「预演已取代、该版本机位仍有效」这种无法解释的组合。status 收哨兵，几何/时间基准
+      由 A2-QC 支撑资产门禁校验。
+    contract_ref: 8.1 对象总表（CameraRig 归属）/ 8.15 CameraRig 与 BlockingAsset 字段契约表
+    unblocks_when: >-
+      所有者为机位定义独立于 PrevizVersion 的治理状态机，并证明机位可在所属 PrevizVersion
+      已 SUPERSEDED 后仍独立有效；否则不解除。台账原先建议「随 PrevizVersion 版本化则收敛」，
+      该前提已由基线 8.1/8.15 满足，已按此销项。
   - object: CharacterReferenceSet
-    class: lifecycle_gap
-    reason: 参考图集带权利清单（rights_manifest_ref）与视图类型，参考素材必须过权利校验才能用于生成；正文给了字段未给状态。
-    contract_ref: C.3 CharacterReferenceSet 字段契约
-    unblocks_when: 正文补参考集的权利校验流程与状态集，或归属 CharacterCard 的组成部分（则改 child_structure）
+    class: envelope_only
+    basis: immutable_record
+    reason: >-
+      C.3 所有权表明确参考集「集合不可变版本；每项参考素材保留来源、角色和用途标签」，
+      基线 Phase 验收又要求它「独立版本化并能与 CharacterCard/Canon 正确关联」。集合版本
+      写完即定，权利撤销或素材过期须新建版本，不原地改集合状态；权利校验发生在
+      rights_manifest_ref 与导出前门禁上（与 CharacterAppearance 同理），不是对象生命周期。
+      台账原二选一中的「CharacterCard 组成部分」与基线「独立版本化」直接冲突，不能采纳。
+    contract_ref: C.3 所有权表（CharacterReferenceSet）/ Phase 验收清单「独立版本化」
+    unblocks_when: >-
+      所有者为参考集引入「权利待复核」这类对象级状态机，并说明它与导出门禁的分工；否则
+      不可变集合永不建状态机。原台账的二选一已被基线取证否定，本轮按 immutable_record 销项。
   - object: CharacterVoiceProfile
     class: lifecycle_gap
     reason: 声音档案带许可范围（license_scope）与音频资产引用；声音授权可撤销、可过期，必然有状态，但正文未登记。
@@ -334,15 +352,27 @@ objects:
     contract_ref: 17.4 项目等级 × 镜头等级二维矩阵
     unblocks_when: 正文补镜头策略版本的生效/取代规则，或明确只追加不改写（则改 immutable_record）
   - object: ShotResourceAllocation
-    class: lifecycle_gap
-    reason: 镜头资源分配带已分配/已预留金额与审批引用（allocated_amount / reserved_amount / approval_id）；预留→消耗→释放是资源生命周期，正文未登记。
-    contract_ref: 预算章节（镜头预算与配额）
-    unblocks_when: 正文补资源分配的状态链（预期与 QuotaReservation 的 REQUESTED→RESERVED→COMMITTED/RELEASED 同构）
+    class: envelope_only
+    basis: derived_projection
+    reason: >-
+      字段 allocated_amount / reserved_amount 是金额分配事实，不是资源数量占用。基线 33.x
+      与 C.6 明令「QuotaReservation 不代表金额冻结；不得与 BudgetLedgerReservation 混为一个
+      余额」，§17.6 又规定同账户额度重分配由 BUDGET.SHOT.APPROVE 承载、落账由 BudgetLedger
+      写可追溯流水。因此当前分配额/预留额从 BudgetLedger 与 ShotBudgetLedger 汇总得出，
+      allocation 不持独立状态；台账建议复用 QuotaReservation 六态会把金额与配额混成一个余额。
+    contract_ref: 17.6 预算账户与镜头预算 / 33.x 三账分离 / C.6 配额与供应商成本对账
+    unblocks_when: >-
+      证明分配额无法由预算账本流水重算且需要独立审计生命周期时解除；否则派生投影永不建
+      状态机。原台账「与 QuotaReservation 同构」的建议已被 C.6 分账口径否定。
   - object: ShotTierChangeRequest
-    class: lifecycle_gap
-    reason: 镜头等级变更申请带申请人/批准人（requester / approver）与成本增量，是标准的两步审批流，形状与 ScriptRevision 的 LOCK_PENDING 完全一致，但正文未登记状态机。
-    contract_ref: 17.4 项目等级 × 镜头等级二维矩阵
-    unblocks_when: 正文补等级变更审批状态链（DRAFT→PENDING→APPROVED/REJECTED），复用职责分离口径
+    class: lifecycle
+    reason: >-
+      基线 17.7 已明文给出九个状态字面值：DRAFT → SUBMITTED → EVALUATING → APPROVED /
+      REJECTED → EXECUTING → COMPLETED，另支持 CANCELLED / FAILED / ROLLED_BACK。字段表
+      （17.10）也列了 status。台账原建议的 DRAFT→PENDING→APPROVED/REJECTED 与 ScriptRevision
+      的 LOCK_PENDING 都不是正文口径，会丢掉执行、完成、失败与回滚这些已授权事实。
+    contract_ref: 17.7 镜头等级变更工作流 / 17.10 字段表
+    unblocks_when: 已登记权威状态机；无需保留缺口债务。
   - object: TimelineManifest
     class: lifecycle_gap
     reason: 时间线清单是版本化描述（timeline_id / sequence_id / 帧率与轨道），与 TimelineDraft 同域；「发布版本→被取代」是隐含状态，正文未登记。

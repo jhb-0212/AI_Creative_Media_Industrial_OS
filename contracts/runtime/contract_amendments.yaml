@@ -181,3 +181,57 @@ amendments:
       违反 EXTERNAL_TOOL.IMPORT.SUBMIT 的隔离验证约束。类型未变（string → string）。
     contract_ref: "32.x Staging / Asset Intake 口径 / ACT-EXT-NEG-007"
     implementation: contracts/state_machines/state_machines.yaml
+
+  - object: CameraRig
+    field: status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      G-A 第二轮裁定：基线 8.1/8.15 明确机位属于 PrevizVersion 且旧版标 SUPERSEDED，
+      裸 string 收为哨兵 NO_LIFECYCLE。版本事实归 PrevizVersion 六态，不平行建机位状态机。
+      类型未变（string → string），签名 diff 看不见。
+    contract_ref: "8.1 对象总表（CameraRig 归属）/ 8.15 CameraRig 字段契约"
+    implementation: contracts/enums/status_field_taxonomy.yaml
+
+  - object: CharacterReferenceSet
+    field: status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      G-A 第二轮裁定：C.3 明确「集合不可变版本」且 Phase 验收要求独立版本化，裸 string
+      收为 NO_LIFECYCLE 哨兵。权利撤销须新建集合版本，不原地改状态；台账建议的
+      「CharacterCard 组成部分」与基线冲突，未采纳。类型未变（string → string）。
+    contract_ref: "C.3 所有权表 / Phase 验收「独立版本化」"
+    implementation: contracts/enums/status_field_taxonomy.yaml
+
+  - object: ShotResourceAllocation
+    field: status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      G-A 第二轮裁定：allocated/reserved_amount 是金额事实，不得与 QuotaReservation 的
+      资源占用混账（基线 33.x / C.6）；裸 string 收为 NO_LIFECYCLE 哨兵，金额由预算账本
+      汇总，重分配走 BUDGET.SHOT.APPROVE + 新流水。台账建议复用配额六态未采纳。
+      类型未变（string → string）。
+    contract_ref: "17.6 预算账户 / 33.x 三账分离 / C.6 配额对账"
+    implementation: contracts/enums/status_field_taxonomy.yaml
+
+  - object: ShotTierChangeRequest
+    field: status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      G-A 第二轮裁定：基线 17.7 已明文给出十个状态字面值，裸 string 收为 enum；
+      不采用台账的 DRAFT→PENDING→APPROVED/REJECTED 三态简化，也不复用 ScriptRevision
+      的 LOCK_PENDING。主线与旁路转移边在 state_machines 登记，旁路挂接点由所有者按语义
+      推导，registration_status 保持 PENDING_PHASE1_REVIEW。类型未变（string → string）。
+    contract_ref: "17.7 镜头等级变更工作流 / 17.10 字段表 status"
+    implementation: contracts/state_machines/state_machines.yaml

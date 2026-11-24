@@ -575,7 +575,10 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "NO_LIFECYCLE"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -708,7 +711,19 @@
           "type": "string"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "APPROVED",
+            "CANCELLED",
+            "COMPLETED",
+            "DRAFT",
+            "EVALUATING",
+            "EXECUTING",
+            "FAILED",
+            "REJECTED",
+            "ROLLED_BACK",
+            "SUBMITTED"
+          ]
         },
         "to_tier": {
           "type": "string"
@@ -2680,7 +2695,10 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "NO_LIFECYCLE"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -4485,7 +4503,10 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "NO_LIFECYCLE"
+          ]
         },
         "owner_module": {
           "type": "string"
