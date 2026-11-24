@@ -9,15 +9,6 @@ authoritative_sources:
   - docs/audits/2026-11-24-r42-authorization-reconciliation.md
 open_items:
   - item: >-
-      C7-b 人工 QC 入队缺来源核验与专项授权（判据 C7-1..C7-6，实施未开始）：
-      POST /qc/tasks 的契约（action_registry.yaml:1167-1176）已写死
-      「仅在生成终态且携带产物引用时入队；同一生成任务不得重复入队」，实现两条都没做；
-      且该 action 的 allowed_principals 是「生成 Worker/受信调度服务」，而自动路径
-      根本不经 HTTP（workers/relay/handlers.py 直调 service.enqueue），REST 端点唯一
-      真实使用者是人工——席位声明与真实调用主体互相矛盾，等于没有专项授权。
-      债登记于 A36 residual_risks 第 1 条与审计记录 §4.1
-    source: "contracts/phase0/contract_amendments.yaml#amendments"
-  - item: >-
       D6-9 死信重放无任何入口（判据 D6-1..D6-8，实施未开始）：
       workers/relay/consumer.py:24,120,224 三处注释声称死信「可人工重放」，仓库内
       没有端点、脚本或 CLI。重放的写权限面已存在（outbox_relay_role 列级
@@ -29,10 +20,11 @@ open_items:
 
 # R42 剩余验收实施基线：C7-b 人工入队来源核验 + D6-9 受权死信重放
 
-> 性质：**实施基线**（2026-11-24 工程审查建议的采纳登记），不是 Owner 签署，也不是 ADR 签署。
+> 性质：**实施基线**（2026-11-24 工程审查建议的采纳登记）+ 实施结果记录。
 > 两批次**独立提交、独立验收**，互不夹带（不顺带改 P2 或其它冻结内容）。
 > 报告口径：真实 PostgreSQL 实测与静态测试**分开报告**；未实际运行的标 `NOT RUN`，环境阻塞标 `BLOCKED`。
-> 状态以文首 front-matter 为准（`status: in_progress`，两项均未开始）。
+> **C7-b 已实施完毕**（见 §7，2026-11-24，Owner 签署后启动）；**D6-9 仍未开始**，
+> 故 front-matter 仍为 `status: in_progress`，open_items 只剩 D6-9 一项。
 
 ---
 
@@ -210,13 +202,16 @@ open_items:
 
 ---
 
-## 5. 需 Owner 裁决的三点（本基线不代决）
+## 5. 三点裁决（2026-11-24 已定，见审计记录 §11）
 
-| # | 待裁 | 选项 | 建议 |
+| # | 待裁 | 裁决 | 生效范围 |
 |---|---|---|---|
-| D-1 | C7-2 的授权形态 | A 新增 `QC.TASK.RECOVER` / B 改 `QC.TASK.ENQUEUE` 席位 | **A**，理由见 2.2 |
-| D-2 | D6 入口形态 | A 受权 REST 端点 / B 独立 CLI / C 两者（端点为主、CLI 薄封装） | **A**。因为 F8：台账只有 `implemented`（route 被真实校验）与 `not_implemented` 二元状态，CLI-only 会让「已用 CLI 实现」失真地登记成 `not_implemented`；而走端点可如实登记，权限也统一走 `authorize` 单入口 |
-| D-3 | `dead_letter_replays` 是否登记为契约对象 | 登记 / 不登记 | **不登记**，按 `maintenance_runs` 先例（F7）：它是运维台账，不是业务聚合，进 `object_schemas` 会把它拖进状态机与序列化器的一致性面 |
+| D-1 | C7-2 的授权形态 | **A：新增 `QC.TASK.RECOVER`**（不改 `QC.TASK.ENQUEUE` 席位） | 已随 A37 契约面落地 |
+| D-2 | D6 入口形态 | **A：受权 REST 端点**（CLI 不作唯一入口） | 约束 D6-9 实施；尚需 D6 自己的契约登记 |
+| D-3 | `dead_letter_replays` 是否登记为契约对象 | **不登记**（按 `maintenance_runs` 先例） | 同上 |
+
+裁决前本基线不得进入实现批次；D-1 已随 C7-b 实施完成，D-2/D-3 仍是 D6-9 的**实施前置**，
+不因为「已经裁决」就跳过 D6-9 自己的契约登记与闸门。
 
 ---
 
@@ -227,3 +222,39 @@ open_items:
 - 不加 `force` / `skip_validation` / 「直接投递」等旁路。
 - 不新建第二套 QC 任务创建机制——保留的是**人工恢复能力**，不是并列的入队通道。
 - 不合并两批次的契约修订登记。
+
+---
+
+## 7. C7-b 实施结果（2026-11-24）
+
+Owner 签署 A37 后启动。六项判据逐条落地，**两处与基线不同**，见 7.2。
+
+### 7.1 判据 → 实现 → 验收
+
+| 编号 | 实现落点 | 验收证据 |
+|---|---|---|
+| C7-1 可信身份 | 路由只从 `Principal` 取 `subject_id` / `tenant_id`；请求模型 `extra="forbid"`，`tenant_id` / `created_by` / `asset_version_id` / `quality_profile_version` 出现即 422 | `test_body_cannot_smuggle_artifact_fields`（真实 PG：422 且库里零行） |
+| C7-2 专项授权 | `require_role("QC.TASK.RECOVER")`；席位 `运维恢复操作者`（`A37` 已登记） | `test_other_role_cannot_use_recovery_entry`（`QC 审核人` → 403） |
+| C7-3 权威归属 | `packages/shared/generation_ports.py` 声明端口，`services/production_planning/repository/generation_facts_lookup.py` 提供适配（生产域角色按三列授权读项目），组合根 `apps/api/wiring.py` 装配。授权对象是**事实行里的** `project_id`，请求体只作选择键 | `test_project_must_match_database_facts`（错项目 → 404）、`test_cross_tenant_task_is_invisible`（跨租户 → 404） |
+| C7-4 生命周期 | `QCTaskService.recover`：非 `SUCCEEDED` → 409；终态但缺产物引用 → 409（不猜值补上） | `test_non_success_terminal_is_rejected`（4 状态参数化）、`test_success_without_artifact_ref_is_rejected` |
+| C7-5 统一幂等 | 人工与自动走**同一条** `enqueue`；仓储 `add` 改为 SAVEPOINT + `translate_write_error`，23505 → `DuplicateEntityError` → 服务层 `IDEMPOTENCY_CONFLICT` | `test_concurrent_recovery_creates_exactly_one`（并发 201/409、恰好 1 行）、`test_manual_entry_does_not_bypass_unique_fact_with_relay`、`test_duplicate_generation_task_translates_to_port_error`（绕过先查直接撞索引，证明是索引兜底） |
+| C7-6 审计 | `QC_TASK_QUEUED` 载荷新增 `source` / `operator_id` / `reason`；`EnqueueOrigin` 值对象强制「MANUAL 必填理由」 | `test_recovery_derives_every_fact_from_database`（回读 outbox 载荷三字段） |
+
+### 7.2 与基线的两处偏差（都不是妥协，但必须写明）
+
+1. **C7-3 没有另读资产域回执表。** 基线写的是「`asset_service` 独立 session 读 `asset_registration_receipts` 核验回执 `COMPLETED`」。实现改为核验 `generation_tasks.status = SUCCEEDED` 且 `asset_version_id` / `quality_profile_version` 非空——因为 T3（`bind_registration_result`）**只能**从登记回执进入，`SUCCEEDED` 加非空产物引用本身已是「回执已消费」的等价事实。再加一次资产域读，是对同一事实的第二次查询：多一个跨域依赖、多一种失败模式，换不来额外保证。
+2. **C7-3 的核验键多了 `project_id`（作为选择键）。** 基线默认「按 `generation_task_id` 查」。实读发现 `generation_tasks` 的唯一键是 `(generation_task_id, project_id, tenant_id)`，单给任务 ID 在库层面不唯一，`scalar_one_or_none` 会抛多行，退化成 `first()` 则是静默择一。要求同时给项目是**为了让「恢复哪一条」有确定答案**，随后由数据库三列共同确认；`project_id` 仍不参与归属判定（判定用的是事实行里的值）。
+
+### 7.3 本批次的契约面
+
+| 项 | 变化 |
+|---|---|
+| `action_registry.yaml` / `openapi.draft.yaml` | 无（A37 已登记，106 不变） |
+| `action_implementations.yaml` | `QC.TASK.ENQUEUE` → `mechanism: in_process`；`QC.TASK.RECOVER` → `implemented`（`POST /qc-tasks`） |
+| `event_catalog.yaml` | `QC_TASK_QUEUED.payload_required` +`source` +`operator_id` +`reason`（事件数与对象计数不变） |
+| `scripts/contract_check.py` | 台账新增 `mechanism: in_process` 表达：必须写 module + reason、不得同时声明 route；授权落点检查对 in_process 跳过（其触发面由数据库权限决定，不需要也不存在 require_role） |
+
+### 7.4 未做（明确挂账）
+
+- **D6-9 未开始**：仍需自己的契约登记（`OUTBOX.DEAD_LETTER.REPLAY`，106→107）、新表 `outbox.dead_letter_replays`、新角色 `outbox_ops_role`。D-2/D-3 的裁决只定了形态与「是否登记」，不等于已批准实施。
+- **`implemented` 台账的 `in_process` 是新表达式**：既有 46 个 HTTP 动作不受影响，但它第一次让「无 HTTP 面的已实现动作」可以被如实登记。这属于闸门能力扩展，不是为某一动作开的特例——同类动作今后应复用，不得各写一套豁免。

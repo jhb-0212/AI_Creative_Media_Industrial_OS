@@ -17,6 +17,7 @@ import pytest
 
 from packages.shared.evidence_ports import ReportFacts
 from services.project_planning.domain.enums import QCTaskStatus
+from services.qc_governance.domain.qc_task import EnqueueOrigin
 from workers.qc.worker import QCInspection, QCWorker
 
 _TENANT = uuid4()
@@ -139,8 +140,8 @@ async def _queued(service, generation_task_id="gen-1"):
         asset_version_id="asset-1",
         generation_task_id=generation_task_id,
         quality_profile_version="qp-1",
-        created_by="generation-worker",
         tenant_id=_TENANT,
+        origin=EnqueueOrigin(source="RELAY", operator_id="outbox-relay"),
         shot_id="shot-1",
     )
 

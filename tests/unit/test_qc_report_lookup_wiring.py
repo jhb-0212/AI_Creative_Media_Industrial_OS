@@ -1,15 +1,15 @@
-"""QC 报告核验器的装配闸门。
+"""跨域端口的装配闸门（报告核验器 + 生成事实读取器）。
 
 被测命题：**「跨域端口确实被接上了」**，而不是「代码里有这么个函数」。
 
-为什么需要单独的装配测试：报告核验器的失效方式是静默的——如果组合根没接上
-（或 state 键两边写错），服务层会 fail-closed 拒绝终结，症状是「每次判定都
-500」，看起来像业务 bug；若有人把它改成「没接上就放行」，症状会变成
-「看起来通过」。两种情况都没有语法/类型错误可捕获，只有把「使用点读的键」
-和「装配点写的键」放在一起比一次才能证伪。
+为什么需要单独的装配测试：端口失效的方式是静默的——如果组合根没接上
+（或 state 键两边写错），服务层会 fail-closed 拒绝，症状是「每次调用都 500」，
+看起来像业务 bug；若有人把它改成「没接上就放行」，症状会变成「看起来通过」。
+两种情况都没有语法/类型错误可捕获，只有把「使用点读的键」和「装配点写的键」
+放在一起比一次才能证伪。
 
-同时验证适配器本身：返回归属事实、缺失返回 ``None``（由服务层转成
-「报告不存在」），并且**两种会话形状读的是同一口径**（API 侧注入会话、
+同时验证适配器本身：返回归属事实、缺失返回 ``None``（由调用方转成
+「不存在」），并且**两种会话形状读的是同一口径**（API 侧注入会话、
 Worker 侧每调用一次自取会话并设租户上下文）。
 """
 
@@ -21,7 +21,11 @@ from uuid import uuid4
 
 import pytest
 
-from apps.api.wiring import QC_REPORT_LOOKUP_FACTORY, register_cross_domain_ports
+from apps.api.wiring import (
+    GENERATION_FACTS_LOOKUP_FACTORY,
+    QC_REPORT_LOOKUP_FACTORY,
+    register_cross_domain_ports,
+)
 
 
 class _FakeRepo:
@@ -67,6 +71,29 @@ def test_route_reads_the_same_state_key_the_root_writes() -> None:
     from services.qc_governance.api import qc_task_routes
 
     assert qc_task_routes._LOOKUP_FACTORY_STATE_KEY == QC_REPORT_LOOKUP_FACTORY
+    assert qc_task_routes._FACTS_FACTORY_STATE_KEY == GENERATION_FACTS_LOOKUP_FACTORY
+
+
+def test_generation_facts_factory_is_registered() -> None:
+    """生成事实读取器必须被挂上：漏挂时人工恢复会 500，而自动入队毫无症状。"""
+    from fastapi import FastAPI
+
+    from services.production_planning.repository.generation_facts_lookup import (
+        build_generation_facts_lookup,
+    )
+
+    app = FastAPI()
+    register_cross_domain_ports(app)
+    assert (
+        getattr(app.state, GENERATION_FACTS_LOOKUP_FACTORY, None)
+        is build_generation_facts_lookup
+    )
+
+
+def test_api_composition_root_registered_generation_facts() -> None:
+    from apps.api.main import app
+
+    assert getattr(app.state, GENERATION_FACTS_LOOKUP_FACTORY, None) is not None
 
 
 async def test_lookup_returns_ownership_facts(patched_repo) -> None:

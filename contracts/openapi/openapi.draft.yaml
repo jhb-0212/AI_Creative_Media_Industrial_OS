@@ -3510,7 +3510,11 @@ paths:
       tags:
         - QCTask
       summary: QC.TASK.ENQUEUE（资源 QCTask，风险 MEDIUM）
-      description: 生成终态入队；缺产物引用或同一生成任务重复入队时拒绝。
+      description: >-
+        生成终态入队；缺产物引用或同一生成任务重复入队时拒绝。
+        运行时没有对外的 HTTP 入口（见 action_implementations.yaml 的 mechanism:
+        in_process）：本动作由 relay 消费 GENERATION_SUCCEEDED 后直调
+        QCTaskService 完成，人工入口另见 qc.task.recover。
       x-afs-action-key: QC.TASK.ENQUEUE
       x-afs-scope: project/shot/asset_version
       x-afs-risk-level: MEDIUM

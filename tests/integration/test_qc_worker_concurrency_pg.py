@@ -29,6 +29,7 @@ from packages.shared.database import (
 )
 from packages.shared.outbox_writer import SqlAlchemyOutboxWriter
 from services.project_planning.domain.enums import QCTaskStatus
+from services.qc_governance.domain.qc_task import EnqueueOrigin
 from services.qc_governance.repository.qc_task_repo import SqlAlchemyQCTaskRepository
 from services.qc_governance.service.qc_task_service import QCTaskService
 from tests.conftest import set_test_scope
@@ -76,8 +77,8 @@ async def _enqueue(
             asset_version_id=f"av-{suffix}",
             generation_task_id=f"gen-{suffix}",
             quality_profile_version=f"qp-{suffix}",
-            created_by="pg-concurrency-test",
             tenant_id=tenant,
+            origin=EnqueueOrigin(source="RELAY", operator_id="outbox-relay"),
             shot_id=f"shot-{suffix}",
             qc_task_id=f"qc-{suffix}",
         )

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.entity import Entity
@@ -31,6 +31,46 @@ _OWNER_MODULE = "qc-governance"
 
 def _blank(value: str) -> bool:
     return value is None or not str(value).strip()
+
+
+# 入队来源：只有两种，且**必须是闭集**。
+#
+# 为什么不做成自由字符串：来源是审计判据。写成 "manual" / "MANUAL" / "人工"
+# 都能过校验时，「这条待检项是人建的还是自动来的」就再也统计不出来——
+# 而那正是 C7-6 要求可追溯的第一项。闭集让取值错误在类型检查期暴露。
+QCTaskEnqueueSource = Literal["RELAY", "MANUAL"]
+
+
+@dataclass(frozen=True)
+class EnqueueOrigin:
+    """一次入队动作的来源事实（写进 ``QC_TASK_QUEUED`` 载荷，构成审计凭据）。
+
+    为什么来源要随事件落库，而不是只记在日志里
+    ----------------------------------------
+    自动入队与人工恢复**共用同一条幂等事实**（同一个 ``generation_task_id``
+    唯一键），所以两者在表里长得一模一样。事后要回答「这条待检项是 relay
+    投递出来的，还是某个运维人员手工补的」，只能靠事件载荷——日志会轮转，
+    outbox 行不会。
+
+    ``reason`` 对自动路径为空：自动入队不需要解释自己为什么存在；
+    人工路径必须给出理由（由服务层强制），因为「人为什么绕过正常链路」
+    是这次操作唯一无法从数据推导出来的信息。
+    """
+
+    source: QCTaskEnqueueSource
+    operator_id: str
+    reason: str = ""
+
+    def __post_init__(self) -> None:
+        if _blank(self.operator_id):
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR, detail="入队来源缺少 operator_id"
+            )
+        if self.source == "MANUAL" and _blank(self.reason):
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail="人工恢复入队必须给出 reason（操作理由不可留空）",
+            )
 
 
 @dataclass
@@ -217,4 +257,4 @@ class QCTask(Entity):
         return data
 
 
-__all__ = ["QCTask"]
+__all__ = ["EnqueueOrigin", "QCTask", "QCTaskEnqueueSource"]

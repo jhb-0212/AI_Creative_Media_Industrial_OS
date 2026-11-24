@@ -46,6 +46,7 @@ from packages.shared.rls import set_tenant_context
 from services.project_planning.repository.sqlalchemy_outbox_writer import (
     SqlAlchemyOutboxWriter,
 )
+from services.qc_governance.domain.qc_task import EnqueueOrigin
 from services.qc_governance.repository.qc_task_repo import SqlAlchemyQCTaskRepository
 from services.qc_governance.service.qc_task_service import QCTaskService
 from workers.relay.asset_registration import build_asset_registration_handlers
@@ -101,12 +102,16 @@ async def enqueue_idempotently(service: Any, request: GenerationSucceeded) -> bo
     """把一次成功幂等地转成 QC 待检项。返回是否真的新建了待检项。
 
     幂等有两条判据，缺一不可：先查（便宜快路径）与唯一约束（并发兜底）。
-    ``QCTaskService.enqueue`` 内部已做先查；并发下两个 relay 副本可能都通过
-    先查，此时唯一约束冲突会被收敛成 ``IDEMPOTENCY_CONFLICT``。这里把它翻译
+    ``QCTaskService.enqueue`` 内部已做先查，并把唯一键冲突翻译成
+    ``IDEMPOTENCY_CONFLICT``（仓储层 SAVEPOINT + 端口契约翻译——此前那里只有
+    裸 flush，撞键会以 500 冒出来，本函数的收敛分支根本走不到）。这里把它翻译
     成「已入队 = 投递成功」，其余 DomainError 照常上抛。
 
     反面：把 ``IDEMPOTENCY_CONFLICT`` 当失败，会让重复投递的事件被反复重试直到
     进死信；把其它错误当成功，会让真正入队失败的产物永久失检。
+
+    ``source="RELAY"`` 让自动入队与人工恢复在同一条事件流里可区分——两者共用
+    同一个唯一键与同一段创建代码，表里长得一样，只有载荷能说明来路。
     """
     try:
         await service.enqueue(
@@ -115,8 +120,8 @@ async def enqueue_idempotently(service: Any, request: GenerationSucceeded) -> bo
             asset_version_id=request.asset_version_id,
             generation_task_id=request.generation_task_id,
             quality_profile_version=request.quality_profile_version,
-            created_by="outbox-relay",
             tenant_id=request.tenant_id,
+            origin=EnqueueOrigin(source="RELAY", operator_id="outbox-relay"),
         )
     except DomainError as exc:
         if exc.error_code is ErrorRegistry.IDEMPOTENCY_CONFLICT:

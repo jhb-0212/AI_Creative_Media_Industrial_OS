@@ -14,7 +14,11 @@
 # 1. implemented.route 必须写成 "METHOD /path"，路径与运行时 app 的 path 完全一致；
 # 2. not_implemented 必须写 reason（给下一个人看，不是给 CI 看）；
 # 3. PHASE_GATED 的 action 不进本台账（它们不要求实现，提了反而制造口径混乱）；
-# 4. 新增运行时端点必须同时在这里登记，否则 contract_check 报「未登记端点」。
+# 4. 新增运行时端点必须同时在这里登记，否则 contract_check 报「未登记端点」；
+# 5. 真的实现了但**没有 HTTP 端点**的动作，登记 mechanism: in_process，并写明
+#    module 与 reason（为什么没有对外入口），且不得同时写 route。
+#    这一条存在的理由：只认 route 的台账会逼着「无 HTTP 面的实现」二选一说谎
+#    ——要么编一个 route，要么谎称未实现。声明与事实不符才是台账真正要防的东西。
 version: 1
 
 implemented:
@@ -52,7 +56,21 @@ implemented:
   ASSET.VERSION.CREATE:
     route: "POST /assets"
     module: services/asset_service/api/asset_routes.py
+  # 自动入队：没有 HTTP 入口。GENERATION_SUCCEEDED 由 relay 消费后直调
+  # QCTaskService（workers/relay/handlers.py），不经过 API 层。
+  # C7-b 之前这里登记为 route: POST /qc-tasks，但那其实是**人工**入口：
+  # 台账只认 HTTP 端点，于是自动入队只能借一个人家的门牌号，而那条门牌号
+  # 上的席位、核验、幂等全都不是自动路径的语义。两份事实挤在一行，
+  # 结果就是「声明存在，但声明的内容不是事实」。
   QC.TASK.ENQUEUE:
+    mechanism: in_process
+    module: services/qc_governance/service/qc_task_service.py
+    invoked_by: workers/relay/handlers.py（GENERATION_SUCCEEDED 处理器）
+    reason: >-
+      自动入队不经 HTTP：relay 消费事件后直调 QCTaskService.enqueue。没有对外端点
+      是设计结果而非缺口——它不该被任何外部调用方触发，事件就是它的唯一入口。
+      人工入口另由 QC.TASK.RECOVER 承载（POST /qc-tasks）。
+  QC.TASK.RECOVER:
     route: POST /qc-tasks
     module: services/qc_governance/api/qc_task_routes.py
   QC.TASK.PROCESS:
@@ -220,11 +238,3 @@ not_implemented:
     reason: "交付清单未落地"
   DELIVERY.MANIFEST.RELEASE:
     reason: "交付清单未落地"
-  # --- QC 人工恢复 ---
-  QC.TASK.RECOVER:
-    reason: >-
-      契约已登记、运行时未实现（A37 只做契约先行：按裁决顺序先登记、核准后再改代码）。
-      POST /qc-tasks 现有实现直接信任请求体 project_id 与 quality_profile_version，
-      不核验任务归属与生命周期，也不区分人工/自动两个入口的席位；在补齐六项核验
-      （可信身份、专项席位、权威归属、生命周期、统一幂等、追加审计）之前，不得声明已实现。
-      自动入队（GENERATION_SUCCEEDED → QCTaskService）不受影响，仍由 QC.TASK.ENQUEUE 承载。

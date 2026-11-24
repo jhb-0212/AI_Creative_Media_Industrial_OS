@@ -19,6 +19,7 @@ from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.evidence_ports import ReportFacts
 from packages.shared.in_memory import InMemoryOutboxWriter, InMemoryRepository
 from services.project_planning.domain.enums import QCTaskStatus
+from services.qc_governance.domain.qc_task import EnqueueOrigin
 from services.qc_governance.service.qc_task_service import QCTaskService
 
 _TENANT = uuid4()
@@ -64,8 +65,8 @@ async def _enqueued(service: QCTaskService, generation_task_id: str = "gen-1"):
         asset_version_id="asset-1",
         generation_task_id=generation_task_id,
         quality_profile_version="qp-1",
-        created_by="generation-worker",
         tenant_id=_TENANT,
+        origin=EnqueueOrigin(source="RELAY", operator_id="outbox-relay"),
         shot_id="shot-1",
     )
 
@@ -95,8 +96,8 @@ async def test_enqueue_requires_asset_reference() -> None:
             asset_version_id="",
             generation_task_id="gen-x",
             quality_profile_version="qp-1",
-            created_by="generation-worker",
             tenant_id=_TENANT,
+            origin=EnqueueOrigin(source="RELAY", operator_id="outbox-relay"),
         )
 
 
