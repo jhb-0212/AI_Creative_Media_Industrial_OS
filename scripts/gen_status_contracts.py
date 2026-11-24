@@ -421,6 +421,28 @@ def _assert_only_enum_changed(before: dict[str, Any], after: dict[str, Any]) -> 
 # --------------------------------------------------------------------------- #
 # 漂移检测与落盘
 # --------------------------------------------------------------------------- #
+def _drifted_enum_objects(
+    expected: dict[str, tuple[str, ...]], actual: dict[str, tuple[str, ...]]
+) -> list[str]:
+    """列出 enum 期望值与实际值不一致的键；文件级排版差异返回空列表。"""
+    return sorted(
+        key for key in set(expected) | set(actual) if expected.get(key) != actual.get(key)
+    )
+
+
+def _schema_enum_map(schema_text: str) -> dict[str, tuple[str, ...]]:
+    """从 Schema 文本抽出 ``对象.字段 -> enum 值``，用于定位漂移字段。"""
+    definitions = json.loads(schema_text).get("definitions") or {}
+    result: dict[str, tuple[str, ...]] = {}
+    for name, spec in definitions.items():
+        if not isinstance(spec, dict):
+            continue
+        for field, prop in (spec.get("properties") or {}).items():
+            if isinstance(prop, dict) and isinstance(prop.get("enum"), list):
+                result[f"{name}.{field}"] = tuple(str(v) for v in prop["enum"])
+    return result
+
+
 def drift_problems() -> list[str]:
     """返回派生结果与磁盘文件的差异（空列表 = 一致）。"""
     states = lifecycle_states()
@@ -435,16 +457,28 @@ def drift_problems() -> list[str]:
     expected_registry = render_enum_registry(states)
     actual_registry = ENUM_REGISTRY.read_text(encoding="utf-8")
     if expected_registry != actual_registry:
+        actual_states = {
+            str(e.get("object")): tuple(str(v) for v in (e.get("states") or []))
+            for e in load_yaml_file(ENUM_REGISTRY).get("objects") or []
+        }
+        drifted = _drifted_enum_objects(
+            {name: tuple(values) for name, values in states.items()}, actual_states
+        )
         problems.append(
             "enum_registry.yaml 与 state_machines.allowed_states 不一致"
-            "（跑 --write 重算，不要手改派生文件）"
+            f"（漂移对象: {', '.join(drifted) or '文件级差异'}；"
+            "跑 --write 重算，不要手改派生文件）"
         )
 
     expected_schema = patch_schema(raw, nl, required, field_values)
     if expected_schema != raw:
+        drifted = _drifted_enum_objects(
+            _schema_enum_map(expected_schema), _schema_enum_map(raw)
+        )
         problems.append(
             "object_schemas.schema.json 的字段 enum 与权威源不一致"
-            "（status 来自 state_machines，维度字段来自 field_value_sets；跑 --write 重算）"
+            f"（漂移字段: {', '.join(drifted) or '文件级差异'}；"
+            "status 来自 state_machines，维度字段来自 field_value_sets；跑 --write 重算）"
         )
     return problems
 

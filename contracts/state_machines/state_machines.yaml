@@ -30,7 +30,7 @@
 version: 2
 source: AFS-ARCH-MASTER-V2.0.5 各章节状态机定义（由 Markdown 基线派生）
 authority_rule: 同一对象多处定义时，按 31.5 唯一权威状态机 > 32.6/C.7 > 34.x > 33.3 > C.3 取权威；24.11 为摘要不计入权威；差异不静默合并，见 conflict 字段。
-total_objects: 52
+total_objects: 53
 conflict_count: 6
 object_count_note: total_objects 只计持久化领域对象；UI 投影见 projections 分区（不计入对象数，也不得进枚举注册表）。
 
@@ -1098,3 +1098,50 @@ objects:
   - 32.x Staging / Asset Intake 口径
   - C.3 对象总表（ExternalToolArtifact 字段）
   - docs/audits/2026-11-24-status-governance-ruling-packet.md（G-A 首轮裁定）
+- object: ShotTierChangeRequest
+  authoritative_source: 17.7 镜头等级变更工作流（状态建议原文）+ 17.10 字段表 status + 所有者 2026-11-24 G-A 裁定
+  allowed_states: [APPROVED, CANCELLED, COMPLETED, DRAFT, EVALUATING, EXECUTING, FAILED, REJECTED, ROLLED_BACK, SUBMITTED]
+  initial_state: DRAFT
+  transitions:
+  - from: DRAFT
+    to: SUBMITTED
+  - from: SUBMITTED
+    to: EVALUATING
+  - from: EVALUATING
+    to: APPROVED
+  - from: EVALUATING
+    to: REJECTED
+  - from: APPROVED
+    to: EXECUTING
+  - from: EXECUTING
+    to: COMPLETED
+  - from: EXECUTING
+    to: FAILED
+  - from: EXECUTING
+    to: ROLLED_BACK
+  - from: DRAFT
+    to: CANCELLED
+  - from: SUBMITTED
+    to: CANCELLED
+  - from: EVALUATING
+    to: CANCELLED
+  - from: APPROVED
+    to: CANCELLED
+  frozen_states: [CANCELLED, COMPLETED, FAILED, REJECTED, ROLLED_BACK]
+  note: >-
+    十个字面值逐字取自 17.7 正文原文（主线七值 + CANCELLED / FAILED / ROLLED_BACK 三个旁路终态），
+    不采用台账建议的 DRAFT→PENDING→APPROVED/REJECTED，也不复用 ScriptRevision 的 LOCK_PENDING：
+    两者都会丢掉正文已授权的执行、完成、失败与回滚事实。主线六条边与 EVALUATING→REJECTED
+    依正文箭头顺序登记；CANCELLED 可从批准前的任一在制态进入（批准尚未执行亦可撤回），
+    FAILED / ROLLED_BACK 只从 EXECUTING 进入，这三组挂接点是所有者按语义推导的——正文只写
+    「另支持」而未给转移点，故 registration_status 保持 PENDING_PHASE1_REVIEW。
+    申请人与批准人必须来自 Principal 且职责分离（17.7：Agent 不得自批、不得绕预算或 Gate）；
+    EXECUTING 的 DAG 影响与最小化 STALE 传播按 17.8 执行。五个终态不可原地复活，
+    再次变更须新建 request；ROLLED_BACK 是已回滚的终态，不是可重试的在制态。
+  source_kind: text_authority_only
+  registration_status: PENDING_PHASE1_REVIEW
+  all_sources:
+  - 17.7 镜头等级变更工作流（状态建议原文）
+  - 17.10 字段表（ShotTierChangeRequest.status）
+  - 17.8 与 DAG、Gate、STALE 的关系
+  - docs/audits/2026-11-24-status-governance-ruling-packet.md（G-A 第二轮裁定）
