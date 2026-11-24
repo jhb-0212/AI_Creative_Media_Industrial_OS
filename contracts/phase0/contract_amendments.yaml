@@ -1901,6 +1901,45 @@ amendments:
       - '三个 envelope_only 对象的 unblocks_when 是可机检前提：正文若给出对象级权威状态字面值，必须改回 lifecycle 并登记状态机。'
       - '#35 G-A 18 项 lifecycle_gap + G-C 8 项 Schema 缺口全部销项；#13 累积式会签仍 blocked，未触碰。'
 
+  - id: V205-R45
+    title: '#13 累积式会签 D2b：approval_signatures 事实表 + ApprovalSignature 三态状态机 + 凑齐判定'
+    retroactive: false
+    recorded_at: '2026-11-24'
+    discovered_by: '#13 累积会签；ADR-R23 §D2-e 将缺口收紧为两项具体依赖（独立事实表 + 运行时入口），ADR-R45 落地'
+    reason: >-
+      回权威事实源取证：#13 = AUTH-5 累积式会签 = ADR-R23 D2b；D2a（status_transitions）已落地，
+      但会签需要的是「推进前某席位已签署」这一另一类事实，不能借 from_status<>to_status 的迁移表承载。
+      所有者三项裁定（2026-11-24）：①地基+一条闭环 ②目标动作 DELIVERY.MANIFEST.APPROVE ③签署状态集
+      SIGNED/REVOKED/CONSUMED。新增 ApprovalSignature 对象 schema（三态 enum 由状态机派生）与三态状态机
+      （SIGNED→REVOKED / SIGNED→CONSUMED，后两态终态，source_kind=owner_ruling，PENDING_PHASE1_REVIEW）。
+      契约层新增 DATA-7 不变量与 data.accumulative_countersign 断言（判据先于修复跑红点名，修复后转绿）。
+      运行时：audit.approval_signatures 迁移（append-only 三层守卫含 TRUNCATE、event_id 提交时校验、
+      RLS enable&force、授权由 db_grants 矩阵经 converge_statements 生成）、ORM 与唯一凑齐判定纯函数、
+      CountersignatureService 唯一写入点。闸门先跑红取证（DATA-7 未注册断言报红点名），再逐项修复转绿。
+      本批不新增 DELIVERY.MANIFEST.SIGN/REVOKE 动作：签署服务尚无 API 端点调用，登记会制造「已登记未实现」债务
+      （ADR-R45 §D3-e CORRECTION-1）。
+    adr: 'docs/adr/ADR-R45-accumulative-countersign.md'
+    approved_by: '项目所有者（2026-11-24 授权开 #13；三项裁定按推荐签署）'
+    approved_at: '2026-11-24'
+    source_commits:
+      - 'd57da2671e5501847bea65e124a555d01fa88f1c'
+    additions:
+      schema_objects:
+        - object: ApprovalSignature
+      state_machines:
+        - object: ApprovalSignature
+    counts_after:
+      actions: 105
+      openapi_operations: 105
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - '跨席位「不同主体」靠运行时纯函数 + AST 调用点白名单（SQL 无跨行 exclusion）；反射/字符串拼接写入需代码评审兜底。'
+      - '交付清单业务域（CREATE/RELEASE / Manifest 状态推进）未落地：会签凑齐后写 CONSUMED + 放行事件，下游消费者尚未实现；本批交付「会签机制可用且可测」。'
+      - '历史读接口 AUDIT.STATUS.HISTORY.READ 留后续批次（R1）。'
+      - 'ApprovalSignature 三态状态机为所有者裁定，registration_status=PENDING_PHASE1_REVIEW，待 Phase 1 验收固化。'
+      - 'G-C 计数断言测试中的写死 55 改为派生（判据不写死计数），G-C 销项事实由 LIFECYCLE_ADDED 在册断言继续证明。'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——
