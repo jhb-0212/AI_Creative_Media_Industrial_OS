@@ -2243,6 +2243,10 @@
           ]
         },
         "message": {"type": ["string", "null"]},
+        "registration_fingerprint": {
+          "type": ["string", "null"],
+          "description": "规范化登记请求的确定性 SHA-256（PR-F）；存量回执为 null。内容冲突比对的依据。"
+        },
         "entity_id": {"type": "string"},
         "entity_type": {"type": "string"},
         "schema_version": {"type": "integer"},

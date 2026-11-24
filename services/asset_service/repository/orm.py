@@ -166,6 +166,9 @@ class AssetRegistrationReceiptModel(Base, EntityMixin):
     project_id: Mapped[str] = mapped_column(String(64), nullable=False)
     asset_version_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     message: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # R42 T2 幂等冲突指纹：规范化请求的确定性 SHA-256。存量行 NULL（不可变回执
+    # 无法回填），新回执必带。列名与 DB CHECK 一致（64 hex 或 NULL）。
+    registration_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class QCReportModel(Base):
