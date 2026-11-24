@@ -58,6 +58,7 @@ ENUM_REGISTRY = ROOT / "contracts" / "enums" / "enum_registry.yaml"
 SCHEMA = ROOT / "contracts" / "schemas" / "object_schemas.schema.json"
 TAXONOMY = ROOT / "contracts" / "enums" / "status_field_taxonomy.yaml"
 LAYERS = ROOT / "contracts" / "enums" / "status_layers.yaml"
+FIELD_VALUE_SETS = ROOT / "contracts" / "enums" / "field_value_sets.yaml"
 
 _LIFECYCLE = "lifecycle"
 _ENVELOPE_ONLY = "envelope_only"
@@ -112,6 +113,36 @@ def taxonomy_classes(path: Path | None = None) -> dict[str, str]:
             raise ValueError(f"{name} 在 status_field_taxonomy 里重复登记")
         result[name] = cls
     return result
+
+
+def field_value_sets_from_data(data: dict[str, Any]) -> dict[tuple[str, str], list[str]]:
+    """解析已加载的值集台账；测试注入坏状态时走同一解析入口。"""
+    result: dict[tuple[str, str], list[str]] = {}
+    for entry in data.get("fields") or []:
+        obj = str(entry.get("object", "")).strip()
+        field = str(entry.get("field", "")).strip()
+        values = entry.get("values")
+        key = (obj, field)
+        if not obj or not field or not isinstance(values, list) or not values:
+            raise ValueError(f"field_value_sets 条目 {key!r} 缺 object/field/values")
+        parsed = [str(v).strip() for v in values]
+        if any(not v for v in parsed) or len(set(parsed)) != len(parsed):
+            raise ValueError(f"field_value_sets 条目 {key!r} 的值集有空值或重复值")
+        if key in result:
+            raise ValueError(f"field_value_sets 条目 {key!r} 重复登记")
+        if field == "status":
+            raise ValueError(f"field_value_sets 不得登记信封 status（{obj} 应走状态机）")
+        result[key] = sorted(parsed)
+    return result
+
+
+def field_value_sets(path: Path | None = None) -> dict[tuple[str, str], list[str]]:
+    """返回 ``{(对象, 字段): 权威值集（字母序）}``。
+
+    只管非 status 的维度字段：信封 status 的权威源仍是 state_machines.yaml。
+    两套事实源按「字段名」分界，重叠登记会在 contract_check 里报红。
+    """
+    return field_value_sets_from_data(load_yaml_mapping(path or FIELD_VALUE_SETS))
 
 
 def envelope_only_sentinel(layers: dict[str, Any] | None = None) -> str:
@@ -192,7 +223,6 @@ def render_enum_registry(states: dict[str, list[str]]) -> str:
 # object_schemas.schema.json 的 status.enum 生成
 # --------------------------------------------------------------------------- #
 _DEF_OPEN = re.compile(r'^(\s*)"(?P<name>[^"]+)": \{\s*$')
-_STATUS_OPEN = re.compile(r'^(?P<indent>\s*)"status": \{\s*$')
 
 
 def _read_text(path: Path) -> tuple[str, str]:
@@ -244,28 +274,40 @@ def _normalize_def_indent(lines: list[str], start: int, end: int) -> None:
             lines[idx] = shift + body + lines[idx][len(body) :]
 
 
-def _status_block(lines: list[str], start: int, end: int) -> tuple[int, int, int] | None:
-    """在定义块内定位信封 status 对象，返回 ``(起始行, 结束行, 键缩进)``。"""
+def _property_block(
+    lines: list[str], start: int, end: int, field: str
+) -> tuple[int, int, int] | None:
+    """在定义块内定位一个属性对象，返回 ``(起始行, 结束行, 键缩进)``。
+
+    只认属性层（定义 4 → properties 6 → 属性 8）。按精确文本匹配键名，
+    不会把 `required` 数组里的同名字样误认成属性定义。
+    """
+    opener = f'"{field}": {{'
     for idx in range(start + 1, end + 1):
-        match = _STATUS_OPEN.match(lines[idx].rstrip("\r\n"))
-        if not match:
+        text = lines[idx].rstrip("\r\n")
+        if text.strip() != opener:
             continue
-        indent = len(match.group("indent"))
-        if indent != 8:  # 只认信封层（定义 4 → properties 6 → 属性 8）
+        indent = len(text) - len(text.lstrip(" "))
+        if indent != 8:
             continue
         depth = 0
         for j in range(idx, end + 1):
-            text = lines[j].rstrip("\r\n")
-            depth += text.count("{") - text.count("}")
+            body_line = lines[j].rstrip("\r\n")
+            depth += body_line.count("{") - body_line.count("}")
             if depth == 0:
                 return idx, j, indent
     return None
 
 
-def _render_status_block(
-    key_indent: str, nl: str, properties: dict[str, Any], had_comma: bool
+def _status_block(lines: list[str], start: int, end: int) -> tuple[int, int, int] | None:
+    """在定义块内定位信封 status 对象（兼容旧调用入口）。"""
+    return _property_block(lines, start, end, "status")
+
+
+def _render_property_block(
+    field: str, key_indent: str, nl: str, properties: dict[str, Any], had_comma: bool
 ) -> list[str]:
-    """按原文件的排版风格重建 status 属性块（键 2 空格递进）。"""
+    """按原文件的排版风格重建任意属性块（键 2 空格递进）。"""
     inner = " " * (len(key_indent) + 2)
     render: dict[str, Any] = {"type": properties.get("type", "string")}
     if "enum" in properties:
@@ -274,11 +316,11 @@ def _render_status_block(
         render["description"] = properties["description"]
     unknown = set(properties) - {"type", "enum", "description"}
     if unknown:
-        raise ValueError(f"status 属性含未预期键，拒绝静默丢弃: {sorted(unknown)}")
+        raise ValueError(f"{field} 属性含未预期键，拒绝静默丢弃: {sorted(unknown)}")
 
     # json.dumps 的首尾两行是外层的 { 与 }，由本函数自行输出（带原文件的缩进与逗号）。
     body = json.dumps(render, ensure_ascii=False, indent=2).split("\n")[1:-1]
-    out = [f'{key_indent}"status": {{{nl}']
+    out = [f'{key_indent}"{field}": {{{nl}']
     for line in body:
         # 去掉 json.dumps 的一级基准缩进（2 空格），保留条目的相对层级。
         out.append(inner + line[2:] + nl)
@@ -286,11 +328,29 @@ def _render_status_block(
     return out
 
 
-def patch_schema(raw: str, nl: str, required: dict[str, list[str]]) -> str:
-    """把每个 lifecycle 对象的 status.enum 设成权威状态集，其余对象清掉 enum。"""
+def _render_status_block(
+    key_indent: str, nl: str, properties: dict[str, Any], had_comma: bool
+) -> list[str]:
+    """兼容旧入口：重建信封 status 属性块。"""
+    return _render_property_block("status", key_indent, nl, properties, had_comma)
+
+
+def patch_schema(
+    raw: str,
+    nl: str,
+    required: dict[str, list[str]],
+    field_values: dict[tuple[str, str], list[str]] | None = None,
+) -> str:
+    """把 status.enum 与已裁定维度字段的 enum 设成权威值集，其余对象清掉 status enum。
+
+    两条派生链共用同一份 Schema，但权威源不同：status 来自 state_machines，
+    维度字段来自 field_value_sets。只按显式登记的字段改写，绝不扫描全文件
+    猜测「哪些字段该收 enum」——那会把普通字符串字段误伤成封闭枚举。
+    """
     lines = _lines(raw, nl)
     data = json.loads(raw)
     definitions = data.get("definitions") or data.get("$defs") or {}
+    field_values = field_values or {}
 
     for _name, start, end in _definitions_span(lines):
         _normalize_def_indent(lines, start, end)
@@ -302,26 +362,42 @@ def patch_schema(raw: str, nl: str, required: dict[str, list[str]]) -> str:
         spec = definitions.get(name)
         if not isinstance(spec, dict):
             continue
-        found = _status_block(lines, start, end)
-        if found is None:
-            continue
-        block_start, block_end, indent = found
-        props = dict(spec.get("properties", {}).get("status") or {})
-        want = required.get(name)
-        if want:
-            props["enum"] = list(want)
-        else:
-            props.pop("enum", None)
-        had_comma = lines[block_end].rstrip("\r\n").endswith(",")
-        patches.append(
-            (
-                block_start,
-                block_end,
-                _render_status_block(" " * indent, nl, props, had_comma),
-            )
+        declared_fields = sorted(
+            field for (obj, field) in field_values if obj == name
         )
+        targets = ["status", *declared_fields]
+        for field in targets:
+            found = _property_block(lines, start, end, field)
+            if found is None:
+                if field == "status":
+                    continue  # 无信封字段的对象（如纯列表定义）不归本派生器管
+                raise ValueError(
+                    f"field_value_sets 登记了 {name}.{field}，但 Schema 没有这个属性"
+                )
+            block_start, block_end, indent = found
+            props = dict(spec.get("properties", {}).get(field) or {})
+            want = (
+                required.get(name)
+                if field == "status"
+                else field_values[(name, field)]
+            )
+            if want:
+                props["enum"] = list(want)
+            else:
+                props.pop("enum", None)
+            had_comma = lines[block_end].rstrip("\r\n").endswith(",")
+            patches.append(
+                (
+                    block_start,
+                    block_end,
+                    _render_property_block(field, " " * indent, nl, props, had_comma),
+                )
+            )
 
-    for block_start, block_end, replacement in reversed(patches):
+    # 必须按**行号降序**落盘，不能按收集顺序倒序：一个定义里既有 status 又有
+    # 维度字段时，收集顺序是 ["status", 维度字段...]，而文件里的物理顺序并不相同，
+    # 倒序应用会让先前的扩行把后面的行号推走，补丁写进邻居属性里。
+    for block_start, block_end, replacement in sorted(patches, reverse=True):
         lines[block_start : block_end + 1] = replacement
 
     patched = "".join(lines)
@@ -353,6 +429,7 @@ def drift_problems() -> list[str]:
     raw, nl = _read_text(SCHEMA)
     definitions = json.loads(raw).get("definitions") or {}
     required = enum_required(states, classes, layers, definitions)
+    field_values = field_value_sets()
     problems: list[str] = []
 
     expected_registry = render_enum_registry(states)
@@ -363,11 +440,11 @@ def drift_problems() -> list[str]:
             "（跑 --write 重算，不要手改派生文件）"
         )
 
-    expected_schema = patch_schema(raw, nl, required)
+    expected_schema = patch_schema(raw, nl, required, field_values)
     if expected_schema != raw:
         problems.append(
-            "object_schemas.schema.json 的 status.enum 与 allowed_states 不一致"
-            "（跑 --write 重算）"
+            "object_schemas.schema.json 的字段 enum 与权威源不一致"
+            "（status 来自 state_machines，维度字段来自 field_value_sets；跑 --write 重算）"
         )
     return problems
 
@@ -379,15 +456,17 @@ def write_all() -> None:
     raw, nl = _read_text(SCHEMA)
     definitions = json.loads(raw).get("definitions") or {}
     required = enum_required(states, classes, layers, definitions)
+    field_values = field_value_sets()
 
     ENUM_REGISTRY.write_bytes(render_enum_registry(states).encode("utf-8"))
-    SCHEMA.write_bytes(patch_schema(raw, nl, required).encode("utf-8"))
+    SCHEMA.write_bytes(patch_schema(raw, nl, required, field_values).encode("utf-8"))
 
     lifecycle_count = sum(1 for cls in classes.values() if cls == _LIFECYCLE)
     print(
         f"[WRITE] enum_registry: {len(states)} 个对象；"
         f"schema status.enum: {len(required)} 个对象收 enum"
         f"（生命周期 {lifecycle_count} + 信封哨兵 {len(required) - lifecycle_count}），"
+        f"维度字段 enum: {len(field_values)} 个字段；"
         "lifecycle_gap 对象按台账保留裸 string 并挂债务字段"
     )
 

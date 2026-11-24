@@ -1,0 +1,124 @@
+# 非 status 维度字段的权威值集（手工维护，唯一权威）
+#
+# 为什么要有这份文件
+# ----------------
+# `state_machines.yaml` 管的是对象的信封 `status`，派生器只往 `status.enum` 写值。
+# 但有一类对象把真正的状态事实放在别的字段上（field_authority.yaml 的 status_split）：
+# ExternalToolAdapterManifest.lifecycle_status、ModelInvocation 的提交/结果/计费三字段、
+# QCIssue.human_decision。这些字段一度全是裸 string，任何人都能写任何值——
+# 「没有权威值集」被误当成「允许任意值」。
+#
+# 本文件把这类字段的值集收成唯一权威源，派生器把它们写进 object_schemas 的对应
+# 属性 enum（与 status 同一条派生链），contract_check 双向校验：
+#   声明了值集但 Schema 没跟上 → 红；Schema 有 enum 却没有权威声明 → 红；
+#   已裁定字段仍留在 status_layers.pending_owner_ruling → 陈旧债务红；
+#   status_split 的权威字段既没值集也没待裁定登记 → 隐形缺口红。
+#
+# 与状态机的边界
+# ----------------
+# 这里登记的是**字段值集**，不是对象生命周期。`transitions` 只在基线明确给出
+# 生命周期转移时填写；正交维度（提交/结果/计费）不填转移边，禁止把三个正交事实
+# 压成一条线性状态机。
+#
+# 值集来源优先级：基线正文明确取值 > 所有者裁定（记于 ruling 与 source_section）。
+# 本轮三项均由所有者于 2026-11-24 按「最优最长期」授权裁定，不得据此认定为
+# 技术栈或生产流程切换。
+
+version: 1
+source: docs/baseline/AI影视工业化生产平台V2.0.5.md §8.11 / §21.1 / §21.2 / §32.3 + 所有者裁定 2026-11-24
+ruling_reference: contracts/phase0/contract_amendments.yaml
+
+fields:
+  - object: ExternalToolAdapterManifest
+    field: lifecycle_status
+    dimension: adapter_lifecycle
+    values: [ACTIVE, DECLARED, PILOT, RETEST_REQUIRED, REVOKED, SUSPENDED, TESTING, VERIFIED]
+    transitions:
+      - {from: DECLARED, to: TESTING}
+      - {from: DECLARED, to: REVOKED}
+      - {from: TESTING, to: VERIFIED}
+      - {from: TESTING, to: REVOKED}
+      - {from: VERIFIED, to: PILOT}
+      - {from: VERIFIED, to: ACTIVE}
+      - {from: VERIFIED, to: SUSPENDED}
+      - {from: VERIFIED, to: RETEST_REQUIRED}
+      - {from: VERIFIED, to: REVOKED}
+      - {from: PILOT, to: ACTIVE}
+      - {from: PILOT, to: SUSPENDED}
+      - {from: PILOT, to: RETEST_REQUIRED}
+      - {from: PILOT, to: REVOKED}
+      - {from: ACTIVE, to: SUSPENDED}
+      - {from: ACTIVE, to: RETEST_REQUIRED}
+      - {from: ACTIVE, to: REVOKED}
+      - {from: SUSPENDED, to: RETEST_REQUIRED}
+      - {from: SUSPENDED, to: REVOKED}
+      - {from: RETEST_REQUIRED, to: TESTING}
+      - {from: RETEST_REQUIRED, to: REVOKED}
+    guards:
+      - from: TESTING
+        to: VERIFIED
+        require: [verification_evidence_refs, verified_capabilities]
+      - from: VERIFIED
+        to: ACTIVE
+        require: [verification_evidence_refs]
+    authority: 基线 §32.3「能力状态（生命周期）」明确给出八值全集
+    ruling: >-
+      采纳 §32.3 八值为 lifecycle_status 的唯一权威集；§32.4 动作事件名
+      REGISTERED / VERIFIED / REVOKED 中的 REGISTERED 是事件而非状态，对应 DECLARED。
+      转移边按 §32.3 叙述收敛：VERIFIED 是生产准入前置，PILOT 是受限试点，
+      ACTIVE 才允许生产路由；主版本升级/格式变化/安全事件/测试失败只能降为
+      SUSPENDED 或 RETEST_REQUIRED，不得沿用旧证据；REVOKED 为终态。
+      信封 status 仍为 NO_LIFECYCLE 哨兵，不是第二个权威位置。
+    source_section: 32.3 适配器能力状态集 / 32.4 AdapterManifest 验证与生命周期字段组
+
+  - object: ModelInvocation
+    field: submission_status
+    dimension: provider_submission
+    values: [NOT_SUBMITTED, SUBMITTED, SUBMISSION_UNKNOWN]
+    transitions: []
+    authority: 基线 §8.11 明确点名 SUBMISSION_UNKNOWN，其余取提交前后的最小正交事实
+    ruling: >-
+      回答「是否已提交给供应商，以及我们是否知道」：提交前 NOT_SUBMITTED、
+      提交已确认 SUBMITTED、超时且无法确认 SUBMISSION_UNKNOWN。
+      供应商明确拒绝属于结果事实，由 result_status 承载，不塞进提交维度。
+      SUBMISSION_UNKNOWN 必须先凭 provider_job_id / request_id / 幂等键查询，
+      确认前不得盲目重复提交。
+    source_section: 8.11 ModelInvocation 外部幂等映射
+
+  - object: ModelInvocation
+    field: result_status
+    dimension: provider_result
+    values: [RESULT_AVAILABLE, RESULT_FAILED, RESULT_PENDING, RESULT_UNKNOWN]
+    transitions: []
+    authority: 基线 §8.11 外部调用规则 + 异常表 PROVIDER_RESULT_UNKNOWN
+    ruling: >-
+      回答「结果是否可用」：RESULT_PENDING 未返回、RESULT_AVAILABLE 可用、
+      RESULT_FAILED 明确失败、RESULT_UNKNOWN 需要 reconciliation。
+      与 submission_status 正交——「提交未知但结果已到」是真实组合，
+      禁止把两者并成一个线性 status。
+    source_section: 8.11 ModelInvocation 外部幂等映射 / 异常状态表
+
+  - object: ModelInvocation
+    field: billing_status
+    dimension: provider_billing
+    values: [BILLED, BILLING_UNKNOWN, NOT_BILLED, REFUNDED]
+    transitions: []
+    authority: 基线 §8.11 重复计费进入 CostLedger + ADR-015 外部模型调用防重复计费
+    ruling: >-
+      回答「是否已产生计费事实」：NOT_BILLED、BILLED、REFUNDED、BILLING_UNKNOWN。
+      duplicate_charge_risk 是独立风险标记，不是第五个计费状态；
+      重复计费事实记入 CostLedger，不靠改写本字段表达。
+    source_section: 8.11 ModelInvocation 外部幂等映射 / ADR-015
+
+  - object: QCIssue
+    field: human_decision
+    dimension: human_review_decision
+    values: [CONFIRM_DEFECT, ARTISTIC_INTENTIONAL, FALSE_POSITIVE, NEEDS_MORE_EVIDENCE, PENDING, WAIVE_WITH_AUTHORITY]
+    transitions: []
+    authority: "基线 §21.1 五类人工结论 + §9 示例 human_decision: PENDING"
+    ruling: >-
+      human_decision 是审阅裁决，不是缺陷生命周期；PENDING 表示尚未裁决，
+      WAIVE_WITH_AUTHORITY 必须写明理由与授权且不得豁免法律/版权/安全红线。
+      disposition 仍无权威值集，保留 status_layers 的待裁定登记，禁止把两个
+      不同语义压成同一个 enum。
+    source_section: 21.1 左右双屏对比工作台 / 9.x 审阅结果示例

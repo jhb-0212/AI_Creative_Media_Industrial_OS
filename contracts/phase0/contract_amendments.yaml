@@ -1715,6 +1715,36 @@ amendments:
       - 'ComfyUI 的 PoC/审计证据与 ADR-R43/R44 的边界表述按历史事实保留；删除的是生产入口与可调用实现，不改写历史裁决记录。'
       - '本次未触碰 PREPARED 恢复流程与 R42 授权口径；freeze_manifest 与字段签名台账按本修订重签，不借重签掩盖未登记变更。'
 
+  - id: 'V205-R35-GB-FIELD-VALUE-SETS'
+    title: '#35 G-B：status_split 权威字段值集单一事实源与双向闸门'
+    retroactive: false
+    recorded_at: '2026-11-24'
+    discovered_by: '#35 状态治理后续：status_layers 把三个对象的权威字段长期登记为 pending_owner_ruling，Schema 里全是裸 string'
+    reason: >-
+      三个 status_split 对象把真正的状态事实放在非 status 字段上，但这些字段长期是裸 string：
+      任何人都能写任意值，「没有权威值集」被误当成「允许任意值」。现有派生器只管信封 status，
+      无法把值集写进维度字段；status_layers 的 pending_owner_ruling 条目也没有机检销项条件。
+      根治方式：新增 field_value_sets.yaml 作为维度字段值集唯一权威源；扩展 gen_status_contracts
+      把值集派生进字段 enum；contract_check 四向校验（声明↔Schema、转移/guard 引用、陈旧待裁定
+      债务、status_split 权威字段隐形缺口）。所有者于 2026-11-24 按「最优最长期」逐项裁定：
+      ExternalToolAdapterManifest.lifecycle_status 采纳基线 §32.3 八值全集与转移边；
+      ModelInvocation 三字段建正交值集；QCIssue.human_decision 六值，disposition 留待裁定。
+    adr: 'docs/adr/ADR-R21-status-field-authority.md'
+    approved_by: '项目所有者（2026-11-24：全部按最优最长期方案走；#35 顺序 ①G-B ②G-A ③G-C）'
+    approved_at: '2026-11-24'
+    source_commits:
+      - '5e974b4bbbb07584293420b7c15e649748c967ee'
+    counts_after:
+      actions: 105
+      openapi_operations: 105
+      schema_objects: 91
+      state_machines: 50
+    residual_risks:
+      - '字段枚举只落在契约 Schema；运行期 DB CHECK 与领域 Enum 尚未逐字段落地，本修订只关闭契约层缺口，不声称运行时已强制。'
+      - 'ModelInvocation 三字段的正交组合约束正文未给，未自造交叉规则；field_authority 保留该债务。'
+      - 'QCIssue.disposition 仍无权威值集，继续留在 status_layers 待裁定区，闸门会看着它。'
+      - 'G-A 18 项生命周期债务与 G-C 8 项 Schema 缺口按所有者裁定顺序后续单独立项，本次未触碰。'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——
