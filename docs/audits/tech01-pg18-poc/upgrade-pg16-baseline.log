@@ -1,0 +1,113 @@
+﻿python.exe : INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+所在位置 行:508 字符: 435
++ ... StartNew(); & ".venv/Scripts/python.exe" -m alembic upgrade head 2>&1 ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (INFO  [alembic....PostgresqlImpl. 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> 8d8d59a91012, create proj
+ect_planning.projects table
+INFO  [alembic.runtime.migration] Running upgrade 8d8d59a91012 -> e22d6fd3e8d3,
+ create script_revisions table
+INFO  [alembic.runtime.migration] Running upgrade e22d6fd3e8d3 -> facd8d42d07f,
+ add script active version unique index
+INFO  [alembic.runtime.migration] Running upgrade facd8d42d07f -> 0fcaf4db4573,
+ create episodes table
+INFO  [alembic.runtime.migration] Running upgrade 0fcaf4db4573 -> 6a7b8c9d0e1f,
+ add composite foreign key script_revisions -> episodes
+INFO  [alembic.runtime.migration] Running upgrade 6a7b8c9d0e1f -> 7c8d9e0f1a2b,
+ create outbox_events table
+INFO  [alembic.runtime.migration] Running upgrade 7c8d9e0f1a2b -> 8f2a1b3c4d5e,
+ add tenant_id + requested_by columns and enable RLS
+INFO  [alembic.runtime.migration] Running upgrade 8f2a1b3c4d5e -> 9e3b4c5d6e7f,
+ create application role and grant schema access (RLS enforcement)
+INFO  [alembic.runtime.migration] Running upgrade 9e3b4c5d6e7f -> b2c3d4e5f6a7,
+ add tenant_id + RLS to outbox_events
+INFO  [alembic.runtime.migration] Running upgrade b2c3d4e5f6a7 -> d4e5f6a7b8c9,
+ restrict outbox grants: 瀹¤浜嬩欢 append-only锛屾挙閿€搴旂敤瑙掕壊鐨?DELETE
+INFO  [alembic.runtime.migration] Running upgrade d4e5f6a7b8c9 -> e5f6a7b8c9d0,
+ add outbox tenant enumeration function: relay 鐨勭獎璺ㄧ鎴烽€氶亾
+INFO  [alembic.runtime.migration] Running upgrade e5f6a7b8c9d0 -> f6a7b8c9d1e2,
+ partition outbox_events by occurred_at (monthly range partitions)
+INFO  [alembic.runtime.migration] Running upgrade f6a7b8c9d1e2 -> b8c9d1e2f3a4,
+ create outbox.maintenance_runs (淇濈暀鏈熺淮鎶ょ殑瀹¤涓庢柊椴滃害琛?
+INFO  [alembic.runtime.migration] Running upgrade b8c9d1e2f3a4 -> c1d2e3f4a5b6,
+ create asset_service schema: asset_versions + qc_reports (+RLS/grants)
+INFO  [alembic.runtime.migration] Running upgrade c1d2e3f4a5b6 -> b7c8d9e0f1a2,
+ outbox 鍒嗗尯淇濇姢 + 鏉冮檺鍩虹嚎鍙嶈浆锛堥粯璁ら浂鎺堟潈锛?
+INFO  [alembic.runtime.migration] Running upgrade b7c8d9e0f1a2 -> d1e2f3a4b5c6,
+ 璧勪骇鍐呭鍒椾笉鍙彉锛氱敤鏁版嵁搴撹Е鍙戝櫒鍏滃簳锛圓DR-R11锛?
+INFO  [alembic.runtime.migration] Running upgrade d1e2f3a4b5c6 -> e2f3a4b5c6d7,
+ qc_reports 澧炲姞 deviation_intent_ref锛堝榻?QCReport 濂戠害鐨勬棦鏈夊瓧娈碉級
+INFO  [alembic.runtime.migration] Running upgrade e2f3a4b5c6d7 -> f3a4b5c6d7e8,
+ Outbox relay 閲嶈瘯涓庢淇″瓧娈碉紙P2-2锛?
+INFO  [alembic.runtime.migration] Running upgrade f3a4b5c6d7e8 -> a4b5c6d7e8f9,
+ 娓呯悊 outbox 涓殑娴嬭瘯娈嬬暀浜嬩欢锛圥3-3锛?
+INFO  [alembic.runtime.migration] Running upgrade a4b5c6d7e8f9 -> b5c6d7e8f9a0,
+ 鏀跺洖 app_role 瀵?outbox.maintenance_runs 鐨勬暟鎹潈闄愶紙P3-5锛?
+INFO  [alembic.runtime.migration] Running upgrade b5c6d7e8f9a0 -> c6d7e8f9a0b1,
+ 鍒涘缓 auth.revoked_tokens锛圝WT jti 鍚婇攢琛紝P3-2锛?
+INFO  [alembic.runtime.migration] Running upgrade c6d7e8f9a0b1 -> a1b2c3d4e5f6,
+ fix outbox tenant enumeration: 姝讳俊涓嶅啀璁″叆 backlog锛堝璁″鏍?R2锛?
+INFO  [alembic.runtime.migration] Running upgrade a1b2c3d4e5f6 -> 9f1a2b3c4d5e6
+, create organizations + project/episode ownership foreign keys
+INFO  [alembic.runtime.migration] Running upgrade 9f1a2b3c4d5e6 -> 7a8b9c0d1e2f
+, create outbox_relay_role and grant outbox minimal access (F03)
+INFO  [alembic.runtime.migration] Running upgrade 7a8b9c0d1e2f -> 8f3b2c1d4e5a,
+ 鎸変笟鍔″煙鎷嗗垎鏁版嵁搴撹鑹诧細project_planning_role / asset_service_role锛圖ATA-1锛?
+INFO  [alembic.runtime.migration] Running upgrade 8f3b2c1d4e5a -> ae8724980e0b,
+ grant outbox partitions to domain roles锛堜慨澶?DATA-1/F03 鎷嗚鑹插悗鐨勫垎鍖烘巿鏉冪己鍙ｏ級
+INFO  [alembic.runtime.migration] Running upgrade ae8724980e0b -> b9e1c2d3f4a5,
+ relay 鍒楃骇 UPDATE 鎺堟潈鏀跺彛锛堝鏌?P1-01锛氫簨浠朵笟鍔″唴瀹逛笉鍙鏀癸級
+INFO  [alembic.runtime.migration] Running upgrade b9e1c2d3f4a5 -> c1f2e3d4a5b6,
+ 鍥炴敹 app_role 瀵?outbox 鐨勫啓鏉冮檺锛堝鏌?P1-02 / Review Thread R9锛?
+INFO  [alembic.runtime.migration] Running upgrade c1f2e3d4a5b6 -> d2e3f4a5b6c7,
+ 缁勭粐褰掑睘绉熸埛澶嶅悎绾︽潫 + organizations RLS锛堝鏌?P1-03 / Review Thread R8锛?
+INFO  [alembic.runtime.migration] Running upgrade d2e3f4a5b6c7 -> b3c4d5e6f7a8,
+ 璧勪骇褰掑睘椤圭洰锛歛sset_versions.project_id + 璺?schema 澶嶅悎澶栭敭锛圫COPE-3锛?
+INFO  [alembic.runtime.migration] Running upgrade b3c4d5e6f7a8 -> c7d8e9f0a1b2,
+ add status check constraints
+INFO  [alembic.runtime.migration] Running upgrade c7d8e9f0a1b2 -> d8e9f0a1b2c3,
+ 鏂板瀹¤ schema 涓庣姸鎬佽縼绉讳簨瀹炶〃锛圓DR-R23 D2-a锛?
+INFO  [alembic.runtime.migration] Running upgrade d8e9f0a1b2c3 -> e9f0a1b2c3d4,
+ 缁勭粐缁村害 RLS + FORCE锛圓DR-R24 D3a锛屾牳楠屾姤鍛?N-03锛?
+INFO  [alembic.runtime.migration] Running upgrade e9f0a1b2c3d4 -> e0f1a2b3c4d5,
+ R16 涓夊煙棰勫煁锛歱roduction_planning / budget_quota / qc_governance 鐨勭┖ schema + 涓撶敤
+瑙掕壊
+INFO  [alembic.runtime.migration] Running upgrade e0f1a2b3c4d5 -> c1a2b3d4e5f6,
+ 涓氬姟鍩熻鑹茬殑琛ㄧ骇鏈€灏忔潈闄愶紙DATA-6 / N-06 鏍规不锛?
+INFO  [alembic.runtime.migration] Running upgrade c1a2b3d4e5f6 -> a13b0c1d2e3f,
+ Scene / Shot / ShotRevision / ShotBreakdownDraft / ReworkTask 寤鸿〃锛圓13 / ADR-R2
+8锛?
+INFO  [alembic.runtime.migration] Running upgrade a13b0c1d2e3f -> b1c2d3e4f5a6,
+ Shot 杩斿伐渚濇嵁璺ㄩ」鐩綊灞炴敹鍙ｏ細鍗曞垪澶栭敭鍗囩骇涓哄鍚堝閿紙P1-03锛夈€?
+INFO  [alembic.runtime.migration] Running upgrade b1c2d3e4f5a6 -> c3d4e5f6a7b8,
+ ShotSpec 杩愯鏃惰惤鍦帮細寤鸿〃 + SS-3 搴撳眰绾︽潫 + 缁勭粐 RLS锛圓22锛?
+INFO  [alembic.runtime.migration] Running upgrade c3d4e5f6a7b8 -> d7e8f9a0b1c2,
+ ConstraintPack 杩愯鏃惰惤鍦帮細寤鸿〃 + 7.9 搴撳眰涓嶅彉閲?+ 缁勭粐 RLS锛圓23锛?
+INFO  [alembic.runtime.migration] Running upgrade d7e8f9a0b1c2 -> e8f9a0b1c2d3,
+ R16 鐢熶骇閾句笌棰勭畻瀵硅薄杩愯鏃惰惤鍦帮細寤鸿〃 + RLS + 鎺堟潈锛堣繃娓℃湡 project_planning schema锛?
+INFO  [alembic.runtime.migration] Running upgrade e8f9a0b1c2d3 -> f9a0b1c2d3e4,
+ Gate 鍐崇瓥璁板綍钀藉簱锛氬缓琛?+ RLS + 鎺堟潈锛堣繃娓℃湡 project_planning schema锛?
+INFO  [alembic.runtime.migration] Running upgrade f9a0b1c2d3e4 -> a0b1c2d3e4f5,
+ R16 涓夊煙鎷嗗垎 cutover锛氫簲琛ㄥ嚭 project_planning锛岃繘鍚勮嚜 schema + 鍚勮嚜瑙掕壊
+INFO  [alembic.runtime.migration] Running upgrade a0b1c2d3e4f5 -> d5e6f7a8b9c0,
+ GenerationTask 寮傛绉熺害锛歊UNNING 鐘舵€?+ 绉熺害涓夊垪锛圥hase 2 搂1锛?
+INFO  [alembic.runtime.migration] Running upgrade d5e6f7a8b9c0 -> e6f7a8b9c0d1,
+ BudgetLedger 閲婃斁/鍐查攢锛歳eservation_ref + 鍙楁帶 transaction_kind锛圥hase 2 搂2锛?
+INFO  [alembic.runtime.migration] Running upgrade e6f7a8b9c0d1 -> f1a2b3c4d5e6,
+ QC 寰呮闃熷垪钀藉簱锛歲c_governance.qc_tasks + RLS + 鎺堟潈锛圥hase 3锛夈€?
+INFO  [alembic.runtime.migration] Running upgrade f1a2b3c4d5e6 -> a2b3c4d5e6f7,
+ GenerationTask 鐧昏浜х墿寮曠敤锛歛sset_version_id / quality_profile_version銆?
+INFO  [alembic.runtime.migration] Running upgrade a2b3c4d5e6f7 -> c4d5e6f7a8b9,
+ 璐︽湰缁撶畻涓嶅彉閲忥細RELEASE 绱 + REFUND 绱 鈮?RESERVE锛圥1-05锛?
+INFO  [alembic.runtime.migration] Running upgrade c4d5e6f7a8b9 -> b8c9d0e1f2a3,
+ 琛ラ綈鍚勫煙瑙掕壊瀵瑰叡浜?schema 鐨?USAGE锛堟巿鏉冮潰缂哄彛锛?
+INFO  [alembic.runtime.migration] Running upgrade b8c9d0e1f2a3 -> c9d0e1f2a3b4,
+ 琛ラ綈 13 寮犲煙琛ㄧ殑绉熸埛澶嶅悎褰掑睘澶栭敭锛圖2 鍑鸿瘉鍙戠幇鐨勫綊灞炵己鍙ｏ級
+INFO  [alembic.runtime.migration] Running upgrade c9d0e1f2a3b4 -> d0e1f2a3b4c5,
+ asset_versions.storage_ref锛氳嚜鐢?JSON 寮曠敤 鈫?鍙楁帶鍐呭瀵诲潃瀹氫綅绗︼紙P1-07 / #179锛?
+INFO  [alembic.runtime.migration] Running upgrade d0e1f2a3b4c5 -> e1f2a3b4c5d6,
+ 璧勪骇鐧昏 Saga 鐨勫簱琛ㄤ笌绾︽潫锛圓DR-R42 / C1銆丆2銆丆4銆丆5锛夈€?
