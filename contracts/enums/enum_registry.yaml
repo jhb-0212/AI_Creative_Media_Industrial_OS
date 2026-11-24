@@ -16,10 +16,12 @@
 
 generated_by: scripts/gen_status_contracts.py
 source: contracts/state_machines/state_machines.yaml
-object_count: 55
+object_count: 56
 objects:
 - object: Appeal
   states: [CLOSED, DECISION_OVERTURNED, DECISION_UPHELD, IN_REVIEW, SUBMITTED]
+- object: ApprovalSignature
+  states: [CONSUMED, REVOKED, SIGNED]
 - object: ArtifactManifest
   states: [PREPARED, STORED_VERIFIED]
 - object: AssetRegistrationReceipt

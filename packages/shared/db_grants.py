@@ -233,6 +233,14 @@ DOMAIN_GRANTS: dict[str, tuple[TableGrant, ...]] = {
             source="migration",
         ),
         _grant(
+            "audit",
+            "approval_signatures",
+            "SELECT INSERT",
+            "INSERT：席位签署写累积会签事实（与放行事件同事务）；SELECT：凑齐判定读取。"
+            "append-only 由触发器保证，撤回/消费以新 event_kind 行表达，不给 UPDATE/DELETE。",
+            source="migration",
+        ),
+        _grant(
             "outbox",
             "outbox_events",
             "SELECT INSERT",
@@ -297,6 +305,14 @@ DOMAIN_GRANTS: dict[str, tuple[TableGrant, ...]] = {
             source="migration",
         ),
         _grant(
+            "audit",
+            "approval_signatures",
+            "SELECT INSERT",
+            "INSERT：席位签署写累积会签事实（与放行事件同事务）；SELECT：凑齐判定读取。"
+            "append-only 由触发器保证，撤回/消费以新 event_kind 行表达，不给 UPDATE/DELETE。",
+            source="migration",
+        ),
+        _grant(
             "outbox",
             "outbox_events",
             "SELECT INSERT",
@@ -336,6 +352,14 @@ def _platform_grants(*, label: str) -> tuple[TableGrant, ...]:
             "SELECT INSERT",
             f"INSERT：{label}的状态推进写迁移事实（与业务写同事务）；SELECT：历史查询。"
             "append-only 由触发器保证，授权层面也不给 UPDATE/DELETE。",
+            source="migration",
+        ),
+        _grant(
+            "audit",
+            "approval_signatures",
+            "SELECT INSERT",
+            f"INSERT：{label}的席位签署写会签事实（与放行事件同事务）；SELECT：凑齐判定读取。"
+            "append-only 由触发器保证，授权层面也不给 UPDATE/DELETE（撤回/消费以新 event_kind 行表达）。",
             source="migration",
         ),
         _grant(

@@ -1953,3 +1953,27 @@ signatures:
     usage_restrictions: array
     valid_from: string
     valid_to: string|null
+  ApprovalSignature:
+    action_key: string
+    audit_ref: string|null
+    authority_ref: string|null
+    created_at: string
+    created_by: string
+    entity_id: string
+    entity_type: string
+    entity_version: integer
+    event_id: string
+    event_kind: string
+    evidence_refs: array
+    occurred_at: string
+    organization_id: string|null
+    owner_module: string
+    resource_id: string
+    resource_type: string
+    schema_version: integer
+    seat_index: integer
+    signature_id: string
+    status: string
+    subject: string
+    tenant_id: string
+    updated_at: string

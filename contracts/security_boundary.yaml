@@ -153,13 +153,13 @@ authorization:
         - tests/unit/test_countersignature.py::test_single_seat_action_still_allows_matching_role
         - tests/unit/test_countersignature.py::test_contract_plus_actions_are_all_multi_seat
       residual_risk: >-
-        只解决了「语义正确 + 不静默降级」；累积式会签（多主体分次签署、凑齐后
-        放行）仍未实现。缺口已定位到具体依赖，不再泛称「审批事实契约」：需
-        ``audit.approval_signatures``（「推进之前某席位已签署」的独立事实表）与
-        目标动作的运行时入口。ADR-R23 §D2-e 已判定 ``audit.status_transitions``
-        记录的是「推进已发生」，不能承载签署，故本项不由该表关闭；该表与签署
-        事实均未立项（D2b），故本项维持当前口径。在两者就位前，多席位动作一律
-        fail-closed，属有意为之而非缺陷。
+        「语义正确 + 不静默降级」+「累积式会签机制」已由 ADR-R45（D2b）接通第一条
+        闭环（DELIVERY.MANIFEST.APPROVE）：``audit.approval_signatures`` 独立事实表
+        + 签署服务 + 凑齐放行。多席位动作的直接单请求调用仍 fail-closed（语义不
+        变），累积签署走显式专用路径。剩余：交付清单业务域（CREATE/RELEASE / 
+        Manifest 状态推进）尚未落地，会签凑齐后写 CONSUMED + 放行事件，但下游
+        消费者未实现；历史读接口 AUDIT.STATUS.HISTORY.READ 留后续批次。跨席位
+        「不同主体」靠运行时 + AST 白名单（SQL 无跨行 exclusion）。
 
 # --------------------------------------------------------------------------- #
 # 2. 资源归属边界（resource_scope）
@@ -359,6 +359,29 @@ data_ownership:
         实测一律读 ``pg_class.relacl``/``pg_attribute.attacl``。删除路径的 RLS
         过滤已无角色可走（无 DELETE 权限），若将来落地删除动作，需在该动作的
         ADR 里补测「RLS 对 DELETE 的过滤」。
+
+    - id: DATA-7
+      name: 累积式会签事实 append-only 且凑齐判定不可伪造
+      statement: >-
+        ``audit.approval_signatures`` 只追加：UPDATE / DELETE / TRUNCATE 一律被
+        触发器拒绝；三态 ``SIGNED / REVOKED / CONSUMED`` 作为 event_kind 落值，
+        当前有效签署由事件派生，不原地改状态。同一 (tenant, resource_type, 
+        resource_id, action_key, seat_index, subject, event_kind) 唯一——同席位
+        同主体不能重复签。凑齐判定由唯一纯函数按 ``principal_seats()`` 派生席位
+        集合：每席位恰好一个有效签署，且跨席位主体两两不同（单主体签满所有席位
+        = 会签被静默降级为单人授权，必须拒绝）。消费写 CONSUMED 使整组签署一次性
+        失效。``event_id`` 非空且提交时校验事件存在；RLS 同时 ENABLE 与 FORCE。
+      fact_source: data/migrations/versions/e4f5a6b7c8d9_audit_approval_signatures.py；packages/shared/approval_signature.py；services/identity_access/countersign.py
+      verification: 断言 data.accumulative_countersign（迁移文本含全部结构性保证 + ORM 同源 + 凑齐判定单一入口 + AST 白名单）
+      assertion: data.accumulative_countersign
+      runtime_evidence:
+        - tests/integration/test_accumulative_countersign.py::test_sign_revoke_consume_append_only
+        - tests/integration/test_accumulative_countersign.py::test_duplicate_signature_is_rejected
+        - tests/integration/test_accumulative_countersign.py::test_cross_seat_same_subject_is_rejected
+        - tests/integration/test_accumulative_countersign.py::test_consumed_group_cannot_be_reused
+      residual_risk: >-
+        跨席位不同主体靠运行时纯函数 + AST 调用点白名单（SQL 无跨行 exclusion）；
+        反射/字符串拼接调用写入路径需代码评审兜底。仿 D2a DATA-5 的同一形态。
 
 # --------------------------------------------------------------------------- #
 # 4. 进程密钥边界（process_keys）
