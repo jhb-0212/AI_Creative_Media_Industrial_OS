@@ -18,7 +18,7 @@
   ],
   "x-afs-p0-coverage": {
     "note": "已建模对象与显式登记为待补的对象之并集，构成 P0 契约对象全集。待补项按缺口性质分类，不把“正文有字段表但派生未覆盖”与“正文缺字段标识”混为一类。",
-    "total": 91,
+    "total": 98,
     "modeled": [
       "Appeal",
       "AssetReference",
@@ -110,7 +110,14 @@
       "TimelineDraft",
       "TimelineManifest",
       "ToolExchangePackage",
-      "ToolExchangeSession"
+      "ToolExchangeSession",
+      "PublicationReview",
+      "CreatorShareLink",
+      "Pattern",
+      "SharedReferenceAsset",
+      "CanonRevision",
+      "RightsCase",
+      "RightsManifest"
     ],
     "p0_freeze_scope": {
       "decision": "AFS-P0-FREEZE-2026-11-13-01",
@@ -9937,6 +9944,653 @@
         "audit_ref": {"type": ["string", "null"]}
       },
       "additionalProperties": true
+    },
+    "PublicationReview": {
+      "type": "object",
+      "description": "展示发布审核对象：独立于 CommunityPost，保存审核人、规则版本、证据、原因与决定时间；审核人与提交人必须职责分离。",
+      "required": [
+        "review_id",
+        "post_ref",
+        "submitter",
+        "reviewer",
+        "rule_version",
+        "evidence_refs",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "review_id": {
+          "type": "string"
+        },
+        "post_ref": {
+          "type": "string"
+        },
+        "submitter": {
+          "type": "string"
+        },
+        "reviewer": {
+          "type": "string"
+        },
+        "rule_version": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "reason": {
+          "type": "string"
+        },
+        "decided_at": {
+          "type": ["string", "null"]
+        },
+        "pg_gate_decisions": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "APPROVED",
+            "IN_REVIEW",
+            "QUEUED",
+            "REJECTED",
+            "RETURNED"
+          ]
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": true,
+      "x-afs-sources": ["31.5 社区对象状态机最终定义（PublicationReview 行）", "24.11 社区状态机、分享链接与复用状态机", "24.3 展示域对象字段（PublicationReview）"],
+      "x-afs-invariants": [{"id": "PR-1", "enforced_by": "RUNTIME_PENDING", "statement": "审核人与提交人职责分离：reviewer 不得等于 submitter；自审或 PG 缺项的审核决定必须拒绝。"}],
+      "x-afs-required-basis": "31.5 明确列出审核人/规则版本/证据/原因/决定时间字段与职责分离规则；required 取构成审核记录的最小集合 + C.3.1 通用信封。"
+    },
+    "CreatorShareLink": {
+      "type": "object",
+      "description": "Creator 分享链接：只读、默认禁止下载；带水印、有效期、受众限制与访问审计。与 31.5 ShareLink 是两个独立对象。",
+      "required": [
+        "link_id",
+        "release_ref",
+        "watermark",
+        "expires_at",
+        "audience_scope",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "link_id": {
+          "type": "string"
+        },
+        "release_ref": {
+          "type": "string"
+        },
+        "asset_refs": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "watermark": {
+          "type": "string"
+        },
+        "expires_at": {
+          "type": "string"
+        },
+        "audience_scope": {
+          "type": "string"
+        },
+        "download_allowed": {
+          "type": "boolean",
+          "enum": [false]
+        },
+        "revocation_reason": {
+          "type": ["string", "null"]
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "EXPIRED",
+            "REVOKED"
+          ]
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": true,
+      "x-afs-sources": ["34.8 分享、社区发布与公开权限（CreatorShareLink 行）"],
+      "x-afs-invariants": [{"id": "CSL-1", "enforced_by": "SCHEMA", "statement": "默认禁止下载：download_allowed 恒为 false（enum=[false]）；受众、有效期、水印必须明确，缺失时不得创建。"}],
+      "x-afs-required-basis": "34.8 明文列出水印/有效期/受众限制/访问审计与只读默认禁下载；required 取其最小集合 + C.3.1 通用信封。"
+    },
+    "Pattern": {
+      "type": "object",
+      "description": "社区复用模式：经验证的模式对象，晋升 REUSABLE_PATTERN 必须有证据、适用边界、来源权利与人工审核；社区热度不改变权威状态。与 C.3 PatternRecord（PMS 经验资产）是两个独立对象，不合并。",
+      "required": [
+        "pattern_id",
+        "pattern_version",
+        "pattern_type",
+        "applicability",
+        "evidence_refs",
+        "rights_source",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "pattern_id": {
+          "type": "string"
+        },
+        "pattern_version": {
+          "type": "integer"
+        },
+        "pattern_type": {
+          "type": "string"
+        },
+        "applicability": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "rights_source": {
+          "type": "string"
+        },
+        "human_review_ref": {
+          "type": ["string", "null"]
+        },
+        "community_heat": {
+          "type": ["integer", "null"]
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "DEPRECATED",
+            "EXPERIMENT_RECORD",
+            "FAILURE_CASE",
+            "IN_REVIEW",
+            "REJECTED",
+            "RETIRED",
+            "REUSABLE_PATTERN"
+          ]
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": true,
+      "x-afs-sources": ["31.5 社区对象状态机最终定义（Pattern 行）", "26.2 资产生命周期和权威边界（Pattern 准入条件）", "docs/audits/2026-11-24-status-governance-ruling-packet.md §4（G-C 裁定：与 PatternRecord 分立）"],
+      "x-afs-invariants": [{"id": "PAT-1", "enforced_by": "RUNTIME_PENDING", "statement": "晋升必须人工裁定：REUSABLE_PATTERN 必须有 evidence_refs、rights_source 与 human_review_ref；community_heat 只作展示，不得作为状态转移的守卫条件。"}],
+      "x-afs-required-basis": "基线注册表 31.5 将 Pattern 与 C.3 PatternRecord 分别登记为两个对象，权威状态机出处不同；字段按 31.5 晋升规则 + 26.2 准入条件取证，不与 PatternRecord 合并。"
+    },
+    "SharedReferenceAsset": {
+      "type": "object",
+      "description": "共享参考资产：经许可跨项目共享的制作参考资产（外观图、三视图、服装版本、表演参考、音色配置引用）。授权撤销时阻止新复用并定位既有引用，按权利规则处置并记录影响报告。",
+      "required": [
+        "asset_id",
+        "asset_version_ref",
+        "asset_kind",
+        "source_refs",
+        "rights_manifest_ref",
+        "license_scope",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "asset_id": {
+          "type": "string"
+        },
+        "asset_version_ref": {
+          "type": "string"
+        },
+        "asset_kind": {
+          "type": "string"
+        },
+        "source_refs": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "rights_manifest_ref": {
+          "type": "string"
+        },
+        "license_scope": {
+          "type": "string"
+        },
+        "health_facts": {
+          "type": "object"
+        },
+        "impact_report_ref": {
+          "type": ["string", "null"]
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "AVAILABLE",
+            "DEPRECATED",
+            "DRAFT",
+            "QUARANTINED",
+            "REVOKED",
+            "RIGHTS_CHECK",
+            "VALIDATED"
+          ]
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": true,
+      "x-afs-sources": ["26.2 资产生命周期和权威边界（共享参考资产状态建议）", "26.2 共享主体库边界与撤销处置", "docs/audits/2026-11-24-status-governance-ruling-packet.md §4（G-C 裁定：建模后补登状态机）"],
+      "x-afs-invariants": [{"id": "SRA-1", "enforced_by": "RUNTIME_PENDING", "statement": "授权撤销联动：REVOKED/QUARANTINED 须阻止新复用、定位既有引用并生成 impact_report_ref；健康度由可验证事实计算，不得用点赞数替代。"}],
+      "x-afs-required-basis": "26.2 给出完整状态链与共享/撤销口径，原以正文为权威（text_authority_only）；本轮补 schema 后按 31.11 将其移入 objects 并登记状态机。"
+    },
+    "CanonRevision": {
+      "type": "object",
+      "description": "设定变更记录：CharacterCanon 的一次授权变更，携带变更理由、影响范围、版本与回滚关系；事实冲突必须显式标记，不得由模型自动裁定。",
+      "required": [
+        "revision_id",
+        "canon_id",
+        "character_id",
+        "canon_version",
+        "change_reason",
+        "impact_scope",
+        "conflict_flag",
+        "approved_by",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "revision_id": {
+          "type": "string"
+        },
+        "canon_id": {
+          "type": "string"
+        },
+        "character_id": {
+          "type": "string"
+        },
+        "canon_version": {
+          "type": "integer"
+        },
+        "change_reason": {
+          "type": "string"
+        },
+        "impact_scope": {
+          "type": "string"
+        },
+        "supersedes": {
+          "type": ["string", "null"]
+        },
+        "rollback_ref": {
+          "type": ["string", "null"]
+        },
+        "conflict_flag": {
+          "type": "boolean"
+        },
+        "conflict_detail": {
+          "type": ["string", "null"]
+        },
+        "approved_by": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "NO_LIFECYCLE"
+          ]
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": true,
+      "x-afs-sources": ["Action Registry CANON.CHANGE.APPROVE（变更理由、影响范围、版本和回滚关系齐备）", "C.3 对象总表 CharacterCanon（事实冲突必须显式标记）", "31.5 Canon 权威边界"],
+      "x-afs-invariants": [{"id": "CR-1", "enforced_by": "RUNTIME_PENDING", "statement": "冲突不得自动裁定：conflict_flag=true 必须给出 conflict_detail 并经授权人确认；Agent/跨项目写入拒绝。"}],
+      "x-afs-required-basis": "Action Registry 与 C.3 给出变更字段与冲突复核口径；required 取其最小集合 + C.3.1 通用信封。"
+    },
+    "RightsCase": {
+      "type": "object",
+      "description": "权利案件：权利状态变更的案件主体与证据引用；权利证据必须可追溯，双人/职责分离审批，无证据变更拒绝。",
+      "required": [
+        "case_id",
+        "subject",
+        "asset_refs",
+        "evidence_refs",
+        "approver",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "case_id": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "subject_type": {
+          "type": "string"
+        },
+        "asset_refs": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "audience_scope": {
+          "type": ["string", "null"]
+        },
+        "approver": {
+          "type": "string"
+        },
+        "co_approver": {
+          "type": ["string", "null"]
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "NO_LIFECYCLE"
+          ]
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": true,
+      "x-afs-sources": ["Action Registry RIGHTS.STATUS.CHANGE（权利证据必须可追溯、双人或职责分离审批）", "TL-005 导出阻断（记录 RightsCase、主体、素材、受众与审计事件）", "31.5 Quality & Governance 域对象"],
+      "x-afs-invariants": [{"id": "RC-1", "enforced_by": "RUNTIME_PENDING", "statement": "无证据不得变更：evidence_refs 非空；CRITICAL 变更须 approver 与 co_approver 职责分离且不同人。"}],
+      "x-afs-required-basis": "Action Registry 与 TL-005 给出案件字段与证据/审批口径；required 取其最小集合 + C.3.1 通用信封。"
+    },
+    "RightsManifest": {
+      "type": "object",
+      "description": "权利清单：资产审批强制引用的授权范围对象，含权利主体、授权范围、地域、用途、期限、署名、再许可和撤销信息。授权不明、过期、超受众或 CRITICAL 阻断时禁止使用。",
+      "required": [
+        "manifest_id",
+        "rights_subject",
+        "license_scope",
+        "territory",
+        "usage",
+        "valid_from",
+        "sublicense",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "manifest_id": {
+          "type": "string"
+        },
+        "rights_subject": {
+          "type": "string"
+        },
+        "license_scope": {
+          "type": "string"
+        },
+        "territory": {
+          "type": "string"
+        },
+        "usage": {
+          "type": "string"
+        },
+        "valid_from": {
+          "type": "string"
+        },
+        "valid_to": {
+          "type": ["string", "null"]
+        },
+        "attribution": {
+          "type": ["string", "null"]
+        },
+        "sublicense": {
+          "type": "string"
+        },
+        "revocation_ref": {
+          "type": ["string", "null"]
+        },
+        "usage_restrictions": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "audience_scope": {
+          "type": ["string", "null"]
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "NO_LIFECYCLE"
+          ]
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": ["string", "null"]
+        }
+      },
+      "additionalProperties": true,
+      "x-afs-sources": ["31 版权授权中心（RightsAsset/RightsGrant/LicenseScope/RevocationRecord 字段）", "Action Registry RIGHTS.STATUS.CHANGE（RightsManifest）", "31.6 导出权利与使用字段（rights_manifest_ref / usage_restrictions / audience_scope）"],
+      "x-afs-invariants": [{"id": "RM-1", "enforced_by": "RUNTIME_PENDING", "statement": "授权范围可执行：授权不明、过期、超受众或 CRITICAL 阻断时禁止导出；撤销须引用 revocation_ref，不改写原清单。"}],
+      "x-afs-required-basis": "版权授权中心与导出权利字段给出清单字段；本对象此前仅被 rights_manifest_ref 引用而未定义，本轮据正文补建。"
     }
   }
 }

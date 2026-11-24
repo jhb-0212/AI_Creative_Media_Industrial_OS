@@ -276,14 +276,28 @@ def _write_gaps(tmp_path: Path, gaps: dict) -> Path:
 
 
 def test_active_resource_schemas_passes_on_current_contract() -> None:
-    """当前 9 项债务登记完整，应通过。"""
+    """当前 ACTIVE 资源类型全部有 schema/豁免（G-C 后债务清零），应通过。"""
     assert cc.check_active_resource_schemas() is True
 
 
 def test_active_schema_detects_undeclared_gap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """清空债务 → 9 个 ACTIVE 资源类型变成静默缺口，必须报红。"""
+    """注入一个 ACTIVE 动作引用「无 schema、无豁免、未登记债务」的资源类型，必须报红。
+
+    G-C 前本用例靠「清空债务 → 9 个类型变静默缺口」取证，但 G-C 已把债务全部补成
+    schema，清空债务不再产生缺口——旧前提是缺陷存在本身。被测命题不变（静默缺口必须
+    报红），改为注入一个真实缺口，不依赖「当前还有多少债」。
+    """
+    fake_action = "TEST.FAKE.UNDECLARED"
+    fake_type = "NeverDefinedResourceType"
+    original_keys = cc._active_action_keys()
+    original_types = cc._action_resource_types()
+    monkeypatch.setattr(cc, "_active_action_keys", lambda: original_keys | {fake_action})
+    monkeypatch.setattr(
+        cc, "_action_resource_types",
+        lambda: {**original_types, fake_action: fake_type},
+    )
     monkeypatch.setattr(cc, "RESOURCE_GAPS_PATH", _write_gaps(tmp_path, {}))
     assert cc.check_active_resource_schemas() is False
 

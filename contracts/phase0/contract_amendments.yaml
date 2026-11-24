@@ -1852,6 +1852,54 @@ amendments:
       - '六条提案转移边由所有者按字面语义推导，正文只给状态数组未给箭头；正文若给出不同挂接须重裁定。'
       - '九项 envelope_only 的 unblocks_when 是可机检的前提而非永久豁免：正文若给出对象级状态字面值，必须重新裁定并改分类。'
       - '#35 G-A 18 项 lifecycle_gap 全部销项；G-C 8 项 Schema 缺口按所有者确认顺序后续批次处理，本次未触碰。'
+  - id: V205-R35-GC
+    title: '#35 G-C：八项缺失 Schema 逐项取证建模，七对象补 schema、Pattern 分立、SRA 补登状态机'
+    retroactive: false
+    recorded_at: '2026-11-24'
+    discovered_by: '#35 状态治理 G-C（裁定清单 §4）：schema_gaps 4 项 + resource_schema_gaps 3 项 + resource_schema_exemptions 1 项'
+    reason: >-
+      回基线原文逐项取证，不采信台账「同构/合并」建议。PublicationReview（31.5 明文状态机 +
+      审核人/规则版本/证据/原因/决定时间 + 职责分离）、CreatorShareLink（34.8 独立对象，
+      水印/有效期/受众限制/禁下载）、Pattern、SharedReferenceAsset（26.2 状态链）四项补 schema
+      并收权威 enum；CanonRevision / RightsCase / RightsManifest 三项被 ACTIVE 动作或
+      rights_manifest_ref 引用却无定义，据 Action Registry / 版权授权中心字段补 schema，正文无权威
+      状态机，收 envelope_only + NO_LIFECYCLE 哨兵（immutable_record：撤销/变更用字段表达，不造状态链）。
+      Pattern 与 PatternRecord 裁定为两个独立对象：注册表 31.5 分别登记，权威出处不同，状态链同构不等于
+      同一对象，不合并。SharedReferenceAsset 从 text_authority_only 移入 objects 并按 31.11 登记状态机
+      （状态链逐字取自 26.2，转移箭头为所有者推导，PENDING_PHASE1_REVIEW）。ScriptLock 经取证确认是
+      ScriptRevision 上的审批关系（动作输出仍是 ScriptRevision），保留豁免并在闸门内可机检。
+      三处缺口台账（schema_gaps / resource_schema_gaps）按「补 schema 后必须删条目」清空；提案中
+      以「7 个资源类型无 schema」为前提的 open_item 随修复删除（不删会让闸门指向不存在的债）。
+      另修正一处历史假阴性：新 schema 若用手写紧凑属性行，派生器 patch_schema 无法定位 status 块，
+      --check 会假绿；本轮新增对象一律用多行属性排版，并由负向测试锁定 enum 注入结果。
+    adr: 'docs/adr/ADR-R21-status-field-authority.md'
+    approved_by: '项目所有者（2026-11-24 授权继续 G-C；逐项按基线取证的最优裁定执行）'
+    approved_at: '2026-11-24'
+    source_commits:
+      - '9c1d4aa37ade8f6006afc8ef7a928cd0743e2ce2'
+      - 'd778a67d04bbc70aa8072c8b137244e7a5bb8bd0'
+    additions:
+      schema_objects:
+        - object: PublicationReview
+        - object: CreatorShareLink
+        - object: Pattern
+        - object: SharedReferenceAsset
+        - object: CanonRevision
+        - object: RightsCase
+        - object: RightsManifest
+      state_machines:
+        - object: SharedReferenceAsset
+    counts_after:
+      actions: 105
+      openapi_operations: 105
+      schema_objects: 98
+      state_machines: 55
+    residual_risks:
+      - '本修订只关契约层：七个新对象尚无运行时 Domain Enum / DB CHECK / 动作入口，有状态机的四个已标 PENDING_PHASE1_REVIEW。'
+      - 'SharedReferenceAsset 的转移箭头为所有者按 26.2 撤销处置语义推导，正文只给「状态建议为」状态链未给边；正文若给出不同挂接须重裁定。'
+      - 'Pattern 与 PatternRecord 分立依据是基线注册表分别登记；若所有者后来裁定二者同一对象，须合并状态机并删除其中一个 schema，不能靠别名掩盖。'
+      - '三个 envelope_only 对象的 unblocks_when 是可机检前提：正文若给出对象级权威状态字面值，必须改回 lifecycle 并登记状态机。'
+      - '#35 G-A 18 项 lifecycle_gap + G-C 8 项 Schema 缺口全部销项；#13 累积式会签仍 blocked，未触碰。'
 
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #

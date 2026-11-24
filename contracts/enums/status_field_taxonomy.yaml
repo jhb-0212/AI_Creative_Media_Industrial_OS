@@ -102,6 +102,11 @@ objects:
   - {object: ShotBudgetRequest, class: lifecycle}
   - {object: ArtifactManifest, class: lifecycle}
   - {object: AssetRegistrationReceipt, class: lifecycle}
+  # G-C 补 schema 的四个有状态机对象（字面值/转移取自 31.5 / 34.8 / 26.2 正文）。
+  - {object: PublicationReview, class: lifecycle}
+  - {object: CreatorShareLink, class: lifecycle}
+  - {object: Pattern, class: lifecycle}
+  - {object: SharedReferenceAsset, class: lifecycle}
 
   # ---------------- envelope_only：无独立生命周期的对象（数量从 objects 派生，不写死） ----------------
   - object: ClientAnnotation
@@ -235,6 +240,32 @@ objects:
     reason: 缺陷单的处置结论在 disposition 与 human_decision 上（谁判、判成什么），不是一条从 OPEN 到 CLOSED 的通用状态链。
     unblocks_when: >-
       所有者裁定 human_decision 与 disposition 是否各建 enum、以及与 ReworkTask 的联动不变量；在此之前不伪造缺陷生命周期。
+  # G-C 补 schema 的三个「被引用但正文无权威状态机」对象：它们是一次写入、此后不可改写的
+  # 授权/变更记录，状态由记录本身的内容与 supersedes / revocation_ref 表达，不另造状态链。
+  - object: CanonRevision
+    class: envelope_only
+    basis: immutable_record
+    reason: >-
+      Action Registry 只把 CanonRevision 当作 CANON.CHANGE.APPROVE 产出的设定变更记录（变更理由/影响范围/版本/回滚/冲突标记）；
+      权威状态机在 CharacterCanon（DRAFT→…→SUPERSEDED），变更记录一旦写入不改写，冲突与回滚用字段表达。
+    unblocks_when: >-
+      正文为 CanonRevision 本身给出独立的、与 CharacterCanon 不同的权威状态字面值与转移边时改 lifecycle；否则它永远是变更记录。
+  - object: RightsCase
+    class: envelope_only
+    basis: immutable_record
+    reason: >-
+      RightsCase 是 RIGHTS.STATUS.CHANGE 引用的权利案件主体与证据记录，正文（Action Registry / TL-005 / 31.5）只给字段与审批职责，
+      未给案件自身的权威状态机；案件证据一旦归档不改写，处置结论记在证据与决定上。
+    unblocks_when: >-
+      正文为权利案件给出独立权威状态字面值（如 OPEN→INVESTIGATING→CLOSED）与转移边时改 lifecycle；仅给字段不构状态机。
+  - object: RightsManifest
+    class: envelope_only
+    basis: immutable_record
+    reason: >-
+      版权授权中心（31 章）给出的 RightsManifest 是一次签发的授权范围快照（主体/地域/用途/期限/署名/再许可/撤销），
+      被 rights_manifest_ref 全局引用；授权范围变化签发新清单并以 revocation_ref 撤销，旧清单不改写。
+    unblocks_when: >-
+      正文为权利清单本身给出独立权威状态字面值与转移边时改 lifecycle；撤销/过期是链接与授权事实，不是清单生命周期。
 
   # ---------------- lifecycle_gap：待裁定债务（数量从 objects 派生，不写死） ----------------
   - object: BlockingAsset
@@ -450,31 +481,6 @@ objects:
 
 # 有状态机、但对象尚未进入 object_schemas 的缺口（显式登记，不得靠豁免消除）。
 # 闸门双向校验：对象补上 schema 后必须删条目（陈旧债务报红）；删条目不能让缺口消失。
-schema_gaps:
-  - object: PublicationReview
-    reason: >-
-      该对象有权威状态机（QUEUED→IN_REVIEW→APPROVED/REJECTED/RETURNED，
-      且要求审核人与提交人分离），却没有 object schema：审核人、规则版本、证据、
-      原因与决定时间都无处校验，「职责分离」只能靠实现方自觉。
-    contract_ref: contracts/state_machines/state_machines.yaml → objects.PublicationReview
-    unblocks_when: 31.5 审核章节的字段表落成 schema（含 reviewer 与 submitter 的分离约束），随后本条目删除
-  - object: CreatorShareLink
-    reason: >-
-      34.8 的 Creator 分享链接有独立状态机（ACTIVE→EXPIRED/REVOKED）且被明确
-      列为独立对象（与 31.5 的 ShareLink 不是同一条目），但没有 schema：
-      水印、有效期、受众限制、撤销依据都无法校验。
-    contract_ref: contracts/state_machines/state_machines.yaml → objects.CreatorShareLink
-    unblocks_when: 34.8 分享链接字段表落成 schema，随后本条目删除
-  - object: Pattern
-    reason: >-
-      31.5 的 Pattern 与 C.3 的 PatternRecord 状态链逐字相同，但只有 PatternRecord
-      进了 schema。Pattern 缺 schema 期间，两套命名并存且没有机制保证二者不漂移。
-    contract_ref: contracts/state_machines/state_machines.yaml → objects.Pattern
-    unblocks_when: 确认 Pattern 与 PatternRecord 是同一对象（则合并为一条状态机）或确属两个对象（则补 Pattern 的 schema 与字段差异说明），二选一后本条目删除
-  - object: SharedReferenceAsset
-    reason: >-
-      26.2 给出完整状态链（DRAFT→RIGHTS_CHECK→VALIDATED→AVAILABLE→
-      DEPRECATED/REVOKED/QUARANTINED），但对象尚未建模，暂以正文段落为权威
-      （state_machines.text_authority_only 已登记）。
-    contract_ref: contracts/state_machines/state_machines.yaml → text_authority_only.SharedReferenceAsset
-    unblocks_when: 建模该对象并补 schema 后，从 text_authority_only 移入 objects 并登记状态机，本条目删除
+# G-C 已把 PublicationReview / CreatorShareLink / Pattern / SharedReferenceAsset 全部补 schema，
+# 四项条目按「补 schema 后必须删」规则删除；保留空列表作为结构，新增缺口仍登记于此。
+schema_gaps: []
