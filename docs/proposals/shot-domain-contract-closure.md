@@ -1,15 +1,14 @@
 ---
 doc_type: proposal
 status: in_progress
-updated_at: 2026-11-18
+updated_at: 2026-11-24
 authoritative_sources:
   - contracts/runtime/resource_schema_gaps.yaml
   - contracts/runtime/action_implementations.yaml
 open_items:
-  - item: >-
-      镜头域两个对象契约已落地（ShotBreakdownDraft 见 ADR-R16；ShotRevision 见 ADR-R17）；
-      其余 7 个资源类型仍无 schema 定义，须依据正文或所有者口径补齐，不得猜契约
-    source: "contracts/runtime/resource_schema_gaps.yaml#gaps"
+  # 2026-11-24 G-C：原「其余 7 个资源类型无 schema」已销项——CanonRevision /
+  # RightsCase / RightsManifest 补入 object_schemas，resource_schema_gaps.gaps 清空，
+  # 该 open_item 指向的债已不存在，按「补债后必须删指向它的开放项」删除，不得留空引用。
   - item: >-
       Shot 稳定实体本身仍未建模：8.3 是 Shot 与 ShotRevision 的合并示例，正文没有给 Shot 的
       状态集，字段拆分归属需所有者裁定；当前以 shot_id 为稳定身份键 + 父级不漂移（SR-5）

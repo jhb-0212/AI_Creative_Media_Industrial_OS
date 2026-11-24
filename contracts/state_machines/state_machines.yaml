@@ -30,7 +30,7 @@
 version: 2
 source: AFS-ARCH-MASTER-V2.0.5 各章节状态机定义（由 Markdown 基线派生）
 authority_rule: 同一对象多处定义时，按 31.5 唯一权威状态机 > 32.6/C.7 > 34.x > 33.3 > C.3 取权威；24.11 为摘要不计入权威；差异不静默合并，见 conflict 字段。
-total_objects: 54
+total_objects: 55
 conflict_count: 6
 object_count_note: total_objects 只计持久化领域对象；UI 投影见 projections 分区（不计入对象数，也不得进枚举注册表）。
 
@@ -64,14 +64,9 @@ conflict_rulings:
     26.2 未列 DEPRECATED、RETIRED 属描述省略，不构成第二套状态集。26.2 的晋升条件（质量证据、版权审查、适用边界说明、责任人审批）为准入规则，与状态转移并行适用。
 
 # 只有正文、未建模的对象：有状态链但对象尚未进入 object_schemas，属显式缺口而非「无状态机」。
-text_authority_only:
-- object: SharedReferenceAsset
-  source_sections:
-  - 26.2 资产生命周期和权威边界
-  kind: paragraph_authority_unmodeled_object
-  note: >-
-    26.2 给出了共享参考资产状态链（DRAFT→RIGHTS_CHECK→VALIDATED→AVAILABLE→DEPRECATED/REVOKED/QUARANTINED），属跨项目共享条目治理；
-    该对象尚未进入 object_schemas.schema.json，P0 期间以 26.2 正文为权威（有状态链、只是未建模，不属“无状态机”），建模后须按 31.11 启用前复核补登状态机。
+# G-C 已把 SharedReferenceAsset 建模补 schema 并从本分区移入 objects（登记状态机），本分区现为空。
+# 保留空分区作为显式结构：新增「正文有状态链但未建模」对象时仍登记于此，闸门据此要求 schema_gaps 登记。
+text_authority_only: []
 
 # UI 投影：不是持久化对象，不进对象数，不得进枚举注册表。
 projections:
@@ -1177,3 +1172,37 @@ objects:
   - 2.4 创意提案对象（status 六值与 reviewed_by / decision_reason）
   - 16.1 Intent-aware QC（deviation_intent_ref 引用提案版本）
   - docs/audits/2026-11-24-status-governance-ruling-packet.md（G-A 第三轮裁定）
+- object: SharedReferenceAsset
+  authoritative_source: 26.2 资产生命周期和权威边界（G-C 建模后按 31.11 补登）
+  allowed_states: [AVAILABLE, DEPRECATED, DRAFT, QUARANTINED, REVOKED, RIGHTS_CHECK, VALIDATED]
+  initial_state: DRAFT
+  transitions:
+  - from: DRAFT
+    to: RIGHTS_CHECK
+  - from: RIGHTS_CHECK
+    to: VALIDATED
+  - from: RIGHTS_CHECK
+    to: QUARANTINED
+  - from: VALIDATED
+    to: AVAILABLE
+  - from: AVAILABLE
+    to: DEPRECATED
+  - from: AVAILABLE
+    to: REVOKED
+  - from: AVAILABLE
+    to: QUARANTINED
+  frozen_states: [DEPRECATED, REVOKED, QUARANTINED]
+  note: >-
+    状态链逐字取自基线 26.2「DRAFT → RIGHTS_CHECK → VALIDATED → AVAILABLE → DEPRECATED /
+    REVOKED / QUARANTINED」。正文写的是「状态建议为」，未逐条给出转移箭头；主线五条边按
+    箭头顺序登记，RIGHTS_CHECK→QUARANTINED 为授权查验失败的旁路，AVAILABLE→REVOKED /
+    QUARANTINED 为撤销授权/来源不明的处置分支——这三组挂接点是所有者按 26.2 撤销处置语义
+    推导的，故 registration_status 保持 PENDING_PHASE1_REVIEW。终态不可原地复活；授权撤销
+    须阻止新复用、定位既有引用并记录影响报告（impact_report_ref）。REVOKED/QUARANTINED
+    不得互相替代或恢复。G-C 前本对象在 text_authority_only，补 schema 后按 31.11 移入本分区。
+  source_kind: text_authority_only
+  registration_status: PENDING_PHASE1_REVIEW
+  all_sources:
+  - 26.2 资产生命周期和权威边界（状态链与授权撤销处置）
+  - 26.2 共享主体库边界（经许可共享、Canon 独立授权）
+  - docs/audits/2026-11-24-status-governance-ruling-packet.md §4（G-C 裁定）

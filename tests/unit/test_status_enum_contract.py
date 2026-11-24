@@ -328,9 +328,17 @@ def test_alias_without_landing_point_is_reported() -> None:
 # 7. 删掉缺口登记，但对象仍未建模 → 报红
 # --------------------------------------------------------------------------- #
 def test_missing_schema_without_gap_entry_is_reported() -> None:
+    """G-C 后 PublicationReview/CreatorShareLink/Pattern/SharedReferenceAsset 已补 schema，
+    不能再用「它们缺 schema」当测试前提（修复后该前提为假，测试会以失败伪装成新缺陷）。
+    改为在内存中删掉一个有状态机的对象的 schema，断言闸门点名该对象报红——被测命题
+    「有状态机、无 schema、未登记缺口的对象必须报红」不变。"""
+    definitions = _definitions()
+    victim = "PublicationReview"
+    assert victim in definitions  # 前提随被测事实升级：它现在必须有 schema
+    definitions.pop(victim)
     sm_states = cc.state_machine_states(_sm_objects())
-    problems = cc.schema_gap_problems([], sm_states, _definitions())
-    assert any("PublicationReview" in p for p in problems), problems
+    problems = cc.schema_gap_problems([], sm_states, definitions)
+    assert any(victim in p and "未在 schema_gaps 登记" in p for p in problems), problems
 
 
 def test_stale_gap_entry_is_reported() -> None:

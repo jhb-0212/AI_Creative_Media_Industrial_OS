@@ -16,7 +16,7 @@
 
 generated_by: scripts/gen_status_contracts.py
 source: contracts/state_machines/state_machines.yaml
-object_count: 54
+object_count: 55
 objects:
 - object: Appeal
   states: [CLOSED, DECISION_OVERTURNED, DECISION_UPHELD, IN_REVIEW, SUBMITTED]
@@ -102,6 +102,8 @@ objects:
   states: [DRAFT, LOCKED, LOCK_PENDING, SUPERSEDED]
 - object: ShareLink
   states: [ACTIVE, EXPIRED, REVOKED]
+- object: SharedReferenceAsset
+  states: [AVAILABLE, DEPRECATED, DRAFT, QUARANTINED, REVOKED, RIGHTS_CHECK, VALIDATED]
 - object: Shot
   states: [BLOCKED, CANCELLED, IN_PRODUCTION, NOT_STARTED, PRODUCTION_COMPLETE]
 - object: ShotBreakdownDraft
