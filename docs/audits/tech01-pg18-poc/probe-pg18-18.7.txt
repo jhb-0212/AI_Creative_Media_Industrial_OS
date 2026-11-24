@@ -1,0 +1,300 @@
+﻿=== 1. ???????????????????????????????===
+ version_num  
+--------------
+ e1f2a3b4c5d6
+(1 row)
+
+=== 2. schema ????????????????????==
+       nspname       
+---------------------
+ asset_service
+ audit
+ auth
+ budget_quota
+ outbox
+ production_planning
+ project_planning
+ public
+ qc_governance
+(9 rows)
+
+=== 3. ????????????LS??ORCE ===
+       schema        |           object            |    kind     |  owner   | rls | forced 
+---------------------+-----------------------------+-------------+----------+-----+--------
+ asset_service       | asset_registration_receipts | table       | postgres | t   | t
+ asset_service       | asset_versions              | table       | postgres | t   | t
+ asset_service       | qc_reports                  | table       | postgres | t   | t
+ audit               | status_transitions          | table       | postgres | t   | t
+ auth                | revoked_tokens              | table       | postgres | f   | f
+ budget_quota        | budget_ledger               | table       | postgres | t   | t
+ budget_quota        | shot_budget_requests        | table       | postgres | t   | t
+ outbox              | maintenance_runs            | table       | postgres | f   | f
+ outbox              | outbox_events               | partitioned | postgres | t   | f
+ outbox              | outbox_events_default       | table       | postgres | t   | f
+ outbox              | outbox_events_y202611       | table       | postgres | t   | f
+ outbox              | outbox_events_y202612       | table       | postgres | t   | f
+ production_planning | artifact_manifests          | table       | postgres | t   | t
+ production_planning | generation_tasks            | table       | postgres | t   | t
+ production_planning | production_routes           | table       | postgres | t   | t
+ project_planning    | constraint_packs            | table       | postgres | t   | t
+ project_planning    | episodes                    | table       | postgres | t   | t
+ project_planning    | organizations               | table       | postgres | t   | t
+ project_planning    | projects                    | table       | postgres | t   | t
+ project_planning    | rework_tasks                | table       | postgres | t   | t
+ project_planning    | scenes                      | table       | postgres | t   | t
+ project_planning    | script_revisions            | table       | postgres | t   | t
+ project_planning    | shot_breakdown_drafts       | table       | postgres | t   | t
+ project_planning    | shot_revisions              | table       | postgres | t   | t
+ project_planning    | shot_specs                  | table       | postgres | t   | t
+ project_planning    | shots                       | table       | postgres | t   | t
+ public              | alembic_version             | table       | postgres | f   | f
+ qc_governance       | gate_decisions              | table       | postgres | t   | t
+ qc_governance       | qc_tasks                    | table       | postgres | t   | t
+(29 rows)
+
+=== 4. ????????????????????????????????????===
+         rolname          | rolsuper | rolcreaterole | rolcreatedb | rolcanlogin | rolbypassrls 
+--------------------------+----------+---------------+-------------+-------------+--------------
+ app_role                 | f        | f             | f           | t           | f
+ asset_service_role       | f        | f             | f           | t           | f
+ budget_quota_role        | f        | f             | f           | t           | f
+ outbox_relay_role        | f        | f             | f           | t           | f
+ postgres                 | t        | t             | t           | t           | t
+ production_planning_role | f        | f             | f           | t           | f
+ project_planning_role    | f        | f             | f           | t           | f
+ qc_governance_role       | f        | f             | f           | t           | f
+(8 rows)
+
+=== 5. ??? ACL??elacl??==
+                  object                   |                                                                                                                      relacl                                                                                                                      
+-------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ asset_service.asset_registration_receipts | {postgres=arwdDxtm/postgres,asset_service_role=ar/postgres}
+ asset_service.asset_versions              | {postgres=arwdDxtm/postgres,asset_service_role=arw/postgres}
+ asset_service.qc_reports                  | {postgres=arwdDxtm/postgres,asset_service_role=ar/postgres}
+ audit.status_transitions                  | {postgres=arwdDxtm/postgres,project_planning_role=ar/postgres,asset_service_role=ar/postgres,production_planning_role=ar/postgres,budget_quota_role=ar/postgres,qc_governance_role=ar/postgres}
+ auth.revoked_tokens                       | {postgres=arwdDxtm/postgres,project_planning_role=r/postgres,asset_service_role=r/postgres,production_planning_role=r/postgres,budget_quota_role=r/postgres,qc_governance_role=r/postgres}
+ budget_quota.budget_ledger                | {postgres=arwdDxtm/postgres,budget_quota_role=ar/postgres}
+ budget_quota.shot_budget_requests         | {postgres=arwdDxtm/postgres,budget_quota_role=arw/postgres}
+ outbox.maintenance_runs                   | {postgres=arwdDxtm/postgres}
+ outbox.outbox_events                      | {postgres=arwdDxtm/postgres,app_role=r/postgres,outbox_relay_role=r/postgres,project_planning_role=ar/postgres,asset_service_role=ar/postgres,production_planning_role=ar/postgres,budget_quota_role=ar/postgres,qc_governance_role=ar/postgres}
+ outbox.outbox_events_default              | {postgres=arwdDxtm/postgres,project_planning_role=ar/postgres,asset_service_role=ar/postgres,outbox_relay_role=r/postgres}
+ outbox.outbox_events_y202611              | {postgres=arwdDxtm/postgres,project_planning_role=ar/postgres,asset_service_role=ar/postgres,outbox_relay_role=r/postgres}
+ outbox.outbox_events_y202612              | {postgres=arwdDxtm/postgres,project_planning_role=ar/postgres,asset_service_role=ar/postgres,outbox_relay_role=r/postgres}
+ production_planning.artifact_manifests    | {postgres=arwdDxtm/postgres,production_planning_role=arw/postgres}
+ production_planning.generation_tasks      | {postgres=arwdDxtm/postgres,production_planning_role=arw/postgres}
+ production_planning.production_routes     | {postgres=arwdDxtm/postgres,production_planning_role=arw/postgres}
+ project_planning.constraint_packs         | {postgres=arwdDxtm/postgres,project_planning_role=arw/postgres}
+ project_planning.episodes                 | {postgres=arwdDxtm/postgres,project_planning_role=arw/postgres}
+ project_planning.organizations            | {postgres=arwdDxtm/postgres,project_planning_role=r/postgres}
+ project_planning.projects                 | {postgres=arwdDxtm/postgres,project_planning_role=arw/postgres}
+ project_planning.rework_tasks             | {postgres=arwdDxtm/postgres,project_planning_role=arw/postgres}
+ project_planning.scenes                   | {postgres=arwdDxtm/postgres,project_planning_role=arw/postgres}
+ project_planning.script_revisions         | {postgres=arwdDxtm/postgres,project_planning_role=arw/postgres}
+ project_planning.shot_breakdown_drafts    | {postgres=arwdDxtm/postgres,project_planning_role=arw/postgres}
+ project_planning.shot_revisions           | {postgres=arwdDxtm/postgres,project_planning_role=arw/postgres}
+ project_planning.shot_specs               | {postgres=arwdDxtm/postgres,project_planning_role=arw/postgres}
+ project_planning.shots                    | {postgres=arwdDxtm/postgres,project_planning_role=arw/postgres}
+ public.alembic_version                    | {postgres=arwdDxtm/postgres,project_planning_role=r/postgres,asset_service_role=r/postgres,production_planning_role=r/postgres,budget_quota_role=r/postgres,qc_governance_role=r/postgres}
+ qc_governance.gate_decisions              | {postgres=arwdDxtm/postgres,qc_governance_role=ar/postgres}
+ qc_governance.qc_tasks                    | {postgres=arwdDxtm/postgres,qc_governance_role=arw/postgres}
+(29 rows)
+
+=== 6. ??? ACL??ttacl????????????? relay ??? UPDATE ????????===
+                 column_object                 |                                                             attacl                                                             
+-----------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------
+ outbox.outbox_events.attempts                 | {outbox_relay_role=w/postgres}
+ outbox.outbox_events.dead_lettered_at         | {outbox_relay_role=w/postgres}
+ outbox.outbox_events.next_attempt_at          | {outbox_relay_role=w/postgres}
+ outbox.outbox_events.published_at             | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_default.attempts         | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_default.dead_lettered_at | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_default.next_attempt_at  | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_default.published_at     | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_y202611.attempts         | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_y202611.dead_lettered_at | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_y202611.next_attempt_at  | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_y202611.published_at     | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_y202612.attempts         | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_y202612.dead_lettered_at | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_y202612.next_attempt_at  | {outbox_relay_role=w/postgres}
+ outbox.outbox_events_y202612.published_at     | {outbox_relay_role=w/postgres}
+ project_planning.projects.entity_id           | {asset_service_role=r/postgres,production_planning_role=r/postgres,budget_quota_role=r/postgres,qc_governance_role=r/postgres}
+ project_planning.projects.organization_id     | {asset_service_role=r/postgres,production_planning_role=r/postgres,budget_quota_role=r/postgres,qc_governance_role=r/postgres}
+ project_planning.projects.tenant_id           | {asset_service_role=r/postgres,production_planning_role=r/postgres,budget_quota_role=r/postgres,qc_governance_role=r/postgres}
+(19 rows)
+
+=== 7. schema ??ACL??SAGE ???????????????===
+       nspname       |                                                                                                                                  nspacl                                                                                                                                  
+---------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ asset_service       | {postgres=UC/postgres,asset_service_role=U/postgres}
+ audit               | {postgres=UC/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres,production_planning_role=U/postgres,budget_quota_role=U/postgres,qc_governance_role=U/postgres}
+ auth                | {postgres=UC/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres,production_planning_role=U/postgres,budget_quota_role=U/postgres,qc_governance_role=U/postgres}
+ budget_quota        | {postgres=UC/postgres,budget_quota_role=U/postgres}
+ outbox              | {postgres=UC/postgres,app_role=U/postgres,outbox_relay_role=U/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres,production_planning_role=U/postgres,budget_quota_role=U/postgres,qc_governance_role=U/postgres}
+ production_planning | {postgres=UC/postgres,production_planning_role=U/postgres}
+ project_planning    | {postgres=UC/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres,production_planning_role=U/postgres,budget_quota_role=U/postgres,qc_governance_role=U/postgres}
+ public              | {pg_database_owner=UC/pg_database_owner,=U/pg_database_owner,project_planning_role=U/pg_database_owner,asset_service_role=U/pg_database_owner,production_planning_role=U/pg_database_owner,budget_quota_role=U/pg_database_owner,qc_governance_role=U/pg_database_owner}
+ qc_governance       | {postgres=UC/postgres,qc_governance_role=U/postgres}
+(9 rows)
+
+=== 8. ????????????????????????===
+ owner_role | schema | defaclobjtype |                                            defaclacl                                            
+------------+--------+---------------+-------------------------------------------------------------------------------------------------
+ postgres   | outbox | r             | {outbox_relay_role=r/postgres,project_planning_role=ar/postgres,asset_service_role=ar/postgres}
+(1 row)
+
+=== 9. RLS ?????SING / WITH CHECK ?????????===
+     schemaname      |          tablename          |                  policyname                  | cmd | has_using | has_check 
+---------------------+-----------------------------+----------------------------------------------+-----+-----------+-----------
+ asset_service       | asset_registration_receipts | tenant_isolation_asset_registration_receipts | ALL | t         | f
+ asset_service       | asset_versions              | tenant_isolation_asset_versions              | ALL | t         | f
+ asset_service       | qc_reports                  | tenant_isolation_qc_reports                  | ALL | t         | f
+ audit               | status_transitions          | tenant_isolation_status_transitions          | ALL | t         | f
+ budget_quota        | budget_ledger               | tenant_isolation_budget_ledger               | ALL | t         | f
+ budget_quota        | shot_budget_requests        | tenant_isolation_shot_budget_requests        | ALL | t         | f
+ outbox              | outbox_events               | tenant_isolation_outbox_events               | ALL | t         | f
+ outbox              | outbox_events_default       | tenant_isolation_outbox_events               | ALL | t         | f
+ outbox              | outbox_events_y202611       | tenant_isolation_outbox_events               | ALL | t         | f
+ outbox              | outbox_events_y202612       | tenant_isolation_outbox_events               | ALL | t         | f
+ production_planning | artifact_manifests          | tenant_isolation_artifact_manifests          | ALL | t         | f
+ production_planning | generation_tasks            | tenant_isolation_generation_tasks            | ALL | t         | f
+ production_planning | production_routes           | tenant_isolation_production_routes           | ALL | t         | f
+ project_planning    | constraint_packs            | tenant_isolation_constraint_packs            | ALL | t         | f
+ project_planning    | episodes                    | tenant_isolation_episodes                    | ALL | t         | f
+ project_planning    | organizations               | tenant_isolation_organizations               | ALL | t         | f
+ project_planning    | projects                    | tenant_isolation_projects                    | ALL | t         | f
+ project_planning    | rework_tasks                | tenant_isolation_rework_tasks                | ALL | t         | f
+ project_planning    | scenes                      | tenant_isolation_scenes                      | ALL | t         | f
+ project_planning    | script_revisions            | tenant_isolation_script_revisions            | ALL | t         | f
+ project_planning    | shot_breakdown_drafts       | tenant_isolation_shot_breakdown_drafts       | ALL | t         | f
+ project_planning    | shot_revisions              | tenant_isolation_shot_revisions              | ALL | t         | f
+ project_planning    | shot_specs                  | tenant_isolation_shot_specs                  | ALL | t         | f
+ project_planning    | shots                       | tenant_isolation_shots                       | ALL | t         | f
+ qc_governance       | gate_decisions              | tenant_isolation_gate_decisions              | ALL | t         | f
+ qc_governance       | qc_tasks                    | tenant_isolation_qc_tasks                    | ALL | t         | f
+(26 rows)
+
+=== 10. ?????????????????????????????????===
+       schema        |            table            | contype | n  
+---------------------+-----------------------------+---------+----
+ asset_service       | asset_registration_receipts | c       |  2
+ asset_service       | asset_registration_receipts | f       |  3
+ asset_service       | asset_registration_receipts | n       | 12
+ asset_service       | asset_registration_receipts | p       |  1
+ asset_service       | asset_registration_receipts | u       |  2
+ asset_service       | asset_versions              | c       |  2
+ asset_service       | asset_versions              | f       |  1
+ asset_service       | asset_versions              | n       | 15
+ asset_service       | asset_versions              | p       |  1
+ asset_service       | asset_versions              | u       |  1
+ asset_service       | qc_reports                  | f       |  1
+ asset_service       | qc_reports                  | n       |  9
+ asset_service       | qc_reports                  | p       |  1
+ audit               | status_transitions          | c       |  2
+ audit               | status_transitions          | n       | 12
+ audit               | status_transitions          | p       |  1
+ audit               | status_transitions          | t       |  1
+ audit               | status_transitions          | u       |  1
+ auth                | revoked_tokens              | n       |  6
+ auth                | revoked_tokens              | p       |  1
+ budget_quota        | budget_ledger               | c       |  3
+ budget_quota        | budget_ledger               | n       | 19
+ budget_quota        | budget_ledger               | p       |  1
+ budget_quota        | budget_ledger               | u       |  1
+ budget_quota        | shot_budget_requests        | c       |  2
+ budget_quota        | shot_budget_requests        | f       |  1
+ budget_quota        | shot_budget_requests        | n       | 20
+ budget_quota        | shot_budget_requests        | p       |  1
+ outbox              | maintenance_runs            | n       |  8
+ outbox              | maintenance_runs            | p       |  1
+ outbox              | outbox_events               | n       |  9
+ outbox              | outbox_events               | p       |  1
+ outbox              | outbox_events_default       | n       |  9
+ outbox              | outbox_events_default       | p       |  1
+ outbox              | outbox_events_y202611       | n       |  9
+ outbox              | outbox_events_y202611       | p       |  1
+ outbox              | outbox_events_y202612       | n       |  9
+ outbox              | outbox_events_y202612       | p       |  1
+ production_planning | artifact_manifests          | c       |  2
+ production_planning | artifact_manifests          | f       |  2
+ production_planning | artifact_manifests          | n       | 15
+ production_planning | artifact_manifests          | p       |  1
+ production_planning | artifact_manifests          | u       |  2
+ production_planning | generation_tasks            | c       |  1
+ production_planning | generation_tasks            | f       |  1
+ production_planning | generation_tasks            | n       | 23
+ production_planning | generation_tasks            | p       |  1
+ production_planning | generation_tasks            | u       |  2
+ production_planning | production_routes           | c       |  1
+ production_planning | production_routes           | f       |  1
+ production_planning | production_routes           | n       | 18
+ production_planning | production_routes           | p       |  1
+ production_planning | production_routes           | u       |  1
+ project_planning    | constraint_packs            | c       |  9
+ project_planning    | constraint_packs            | f       |  1
+ project_planning    | constraint_packs            | n       | 21
+ project_planning    | constraint_packs            | p       |  1
+ project_planning    | constraint_packs            | u       |  2
+ project_planning    | episodes                    | c       |  1
+ project_planning    | episodes                    | f       |  1
+ project_planning    | episodes                    | n       | 13
+ project_planning    | episodes                    | p       |  1
+ project_planning    | episodes                    | u       |  2
+ project_planning    | organizations               | n       |  6
+ project_planning    | organizations               | p       |  1
+ project_planning    | organizations               | u       |  1
+ project_planning    | projects                    | c       |  1
+ project_planning    | projects                    | f       |  1
+ project_planning    | projects                    | n       | 12
+ project_planning    | projects                    | p       |  1
+ project_planning    | projects                    | u       |  1
+ project_planning    | rework_tasks                | c       |  1
+ project_planning    | rework_tasks                | f       |  1
+ project_planning    | rework_tasks                | n       | 21
+ project_planning    | rework_tasks                | p       |  1
+ project_planning    | rework_tasks                | u       |  1
+ project_planning    | scenes                      | c       |  2
+ project_planning    | scenes                      | f       |  2
+ project_planning    | scenes                      | n       | 14
+ project_planning    | scenes                      | p       |  1
+ project_planning    | scenes                      | u       |  2
+ project_planning    | script_revisions            | c       |  1
+ project_planning    | script_revisions            | f       |  2
+ project_planning    | script_revisions            | n       | 13
+ project_planning    | script_revisions            | p       |  1
+ project_planning    | shot_breakdown_drafts       | c       |  1
+ project_planning    | shot_breakdown_drafts       | f       |  1
+ project_planning    | shot_breakdown_drafts       | n       | 23
+ project_planning    | shot_breakdown_drafts       | p       |  1
+ project_planning    | shot_revisions              | c       |  2
+ project_planning    | shot_revisions              | f       |  2
+ project_planning    | shot_revisions              | n       | 34
+ project_planning    | shot_revisions              | p       |  1
+ project_planning    | shot_revisions              | u       |  2
+ project_planning    | shot_specs                  | c       |  5
+ project_planning    | shot_specs                  | f       |  2
+ project_planning    | shot_specs                  | n       | 25
+ project_planning    | shot_specs                  | p       |  1
+ project_planning    | shot_specs                  | u       |  2
+ project_planning    | shots                       | c       |  3
+ project_planning    | shots                       | f       |  3
+ project_planning    | shots                       | n       | 15
+ project_planning    | shots                       | p       |  1
+ project_planning    | shots                       | u       |  2
+ public              | alembic_version             | n       |  1
+ public              | alembic_version             | p       |  1
+ qc_governance       | gate_decisions              | c       |  2
+ qc_governance       | gate_decisions              | f       |  1
+ qc_governance       | gate_decisions              | n       | 25
+ qc_governance       | gate_decisions              | p       |  1
+ qc_governance       | qc_tasks                    | c       |  1
+ qc_governance       | qc_tasks                    | f       |  1
+ qc_governance       | qc_tasks                    | n       | 19
+ qc_governance       | qc_tasks                    | p       |  1
+(114 rows)
+
+=== 11. ????????????????????DELETE / TRUNCATE / REFERENCES ===
+ rolname | object | can_delete | can_truncate 
+---------+--------+------------+--------------
+(0 rows)
+
