@@ -453,9 +453,9 @@ signatures:
     entity_type: string
     entity_version: integer
     generation_task_id: string
-    id: string
     locator: string
     owner_module: string
+    project_id: string
     schema_version: integer
     sha256: string
     status: string
@@ -470,9 +470,9 @@ signatures:
     entity_type: string
     entity_version: integer
     generation_task_id: string
-    id: string
     message: string|null
     owner_module: string
+    project_id: string
     registration_fingerprint: string|null
     schema_version: integer
     status: string

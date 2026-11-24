@@ -20,7 +20,7 @@ apps/          # 进程入口薄层（api、console）
 services/      # 领域服务内核（按数据所有权分模块，目录名下划线命名）
 workers/       # 异步执行层（generation/qc/delivery/notifications）
 agents/        # Agent 运行时（runtime/planners/evaluators）
-adapters/      # 外部适配层（模型/ComfyUI/白模/存储/外部工具）
+adapters/      # 外部适配层（模型/白模/存储/外部工具）
 contracts/     # Phase 0 冻结契约（单一事实源）
 packages/      # 横切能力（shared/errors/telemetry）
 data/          # 迁移/种子/策略配置
@@ -46,7 +46,7 @@ docs/          # 架构/ADR/runbook/SOP
 | 缓存/限流/短队列 | Redis |
 | 持久化工作流 | Temporal |
 | 异步事件 | RabbitMQ/NATS/Kafka（Outbox 模式） |
-| 生成执行 | ComfyUI + 各模型 Adapter |
+| 生成执行 | 自研兼容模型网关 + 各模型 Adapter（不内嵌画布，见 ADR-R43） |
 | 可观测 | OpenTelemetry |
 
 ## 工程铁律

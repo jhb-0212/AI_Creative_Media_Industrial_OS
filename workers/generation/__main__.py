@@ -26,7 +26,6 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
-from adapters.model_gateway.comfyui import ComfyUIGateway
 from adapters.model_gateway.openai_compatible import OpenAICompatibleGateway
 from adapters.storage.local_fs import LocalFsObjectStorage
 from packages.shared.config import get_process_settings
@@ -139,9 +138,9 @@ def _build_executor(settings: Any, sessionmaker: Any) -> tuple[Any, Any | None]:
     | 配置 | 执行器 | 后果 |
     |---|---|---|
     | 未配 ``MODEL_GATEWAY_BASE_URL`` | ``UnconfiguredExecutor`` | 任务 FAILED，证据写明未配置 |
-    | 配了地址但缺 KEY / 存储根 / 工作流模板 | 抛错，进程不启动 | 配置矛盾必须在启动时暴露 |
+    | 配了地址但缺 KEY / 存储根 | 抛错，进程不启动 | 配置矛盾必须在启动时暴露 |
     | 协议写了无适配器的值 | 抛错，进程不启动 | 否则日志里看不出协议没生效 |
-    | 配齐 | ``StorageBackedGenerationExecutor`` | 真实调用（两种协议之一） |
+    | 配齐 | ``StorageBackedGenerationExecutor`` | 真实调用自研兼容网关 |
 
     第二档刻意不降级：若「配了地址但没配 KEY」静默回落到未配置执行器，
     运维会看到「任务一直失败」而去查网关，而真正的原因是本机的配置缺一项。
@@ -191,15 +190,10 @@ def _build_executor(settings: Any, sessionmaker: Any) -> tuple[Any, Any | None]:
 
 
 def _build_gateway(settings: Any, base_url: str, protocol: str) -> Any:
-    """按协议装配网关。
+    """按协议装配网关；只保留自研兼容网关一种实现。
 
-    两条协议**不是**同一个适配器的两种编码，而是两种调用形状：
-
-    - ``openai_compatible``：同步，一次请求拿到字节；
-    - ``comfyui``：三段异步（提交工作流 → 轮询历史 → 取产物），且必须有工作流
-      模板——ComfyUI 没有任何「给我一句话」的入口。
-
-    因此这里不共用构造参数，各自校验自己缺什么，缺什么就在启动时报什么。
+    ``model_gateway_protocol`` 仍保留为 fail-closed 的配置契约：未知值必须在
+    启动时报错，而不是静默落到默认适配器（那样日志里看不出协议没生效）。
     """
     if protocol == "openai_compatible":
         return OpenAICompatibleGateway(
@@ -215,53 +209,9 @@ def _build_gateway(settings: Any, base_url: str, protocol: str) -> Any:
             ),
         )
 
-    if protocol == "comfyui":
-        workflow_path = getattr(settings, "model_gateway_comfyui_workflow_path", "")
-        if not workflow_path:
-            raise ValueError(
-                "MODEL_GATEWAY_PROTOCOL=comfyui 但 "
-                "MODEL_GATEWAY_COMFYUI_WORKFLOW_PATH 为空："
-                "ComfyUI 没有「给我一句话」的入口，必须提供工作流模板"
-                "（在 ComfyUI 里用「导出 (API)」得到）"
-            )
-        prompt_node = getattr(settings, "model_gateway_comfyui_prompt_node", "")
-        if not prompt_node:
-            raise ValueError(
-                "MODEL_GATEWAY_PROTOCOL=comfyui 但 "
-                "MODEL_GATEWAY_COMFYUI_PROMPT_NODE 为空："
-                "不指定注入节点就只能靠猜，而猜错会产出与意图无关的图且全程无错"
-            )
-        return ComfyUIGateway(
-            base_url=base_url,
-            workflow_path=workflow_path,
-            prompt_node=prompt_node,
-            prompt_field=getattr(
-                settings, "model_gateway_comfyui_prompt_field", "text"
-            ),
-            negative_node=getattr(settings, "model_gateway_comfyui_negative_node", ""),
-            negative_field=getattr(
-                settings, "model_gateway_comfyui_negative_field", "text"
-            ),
-            output_node=getattr(settings, "model_gateway_comfyui_output_node", ""),
-            # ComfyUI 下 default_model 表示工作流标识：请求里的 model 必须与它
-            # 一致，否则拒绝（见适配器 _check_model 的理由）。
-            workflow_id=getattr(settings, "model_gateway_default_model", ""),
-            api_key=settings.model_gateway_api_key.get_secret_value(),
-            timeout_seconds=getattr(settings, "model_gateway_timeout_seconds", 120.0),
-            job_timeout_seconds=getattr(
-                settings, "model_gateway_comfyui_job_timeout_seconds", 900.0
-            ),
-            poll_interval_seconds=getattr(
-                settings, "model_gateway_comfyui_poll_interval_seconds", 2.0
-            ),
-            max_bytes=getattr(
-                settings, "model_gateway_max_artifact_bytes", 256 * 1024 * 1024
-            ),
-        )
-
     raise ValueError(
         f"MODEL_GATEWAY_PROTOCOL={protocol!r} 无对应适配器"
-        "（已实现: openai_compatible / comfyui）"
+        "（已实现: openai_compatible）"
     )
 
 

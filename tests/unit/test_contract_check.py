@@ -425,6 +425,9 @@ def _event_fixture(
         ),
         encoding="utf-8",
     )
+    # 夹具只测「台账 ↔ 发出点」的双向关系；严格载荷模型由真实仓库的
+    # test_real_catalog_declares_all_strict_payloads 单独验证，避免两套装置互相冒充。
+    monkeypatch.setattr(cc, "_load_strict_event_payloads", lambda: ({}, "1", {}))
     monkeypatch.setattr(cc, "EVENT_SCAN_ROOTS", (code,))
     monkeypatch.setattr(cc, "EVENT_CATALOG_PATH", catalog)
     monkeypatch.setattr(cc, "EVENT_GAPS_PATH", gaps_path)
@@ -441,6 +444,11 @@ def test_event_catalog_passes_when_consistent(
         emitted=["DEMO_EVENT"],
         entries=[_event_entry("DEMO_EVENT")],
     )
+    assert cc.check_event_catalog() is True
+
+
+def test_real_catalog_declares_all_strict_payloads() -> None:
+    """真实事件目录必须覆盖全部专用 handler 的载荷模型，且字段集合逐项一致。"""
     assert cc.check_event_catalog() is True
 
 

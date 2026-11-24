@@ -18,7 +18,7 @@
 | packages/ | errors(2)、identity(10)、shared(28)、telemetry(2) | 全部有代码 |
 | apps/ | 仅 api（main.py + __init__） | 单入口，符合现状 |
 | workers/ | 7 个目录 | 有代码 3 个：relay(6)、identity(3)、outbox_maintenance(3)；空目录 4 个：delivery、generation、notifications、qc |
-| adapters/ | 6 个目录 | 全部空：audio_models、blocking、comfyui、external_tool、image_models、video_models |
+| adapters/ | 7 个目录 | 有代码：model_gateway、storage；其余空：audio_models、blocking、external_tool、image_models、video_models |
 | agents/ | 3 个目录 | 全部空：evaluators、planners、runtime |
 | contracts/ | 13 项（action_registry、openapi、state_machines、schemas、permission、budget、metrics、phase0、phases、enums、runtime、authorization、security_boundary） | **Phase 0 契约层已冻结且有自校验体系**（freeze_manifest / contract_check） |
 | data/ | migrations(38 个版本文件)、policies、seeds、examples | 迁移链存在，CI 有 `alembic upgrade head` + `alembic check` |

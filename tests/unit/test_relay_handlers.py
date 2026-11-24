@@ -72,12 +72,21 @@ def _event(payload: dict[str, Any]) -> OutboxEvent:
 
 
 def _good_payload() -> dict[str, Any]:
+    # 与生产 emit 形状一致：advance_status 还会补 from/to/tenant/transition 与版本。
     return {
         "generation_task_id": _TASK_ID,
         "asset_version_id": "av-1",
         "quality_profile_version": "qp-1",
         "project_id": "proj-1",
         "shot_id": "shot-1",
+        "worker_id": "svc:asset-registration",
+        "evidence_ref": "receipt-ok",
+        "attempt_count": 1,
+        "schema_version": "1",
+        "from_status": "AWAITING_ASSET_REGISTRATION",
+        "to_status": "SUCCEEDED",
+        "tenant_id": str(_TENANT),
+        "transition_id": "tr-1",
     }
 
 

@@ -15,6 +15,7 @@ T3 在任务已终态时直接返回。重复投递因此不会产生第二个�
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import cast
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from sqlalchemy import text
@@ -22,6 +23,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.identity.principal import Principal
+from packages.shared.event_payloads import (
+    AssetRegistrationCompletedPayload,
+    AssetRegistrationConflictPayload,
+    AssetRegistrationRejectedPayload,
+    AssetRegistrationRequestedPayload,
+    EventPayloadError,
+    parse_event_payload,
+    stamp_event_payload,
+)
 from packages.shared.port_errors import DuplicateEntityError
 from packages.shared.registration_fingerprint import (
     RegistrationFingerprintInput,
@@ -83,48 +93,48 @@ class RegistrationResult:
     completed: bool
 
 
-def _field(payload: dict[str, object], name: str) -> str:
-    return str(payload.get(name) or "").strip()
+def _parse(event: OutboxEvent, event_type: str) -> object:
+    """严格解析事件载荷；违约与业务不一致一样走 relay 失败/死信路径。"""
+    try:
+        return parse_event_payload(event_type, event.payload)
+    except EventPayloadError as exc:
+        raise ReceiptEventError(str(exc)) from exc
 
 
 def parse_requested(event: OutboxEvent) -> RegistrationRequested:
-    p = event.payload
-    values = (
-        "generation_task_id",
-        "project_id",
-        "attempt_id",
-        "locator",
-        "sha256",
-        "media_type",
+    p = cast(
+        AssetRegistrationRequestedPayload,
+        _parse(event, "ASSET_REGISTRATION_REQUESTED"),
     )
-    if any(not _field(p, name) for name in values):
-        raise ReceiptEventError("ASSET_REGISTRATION_REQUESTED 缺必需字段")
     return RegistrationRequested(
         tenant_id=event.tenant_id,
-        generation_task_id=_field(p, "generation_task_id"),
-        project_id=_field(p, "project_id"),
-        attempt_id=_field(p, "attempt_id"),
-        locator=_field(p, "locator"),
-        sha256=_field(p, "sha256").lower(),
-        media_type=_field(p, "media_type"),
+        generation_task_id=p.generation_task_id,
+        project_id=p.project_id,
+        attempt_id=p.attempt_id,
+        locator=p.locator,
+        sha256=p.sha256.lower(),
+        media_type=p.media_type,
     )
 
 
 def parse_result(event: OutboxEvent) -> RegistrationResult:
-    p = event.payload
-    task_id = _field(p, "generation_task_id")
-    if not task_id:
-        raise ReceiptEventError(f"{event.event_type} 缺 generation_task_id")
     if event.event_type == "ASSET_REGISTRATION_COMPLETED":
-        asset_id = _field(p, "asset_version_id")
-        if not asset_id:
-            raise ReceiptEventError("COMPLETED 事件缺 asset_version_id")
+        p = cast(
+            AssetRegistrationCompletedPayload, _parse(event, event.event_type)
+        )
         return RegistrationResult(
-            event.tenant_id, task_id, asset_id, "", True
+            event.tenant_id, p.generation_task_id, p.asset_version_id, "", True
         )
     if event.event_type == "ASSET_REGISTRATION_REJECTED":
+        rejected = cast(
+            AssetRegistrationRejectedPayload, _parse(event, event.event_type)
+        )
         return RegistrationResult(
-            event.tenant_id, task_id, "", _field(p, "reason"), False
+            event.tenant_id,
+            rejected.generation_task_id,
+            "",
+            rejected.reason,
+            False,
         )
     raise ReceiptEventError(f"非登记结果事件: {event.event_type}")
 
@@ -195,16 +205,18 @@ async def _record_conflict(
         ),
         tenant_id=request.tenant_id,
         event_type="ASSET_REGISTRATION_CONFLICT",
-        payload={
-            "generation_task_id": request.generation_task_id,
-            "project_id": request.project_id,
-            "tenant_id": str(request.tenant_id),
-            "expected_fingerprint": expected,
-            "observed_fingerprint": fingerprint,
-            "observed": {
-                name: str(value) for name, value in canonical.items()
-            },
-        },
+        payload=stamp_event_payload(
+            {
+                "generation_task_id": request.generation_task_id,
+                "project_id": request.project_id,
+                "tenant_id": str(request.tenant_id),
+                "expected_fingerprint": expected,
+                "observed_fingerprint": fingerprint,
+                "observed": {
+                    name: str(value) for name, value in canonical.items()
+                },
+            }
+        ),
     )
 
 
@@ -213,7 +225,10 @@ async def _consume_conflict(event: OutboxEvent) -> None:
 
     事件本身已在 append-only 表中永久留存，是审计事实；这里只需让 relay 正常
     写 published_at，避免把它留在待投递队列里抬高 backlog 或被默认 webhook 误发。
+    没有业务动作不等于没有消费边界：载荷仍须严格校验，坏事件进死信而不是被
+    「no-op 成功」洗掉。
     """
+    cast(AssetRegistrationConflictPayload, _parse(event, event.event_type))
     return None
 
 
@@ -367,12 +382,14 @@ def build_asset_registration_handlers(
                 await session.commit()
                 return
             writer = SqlAlchemyOutboxWriter(session)
-            payload = {
-                "generation_task_id": request.generation_task_id,
-                "project_id": request.project_id,
-                "tenant_id": str(request.tenant_id),
-                "attempt_id": request.attempt_id,
-            }
+            payload = stamp_event_payload(
+                {
+                    "generation_task_id": request.generation_task_id,
+                    "project_id": request.project_id,
+                    "tenant_id": str(request.tenant_id),
+                    "attempt_id": request.attempt_id,
+                }
+            )
             if completed:
                 writer.record(
                     aggregate_type="AssetRegistrationReceipt",

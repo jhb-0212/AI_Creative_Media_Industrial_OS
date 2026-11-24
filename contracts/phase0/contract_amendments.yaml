@@ -1678,6 +1678,43 @@ amendments:
       - '回执只存指纹不存原始字段，conflict_fields 无法从回执反推，不伪造该字段；原始语义可从 T1 REQUESTED 事件与冻结任务人工比对。'
       - '本条目不改 R42 授权口径/QC 单路径/D6 人工重放，也不做 PREPARED 恢复（PR-G）。'
 
+  - id: 'V205-R43-BOUNDARY-HARDENING'
+    title: 'R43 边界收敛：移除 ComfyUI 入口、事件严格反序列化与新对象字段边界（第四批）'
+    retroactive: false
+    recorded_at: '2026-11-24'
+    discovered_by: '二次工程审查报告第四批 + 项目所有者裁决（四批全做、移除 ComfyUI 入口、仅保留自研网关）'
+    reason: >-
+      三项断链同源：①生产装配仍保留 protocol=comfyui 分支、9 个 comfyui 配置项与
+      适配器实现，而 R43 已裁定不内嵌画布、用户已裁决移除入口——留着可调用代码等于
+      边界只写在文档里；②5 个有专用 handler 的事件用 payload.get + str() 取值，
+      未知字段被静默忽略、错误类型被强转成看似合法的字符串，且全仓没有任何事件
+      版本字段，无法拒绝未知版本；③ArtifactManifest / AssetRegistrationReceipt
+      的 Schema 把数据库代理键 id 当身份、又漏掉 ORM/DB 早已有之的 project_id，
+      additionalProperties=true 使字段边界无从约束。
+      根治方式：删除 ComfyUI 装配分支/配置/适配器及专属测试（PoC 证据与 ADR 边界说明
+      保留）；写入侧用 stamp_event_payload 统一注入 schema_version，消费侧按
+      event_type + 严格 Pydantic 模型解析（extra=forbid、strict=True、版本必填且拒绝
+      未知值），模型字段覆盖 advance_status 注入的 from_status/to_status/tenant_id/
+      transition_id 全集，不用 payload_required 最小集冒充全集；两个新对象移除 id、
+      补 project_id、把 entity_id 写为唯一身份并设 additionalProperties=false。
+      contract_check 新增双向判据：catalog 声明的 payload_schema/version 与代码注册表
+      逐项一致，payload_required 集合与模型字段集合精确相等。
+    adr: 'docs/adr/ADR-R43-canvas-reference-boundary.md'
+    approved_by: '项目所有者（2026-11-23 第四批裁决：移除 ComfyUI 入口，仅保留自研网关；按 ADR-R15 修订登记后改派生并重签）'
+    approved_at: '2026-11-23'
+    source_commits:
+      - '502f7a3ac378585e1afc61e0dd433a9da28da3ce'
+    counts_after:
+      actions: 105
+      openapi_operations: 105
+      schema_objects: 91
+      state_machines: 50
+    residual_risks:
+      - '存量 outbox 事件没有 schema_version：5 类专用 handler 会 fail-closed 拒绝并进死信；append-only 表不可回填，重放必须由发出方按新版本重新生成，不能用「补版本字段」洗掉历史。'
+      - '其余 48 个事件只走 webhook 外发、无专用 handler，因此没有载荷模型；若将来新增消费端，test_handler_registry_and_payload_registry_are_the_same_set 会变红，须同 PR 登记模型与 catalog。'
+      - 'ComfyUI 的 PoC/审计证据与 ADR-R43/R44 的边界表述按历史事实保留；删除的是生产入口与可调用实现，不改写历史裁决记录。'
+      - '本次未触碰 PREPARED 恢复流程与 R42 授权口径；freeze_manifest 与字段签名台账按本修订重签，不借重签掩盖未登记变更。'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——

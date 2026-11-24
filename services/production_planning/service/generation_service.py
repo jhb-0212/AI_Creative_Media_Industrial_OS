@@ -20,6 +20,7 @@ from typing import Any, Literal, cast
 from uuid import UUID, uuid4
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.event_payloads import stamp_event_payload
 from packages.shared.quality_profile import require_quality_profile
 from packages.shared.storage_locator import parse_locator, validate_locator_or_raise
 from services.production_planning.domain.artifact_manifest import ArtifactManifest
@@ -220,17 +221,19 @@ class GenerationService:
             aggregate_type="GenerationTask",
             event_type="ASSET_REGISTRATION_REQUESTED",
             tenant_id=task.tenant_id,
-            payload={
-                "generation_task_id": task.generation_task_id,
-                "project_id": task.project_id,
-                "tenant_id": str(task.tenant_id),
-                "locator": manifest.locator,
-                "sha256": manifest.sha256,
-                "attempt_id": manifest.attempt_id,
-                "media_type": media_type,
-                "quality_profile_version": task.quality_profile_version,
-                "worker_id": worker_id,
-            },
+            payload=stamp_event_payload(
+                {
+                    "generation_task_id": task.generation_task_id,
+                    "project_id": task.project_id,
+                    "tenant_id": str(task.tenant_id),
+                    "locator": manifest.locator,
+                    "sha256": manifest.sha256,
+                    "attempt_id": manifest.attempt_id,
+                    "media_type": media_type,
+                    "quality_profile_version": task.quality_profile_version,
+                    "worker_id": worker_id,
+                }
+            ),
             resource_type="GenerationTask",
             owner_action=GENERATION_PROCESS_ACTION,
             conflict_detail="任务已进入等待登记态，请勿重复确认",
@@ -384,14 +387,16 @@ class GenerationService:
         ):
             # at-least-once 投递的重复消费：终态已由首次消费落库，幂等返回。
             return task
-        payload = {
-            "generation_task_id": task.generation_task_id,
-            "worker_id": "svc:asset-registration",
-            "evidence_ref": reason or "asset-registration-receipt",
-            "attempt_count": task.attempt_count,
-            "project_id": task.project_id,
-            "shot_id": task.shot_id,
-        }
+        payload = stamp_event_payload(
+            {
+                "generation_task_id": task.generation_task_id,
+                "worker_id": "svc:asset-registration",
+                "evidence_ref": reason or "asset-registration-receipt",
+                "attempt_count": task.attempt_count,
+                "project_id": task.project_id,
+                "shot_id": task.shot_id,
+            }
+        )
         if asset_version_id:
             await advance_status(
                 task,

@@ -29,8 +29,7 @@
 |---|---|---|
 | 网关端口（协议无关） | `adapters/model_gateway/ports.py` | 完成；失败二分（可重试 / 已拒绝 / 配置矛盾） |
 | OpenAI 兼容实现 | `adapters/model_gateway/openai_compatible.py` | 完成；`POST {base}/images/generations` |
-| ComfyUI 实现 | `adapters/model_gateway/comfyui.py` | 完成；`POST /prompt` → 轮询 `/history` → `/view` 取产物 |
-| 产物取回公共边界 | `adapters/model_gateway/bounds.py` | 完成；两协议共用「声明+累计」双重大小上限与媒体类型判定 |
+| 产物取回公共边界 | `adapters/model_gateway/bounds.py` | 完成；「声明+累计」双重大小上限与媒体类型判定 |
 | 确定性假网关 | `adapters/model_gateway/fake.py` | 完成；用于链路验证，**不能**充当 A1 证据 |
 | 受控存储（内容寻址） | `adapters/storage/local_fs.py` | 完成；防穿越、防符号链接、限大小、哈希复核 |
 | 执行器编排 | `workers/generation/executor.py` | 完成；提示词 → 网关 → 落存储 → 资产登记 |
@@ -40,20 +39,12 @@
 
 ```
 MODEL_GATEWAY_BASE_URL          # 留空 = 不接真网关（任务以 FAILED 落终态）
-MODEL_GATEWAY_API_KEY           # comfyui 协议下可为空（自建常无鉴权）
-MODEL_GATEWAY_PROTOCOL          # openai_compatible（默认）| comfyui
-MODEL_GATEWAY_DEFAULT_MODEL     # comfyui 下表示「工作流标识」，不是模型名
+MODEL_GATEWAY_API_KEY           # 配了 base_url 就必须给；缺 KEY 启动即报错
+MODEL_GATEWAY_PROTOCOL          # 只实现 openai_compatible，未知值启动即报错
+MODEL_GATEWAY_DEFAULT_MODEL     # 默认模型 id（预算计价口径的一部分）
 MODEL_GATEWAY_TIMEOUT_SECONDS   # 默认 120
 MODEL_GATEWAY_RESPONSE_FORMAT   # b64_json（默认）| url
 MODEL_GATEWAY_MAX_ARTIFACT_BYTES
-# ComfyUI 专用
-MODEL_GATEWAY_COMFYUI_WORKFLOW_PATH        # 「导出 (API)」格式的工作流 JSON
-MODEL_GATEWAY_COMFYUI_PROMPT_NODE          # 提示词注入节点 id（必填）
-MODEL_GATEWAY_COMFYUI_PROMPT_FIELD         # 默认 text
-MODEL_GATEWAY_COMFYUI_NEGATIVE_NODE
-MODEL_GATEWAY_COMFYUI_OUTPUT_NODE          # 多保存节点时必须指定
-MODEL_GATEWAY_COMFYUI_POLL_INTERVAL_SECONDS
-MODEL_GATEWAY_COMFYUI_JOB_TIMEOUT_SECONDS
 STORAGE_BACKEND                 # 目前只实现 local；写 s3 会启动即报错
 STORAGE_LOCAL_ROOT
 STORAGE_MAX_OBJECT_BYTES
@@ -65,7 +56,7 @@ GENERATION_DEFAULT_SIZE
 
 | # | 需要什么 | 为什么必须 | 验收判据 |
 |---|---|---|---|
-| 1 | 网关协议文档或一份可跑的 **curl 示例**，并说明属于哪一类 | 两类协议都已实现（`openai_compatible` / `comfyui`）；**不属于这两类的自研接口仍需新适配器**。若对端是 ComfyUI，还要额外提供 1.4 节的 5 项事实 | 用提供的示例能拿到一份产物 |
+| 1 | 网关协议文档或一份可跑的 **curl 示例** | 当前只实现 `openai_compatible`（同步 `POST /images/generations`）；**其他协议的对端都需要新适配器**，不能靠配置伪装成已支持 | 用提供的示例能拿到一份产物 |
 | 2 | 从 **Worker 所在机器**可达的 `base_url` | 内网地址/需经代理，实现方网络到不了 | 在 Worker 机器上 `curl` 返回 2xx |
 | 3 | 鉴权方式与凭据（API Key / Bearer / mTLS）+ 轮换方式 | 无凭据无法调用；不清楚轮换方式只能硬编码 | 凭据生效且不落日志（`repr` 与异常消息均不含） |
 | 4 | 至少一个**真实可用**的 model id（或 workflow 标识） | 预算按模型计价，模型 id 是计价口径的一部分 | 一次真实生成返回非空产物 |
@@ -82,29 +73,6 @@ GENERATION_DEFAULT_SIZE
 3. 按 `storage_ref` 读回产物，复核 sha256 与落盘时一致；
 4. 保存完整日志（含时间戳、环境标识、每条断言）。**用假网关跑出来的链路
    只能证明「编排通了」，不能代替这一步。**
-
-### 1.4 若采用 ComfyUI 协议：额外需要的 5 项事实
-
-ComfyUI 与「给一句话、拿一张图」的接口形状不同：它是工作流执行器，
-**模型、采样器、输出尺寸全在模板里**。所以除了第 1.2 节的通用项，还需要：
-
-| # | 需要什么 | 为什么必须 | 验收判据 |
-|---|---|---|---|
-| 1 | **工作流模板 JSON**（ComfyUI 里「导出 (API)」得到，不是「导出」） | ComfyUI 没有提示词入口，模板是「这个部署用哪个模型」的唯一事实源 | `POST /prompt` 返回 `prompt_id` 而不是 `node_errors` |
-| 2 | **提示词注入节点 id 与输入名**（如 `6` / `text`） | 不指定就只能猜；多 `CLIPTextEncode` 时猜错会产出与意图无关的图，**且全程无错** | 固定模板、只改提示词跑两次，产物内容必须随文本变化 |
-| 3 | **产物节点 id**（工作流里有多个保存节点时必须给） | 多候选我们一律拒绝：静默取第一张会让批量生成变成「只交付一张，其余去向无人知晓」 | 指定后单次任务只产生一个候选 |
-| 4 | **GPU 显存与单张耗时 P95** | 决定 `MODEL_GATEWAY_COMFYUI_JOB_TIMEOUT_SECONDS`。设小了会把「还在算」判成超时，重试意味着重复排队、重复占 GPU | 总时限 ≥ P95 的 2 倍，且显存留有余量 |
-| 5 | **模型文件清单与商用许可**（checkpoint / LoRA） | 产出内容由这些文件决定；许可不明等于把法务风险带进产物 | 每个 ckpt/LoRA 都有可追溯的许可依据 |
-
-实现方已做的 fail-closed（**拿到不合格的模板不会静默跑错**）：
-
-- 模板是 UI 导出格式（含 `nodes`/`links`）→ 装配期拒绝，并提示改用「导出 (API)」；
-- 注入节点不存在、或该输入当前接的是上游连线（形如 `["4", 0]`）→ 装配期拒绝
-  （覆盖连线会静默改变图的语义）；
-- 产物 `type != output`（如 `temp`）→ 拒绝（temp 会被其他任务覆盖或清理）；
-- `/view` 返回 `text/html` 错误页 → 拒绝（否则一个网页会被当成产物存进台账）。
-
----
 
 ## 二、外部审计签署
 
@@ -149,7 +117,7 @@ ComfyUI 与「给一句话、拿一张图」的接口形状不同：它是工作
 |---|---|---|
 | **提示词解析** | `generation_tasks.prompt_ref` 只是 ≤200 字符的引用，仓库内无提示词库解析实现。当前只接受 `inline:<正文>` 形态 | 真实生产提示词放不进 200 字符；接真网关前需先建提示词库 |
 | **资产登记** | 执行器必须注入 `AssetRegistrar`，当前装配的是 `UnwiredAssetRegistrar`（必然抛错） | 即便网关配齐，任务仍以 `asset-registration-unwired` 失败。原因：资产登记需系统主体 + 按任务租户切换 RLS + 跨域事务，三者尚未裁定（P2-01） |
-| **产物类型与尺寸** | 理论上应由 `production_route_ref` / `constraint_snapshot_id` 决定，两者的解析未建模 | 当前用配置默认值（`GENERATION_DEFAULT_MEDIA_TYPE`），等于把「一律 png」变成隐含假设。ComfyUI 下可用 `extra.node_inputs` 显式覆盖尺寸节点，但这要求调用方知道节点 id，仍不算路线解析 |
+| **产物类型与尺寸** | 理论上应由 `production_route_ref` / `constraint_snapshot_id` 决定，两者的解析未建模 | 当前用配置默认值（`GENERATION_DEFAULT_MEDIA_TYPE`），等于把「一律 png」变成隐含假设；对端若支持请求内指定尺寸，也仍需路线解析后才能填，不能由调用方自报 |
 
 ---
 
@@ -180,10 +148,8 @@ ComfyUI 与「给一句话、拿一张图」的接口形状不同：它是工作
 - **分叉库不能替正式链**：`ai_film_industrial` 的 35/35 与正式链 `ai_film_api_tests`
   是两套谱系（三列外键 vs 两列外键 + 组织只在 projects），ADR-R41 D5 禁止互推。
 - **实现方不签自己的验收**：本 agent 无签署权，也不代人签署。
-- **ComfyUI 的「成功」不等于「内容正确」**：`status_str=success` 只说明工作流
-  跑完了。若注入点错（比如把提示词塞进了本该由上游连线的节点），它会**正常
-  返回一张与意图无关的图**。所以 1.4 第 2 项的判据必须是「只改提示词、产物
-  内容跟着变」，而不是「任务状态是 SUCCEEDED」。
+- **网关返回 2xx 不等于产物内容正确**：必须按 `storage_ref` 读回并复核哈希与
+  媒体类型；「任务状态是 SUCCEEDED」只证明编排跑完，不证明产物符合意图。
 - **storage_ref 不是调用方可填的自由字段**（P1-07 已收敛）：形态固定为
   `local://<前2>/<次2>/<sha256>.<受控扩展名>`，由存储层 `put` 生成，且内嵌哈希
   必须等于本行 `sha256` 列。目标环境接入时若网关返回的产物需要落库，必须先

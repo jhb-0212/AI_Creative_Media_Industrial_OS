@@ -3043,6 +3043,17 @@ def check_status_enum_consistency() -> bool:
 
 
 
+def _load_strict_event_payloads() -> tuple[dict[str, Any], str, dict[str, str]]:
+    """从代码读取严格载荷注册表；独立入口便于装置注入，不让判据写死来源。"""
+    from packages.shared import event_payloads as _payloads
+
+    return (
+        dict(_payloads.EVENT_PAYLOAD_SCHEMAS),
+        str(_payloads.EVENT_PAYLOAD_SCHEMA_VERSION),
+        dict(_payloads.declared_schema_versions()),
+    )
+
+
 def check_event_catalog() -> bool:
     """双向校验事件契约：代码不得私发事件，台账不得说谎，缺口不得隐形。"""
     if not EVENT_CATALOG_PATH.exists():
@@ -3153,10 +3164,59 @@ def check_event_catalog() -> bool:
         print(f"[FAIL] 事件缺口登记了未实现的动作（孤儿债务）: {orphan_gaps}")
         ok = False
 
+    # 专用 handler 的事件载荷模型：catalog 声明必须与代码注册表逐项一致。
+    # 只校验「有登记」不够——模型字段集合漂移会让 extra=forbid 拒绝合法事件，
+    # 或让未知字段被放行；这里用两侧实读字段集合做双向判定。
+    try:
+        payload_models, payload_version, declared_versions = (
+            _load_strict_event_payloads()
+        )
+    except ImportError as exc:  # pragma: no cover - 环境缺依赖时应显式失败
+        print(f"[FAIL] 事件载荷模型不可导入: {exc}")
+        return False
+
+    with_schema: dict[str, dict[str, object]] = {
+        name: entry for name, entry in declared.items() if entry.get("payload_schema")
+    }
+    for name, entry in with_schema.items():
+        declared_path = str(entry["payload_schema"])
+        model_name = declared_path.rsplit(".", 1)[-1]
+        model = payload_models.get(name)
+        if model is None or model.__name__ != model_name:
+            print(f"[FAIL] 事件 {name} 的 payload_schema {declared_path!r} 与消费注册表不一致")
+            ok = False
+            continue
+        if str(entry.get("payload_schema_version", "")) != payload_version:
+            print(f"[FAIL] 事件 {name} 的 payload_schema_version 与代码常量不一致")
+            ok = False
+        required = {str(f) for f in (entry.get("payload_required") or [])}
+        fields = set(model.model_fields)
+        if required != fields:
+            print(
+                f"[FAIL] 事件 {name} 的 payload_required 与模型字段不一致："
+                f"仅台账 {sorted(required - fields)} / 仅模型 {sorted(fields - required)}"
+            )
+            ok = False
+
+    unregistered = sorted(set(payload_models) - set(with_schema))
+    if unregistered:
+        print(f"[FAIL] 载荷模型已注册但事件契约缺 payload_schema: {unregistered}")
+        ok = False
+
+    drifted = {
+        name: version
+        for name, version in declared_versions.items()
+        if version != payload_version
+    }
+    if drifted:
+        print(f"[FAIL] 载荷模型的 schema_version 字面量与常量不一致: {drifted}")
+        ok = False
+
     if ok:
         print(
             f"[PASS] 事件契约：{len(declared)} 个事件 / "
-            f"{len(emitted)} 个发出点 / 显式缺口 {len(gaps)} 项"
+            f"{len(emitted)} 个发出点 / 显式缺口 {len(gaps)} 项 / "
+            f"严格载荷模型 {len(with_schema)} 个"
         )
     return ok
 
