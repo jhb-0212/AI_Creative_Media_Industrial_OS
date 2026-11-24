@@ -24,19 +24,27 @@ from __future__ import annotations
 
 import hashlib
 import json
+from typing import TypedDict
 from uuid import UUID
 
-# 指纹覆盖的字段集合。顺序在此固定（canonical 序列化也 sort_keys，二者
-# 双保险）；新增维度必须同时更新这里与回执持久化，否则新旧回执指纹不可比。
-FINGERPRINT_FIELDS = (
-    "tenant_id",
-    "generation_task_id",
-    "project_id",
-    "attempt_id",
-    "locator",
-    "sha256",
-    "media_type",
-    "quality_profile_version",
+
+class RegistrationFingerprintInput(TypedDict):
+    """指纹输入字段集合：类型定义是唯一事实源，字段清单从它派生。"""
+
+    tenant_id: UUID
+    generation_task_id: str
+    project_id: str
+    attempt_id: str
+    locator: str
+    sha256: str
+    media_type: str
+    quality_profile_version: str
+
+
+# 指纹覆盖的字段集合从 TypedDict 派生：新增维度只改一处，字段清单与
+# canonical 输入不可能各说各话（清单漏项会让冲突维度被静默洗成幂等）。
+FINGERPRINT_FIELDS: tuple[str, ...] = tuple(
+    RegistrationFingerprintInput.__annotations__
 )
 
 
@@ -73,5 +81,6 @@ def compute_registration_fingerprint(
 
 __all__ = [
     "FINGERPRINT_FIELDS",
+    "RegistrationFingerprintInput",
     "compute_registration_fingerprint",
 ]

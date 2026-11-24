@@ -18,11 +18,15 @@ from dataclasses import dataclass
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.identity.principal import Principal
 from packages.shared.port_errors import DuplicateEntityError
-from packages.shared.registration_fingerprint import compute_registration_fingerprint
+from packages.shared.registration_fingerprint import (
+    RegistrationFingerprintInput,
+    compute_registration_fingerprint,
+)
 from packages.shared.rls import set_tenant_context
 from packages.shared.storage_locator import extension_for_media_type
 from services.asset_service.domain.asset_registration_receipt import (
@@ -141,9 +145,9 @@ def _asset_entity_id(
 
 
 async def _record_conflict(
-    session: object,
+    session: AsyncSession,
     request: RegistrationRequested,
-    canonical: dict[str, object],
+    canonical: RegistrationFingerprintInput,
     fingerprint: str,
     *,
     expected: str,
@@ -159,7 +163,7 @@ async def _record_conflict(
     # 不产生无限累积的审计事件（写入天然幂等，与资产登记同一原则）。
     # 先查（快路径）+ 异常路径并发双写两条是允许的：都是真实冲突事实，
     # 不丢数据、不改业务状态；不为此引入确定性 event_id 的第二套身份机制。
-    already = await session.execute(  # type: ignore[union-attr]
+    already = await session.execute(
         text(
             "SELECT 1 FROM outbox.outbox_events "
             "WHERE event_type = 'ASSET_REGISTRATION_CONFLICT' "
@@ -183,7 +187,7 @@ async def _record_conflict(
     # locator/sha256/media_type 可从 T1 的 ASSET_REGISTRATION_REQUESTED（按
     # generation_task_id + attempt_id 定位）查得，质量策略取冻结任务；人工比对时
     # 据此与 observed 逐字段核对。这是最小审计事实，不复制一套原始字段镜像。
-    writer = SqlAlchemyOutboxWriter(session)  # type: ignore[arg-type]
+    writer = SqlAlchemyOutboxWriter(session)
     writer.record(
         aggregate_type="AssetRegistrationReceipt",
         aggregate_id=_receipt_entity_id(
@@ -215,15 +219,15 @@ async def _consume_conflict(event: OutboxEvent) -> None:
 
 def build_asset_registration_handlers(
     *,
-    production_planning_sessionmaker: object,
-    asset_sessionmaker: object,
+    production_planning_sessionmaker: async_sessionmaker[AsyncSession],
+    asset_sessionmaker: async_sessionmaker[AsyncSession],
 ) -> dict[str, EventHandler]:
     """装配 T2/T3；依赖缺失时不注册，事件积压可见而不是假成功。"""
 
     async def handle_requested(event: OutboxEvent) -> None:
         request = parse_requested(event)
         # 先用生成域事实核验，不信任事件载荷里的归属与摘要。
-        async with production_planning_sessionmaker() as session:  # type: ignore[operator]
+        async with production_planning_sessionmaker() as session:
             await set_tenant_context(session, request.tenant_id)
             repo = SqlAlchemyGenerationTaskRepository(session)
             task = await repo.get_by_generation_task_id(request.generation_task_id)
@@ -250,7 +254,7 @@ def build_asset_registration_handlers(
             # 质量策略取冻结任务，不信事件自报（D7）。其余字段都已与上源事实核验过，
             # 这一份规范化输入既是指纹来源，也是冲突证据里的 observed 值。
             frozen_quality_profile = task.quality_profile_version or ""
-            canonical = {
+            canonical: RegistrationFingerprintInput = {
                 "tenant_id": request.tenant_id,
                 "generation_task_id": request.generation_task_id,
                 "project_id": request.project_id,
@@ -262,7 +266,7 @@ def build_asset_registration_handlers(
             }
             fingerprint = compute_registration_fingerprint(**canonical)
 
-        async with asset_sessionmaker() as session:  # type: ignore[operator]
+        async with asset_sessionmaker() as session:
             await set_tenant_context(session, request.tenant_id)
             receipts = SqlAlchemyAssetRegistrationReceiptRepository(session)
             existing = await receipts.get_by_tenant_task(
@@ -393,7 +397,7 @@ def build_asset_registration_handlers(
 
     async def _consume_result(event: OutboxEvent) -> None:
         result = parse_result(event)
-        async with asset_sessionmaker() as session:  # type: ignore[operator]
+        async with asset_sessionmaker() as session:
             await set_tenant_context(session, result.tenant_id)
             receipt = await SqlAlchemyAssetRegistrationReceiptRepository(
                 session
@@ -413,7 +417,7 @@ def build_asset_registration_handlers(
                 raise ReceiptEventError("事件的资产 ID 与回执不一致")
             asset_version_id = receipt.asset_version_id
             reason = receipt.message
-        async with production_planning_sessionmaker() as session:  # type: ignore[operator]
+        async with production_planning_sessionmaker() as session:
             await set_tenant_context(session, result.tenant_id)
             service = GenerationService(
                 SqlAlchemyGenerationTaskRepository(session),
