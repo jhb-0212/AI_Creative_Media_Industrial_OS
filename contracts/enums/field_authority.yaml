@@ -34,8 +34,10 @@ objects:
       生命周期值；lifecycle_status 的完整值集与转移边尚未由正文给出，保持显式缺口。
     reason: 同一事实两个写入位会让「已验证适配器」在 status 与 lifecycle_status 上各说各话。
     unblocks_when: >-
-      所有者裁定 lifecycle_status 的完整允许状态集与已授权转移边（含暂停/回滚/退役的
-      字面值），写入 state_machines 后本对象的 status_split 分类随之重新评估。
+      已由所有者于 2026-11-24 按「最优最长期」裁定：采纳基线 §32.3 八值全集与转移边，
+      权威源见 contracts/enums/field_value_sets.yaml（该字段已进 Schema enum）。
+      本条保留为权威写入位置的裁定记录，不再作为待解除债务；status_split 分类不因
+      值集落地而改变——信封 status 仍是哨兵，不是第二个权威位置。
     source_section: 32.4 ExternalToolAdapter 统一 Manifest 与 SPI 契约
 
   - object: ModelInvocation
@@ -50,8 +52,10 @@ objects:
       信封 status 不是第四个事实源，退役为哨兵。
     reason: 单一 status 无法表达三字段的正交组合，合并等于删掉真实业务状态。
     unblocks_when: >-
-      所有者分别给出三个字段的完整允许值集与合法组合约束（尤其是 SUBMISSION_UNKNOWN
-      与结果/计费字段的交叉规则），再由各字段各自建 enum；本对象的 status 永远不复活。
+      三个字段的权威值集已由所有者于 2026-11-24 按「最优最长期」裁定并落进
+      contracts/enums/field_value_sets.yaml（正交三维度，不合并成线性状态机）。
+      仍未解除的债务只有交叉组合约束：正文未给 SUBMISSION_UNKNOWN 与结果/计费字段的
+      合法组合规则，不得据此自造约束；本对象的信封 status 永远不复活。
     source_section: 8.11 ModelInvocation 外部幂等映射
 
   - object: PrevizVersion
@@ -81,6 +85,8 @@ objects:
       信封 status 退役为哨兵。缺陷流转归 ReworkTask.status，不归 QCIssue.status。
     reason: 把裁决结论塞回信封 status 会让「误报」与「已返工」共用一个字段，混淆裁决与流转。
     unblocks_when: >-
-      所有者裁定 human_decision 与 disposition 是否分别建 enum、以及二者与 ReworkTask
-      的联动不变量；在此之前只约束信封 status 为哨兵，不伪造缺陷生命周期。
+      human_decision 已由所有者于 2026-11-24 裁定为 PENDING + 五类人工结论，
+      权威源见 contracts/enums/field_value_sets.yaml；disposition 仍无权威值集，
+      在 status_layers.pending_owner_ruling 中显式登记，不与 human_decision 合并。
+      与 ReworkTask 的联动不变量仍待正文裁定；信封 status 只作哨兵。
     source_section: 21.1 左右双屏对比工作台

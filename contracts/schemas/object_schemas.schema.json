@@ -4047,7 +4047,13 @@
       ],
       "properties": {
         "billing_status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "BILLED",
+            "BILLING_UNKNOWN",
+            "NOT_BILLED",
+            "REFUNDED"
+          ]
         },
         "duplicate_charge_risk": {
           "type": "string"
@@ -4062,10 +4068,21 @@
           "type": "string"
         },
         "result_status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "RESULT_AVAILABLE",
+            "RESULT_FAILED",
+            "RESULT_PENDING",
+            "RESULT_UNKNOWN"
+          ]
         },
         "submission_status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "NOT_SUBMITTED",
+            "SUBMISSION_UNKNOWN",
+            "SUBMITTED"
+          ]
         },
         "entity_id": {
           "type": "string"
@@ -5638,7 +5655,17 @@
           "type": "string"
         },
         "lifecycle_status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "DECLARED",
+            "PILOT",
+            "RETEST_REQUIRED",
+            "REVOKED",
+            "SUSPENDED",
+            "TESTING",
+            "VERIFIED"
+          ]
         },
         "media_types": {
           "type": "string"
@@ -6717,7 +6744,15 @@
           "type": "string"
         },
         "human_decision": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "ARTISTIC_INTENTIONAL",
+            "CONFIRM_DEFECT",
+            "FALSE_POSITIVE",
+            "NEEDS_MORE_EVIDENCE",
+            "PENDING",
+            "WAIVE_WITH_AUTHORITY"
+          ]
         },
         "severity": {
           "type": "string"

@@ -2397,6 +2397,7 @@ def check_reference_targets() -> bool:
 STATUS_TAXONOMY_PATH = CONTRACTS / "enums" / "status_field_taxonomy.yaml"
 STATUS_LAYERS_PATH = CONTRACTS / "enums" / "status_layers.yaml"
 FIELD_AUTHORITY_PATH = CONTRACTS / "enums" / "field_authority.yaml"
+FIELD_VALUE_SETS_PATH = CONTRACTS / "enums" / "field_value_sets.yaml"
 ENUM_REGISTRY_PATH = CONTRACTS / "enums" / "enum_registry.yaml"
 
 CLASS_LIFECYCLE = "lifecycle"
@@ -2862,6 +2863,107 @@ def field_authority_problems(
     return problems
 
 
+def field_value_set_problems(
+    path: Path | None = None,
+    definitions: dict[str, Any] | None = None,
+    layers: dict[str, Any] | None = None,
+    authority_entries: dict[str, set[str]] | None = None,
+) -> list[str]:
+    """非 status 维度字段的权威值集 ↔ Schema ↔ 待裁定台账双向校验。
+
+    四个方向缺一不可：
+
+    1. 声明了值集，Schema 的字段 enum 必须逐值相等（反向由派生器字节漂移兜住）；
+    2. 转移边与 guard 引用的值/字段必须真实存在，不能是空头声明；
+    3. 值集已落地的字段不得继续留在 status_layers 的待裁定区（陈旧债务）；
+    4. status_split 的权威字段既没有值集、也没有待裁定登记 → 隐形缺口报红。
+    """
+    from gen_status_contracts import field_value_sets as _derived_sets
+
+    source = path or FIELD_VALUE_SETS_PATH
+    data = load_yaml_mapping(source)
+    declared = _derived_sets(source)
+    if definitions is None:
+        schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+        definitions = schema.get("definitions") or schema.get("$defs") or {}
+    if layers is None:
+        layers = load_yaml_mapping(STATUS_LAYERS_PATH)
+    if authority_entries is None:
+        taxonomy = load_yaml_mapping(STATUS_TAXONOMY_PATH)
+        split_objects = {
+            str(e.get("object", "")).strip()
+            for e in taxonomy.get("objects") or []
+            if isinstance(e, dict) and str(e.get("basis", "")).strip() == "status_split"
+        }
+        authority_data = load_yaml_mapping(FIELD_AUTHORITY_PATH)
+        authority_entries = {
+            str(e.get("object", "")).strip(): {
+                str(f).strip() for f in (e.get("authoritative_fields") or [])
+            }
+            for e in authority_data.get("objects") or []
+            if isinstance(e, dict) and str(e.get("object", "")).strip() in split_objects
+        }
+
+    problems: list[str] = []
+    for entry in data.get("fields") or []:
+        obj = str(entry.get("object", "")).strip()
+        field = str(entry.get("field", "")).strip()
+        label = f"field_value_sets.{obj}.{field}"
+        for key in ("dimension", "authority", "ruling", "source_section"):
+            if not str(entry.get(key, "")).strip():
+                problems.append(f"{label} 缺 {key}（值集不能只有一串字面值）")
+        spec = definitions.get(obj)
+        if not isinstance(spec, dict):
+            problems.append(f"{label} 登记了不存在的对象 {obj}")
+            continue
+        props = spec.get("properties") or {}
+        prop = props.get(field)
+        if not isinstance(prop, dict):
+            problems.append(f"{label} 登记了 Schema 不存在的字段")
+            continue
+        want = declared[(obj, field)]
+        actual = prop.get("enum")
+        if not isinstance(actual, list) or {str(v) for v in actual} != set(want):
+            problems.append(
+                f"{label} 的 Schema enum 与权威值集不一致："
+                f"声明 {sorted(want)}，Schema {sorted(str(v) for v in actual or [])}"
+            )
+        for transition in entry.get("transitions") or []:
+            for side in ("from", "to"):
+                value = str(transition.get(side, "")).strip()
+                if value and value not in want:
+                    problems.append(f"{label} 的转移边引用未登记值 {value}")
+        for guard in entry.get("guards") or []:
+            for required_field in guard.get("require") or []:
+                if str(required_field) not in props:
+                    problems.append(f"{label} 的 guard 引用不存在的字段 {required_field}")
+
+    pending: set[tuple[str, str]] = set()
+    for entry in layers.get("non_lifecycle_dimensions") or []:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("value_set_status", "")).strip() != "pending_owner_ruling":
+            continue
+        obj = str(entry.get("object", "")).strip()
+        fields = str(entry.get("status_field", ""))
+        for field in fields.split("/"):
+            field = field.strip()
+            if obj and field:
+                pending.add((obj, field))
+    for obj, field in sorted(pending & set(declared)):
+        problems.append(
+            f"{obj}.{field} 已裁定值集，却仍留在 status_layers 待裁定区（陈旧债务）"
+        )
+    for obj, auth_fields in sorted(authority_entries.items()):
+        for field in sorted(auth_fields - {"status"}):
+            if (obj, field) not in declared and (obj, field) not in pending:
+                problems.append(
+                    f"{obj}.{field} 是 status_split 的权威字段，却没有值集也没有待裁定登记"
+                    "——裸 string 等于任何值都收，缺口不能隐形"
+                )
+    return problems
+
+
 def governance_problems(sm_data: dict[str, Any], definitions: dict[str, Any]) -> list[str]:
     """状态机文件自身的账目必须对得上（对象数、冲突数、投影不入册）。"""
     problems: list[str] = []
@@ -2993,14 +3095,14 @@ def check_status_enum_consistency() -> bool:
     )
     problems += enum_registry_problems(registry.get("objects"), sm_states)
     problems += schema_enum_problems(definitions, sm_states, classes, layers)
-    problems += field_authority_problems(
-        FIELD_AUTHORITY_PATH,
-        definitions,
-        {
-            str(e.get("object", "")).strip()
-            for e in taxonomy.get("objects") or []
-            if isinstance(e, dict) and str(e.get("basis", "")).strip() == "status_split"
-        },
+    split_objects = {
+        str(e.get("object", "")).strip()
+        for e in taxonomy.get("objects") or []
+        if isinstance(e, dict) and str(e.get("basis", "")).strip() == "status_split"
+    }
+    problems += field_authority_problems(FIELD_AUTHORITY_PATH, definitions, split_objects)
+    problems += field_value_set_problems(
+        FIELD_VALUE_SETS_PATH, definitions, layers
     )
     problems += alias_layer_problems(layers, sm_states)
     problems += schema_gap_problems(

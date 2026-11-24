@@ -63,3 +63,68 @@ amendments:
       （string → string），只有 pattern 闸门能守。
     contract_ref: "C.3.2 资产引用；P1-07 存储读取边界"
     implementation: packages/shared/storage_locator.py
+
+  - object: ExternalToolAdapterManifest
+    field: lifecycle_status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      所有者按「最优最长期」裁定：采纳基线 §32.3 八值全集作为权威值集（含转移边），
+      REGISTERED 归为事件名而非状态。类型未变（string → string），但由裸 string
+      变为封闭 enum，签名 diff 看不见；权威源为
+      contracts/enums/field_value_sets.yaml，由 gen_status_contracts 派生进 Schema。
+      信封 status 仍为 NO_LIFECYCLE 哨兵，不是第二个权威位置。
+    contract_ref: "32.3 适配器能力状态集 / 32.4 AdapterManifest 验证与生命周期"
+    implementation: contracts/enums/field_value_sets.yaml
+
+  - object: ModelInvocation
+    field: submission_status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      三正交维度之一，权威三值 NOT_SUBMITTED / SUBMITTED / SUBMISSION_UNKNOWN，
+      其中 SUBMISSION_UNKNOWN 是基线 §8.11 明确定名的事实。类型未变但封闭为 enum；
+      供应商明确拒绝属结果事实，不塞进提交维度。
+    contract_ref: "8.11 ModelInvocation 外部幂等映射"
+    implementation: contracts/enums/field_value_sets.yaml
+
+  - object: ModelInvocation
+    field: result_status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      正交维度，四值 RESULT_PENDING / RESULT_AVAILABLE / RESULT_FAILED /
+      RESULT_UNKNOWN。避免把「提交未知但结果已到」压成一条线性 status。
+    contract_ref: "8.11 ModelInvocation 外部幂等映射 / 异常状态表"
+    implementation: contracts/enums/field_value_sets.yaml
+
+  - object: ModelInvocation
+    field: billing_status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      正交维度，四值 NOT_BILLED / BILLED / BILLING_UNKNOWN / REFUNDED。
+      duplicate_charge_risk 是独立风险标记，重复计费事实记 CostLedger，
+      不靠改写本字段表达。
+    contract_ref: "8.11 ModelInvocation 外部幂等映射 / ADR-015"
+    implementation: contracts/enums/field_value_sets.yaml
+
+  - object: QCIssue
+    field: human_decision
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      基线 §21.1 五类人工结论 + §9 示例 PENDING，合成权威六值。
+      disposition 仍无权威值集，保留待裁定登记，不与本字段合并。
+    contract_ref: "21.1 左右双屏对比工作台 / 9.x 审阅结果示例"
+    implementation: contracts/enums/field_value_sets.yaml
