@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-from dataclasses import dataclass
 
 import boto3
 from botocore.config import Config
@@ -99,7 +98,7 @@ class S3ObjectStorage:
         key = self._key_for(locator)
         # SELFTEST_MUTANT：自检专用，去掉条件写入头以模拟「防覆盖被移除」的坏状态。
         # 仅用于证伪取证装置能在真坏时报红；正常取证不得设置。
-        put_kwargs = dict(Bucket=self._bucket, Key=key, Body=data, ContentType=media_type)
+        put_kwargs = {"Bucket": self._bucket, "Key": key, "Body": data, "ContentType": media_type}
         if os.environ.get("TECH04_SELFTEST_MUTANT") != "1":
             put_kwargs["IfNoneMatch"] = "*"
         try:

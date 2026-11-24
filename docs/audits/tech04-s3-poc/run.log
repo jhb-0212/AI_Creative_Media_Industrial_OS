@@ -1,8 +1,8 @@
 [PASS] ① SeaweedFS Port 三方法/无 delete :: methods=['exists', 'get', 'put'] has_delete=False
 [PASS] ① SeaweedFS locator 复用生产定义 :: locator=local://5c/1a/5c1ac5fa2f56b7... parse_ok=True
 [PASS] ① SeaweedFS 非法定位符拒绝 :: 前两段与哈希不符 -> parse 拒绝（防『语法合法但永远读不到』）
-[PASS] ③ SeaweedFS put 返回受控定位符 :: sha256_match=True locator=local://86/b2/86b2d5e794...
-[PASS] ③ SeaweedFS get 完整读取+哈希复核 :: bytes_in=48 bytes_out=48 match=True
+[PASS] ③ SeaweedFS put 返回受控定位符 :: sha256_match=True locator=local://3b/11/3b11613b59...
+[PASS] ③ SeaweedFS get 完整读取+哈希复核 :: bytes_in=50 bytes_out=50 match=True
 [PASS] ③ SeaweedFS exists 命中 :: head_object -> True
 [PASS] ③ SeaweedFS 条件写入防覆盖 :: 同内容重复 put（同 key）-> overwritten=False，由 IfNoneMatch=* 挡下而非哈希守卫
 [PASS] ③ SeaweedFS 上游声明 SHA 不符拒绝 :: expected_sha256 mismatch -> IntegrityError
@@ -21,8 +21,8 @@
 [PASS] ① RustFS    Port 三方法/无 delete :: methods=['exists', 'get', 'put'] has_delete=False
 [PASS] ① RustFS    locator 复用生产定义 :: locator=local://5c/1a/5c1ac5fa2f56b7... parse_ok=True
 [PASS] ① RustFS    非法定位符拒绝 :: 前两段与哈希不符 -> parse 拒绝（防『语法合法但永远读不到』）
-[PASS] ③ RustFS    put 返回受控定位符 :: sha256_match=True locator=local://68/11/68113a1569...
-[PASS] ③ RustFS    get 完整读取+哈希复核 :: bytes_in=49 bytes_out=49 match=True
+[PASS] ③ RustFS    put 返回受控定位符 :: sha256_match=True locator=local://7f/84/7f84b50277...
+[PASS] ③ RustFS    get 完整读取+哈希复核 :: bytes_in=50 bytes_out=50 match=True
 [PASS] ③ RustFS    exists 命中 :: head_object -> True
 [PASS] ③ RustFS    条件写入防覆盖 :: 同内容重复 put（同 key）-> overwritten=False，由 IfNoneMatch=* 挡下而非哈希守卫
 [PASS] ③ RustFS    上游声明 SHA 不符拒绝 :: expected_sha256 mismatch -> IntegrityError

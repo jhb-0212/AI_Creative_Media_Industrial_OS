@@ -11,9 +11,9 @@ Valkey 9.1.4(6380) 与 9.2.0(6382)，测试键用 poc: 前缀并在结束时清�
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import time
-from collections import Counter as _Counter
 
 from redis.asyncio import Redis
 
@@ -108,10 +108,8 @@ async def matrix(version: str, url: str) -> None:
         # 清理测试键
         await c.delete(key, hkey, f"ratelimit:{ident}")
     finally:
-        try:
+        with contextlib.suppress(Exception):
             await c.aclose()
-        except Exception:
-            pass
 
 
 # --------------------------------------------------------------------------- #

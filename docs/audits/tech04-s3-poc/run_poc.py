@@ -10,9 +10,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import time
-from dataclasses import dataclass
 
 from botocore.exceptions import ClientError
+from s3_adapter import S3ObjectStorage, S3StorageError
 
 from adapters.storage.ports import (
     StorageIntegrityError,
@@ -21,10 +21,8 @@ from adapters.storage.ports import (
 )
 from packages.shared.storage_locator import (
     build_locator,
-    extension_for_media_type,
     parse_locator,
 )
-from s3_adapter import S3ObjectStorage, S3StorageError
 
 KEY = "minioadmin"
 SEC = "tp7rkd4a0jm1yzxv3uiw2o6q"
@@ -56,7 +54,6 @@ def new_adapter(name, url, bucket=None, **kw):
 
 async def port_and_locator(name, url):
     """条件①：复用并审查 Port 与 local:// locator 规则。"""
-    from adapters.storage.ports import ObjectStoragePort
     a = new_adapter(name, url)
     # 候选 Adapter 满足 Port 三方法、无 delete
     methods = {m for m in ("put", "get", "exists") if hasattr(a, m)}
@@ -66,7 +63,7 @@ async def port_and_locator(name, url):
     # locator 语法与生产一致：build/parse 往返
     digest = hashlib.sha256(b"tech04").hexdigest()
     loc = build_locator(digest, "png")
-    parsed, problem = parse_locator(loc)
+    parsed, _problem = parse_locator(loc)
     record("①", name, "locator 复用生产定义", parsed is not None and parsed.sha256 == digest,
            f"locator={loc[:28]}... parse_ok={parsed is not None}")
     # 非法定位符（前两段与哈希不符）被拒
@@ -236,6 +233,7 @@ async def no_formal_asset_ref(name, url):
     # 会命中，那是文字不是行为（上一版判据因此误报）。
     import ast
     import inspect
+
     from adapters.storage import ports as ports_mod
 
     tree = ast.parse(inspect.getsource(ports_mod))
@@ -284,8 +282,8 @@ async def main():
     # 条件⑦：对比两后端，不以 API 兼容单独判 PASS
     sea = [r for r in RESULTS if r[1] == "SeaweedFS" and r[3] is False]
     rust = [r for r in RESULTS if r[1] == "RustFS" and r[3] is False]
-    comparable = (set((r[0], r[2]) for r in RESULTS if r[1] == "SeaweedFS")
-                  == set((r[0], r[2]) for r in RESULTS if r[1] == "RustFS"))
+    comparable = ({(r[0], r[2]) for r in RESULTS if r[1] == "SeaweedFS"}
+                  == {(r[0], r[2]) for r in RESULTS if r[1] == "RustFS"})
     record("⑦", "对比", "同矩阵可比性", comparable,
            f"两后端执行相同用例集={comparable}; SeaweedFS FAIL={len(sea)} RustFS FAIL={len(rust)}")
     record("⑦", "对比", "不以API兼容单独判PASS", True,
@@ -296,7 +294,7 @@ async def main():
     failed = [r for r in RESULTS if r[3] is False]
     na_count = sum(1 for r in RESULTS if r[3] is None)
     print(f"PASS {passed} / FAIL {len(failed)} / N-A {na_count} / TOTAL {len(RESULTS)}")
-    for cond, backend, name, ok, detail in failed:
+    for cond, backend, name, _ok, detail in failed:
         print(f"  FAILED: {cond} {backend} {name} :: {detail}")
     print("POC_RESULT", "PASS" if not failed else "FAIL")
 
