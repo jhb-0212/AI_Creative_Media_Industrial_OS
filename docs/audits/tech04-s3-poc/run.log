@@ -1,0 +1,46 @@
+[PASS] ① SeaweedFS Port 三方法/无 delete :: methods=['exists', 'get', 'put'] has_delete=False
+[PASS] ① SeaweedFS locator 复用生产定义 :: locator=local://5c/1a/5c1ac5fa2f56b7... parse_ok=True
+[PASS] ① SeaweedFS 非法定位符拒绝 :: 前两段与哈希不符 -> parse 拒绝（防『语法合法但永远读不到』）
+[PASS] ③ SeaweedFS put 返回受控定位符 :: sha256_match=True locator=local://3b/11/3b11613b59...
+[PASS] ③ SeaweedFS get 完整读取+哈希复核 :: bytes_in=50 bytes_out=50 match=True
+[PASS] ③ SeaweedFS exists 命中 :: head_object -> True
+[PASS] ③ SeaweedFS 条件写入防覆盖 :: 同内容重复 put（同 key）-> overwritten=False，由 IfNoneMatch=* 挡下而非哈希守卫
+[PASS] ③ SeaweedFS 上游声明 SHA 不符拒绝 :: expected_sha256 mismatch -> IntegrityError
+[PASS] ③ SeaweedFS 大小上限前置拒绝 :: 5 bytes > max_bytes=4 -> SizeLimitError
+[PASS] ③ SeaweedFS 媒体类型白名单 :: application/x-sh -> LocatorError
+[PASS] ③ SeaweedFS exists 非法 locator 返回 False :: invalid locator -> False (port contract)
+[PASS] ④ SeaweedFS 版本策略可查询 :: Versioning.Status=Unversioned
+[PASS] ④ SeaweedFS Multipart 中断+部分对象清理 :: part_before=1 abort后upload仍存在=False
+[PASS] ⑤ SeaweedFS 网络中断->S3StorageError :: dead endpoint -> True
+[PASS] ⑤ SeaweedFS 权限拒绝->S3StorageError :: bad credentials -> True
+[PASS] ⑤ SeaweedFS 对象缺失->IntegrityError :: nonexistent locator -> True
+[PASS] ⑤ SeaweedFS Hash不匹配->IntegrityError :: tampered object -> True
+[PASS] ⑤ SeaweedFS 服务恢复后可用 :: post-fault put/get ok=True
+[PASS] ⑥ SeaweedFS Port 不写资产台账 :: ObjectStoragePort 方法体全为 stub(Ellipsis)=True，无实现体故不落库（AST 派生，非文本搜索）
+[PASS] ⑥ SeaweedFS 隔离桶命名 :: bucket=poc-tech04-seaweedfs 与正式 assets/uploads 桶隔离
+[PASS] ① RustFS    Port 三方法/无 delete :: methods=['exists', 'get', 'put'] has_delete=False
+[PASS] ① RustFS    locator 复用生产定义 :: locator=local://5c/1a/5c1ac5fa2f56b7... parse_ok=True
+[PASS] ① RustFS    非法定位符拒绝 :: 前两段与哈希不符 -> parse 拒绝（防『语法合法但永远读不到』）
+[PASS] ③ RustFS    put 返回受控定位符 :: sha256_match=True locator=local://7f/84/7f84b50277...
+[PASS] ③ RustFS    get 完整读取+哈希复核 :: bytes_in=50 bytes_out=50 match=True
+[PASS] ③ RustFS    exists 命中 :: head_object -> True
+[PASS] ③ RustFS    条件写入防覆盖 :: 同内容重复 put（同 key）-> overwritten=False，由 IfNoneMatch=* 挡下而非哈希守卫
+[PASS] ③ RustFS    上游声明 SHA 不符拒绝 :: expected_sha256 mismatch -> IntegrityError
+[PASS] ③ RustFS    大小上限前置拒绝 :: 5 bytes > max_bytes=4 -> SizeLimitError
+[PASS] ③ RustFS    媒体类型白名单 :: application/x-sh -> LocatorError
+[PASS] ③ RustFS    exists 非法 locator 返回 False :: invalid locator -> False (port contract)
+[PASS] ④ RustFS    版本策略可查询 :: Versioning.Status=Unversioned
+[PASS] ④ RustFS    Multipart 中断+部分对象清理 :: part_before=1 abort后upload仍存在=False
+[PASS] ⑤ RustFS    网络中断->S3StorageError :: dead endpoint -> True
+[PASS] ⑤ RustFS    权限拒绝->S3StorageError :: bad credentials -> True
+[PASS] ⑤ RustFS    对象缺失->IntegrityError :: nonexistent locator -> True
+[PASS] ⑤ RustFS    Hash不匹配->IntegrityError :: tampered object -> True
+[PASS] ⑤ RustFS    服务恢复后可用 :: post-fault put/get ok=True
+[PASS] ⑥ RustFS    Port 不写资产台账 :: ObjectStoragePort 方法体全为 stub(Ellipsis)=True，无实现体故不落库（AST 派生，非文本搜索）
+[PASS] ⑥ RustFS    隔离桶命名 :: bucket=poc-tech04-rustfs 与正式 assets/uploads 桶隔离
+[PASS] ⑦ 对比        同矩阵可比性 :: 两后端执行相同用例集=True; SeaweedFS FAIL=0 RustFS FAIL=0
+[PASS] ⑦ 对比        不以API兼容单独判PASS :: 七项含安全语义(防覆盖/哈希/权限/无delete)，非仅 put/get 连通
+
+==== SUMMARY ====
+PASS 42 / FAIL 0 / N-A 0 / TOTAL 42
+POC_RESULT PASS

@@ -1,0 +1,21 @@
+[PASS] ①② 9.1.4 版本指纹 :: INFO valkey_version=9.1.4
+[PASS] ①② 9.1.4 INCR+EXPIRE :: incr=1,2 ttl=30
+[PASS] ①② 9.1.4 高并发计数 :: 100 concurrent INCR -> 100
+[PASS] ①② 9.1.4 RateLimiter 固定窗口 :: limit=3 连续5次 allowed=[True, True, True, False, False]
+[PASS] ①② 9.1.4 连接池关闭 :: aclose 后连接池 in_use=0（redis-py 8.x aclose 释放连接，后续 ping 惰性重建属正常，不作为判据）
+[PASS] ①② 9.2.0 版本指纹 :: INFO valkey_version=9.2.0
+[PASS] ①② 9.2.0 INCR+EXPIRE :: incr=1,2 ttl=30
+[PASS] ①② 9.2.0 高并发计数 :: 100 concurrent INCR -> 100
+[PASS] ①② 9.2.0 RateLimiter 固定窗口 :: limit=3 连续5次 allowed=[True, True, True, False, False]
+[PASS] ①② 9.2.0 连接池关闭 :: aclose 后连接池 in_use=0（redis-py 8.x aclose 释放连接，后续 ping 惰性重建属正常，不作为判据）
+[PASS] ③ fail-open 放行 :: allowed=True,True degraded=True,True
+[PASS] ③ 后端错误指标可见 :: rate_limit_backend_errors +2.0
+[PASS] ③ 熔断 OPEN 状态 :: failure_threshold=2 连续失败后 state=open
+[PASS] ③ OPEN 期零网络包 :: degraded=True 耗时=0.000s（无 1s 连接超时）
+[PASS] ③ 熔断状态指标可见 :: rate_limit_circuit_state={'closed': 0.0, 'open': 1.0, 'half_open': 0.0}
+[PASS] ④ 窗口到期计数归零实证 :: 窗口内=1 到期后=None -> 固定窗口重置语义确认
+[PASS] ⑤ 限流不触碰鉴权权威 :: acquire() 仅用 identity 字符串计数，不读取/绕过 Principal 鉴权
+
+==== SUMMARY ====
+PASS 17/17
+POC_RESULT PASS
