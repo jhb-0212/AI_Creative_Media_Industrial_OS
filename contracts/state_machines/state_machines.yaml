@@ -30,7 +30,7 @@
 version: 2
 source: AFS-ARCH-MASTER-V2.0.5 各章节状态机定义（由 Markdown 基线派生）
 authority_rule: 同一对象多处定义时，按 31.5 唯一权威状态机 > 32.6/C.7 > 34.x > 33.3 > C.3 取权威；24.11 为摘要不计入权威；差异不静默合并，见 conflict 字段。
-total_objects: 53
+total_objects: 54
 conflict_count: 6
 object_count_note: total_objects 只计持久化领域对象；UI 投影见 projections 分区（不计入对象数，也不得进枚举注册表）。
 
@@ -1145,3 +1145,35 @@ objects:
   - 17.10 字段表（ShotTierChangeRequest.status）
   - 17.8 与 DAG、Gate、STALE 的关系
   - docs/audits/2026-11-24-status-governance-ruling-packet.md（G-A 第二轮裁定）
+- object: CreativeProposal
+  authoritative_source: 2.4 创意提案对象（status 六值原文）+ 所有者 2026-11-24 G-A 第三轮裁定
+  allowed_states: [ARCHIVED, CANDIDATE, DRAFT, PRECHECKED, REJECTED, SELECTED]
+  initial_state: DRAFT
+  transitions:
+  - from: DRAFT
+    to: PRECHECKED
+  - from: PRECHECKED
+    to: CANDIDATE
+  - from: CANDIDATE
+    to: SELECTED
+  - from: CANDIDATE
+    to: REJECTED
+  - from: SELECTED
+    to: ARCHIVED
+  - from: REJECTED
+    to: ARCHIVED
+  frozen_states: [ARCHIVED, REJECTED]
+  note: >-
+    六个字面值逐字取自基线 2.4 的 status 行（DRAFT / PRECHECKED / CANDIDATE / SELECTED /
+    REJECTED / ARCHIVED），不是台账推测的「待评审→采纳/否决」，也不得复用 ShotVisualPlan 的
+    DRAFT→REVIEW→APPROVED——前者是创意方案比较，后者是视觉计划锁定，混用会掩盖语义差异。
+    正文只给状态数组未给转移箭头；六条主线边由所有者按字面语义推导（预检后才成为候选、
+    候选才可采纳/否决、决策结果才可归档），未登记的边（如 DRAFT→SELECTED）一律 fail-closed。
+    SELECTED 仍可继续派生正式 ShotRevision / AssetVersion，故不进 frozen_states；
+    REJECTED 与 ARCHIVED 不再长出子对象。审批事实另记 reviewed_by / decision_reason。
+  source_kind: text_authority_only
+  registration_status: PENDING_PHASE1_REVIEW
+  all_sources:
+  - 2.4 创意提案对象（status 六值与 reviewed_by / decision_reason）
+  - 16.1 Intent-aware QC（deviation_intent_ref 引用提案版本）
+  - docs/audits/2026-11-24-status-governance-ruling-packet.md（G-A 第三轮裁定）

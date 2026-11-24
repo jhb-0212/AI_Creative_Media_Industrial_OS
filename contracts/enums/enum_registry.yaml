@@ -16,7 +16,7 @@
 
 generated_by: scripts/gen_status_contracts.py
 source: contracts/state_machines/state_machines.yaml
-object_count: 53
+object_count: 54
 objects:
 - object: Appeal
   states: [CLOSED, DECISION_OVERTURNED, DECISION_UPHELD, IN_REVIEW, SUBMITTED]
@@ -44,6 +44,8 @@ objects:
   states: [ACTIVE, DRAFT, REVOKED, STALE, SUPERSEDED]
 - object: ContinuityConstraint
   states: [ACTIVE, DRAFT, PENDING_CONFIRMATION, REVOKED, STALE, SUPERSEDED]
+- object: CreativeProposal
+  states: [ARCHIVED, CANDIDATE, DRAFT, PRECHECKED, REJECTED, SELECTED]
 - object: CreatorDeliveryManifest
   states: [DRAFT, REVOKED, STALE, SUPERSEDED, VALIDATED, VALIDATING]
 - object: CreatorGate

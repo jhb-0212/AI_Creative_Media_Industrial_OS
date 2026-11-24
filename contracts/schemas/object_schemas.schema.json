@@ -371,7 +371,10 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "NO_LIFECYCLE"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -424,7 +427,10 @@
           "type": "string"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "NO_LIFECYCLE"
+          ]
         },
         "entity_id": {
           "type": "string"
@@ -1457,7 +1463,10 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "NO_LIFECYCLE"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -1621,7 +1630,10 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "NO_LIFECYCLE"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -1788,7 +1800,10 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "NO_LIFECYCLE"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -2054,7 +2069,10 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "NO_LIFECYCLE"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -2618,7 +2636,10 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "NO_LIFECYCLE"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -3429,7 +3450,10 @@
           "type": "integer"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "NO_LIFECYCLE"
+          ]
         },
         "owner_module": {
           "type": "string"
@@ -3925,7 +3949,15 @@
           "type": "string"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "ARCHIVED",
+            "CANDIDATE",
+            "DRAFT",
+            "PRECHECKED",
+            "REJECTED",
+            "SELECTED"
+          ]
         },
         "uncertainty": {
           "type": "string"
@@ -5308,7 +5340,10 @@
           "type": "string"
         },
         "status": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "NO_LIFECYCLE"
+          ]
         },
         "target_id": {
           "type": "string"
