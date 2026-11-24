@@ -1745,6 +1745,42 @@ amendments:
       - 'QCIssue.disposition 仍无权威值集，继续留在 status_layers 待裁定区，闸门会看着它。'
       - 'G-A 18 项生命周期债务与 G-C 8 项 Schema 缺口按所有者裁定顺序后续单独立项，本次未触碰。'
 
+  - id: 'V205-R35-GA-FIRST-FOUR'
+    title: '#35 G-A 首轮：四项 lifecycle_gap 按所有者裁定销项'
+    retroactive: false
+    recorded_at: '2026-11-24'
+    discovered_by: '#35 状态治理后续：18 项 lifecycle_gap 长期登记为裸 string，台账注释计数还与派生结果漂移'
+    reason: >-
+      台账 3.1 建议 BlockingAsset / ControlSignalAsset / ExternalToolArtifact 等「复用 AssetVersion」，
+      但基线资产谱系边界明确它们派生自 AssetVersion 谱系、不得平行建表，§5 又明确白模/控制信号属
+      支撑资产、不套成片级质量。照抄建议会把 GOLD/HUMAN_REVIEW 带进白模与暂存产物，直接违反
+      EXTERNAL_TOOL.IMPORT.SUBMIT 的隔离验证约束。所有者 2026-11-24 按「最优最长期」逐项裁定：
+      BlockingAsset、ControlSignalAsset 改为 envelope_only + derived_projection（status 收哨兵，
+      真实事实分别在 AssetVersion 谱系+A2-QC 门禁、PrevizVersion 状态+purity/rights 门禁）；
+      ContinuityConstraint 登记六态（包级五值 + PENDING_CONFIRMATION 前置态，DRAFT 不得直达 ACTIVE）；
+      ExternalToolArtifact 登记六态独立暂存状态机（PROMOTED 仅表示可新建 AssetVersion，非 APPROVED/GOLD）。
+      两项新状态机的 source_kind=owner_supplied_design、registration_status=PENDING_PHASE1_REVIEW，
+      字面值不由中文流程词自造。同时去掉台账注释里写死的 41/17/18 漂移计数，改为从 objects 派生。
+    adr: 'docs/adr/ADR-R21-status-field-authority.md'
+    approved_by: '项目所有者（2026-11-24 逐项裁定：BlockingAsset 投影派生态、ContinuityConstraint 包5值+待确认、ControlSignalAsset 门禁派生不建机、ExternalToolArtifact 独立暂存状态机）'
+    approved_at: '2026-11-24'
+    source_commits:
+      - '0f80f3833f6806886bafb12ce9cd0e251772319d'
+    additions:
+      state_machines:
+        - object: ContinuityConstraint
+        - object: ExternalToolArtifact
+    counts_after:
+      actions: 105
+      openapi_operations: 105
+      schema_objects: 91
+      state_machines: 52
+    residual_risks:
+      - '本修订只关闭契约层缺口：两项新状态机尚无运行时 Domain Enum / DB CHECK / 动作入口，注册状态为 PENDING_PHASE1_REVIEW。'
+      - 'PENDING_CONFIRMATION 与六态暂存字面值来自所有者裁定，不是基线正文原文；正文若给出不同字面值须重新裁定。'
+      - 'ExternalToolArtifact 的 QUARANTINED 为隔离终态，权利补齐须新建 artifact 重走暂存链，不得原地复活。'
+      - 'G-A 剩余 14 项 lifecycle_gap 与 G-C 8 项 Schema 缺口按所有者确认顺序后续批次处理，本次未触碰。'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——
