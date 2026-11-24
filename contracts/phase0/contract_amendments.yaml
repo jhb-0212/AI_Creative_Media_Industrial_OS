@@ -2073,6 +2073,52 @@ amendments:
       - 'C7-3 用「SUCCEEDED + 非空产物引用」作为「产物已登记」的等价事实，不另读资产回执表：T3 只能从回执进入，多读一次只多一个 TOCTOU 窗口。若将来存在非回执路径进入 T3，该等价失效，须重新评估本条。'
       - 'mechanism: in_process 只能证明「登记方声称无 HTTP 面」，无法证明「确实无 HTTP 面」：闸门能拦「同时又写了 route」，拦不住有人为一个有端点的动作登记 in_process 以逃避授权落点检查，那一步仍需代码评审。'
       - '人工恢复的 reason 只校验非空与 ≤200 字符，不校验其真实性，也不与审计事件做语义关联；「为什么恢复」目前是操作者自述，不是可验证事实。'
+  - id: 'V205-R42-D69'
+    title: 'D6-9 受权死信重放的契约登记（OUTBOX.DEAD_LETTER.REPLAY）'
+    retroactive: false
+    recorded_at: '2026-11-24'
+    discovered_by: 'ADR-R42 D6 表第 9 行（死信与人工处置）；docs/audits/2026-11-24-r42-authorization-reconciliation.md §4.2/§8.3/§11.2；docs/proposals/r42-remaining-acceptance-c7-d6.md §3（八项判据）'
+    reason: >-
+      D6-9 的需求早已授权（ADR-R42 D6 表第 9 行要求「多次重试仍无法恢复 → 死信与人工处置」），
+      未裁决的只是实现方案。2026-11-24 Owner 裁决 D-2「入口形态取受权 REST 端点」、
+      D-3「运维台账 dead_letter_replays 不登记为契约对象」，并指示开始实施。
+      本条目登记这次实施所必需的契约面：新增动作 OUTBOX.DEAD_LETTER.REPLAY（actions 106→107）。
+      为什么必须先登记再实施：死信「可人工重放」这句话此前只存在于
+      workers/relay/consumer.py 的三处注释里——注释声明能力、代码没有入口，
+      读者据此会误判运维可行性。契约先行让缺口第一次可被机器判定（not_implemented
+      带 reason），实施随后的提交再把它改成 implemented；两段分开，谁批准了什么、
+      什么时候做到哪一步，都能从历史里读出来。
+      三处刻意的表达选择：
+      ① resource_type 写 OutboxEvent 并在 resource_schema_gaps 登记债务，而不是给
+      事件总线凭空补一份 object_schemas 定义——正文没有 outbox 事件的字段口径，
+      补 schema 等于创造契约正文；实施批次按「运维基础设施类型」登记豁免，届时删债务。
+      ② audit_event 写的是表名（outbox.dead_letter_replays），不是事件名。审计载体是
+      append-only 运维表：重放由运维主体执行，而 outbox_relay_role 对 outbox_events
+      只有 SELECT + 三列 UPDATE、无 INSERT；为它补 INSERT 等于允许伪造任意业务事件，
+      是权限倒退而非复用 T2 的 outbox 先例。实施批次按 event_emission_gaps 登记
+      「载体是表，不是事件总线」——这是契约表达缺口，如实挂账，不用事件名掩盖。
+      ③ 不新增「直接投递」旁路：重放只清死信标记（dead_lettered_at / next_attempt_at /
+      attempts 三列）并交回正常 claim → handler → ack；复制新事件会绕过 event_id 幂等，
+      直调 handler 会绕过 claim、退避与租户隔离。
+    adr: 'docs/adr/ADR-R42-asset-registration-saga.md'
+    approved_by: '需求授权：ADR-R42 D6 表第 9 行 + V205-R15-A35（2026-11-23）；实现方案：Owner 2026-11-24 裁决 D-2（受权 REST 端点）/D-3（运维台账不登记为契约对象）；实施启动：Owner 2026-11-24 会话指令「开始」'
+    approved_at: '2026-11-24'
+    additions:
+      actions:
+        - action_key: 'OUTBOX.DEAD_LETTER.REPLAY'
+          why: '死信人工处置的唯一入口。只把事件从死信态移出并交回正常领取，不复制事件、不直调处理器；审计落 append-only 运维表，因此不需要也不允许运维主体持有 outbox_events INSERT。'
+    source_commits:
+      - '2342f9e8e348cffaea7a1d4f8c1fbb0581ba703e'
+    counts_after:
+      actions: 107
+      openapi_operations: 107
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - '实现未落地：OUTBOX.DEAD_LETTER.REPLAY 在 action_implementations.yaml 登记为 not_implemented。消费者注释里的「可人工重放」此刻仍是注释承诺而非能力，缺口只是第一次被契约命名并可判定。'
+      - '审计载体不是事件总线：本动作发不出事件，audit_event 指向运维表 outbox.dead_letter_replays。这是契约表达缺口（字段语义假设「审计=事件」），实施批次按 event_emission_gaps 显式登记，不改 event_catalog 计数。'
+      - '运维角色刻意不持有 outbox_events INSERT：因此重放不可能「顺手补一条补偿事件」。若将来业务上需要重放通知，那是业务域自己的事件，必须由业务域在自身事务里写，不是运维动作的副作用。'
+      - 'P2（media_type / ABANDONED 追认）与本条目无关且仍未签署，[V-BLOCKED] 不变。'
 
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
