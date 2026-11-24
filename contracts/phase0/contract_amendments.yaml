@@ -2119,6 +2119,58 @@ amendments:
       - '审计载体不是事件总线：本动作发不出事件，audit_event 指向运维表 outbox.dead_letter_replays。这是契约表达缺口（字段语义假设「审计=事件」），实施批次按 event_emission_gaps 显式登记，不改 event_catalog 计数。'
       - '运维角色刻意不持有 outbox_events INSERT：因此重放不可能「顺手补一条补偿事件」。若将来业务上需要重放通知，那是业务域自己的事件，必须由业务域在自身事务里写，不是运维动作的副作用。'
       - 'P2（media_type / ABANDONED 追认）与本条目无关且仍未签署，[V-BLOCKED] 不变。'
+  - id: 'V205-R42-D69-IMPL'
+    title: 'D6-9 受权死信重放实施——八项判据落地（端点 + append-only 审计表 + outbox_ops_role）'
+    retroactive: false
+    recorded_at: '2026-11-24'
+    discovered_by: 'docs/proposals/r42-remaining-acceptance-c7-d6.md §8（实施结果）；docs/audits/2026-11-24-r42-authorization-reconciliation.md §12'
+    reason: >-
+      D69 只登记契约面，并明文写了「实现未落地」这条残余风险。本条目是它的实施侧闭环：
+      八项判据逐条落地，「可人工重放」从注释承诺变成有审计的动作。不回填 D69 的
+      source_commits，因为那条要指契约面提交 2342f9e——两段式登记的意义正是让
+      「契约先于实现」在历史里留下痕迹；也不改 D69 的 residual_risks，历史条目落纸即冻结，
+      事后把「实现未落地」抹掉会让「哪一步在何时做到」不可考。所以 D69 一字不动，实施记在这里。
+      实施要点（为什么是这些做法，而不是加校验层）：
+      ① 权限边界下沉到库：outbox_ops_role 只有 SELECT outbox_events + UPDATE
+      (attempts, dead_lettered_at, next_attempt_at) + dead_letter_replays 的 SELECT/INSERT。
+      刻意不给 outbox_events INSERT（那等于允许运维主体伪造任意业务事件），刻意不给
+      published_at 的写权限（投递时间只能由真正投递成功的 relay 写）。这三条若只写在
+      service 里，任何拿到该角色口令的代码都能让失败事件看起来「已投递」。
+      ② append-only 两层：授权层无 UPDATE/DELETE + 触发器层拒绝 UPDATE/DELETE/TRUNCATE。
+      只有授权层时，超级用户或将来误配的角色仍能改写历史；只有触发器层时，「能不能写」
+      不再由 GRANT 表达。两层同时存在，才既拦得住也说得清。
+      ③ 授权矩阵扩出 INFRA_ROLES/INFRA_ROLE_GRANTS 而非把运维角色塞进 DOMAINS：
+      DOMAINS 的语义是「一域一角色一自有 schema」，运维角色没有自有 schema，塞进去会让
+      「本域每张 ORM 表都必须声明」这条判据对它求值成空集——看起来通过，实际把判据变成
+      永真式。收敛实现与域角色共用 _grants_converge，规则逐字相同（分成两份后，
+      「运维角色忘了撤默认权限」只能靠人比对两段代码）。
+      ④ 动态分区不进静态矩阵：分区名按月生成，授权由 partition_guard 生成，列清单从矩阵
+      派生（ops_replay_update_columns），不存第二份；现存分区由迁移补齐，未来分区由
+      outbox_maintenance.create_partition 逐条授予。
+      ⑤ 重放语义：只清死信三列并交回正常 claim，不复制新事件（event_id 是业务幂等支点）、
+      不直调 handler（绕过 claim/退避/租户隔离）、不写 published_at。
+      三处与基线（提案 §3）的偏差，理由见提案 §8.2，此处只记结论：
+      审计顺序改为「锁行 → 条件清标记 → 写审计」同事务（append-only 使「先写 IN_FLIGHT
+      再改写终值」不可实现，而重放前事实在锁行时已入内存，不会丢）；D6-3 的「handler 已注册」
+      改为「事件类型在契约全集内」（handler 注册表活在 relay 进程，API 拿不到也不该拿到）；
+      D6-6 的 rowcount 改为 RETURNING（同语义，证据更直接）。
+    adr: 'docs/adr/ADR-R42-asset-registration-saga.md'
+    approved_by: '需求授权：ADR-R42 D6 表第 9 行 + V205-R15-A35（2026-11-23）；方案裁决：Owner 2026-11-24 D-2/D-3（见 V205-R42-D69）；实施启动：Owner 2026-11-24 会话指令「开始」。本条目只记录实施事实，不新增授权。'
+    approved_at: '2026-11-24'
+    source_commits:
+      - 'dff7aaa63b3f590e5a996086699939ae11c3e808'
+    counts_after:
+      actions: 107
+      openapi_operations: 107
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - 'result 的 FAILED 枚举当前不可达：接受后的重放是同事务全有或全无，不存在「已受理但失败」的中间态。CHECK 保留两个值是为了将来出现多步重放时不必改表；但此刻读代码的人容易误以为失败路径漏写了——这一点已写进提案 §8.2 与 §8.4。'
+      - '观测面缺失：没有「重放次数 / 死信存量」指标，排障只能查表。加指标需先定口径（按事件类型？按操作者？），不属于本批判据。'
+      - '本批只有写入口（重放），没有死信查询端点；「可查」仍靠只读 SQL。加 GET 端点需要新的只读动作与席位登记，不能假装已由平台提供。'
+      - 'D6-3 以契约全集替代 handler 注册表：契约内类型若恰好无 handler，重放不会丢事件（relay 对无处理器事件不 ack），但会让积压上涨到报警——这是可接受的降级，不是等价物。'
+      - '分区授权依赖两条路径（迁移补现存分区 + outbox_maintenance.create_partition 建未来分区）。若有人不走 create_partition 手工建分区，该分区没有运维授权，那个月的死信无法重放，且只在实际重放时暴露。'
+      - 'P2（media_type / ABANDONED 追认）与本条目无关且仍未签署，[V-BLOCKED] 不变。'
 
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
