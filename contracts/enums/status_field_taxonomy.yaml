@@ -13,15 +13,18 @@
 #
 #   lifecycle      —— 有权威状态机（state_machines.allowed_states）；
 #                     Schema 的 status.enum 必须逐值等于 allowed_states，缺一个、
-#                     多一个都报红。共 41 个（ADR-R21 把 PrevizVersion 归位：8.13
-#                     明确给出六态权威集，此前误判为 status_split）。
+#                     多一个都报红。
 #   envelope_only  —— 无独立生命周期，status 仅作信封占位；必须写 basis（依据类别）
 #                     + reason（为什么它不是生命周期）+ unblocks_when（哪项领域决策
 #                     才能解除该分类）。status 只允许写 status_layers 的哨兵值，
-#                     不再接受任意字符串。共 17 个。
+#                     不再接受任意字符串。
 #   lifecycle_gap  —— 应有生命周期但状态机从未登记；必须写 reason / contract_ref /
 #                     unblocks_when 三项债务字段。这三项不是给文案看的：闸门会
-#                     双向校验（登记了却补上状态机 → 陈旧债务报红）。共 18 个。
+#                     双向校验（登记了却补上状态机 → 陈旧债务报红）。
+#
+# 三类各自的数量**不在本文件写死**：曾出现头部注释 41/40、17、18/19 与台账实际
+# 47/18/18 漂移，而注释不进任何闸门，读者却会当成现状。需要计数请从本 objects
+# 列表按 class 派生（或直接读 contract_check 的 PASS 输出），不要补一个会腐烂的数字。
 #
 # 三类互斥且必须覆盖 object_schemas 里每一个带 status 的对象：
 # 漏登记报红、多登记报红、同一个对象出现在两类里报红。删条目不能让闸门变绿，
@@ -235,10 +238,19 @@ objects:
 
   # ---------------- lifecycle_gap：19 个应有生命周期但未登记状态机 ----------------
   - object: BlockingAsset
-    class: lifecycle_gap
-    reason: 白模/站位资产有版本与权利约束（version / license_type / rights_manifest_ref / preview_only），必然存在「生成→验证→可用→撤销」的过程，但正文只为它列了字段、没有状态链。
-    contract_ref: 8.15 CameraRig 与 BlockingAsset 字段契约表
-    unblocks_when: 正文补白模资产生命周期（预期与 AssetVersion 的 8.5 形状对齐，但隔离/纯净度判定不同），随后登记 state_machines 条目并在本台账改为 lifecycle
+    class: envelope_only
+    basis: derived_projection
+    reason: >-
+      基线 §资产谱系边界明确「ExternalToolArtifact、BlockingAsset、ToolExchangePackage 等
+      均派生自 AssetVersion 谱系，不得平行建立语义重叠的资产表」；8.15 的 asset_version_ref
+      注明「所属 AssetVersion 谱系引用，不得平行建表」，version 变更走新建版本。白模的真实状态
+      事实在 AssetVersion 谱系（8.5 十态）与 A2-QC 支撑资产门禁（几何/纯净度/Rights）上，
+      信封 status 若另立一套十态就等于平行建表。所有者 2026-11-24 G-A 首轮裁定为派生投影：
+      status 固定为哨兵，可消费性从 AssetVersion 状态 + 门禁证据派生，不是第二个状态事实。
+    contract_ref: 8.15 CameraRig 与 BlockingAsset 字段契约表 / 资产谱系边界 / A2-QC 支撑资产门禁
+    unblocks_when: >-
+      仅当正文把 BlockingAsset 从 AssetVersion 谱系提升为独立聚合根，并给出与 8.5 不重叠的
+      状态集与门禁归属时才解除；在此之前平行建状态机等于制造第二份资产事实。
   - object: CameraRig
     class: lifecycle_gap
     reason: 相机机位是版本化资产（version / camera_manifest_ref / extrinsics），与 Previz 绑定；「草案→校验→锁定→取代」是隐含流程，正文未登记状态集。
@@ -255,15 +267,27 @@ objects:
     contract_ref: C.3 CharacterVoiceProfile 字段契约
     unblocks_when: 正文补声音授权生命周期（含撤销与过期），随后登记状态机
   - object: ContinuityConstraint
-    class: lifecycle_gap
-    reason: 连续性约束带审批引用与有效期（approval_ref / authority / valid_from），7.9 只定义了 ConstraintPack 的状态机，单个约束条目的生效/失效/撤销未定义。
-    contract_ref: 7.9 隐式连续性依赖登记
-    unblocks_when: 正文补单条约束的生效与失效口径（可能与 ConstraintPack 共享状态集）
+    class: lifecycle
+    reason: >-
+      所有者 2026-11-24 G-A 首轮裁定：复用 ConstraintPack 包级五值并补 PENDING_CONFIRMATION
+      前置态。8.10 明确观察/推断先入待确认队列、只有经批准的约束才形成硬阻断，故单条约束
+      的状态机必须含待确认态；已在 state_machines 登记六态权威集与五条授权边。
+    contract_ref: 7.9 隐式连续性依赖登记 / 8.10 ContinuityConstraint 契约
+    unblocks_when: >-
+      已按裁定销项；若正文给出与包级不同的单条约束状态集，须重新裁定后改写状态机与本分类。
   - object: ControlSignalAsset
-    class: lifecycle_gap
-    reason: 控制信号资产带纯净度检查与权利约束（purity_check_ref / rights_manifest_ref），是生成输入的前置条件；正文给了字段未给状态。
-    contract_ref: 8.12 控制信号契约
-    unblocks_when: 正文补控制信号资产生命周期（含纯净度复核与权利撤销）
+    class: envelope_only
+    basis: derived_projection
+    reason: >-
+      8.14 契约块只给 purity_check_ref / rights_manifest_ref / signal_type 等字段，没有 status
+      枚举；§5 把控制信号与白模/Previz/CameraRig 并列为支撑资产，§8.6 规定 GEOMETRY_VALIDATE
+      失败不得导出、PURITY_CHECK 或 Rights Gate 失败不得发布给路线适配器。所有者 2026-11-24
+      G-A 首轮裁定：可否发布是 PrevizVersion 状态 + 纯净度/权利门禁的派生结论，不建独立状态机；
+      status 固定哨兵，避免与 PrevizVersion 的六态形成第二套发布事实。
+    contract_ref: 8.14 ControlSignalAsset 契约 / §5 支撑资产质量 / 8.6 白模与控制信号任务
+    unblocks_when: >-
+      仅当正文为控制信号单列与 PrevizVersion 解耦的发布状态机（含独立审批与撤销语义）时才解除；
+      在此之前给 status 建 enum 只会复制门禁结论。
   - object: CreativeProposal
     class: lifecycle_gap
     reason: 创意提案有评审人（reviewed_by）与决策理由（decision_reason），说明存在「待评审→采纳/否决」流程，但正文未把它登记为状态机。
@@ -280,10 +304,15 @@ objects:
     contract_ref: 交付后质量逃逸章节
     unblocks_when: 正文补逃逸处置状态链（发现→RCA→返工→关闭），随后登记状态机
   - object: ExternalToolArtifact
-    class: lifecycle_gap
-    reason: 外部工具产物的描述是「先隔离和验证，合格后再创建正式 AssetVersion」——这就是一条生命周期（暂存→扫描→验证→转正/废弃），但未登记状态集。
-    contract_ref: 32.x Staging / Asset Intake 口径
-    unblocks_when: 正文补暂存产物的隔离与转正状态链（与 AssetVersion 的 QUARANTINED 语义要对齐，不得两套）
+    class: lifecycle
+    reason: >-
+      所有者 2026-11-24 G-A 首轮裁定：暂存链是与 AssetVersion 谱系分层的独立流程，不能复用
+      资产版本状态集（复用会让暂存产物被标 APPROVED/GOLD，直接违反 EXTERNAL_TOOL.IMPORT.SUBMIT
+      约束）。已登记六态暂存状态机（STAGING→SCANNED/VERIFIED→PROMOTED/REJECTED/QUARANTINED），
+      PROMOTED 只表示可以创建新 AssetVersion，不继承成片级审核语义。
+    contract_ref: 32.x Staging / Asset Intake 口径 / C.3 对象总表 / ACT-EXT-NEG-007
+    unblocks_when: >-
+      已按裁定销项；若正文给出不同的暂存字面值或转正规则，须重新裁定后改写状态机与本分类。
   - object: IntentContract
     class: lifecycle_gap
     reason: 意图契约带审批（approval）与假设集（assumptions）；意图一旦被批准就成为下游硬约束，批准前后语义不同，但未登记状态。
