@@ -1,21 +1,13 @@
 ---
 doc_type: proposal
-status: in_progress
+status: implemented
 updated_at: 2026-11-24
 authoritative_sources:
   - contracts/action_registry/action_registry.yaml
   - contracts/runtime/action_implementations.yaml
   - contracts/runtime/event_catalog.yaml
   - docs/audits/2026-11-24-r42-authorization-reconciliation.md
-open_items:
-  - item: >-
-      D6-9 死信重放无任何入口（判据 D6-1..D6-8，实施未开始）：
-      workers/relay/consumer.py:24,120,224 三处注释声称死信「可人工重放」，仓库内
-      没有端点、脚本或 CLI。重放的写权限面已存在（outbox_relay_role 列级
-      UPDATE(dead_lettered_at, next_attempt_at, attempts)），但该角色**无
-      outbox_events INSERT**——审计事件不能由它写入，这是权限边界而非实现遗漏。
-      债登记于 A36 residual_risks 第 2 条与审计记录 §4.2
-    source: "contracts/phase0/contract_amendments.yaml#amendments"
+open_items: []
 ---
 
 # R42 剩余验收实施基线：C7-b 人工入队来源核验 + D6-9 受权死信重放
@@ -23,8 +15,9 @@ open_items:
 > 性质：**实施基线**（2026-11-24 工程审查建议的采纳登记）+ 实施结果记录。
 > 两批次**独立提交、独立验收**，互不夹带（不顺带改 P2 或其它冻结内容）。
 > 报告口径：真实 PostgreSQL 实测与静态测试**分开报告**；未实际运行的标 `NOT RUN`，环境阻塞标 `BLOCKED`。
-> **C7-b 已实施完毕**（见 §7，2026-11-24，Owner 签署后启动）；**D6-9 仍未开始**，
-> 故 front-matter 仍为 `status: in_progress`，open_items 只剩 D6-9 一项。
+> **两批均已实施完毕**：C7-b 见 §7，D6-9 见 §8（2026-11-24，契约面与授权来源先登记后启动）。
+> 判据之外明确挂账的事项见 §7.4 / §8.4——不在 open_items 里，是因为它们是
+> 「本基线不做」，不是「本基线没做完」。
 
 ---
 
@@ -258,3 +251,48 @@ Owner 签署 A37 后启动。六项判据逐条落地，**两处与基线不同*
 
 - **D6-9 未开始**：仍需自己的契约登记（`OUTBOX.DEAD_LETTER.REPLAY`，106→107）、新表 `outbox.dead_letter_replays`、新角色 `outbox_ops_role`。D-2/D-3 的裁决只定了形态与「是否登记」，不等于已批准实施。
 - **`implemented` 台账的 `in_process` 是新表达式**：既有 46 个 HTTP 动作不受影响，但它第一次让「无 HTTP 面的已实现动作」可以被如实登记。这属于闸门能力扩展，不是为某一动作开的特例——同类动作今后应复用，不得各写一套豁免。
+
+---
+
+## 8. D6-9 实施结果（2026-11-24）
+
+契约面（`2342f9e`）与授权来源（`bb258e4`）先行登记后启动。八项判据逐条落地，
+**三处与基线不同**，见 8.2。基线 §3.3 的顺序纪律按同事务等价方式改写，理由一并写明。
+
+### 8.1 判据 → 实现 → 验收
+
+| 编号 | 实现落点 | 验收证据 |
+|---|---|---|
+| D6-1 引用真实原始事件 | 路径参数 `event_id`（UUID）；只按它定位，不接受「重构同类请求」。不存在 → 404 | `test_unknown_event_is_not_found`、`test_non_uuid_path_is_validation_error`（422） |
+| D6-2 专项授权 | 新增动作席位 `OUTBOX.DEAD_LETTER.REPLAY`（`消息总线运维操作者`），`require_role` 单入口；执行主体是**新角色** `outbox_ops_role`，与 relay 运行时身份、业务域写入身份都不是同一条 | `test_other_role_cannot_use_replay_entry`（403）、`test_role_is_not_privileged`（NOSUPERUSER / NOBYPASSRLS） |
+| D6-3 重放前核验 | 同事务 `SELECT … FOR UPDATE`，顺序：行存在 → `tenant_id` 与 Principal 一致 → `published_at IS NULL` → `dead_lettered_at IS NOT NULL` → 事件类型在契约全集内 | 五类各自 404/409，见负向四条用例（不存在 / 跨租户 / 未死信 / 已投递 / 契约外类型） |
+| D6-4 原事件不可变 + 独立 `replay_id` | 只 `UPDATE` 三列；列级 `GRANT` 把 `published_at` / `payload` / `event_type` / `tenant_id` / `aggregate_id` / `occurred_at` 全部挡在库层；`replay_id` 落审计表 | `test_cannot_forge_event_content_or_delivery_time`（6 列参数化，全部 permission denied）、`test_replay_requeues_event_and_records_pre_replay_facts`（回读 payload / event_type 不变） |
+| D6-5 操作层与业务层幂等分离 | 业务副作用仍由 handler 承担（重放不复制事件、不直调 handler）；操作层由「`FOR UPDATE` + 条件更新」串行化，第二次必然 409 | `test_second_replay_conflicts_and_keeps_one_audit_row`、`test_concurrent_replay_yields_one_success`（并发 200/409，审计恰好 1 行、事件行数不变） |
+| D6-6 并发控制（数据库级） | 条件 `UPDATE … WHERE dead_lettered_at IS NOT NULL AND published_at IS NULL RETURNING event_id`：无返回即「已不在死信态」→ 409 | 同上并发用例；`test_cannot_delete_events` 保证并发下也不会出现「删了重发」 |
+| D6-7 追加式审计 | 新表 `outbox.dead_letter_replays`：`replay_id` PK / `source_event_id` / `tenant_id` / `event_type` / `operator` / `reason` / `attempts_before` / `dead_lettered_at_before` / `result`（CHECK `SUCCEEDED`\|`FAILED`）/ `failure_reason` / `created_at` | `test_audit_rows_are_append_only`（UPDATE、TRUNCATE 均被触发器拒绝）、`test_audit_table_is_append_only_by_grant`（授权层三条全拒） |
+| D6-8 失败保留与可追溯 | 原始死信行从不删除、从不覆盖；重放后的再次失败由 relay 的 `_FAIL` 重新累加 `attempts` 并重新写 `dead_lettered_at`（新一次失败事实） | `test_replay_requeues_event_and_records_pre_replay_facts`（`attempts=0`、行仍在）、`test_live_event_cannot_be_replayed`（未死信时连 `attempts` 都不动） |
+
+### 8.2 与基线的三处偏差（都是基线不可实施，不是妥协）
+
+1. **§3.3 的顺序纪律改为同事务等价式。** 基线要求「先写 `IN_FLIGHT` 审计 → 清零 → 事后改写终值」，但审计表是 append-only（授权层无 UPDATE、触发器拒绝 UPDATE），**第二次写入终值这一步在库层就做不到**。实现改为「锁行 → 条件清标记 → 写审计(`SUCCEEDED`)」同一事务：提交则三件事一起成立，回滚则一件都没发生。基线真正要保的东西没丢——`attempts` / `dead_lettered_at` 在锁行时已读入内存，审计行永远带真实的「重放前」值，因此不需要二次改写。代价是 `FAILED` 这一枚举在当前实现下不可达（接受后的重放是全有或全无）；`result` 的 CHECK 仍保留两个值，等将来出现多步重放时才有 `FAILED`。**这一点写在代码与审计列注释里，不留给读代码的人去猜。**
+
+2. **D6-3 的「handler 已注册」改为「事件类型在契约全集内」。** 那份 handler 注册表活在 relay 进程里，构建它需要三个域会话工厂——API 进程既拿不到、也不该拿到。诚实的替代是查 `contracts/runtime/event_catalog.yaml`：契约外类型必然没有消费者，重放它只会制造一条永不被 ack 的积压。契约内类型若恰好没注册 handler，后果也不是丢事件——relay 对无处理器事件**不 ack**，积压上涨并报警。判据实质（不因重放而丢事件）仍成立。
+
+3. **D6-6 的 `rowcount` 改为 `RETURNING`。** 语义等价，但 `RETURNING` 返回的就是「这一行确实被改到了」的证据，不必再把结果对象当游标解释；对分区表与普通表行为也一致。
+
+### 8.3 本批次的契约面
+
+| 项 | 变化 |
+|---|---|
+| `action_registry.yaml` / `openapi.draft.yaml` / `permission` | 无（`bb258e4` 已登记，107 不变） |
+| `action_implementations.yaml` | `OUTBOX.DEAD_LETTER.REPLAY`：`not_implemented` → `implemented`（`POST /outbox/dead-letters/{event_id}/replay`） |
+| `resource_schema_gaps.yaml` → `resource_schema_exemptions.yaml` | `OutboxEvent` 债务转为豁免：正文没有事件总线的字段口径，为它发明 schema 等于凭空造契约正文 |
+| `event_emission_gaps.yaml` | 新增 1 条显式债务：本动作的 `audit_event` 写的是**表名**，审计载体是表不是事件（`outbox_ops_role` 对 `outbox_events` 刻意无 INSERT） |
+| `packages/shared/db_grants.py` | 新增 `INFRA_ROLES` / `INFRA_ROLE_GRANTS` / `infra_converge_statements` / `validate_infra_matrix`：运维角色没有自有 schema，塞进 `DOMAINS` 会让「本域表全覆盖」判据变永真式 |
+| 新迁移 `c5d6e7f8a9b0` | 建角色 + 建表 + 双触发器 + RLS + 父表授权收敛 + 现存分区补齐授权 |
+
+### 8.4 未做（明确挂账）
+
+- **观测面**：`outbox_maintenance` 的 metrics 里没有「重放次数 / 死信存量」指标。当前只能查表；加指标需要先定口径（按事件类型？按操作者？），不属于本批判据。
+- **死信查询入口**：本批只做写入口（重放），查询仍走只读 SQL 排障。加一个 `GET /outbox/dead-letters` 需要新的只读动作与席位登记，不在 D6-9 判据内——但不能因此假装「可查」已由平台提供。
+- **`FAILED` 枚举不可达**：见 8.2 第 1 条。若将来出现多步重放（例如先投递到暂存区再确认），这条路径才会活；届时必须同时补「失败也要留痕」的用例，而不是让枚举继续空转。

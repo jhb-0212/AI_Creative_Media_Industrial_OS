@@ -36,6 +36,7 @@ _ROLE_FIELD_BY_ENV: dict[str, str] = {
     "POSTGRES_BUDGET_QUOTA_USER": "postgres_budget_quota_user",
     "POSTGRES_QC_GOVERNANCE_USER": "postgres_qc_governance_user",
     "POSTGRES_RELAY_USER": "postgres_relay_user",
+    "POSTGRES_OUTBOX_OPS_USER": "postgres_outbox_ops_user",
     "POSTGRES_APP_USER": "postgres_app_user",
 }
 
@@ -76,6 +77,12 @@ class Settings(BaseSettings):
     # 角色连接，使「Relay 越界写业务表」在数据库层被拒绝，而非依赖代码自觉。
     postgres_relay_user: str = "outbox_relay_role"
     postgres_relay_password: SecretStr = SecretStr("relay_dev_password")
+    # Outbox 运维角色（D6-9 死信人工重放）。与 relay 刻意分开：relay 只改投递
+    # 元数据、无 outbox_events INSERT（否则可伪造任意业务事件），运维还要写
+    # append-only 审计表。两个权限面合到一个角色，等于让「投递」顺带获得
+    # 「伪造事件」或让「运维」顺带获得「投递」的能力。
+    postgres_outbox_ops_user: str = "outbox_ops_role"
+    postgres_outbox_ops_password: SecretStr = SecretStr("outbox_ops_dev_password")
     # 业务域角色（DATA-1 模块级角色隔离）。project_planning 与 asset_service
     # 各自独立角色 + 独立连接池，业务 schema 写权限严格隔离；共享基础设施
     # （outbox 写 / auth 读）两角色按需持有。迁移 8f3b2c1d4e5a 创建这些角色。
@@ -232,6 +239,9 @@ class Settings(BaseSettings):
             ),
             ("postgres_budget_quota_password", "POSTGRES_BUDGET_QUOTA_PASSWORD"),
             ("postgres_qc_governance_password", "POSTGRES_QC_GOVERNANCE_PASSWORD"),
+            # D6-9：API 持有运维连接池（受权重放端点），口令必须显式提供；
+            # 缺省时以仓库里的开发口令连生产库 = 静默降级，必须 fail-closed。
+            ("postgres_outbox_ops_password", "POSTGRES_OUTBOX_OPS_PASSWORD"),
             ("identity_public_key_pem", "IDENTITY_PUBLIC_KEY_PEM"),
         ),
         "relay": (
@@ -406,6 +416,7 @@ DEVELOPMENT_DEFAULT_PASSWORDS: dict[str, str] = {
     "postgres_relay_password": "relay_dev_password",
     "postgres_project_planning_password": "project_planning_dev_password",
     "postgres_asset_service_password": "asset_service_dev_password",
+    "postgres_outbox_ops_password": "outbox_ops_dev_password",
 }
 
 

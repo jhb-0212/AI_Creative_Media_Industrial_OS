@@ -42,6 +42,7 @@ from packages.shared.config import Settings, get_process_settings
 from packages.shared.database import build_migration_url
 from packages.shared.logging import get_logger, setup_logging
 from packages.shared.partition_guard import (
+    grant_ops_partition_statements,
     grant_outbox_partition_statements,
     protect_partition_statements,
 )
@@ -213,6 +214,11 @@ async def ensure_partition(conn: AsyncConnection, part: Partition) -> int:
         # 迁移 ae8724980e0b 用 ALTER DEFAULT PRIVILEGES 兜底未来分区，这里
         # 再显式授权一次是双保险（幂等），也避免依赖「默认权限一定生效」。
         for statement in grant_outbox_partition_statements(part.name):
+            await conn.execute(text(statement))
+        # 运维重放角色（D6-9）同样按分区授权：通过父表 SELECT/UPDATE 时 PG 会
+        # 校验目标分区的 ACL，不在这里授予就在「事件落在新分区」那天才暴露成
+        # permission denied（而那正是最需要重放的时候）。
+        for statement in grant_ops_partition_statements(part.name):
             await conn.execute(text(statement))
         if moved:
             await conn.execute(

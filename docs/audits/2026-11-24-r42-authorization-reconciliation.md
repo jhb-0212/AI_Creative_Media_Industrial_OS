@@ -258,13 +258,13 @@ ADR-R42 被引用最多的三句话：
 | C5 | 不可变 `AssetRegistrationReceipt`，`(tenant_id, generation_task_id)` 唯一，与 `AssetVersion` 同事务 | 已授权且已实施 | 2026-11-23 | A35 | `716971c` + `e95127a` | 存量回执指纹 NULL 不可回填（已挂账，非缺口） |
 | C6 | 三个 `ASSET_REGISTRATION_*` 事件登记与发射原子落地 | 已授权且已实施 | 2026-11-23 | A35 | `e95127a`；`event_catalog.yaml:38,62,77` | 无 |
 | C7-a | QC 只消费 `GENERATION_SUCCEEDED`，`asset_version_id` 来自回执 | 已授权且已实施 | 2026-11-23 | A35 | `e95127a`；`handlers.py:85`、`generation_service.py:472` | 无 |
-| C7-b | 手动入队端点的来源核验（使人工入口与自动入口拒绝集合一致） | **已授权未实施** | 需求 2026-11-23（C7）／方案未裁决 | 需求：A35 的 C7；方案：仅审查建议采纳（§8.2） | 未实施 | Owner 裁决 §8.2 方案 A 后实施六条要求 |
+| C7-b | 手动入队端点的来源核验（使人工入口与自动入口拒绝集合一致） | 已授权且已实施 | 2026-11-24（Owner 签署 A37） | A37；授权来源见 `V205-R42-C7B` | `b876105`；`services/qc_governance/api/qc_task_routes.py` | 两处与基线偏差已登记（提案 §7.2）：不另读资产域回执、`project_id` 作选择键 |
 | D2 | 系统身份由受信事件处理器构造，不取请求体声明 | 已授权且已实施 | 2026-11-23 | A35（ADR `:4.1`） | `asset_registration.py:69,307` | 无 |
 | D3 | T2 六项来源核验（任务存在/等待登记态/项目租户一致/意图存在/已落盘/三字段逐字比对） | 已授权且已实施 | 2026-11-23 | A35 | `asset_registration.py` `handle_requested` | 无 |
 | D4 | 四段本地事务，禁止跨域共享 Session | 已授权且已实施 | 2026-11-23 | A35 附录 A | `e95127a` | 无 |
 | D5 | 幂等复用同一回执；同键不同语义报可审计冲突、不建第二资产 | 已授权且已实施 | 2026-11-23 | `V205-R42-T2-FINGERPRINT` | `1447468`；迁移 `f1a2b3c4d5e7` | 见 C5 行挂账 |
 | D6-1..8 | 存储失败不登记、从持久化清单恢复、退避重试、重投幂等、拒绝回执、孤儿对象保护 | 已授权且已实施 | 2026-11-23 | A35 | `e95127a` + 本批 `02a94c2`（恢复三态） | 无 |
-| D6-9 | 「多次重试仍无法恢复 → 死信与**人工处置**」 | **已授权未实施** | 需求 2026-11-23（ADR D6 表第 9 行）／方案未裁决 | 需求：ADR D6；方案：仅审查建议采纳（§8.3） | 死信已实现并可见；人工处置无任何代码入口 | Owner 裁决 §8.3 方案 A 后实施八条要求 |
+| D6-9 | 「多次重试仍无法恢复 → 死信与**人工处置**」 | 已授权且已实施 | 2026-11-24（D-2/D-3 裁决 + 实施启动） | 需求：ADR D6 第 9 行；方案：`V205-R42-D69`；实施：`V205-R42-D69-IMPL` | 契约面 `2342f9e`；实现 `POST /outbox/dead-letters/{event_id}/replay`；迁移 `c5d6e7f8a9b0` | 三处偏差已登记（提案 §8.2）：审计顺序同事务等价式、handler 判据改契约全集、`rowcount`→`RETURNING` |
 | PR-G-1 | PREPARED 崩溃恢复（三态区分、沿用原 `attempt_id`、不重调模型） | 已授权且已实施 | 2026-11-23（A35 C2 明文）／2026-11-24（A36 登记） | A35 的 C2 `why` 直接要求「崩溃后可按 PREPARED 记录重试而不重复调用模型」 | `02a94c2`；`executor._recover()`；9 例单测 | 无 |
 | PR-G-2 | `media_type` 事实化（NOT NULL + 回填 + 全链路比对） | 已授权且已实施**（派生）** | 2026-11-24 | A36，`approved_by` = 继承 A35 | `02a94c2`；迁移 `a7b8c9d0e1f2` | **Owner 追认**：A35 的 C2 字段清单只列 locator/sha256/attempt_id/status，未含 media_type |
 | PR-G-3 | `ABANDONED` 终态与 `PREPARED→ABANDONED` 边 | 已授权且已实施**（派生）** | 2026-11-24 | A36，`approved_by` = 继承 A35 | `02a94c2`；`state_machine.py` / `enums.py` | **Owner 追认**：A35 的 ArtifactManifest 状态集只有 PREPARED→STORED_VERIFIED |
@@ -275,9 +275,9 @@ ADR-R42 被引用最多的三句话：
 
 | 分类 | 条数 | 说明 |
 |---|---|---|
-| 已授权且已实施（直接） | 14 | 授权凭据为当次 Owner 裁决，且实施证据可指到提交/迁移/测试 |
+| 已授权且已实施（直接） | 16 | 授权凭据为当次 Owner 裁决，且实施证据可指到提交/迁移/测试 |
 | 已授权且已实施（派生） | 2 | PR-G-2 / PR-G-3：凭「继承 A35」落地，A35 的字面范围未覆盖，需追认 |
-| 已授权未实施 | 2 | C7-b / D6-9：**需求**已授权，**实现方案**未裁决 |
+| 已授权未实施 | 0 | C7-b / D6-9 已于 2026-11-24 实施完毕（授权与实施分别落纸：A37 / `V205-R42-C7B`、`V205-R42-D69` / `V205-R42-D69-IMPL`） |
 | 未授权 | 0 | 全仓未找到「已实施但无任何授权凭据」的改动 |
 | 合计 | 18 | — |
 
@@ -427,5 +427,46 @@ ADR-R42 被引用最多的三句话：
 | 上游审计 `2026-11-23-…` | **未改**（append-only） |
 | 本记录 | 追加 §11；§8/§9/§10 的判定与文字不变 |
 | 修订台账 | 新增 `V205-R42-C7B-IMPL`（无 additions，只记录签署事实） |
-| 提案 | C7-b 一项从 `open_items` 销项，剩 D6-9；状态仍 `in_progress` |
+| 提案 | C7-b 一项从 `open_items` 销项，当时剩 D6-9；状态当时仍 `in_progress`（D6-9 完成后转 `implemented`，见 §12） |
 | 运行时行为 | 仅 `POST /qc-tasks` 一条路径（见 §11.4） |
+
+---
+
+## 12. 2026-11-24：D6-9 的实施与状态收口
+
+### 12.1 授权链条（三层分开，互不替代）
+
+| 层 | 凭据 | 内容 |
+|---|---|---|
+| 需求授权 | ADR-R42 D6 表第 9 行；A35／A36 | 「多次重试仍无法恢复 → 死信与人工处置」是需求本身 |
+| 方案裁决 | `V205-R42-D69`（提案 §5 的 D-1/D-2/D-3） | D-2 定为受权 REST 端点（非 CLI）；D-3 定为 `dead_letter_replays` **不**登记为契约对象 |
+| 实施启动 | 同一裁决记录 + Owner「开始」 | 契约面（`2342f9e`）与授权来源（`bb258e4`）先落纸，实施随后 |
+
+实施事实（提交、迁移、测试）不反向替代上述任何一层：契约面提交里 `OUTBOX.DEAD_LETTER.REPLAY`
+先以 `not_implemented` 登记，正是因为「登记一个动作」与「有权实现它」是两件事。
+
+### 12.2 实施结果
+
+八项判据逐条落地，验收证据在提案 §8.1；三处与基线的偏差（审计顺序改为同事务等价式、
+handler 判据改为契约全集、`rowcount`→`RETURNING`）连同理由写在 §8.2。
+明确不做的事项在 §8.4（观测指标、死信查询入口、`FAILED` 枚举可达性）。
+
+真实 PostgreSQL 实测与静态测试分开报告：
+
+| 类别 | 内容 | 结果 |
+|---|---|---|
+| 真实 PG（含负向、并发、append-only） | `tests/integration/test_outbox_dead_letter_replay_pg.py` 13 例：成功重放并回读审计（操作者/理由/重放前失败事实）、重放后落进 relay claim 结果集、重复重放 409、不存在 404、跨租户 404、未死信 409、已投递 409、契约外类型 409、越权 403、请求体走私 422、空理由 422、非法 UUID 422、并发 200/409 且审计恰 1 行、审计表 UPDATE/TRUNCATE 被拒 | **全绿（实际运行）** |
+| 真实 PG（权限边界） | `tests/integration/test_outbox_ops_db_roles.py` 17 例：角色属性 NOSUPERUSER/NOBYPASSRLS、可读事件、可清三列、可写审计；六列伪造（`published_at`/`payload`/`event_type`/`tenant_id`/`aggregate_id`/`occurred_at`）全拒、`outbox_events` INSERT/DELETE 全拒、审计表 UPDATE/DELETE/TRUNCATE 全拒、业务 schema 越界全拒、每个分区与父表同形授权 | **全绿（实际运行）** |
+| 静态单测 | `tests/unit/test_outbox_dead_letter_replay.py` 17 例：五条拒绝路径均「只看不写」、成功路径保留重放前事实、SQL `SET` 子句恰三列、`FOR UPDATE` 存在、契约全集读取、运维角色无 INSERT/published_at 写权、分区列清单与矩阵同源、请求体只收 `reason` | **全绿（实际运行）** |
+| 闸门 | `contract_check`（38 项全 PASS）/ `freeze_manifest --check` / `alembic check` / `ruff` / `mypy`（205 源文件） | **全绿（实际运行）** |
+
+### 12.3 状态更新范围
+
+| 对象 | 动作 |
+|---|---|
+| ADR-R42 正文 | **未改** |
+| 上游审计 `2026-11-23-…` | **未改**（append-only） |
+| 本记录 | 追加 §12；§9 的两行状态与汇总计数按实施结果更新（C7-b/D6-9 → 已实施），§11 只加前向指针 |
+| 修订台账 | 新增 `V205-R42-D69-IMPL`（`source_commits` 指实施提交） |
+| 提案 | `open_items` 清空，`status: implemented`；新增 §8 |
+| 运行时行为 | 新增 `POST /outbox/dead-letters/{event_id}/replay` 一条路径；新增角色 `outbox_ops_role` 与表 `outbox.dead_letter_replays` |

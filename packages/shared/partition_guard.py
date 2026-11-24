@@ -212,15 +212,124 @@ def revoke_outbox_partition_statements(
     )
 
 
+def ops_replay_update_columns() -> tuple[str, ...]:
+    """运维重放可改的列（从授权矩阵派生，不另存一份清单）。
+
+    为什么从 ``db_grants`` 取而不是在这里写死：列清单是**授权声明**，它的
+    事实源在矩阵里；这里只负责把同一份声明渲染成动态分区上的 SQL。两处各写
+    一份的结果是「父表的授权按矩阵、分区的授权按本地常量」——新分区多授一列
+    （例如 ``published_at``，等于允许伪造「已投递」）不会有任何闸门发现。
+    """
+    from packages.shared.db_grants import INFRA_ROLE_GRANTS, OUTBOX_OPS
+
+    for grant in INFRA_ROLE_GRANTS[OUTBOX_OPS]:
+        if grant.table == OUTBOX_PARENT and grant.columns:
+            return grant.columns
+    raise LookupError(
+        "授权矩阵里找不到 outbox_ops 对 outbox_events 的列级授权："
+        "分区授权无所依据（拒绝猜一份列清单）"
+    )
+
+
+def grant_ops_partition_statements(
+    partition: str,
+    *,
+    schema: str = OUTBOX_SCHEMA,
+) -> tuple[str, ...]:
+    """给 outbox 分区授予运维角色「SELECT + 重放三列 UPDATE」（幂等）。
+
+    为什么单独一个函数、而不是塞进 ``grant_outbox_partition_statements``：
+    那个函数被 ``ae8724980e0b`` / ``b9e1c2d3f4a5`` 调用，而它们是**已执行的
+    历史迁移**。给它们的行为加「再授一个角色」会让 clean install 在
+    ``outbox_ops_role`` 尚不存在的时点 GRANT 到不存在的角色而失败——正是评审
+    F1 的时间胶囊问题。新授权面由新函数 + 新迁移表达。
+
+    运维角色拿不到 ``published_at`` 的写权限：投递时间只能由真正投递成功的
+    relay 写，运维动作不得伪造「已投递」。
+    """
+    from packages.shared.config import get_settings
+
+    ops_role = get_settings().postgres_outbox_ops_user
+    qualified = f"{quote_ident(schema)}.{quote_ident(partition)}"
+    columns = ", ".join(quote_ident(c) for c in ops_replay_update_columns())
+    return (
+        f"GRANT SELECT ON {qualified} TO {quote_ident(ops_role)}",
+        f"GRANT UPDATE ({columns}) ON {qualified} TO {quote_ident(ops_role)}",
+    )
+
+
+def revoke_ops_partition_statements(
+    partition: str,
+    *,
+    schema: str = OUTBOX_SCHEMA,
+) -> tuple[str, ...]:
+    """回滚 ``grant_ops_partition_statements``（迁移 downgrade 用）。"""
+    from packages.shared.config import get_settings
+
+    ops_role = get_settings().postgres_outbox_ops_user
+    qualified = f"{quote_ident(schema)}.{quote_ident(partition)}"
+    return (f"REVOKE ALL ON {qualified} FROM {quote_ident(ops_role)}",)
+
+
+def ops_partition_grant_do_block(*, schema: str = OUTBOX_SCHEMA) -> str:
+    """对**已存在**的 outbox 分区补齐运维授权（一个动态 DO 块）。
+
+    为什么必须是动态 SQL：分区名按月生成（``outbox_events_yYYYYMM``），静态
+    迁移无从枚举。同类问题在本仓库已有定论——它的说法是「动态对象不进静态
+    矩阵，由 partition_guard 统一生成」（见 db_grants 模块 docstring）；本函数
+    就是该口径在运维角色上的具体实现，而不是绕过闸门的新入口：列清单仍从
+    矩阵派生（``ops_replay_update_columns``），未来分区仍由维护工具在
+    ``create_partition`` 里逐条授予。
+
+    为什么单独成一个函数而不是写进迁移文件：迁移里的 GRANT 字面量被
+    ``data.role_grants_least_privilege`` 判为「手写授权」（授权只能经矩阵
+    收敛）。把生成器放在 partition_guard 是既有约定——它是动态分区授权的
+    单一事实源，且迁移调用它时语句形态可被回放核对。
+    """
+    from packages.shared.config import get_settings
+
+    role = get_settings().postgres_outbox_ops_user
+    columns = ", ".join(ops_replay_update_columns())
+    # %I 由 SQL 的 format() 做标识符引用；角色名与列名都走 %I/%s 参数位，
+    # 不拼进 format 模板本身（否则分区名里出现引号就会打断语句）。
+    return f"""
+    DO $$
+    DECLARE r record;
+    BEGIN
+        FOR r IN
+            SELECT c.relname
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = '{schema}' AND c.relispartition
+              -- 只取表：分区上的索引同样 relispartition=true，对着索引 GRANT 会
+              -- 报 "… is an index"（本地实测踩过）。
+              AND c.relkind = 'r'
+        LOOP
+            EXECUTE format(
+                'GRANT SELECT ON {schema}.%I TO %I', r.relname, '{role}'
+            );
+            EXECUTE format(
+                'GRANT UPDATE ({columns}) ON {schema}.%I TO %I', r.relname, '{role}'
+            );
+        END LOOP;
+    END
+    $$
+    """.strip()
+
+
 __all__ = [
     "OUTBOX_PARENT",
     "OUTBOX_SCHEMA",
     "PARTITION_POLICY",
     "RELAY_UPDATE_COLUMNS",
+    "grant_ops_partition_statements",
     "grant_outbox_partition_statements",
+    "ops_partition_grant_do_block",
+    "ops_replay_update_columns",
     "protect_partition_statements",
     "quote_ident",
     "relay_column_update_statements",
+    "revoke_ops_partition_statements",
     "revoke_outbox_partition_statements",
     "unprotect_partition_statements",
 ]

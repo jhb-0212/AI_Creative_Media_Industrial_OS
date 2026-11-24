@@ -22,6 +22,7 @@ from uuid import UUID
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     Index,
     Integer,
@@ -80,6 +81,60 @@ class OutboxEventModel(Base):
     dead_lettered_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+class DeadLetterReplayModel(Base):
+    """outbox.dead_letter_replays（死信人工重放的 append-only 审计）。
+
+    为什么审计不落 outbox_events（推翻「复用 T2 先例」的直觉）
+    ------------------------------------------------------------
+    T2 的冲突证据能复用 outbox_events，前提是写它的主体是业务域角色
+    （``production_planning_role`` 本就持有 ``outbox_events INSERT``）。重放
+    由**运维主体**执行，而 ``outbox_relay_role`` 对 outbox_events 只有
+    SELECT + 列级 UPDATE、没有 INSERT——给运维角色补 INSERT，等于允许它伪造
+    任意业务事件，是权限倒退。所以审计载体必须是独立表：可写审计、不可写业务
+    事件，这是权限边界决定的，不是「多建一张表更保险」。
+
+    append-only 的落地方式有两层，缺一层都不够：
+    1. 授权层：``outbox_ops_role`` 只有 SELECT/INSERT，没有 UPDATE/DELETE；
+    2. 触发器层：``BEFORE UPDATE OR DELETE`` 与 ``BEFORE TRUNCATE`` 直接抛错。
+    只做授权层时，超级用户或将来某个误配的角色仍能改写历史；只做触发器层时，
+    「能不能写」这件事不再由 GRANT 表达。两层同时存在，才既拦得住也说得清。
+
+    与 ``maintenance_runs`` 同一个口径：运维台账**不登记**为契约对象
+    （不在 object_schemas / state_machines 里），因为它不是业务聚合。
+    """
+
+    __tablename__ = "dead_letter_replays"
+    __table_args__ = (
+        Index("ix_outbox_dead_letter_replays_source_event", "source_event_id"),
+        Index("ix_outbox_dead_letter_replays_tenant_created", "tenant_id", "created_at"),
+        CheckConstraint(
+            "result IN ('SUCCEEDED', 'FAILED')",
+            name="ck_dead_letter_replays_result",
+        ),
+        {"schema": SCHEMA_NAME},
+    )
+
+    # 操作身份，不是事件身份：标识「某人在某时对某条死信做过一次重放」。
+    # 业务幂等键仍是 event_id（重放不生成新事件），两者不能混用。
+    replay_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    source_event_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    tenant_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    # 留一份事件类型：分区被摘除归档后，审计行仍要能回答「重放的是什么」。
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    operator: Mapped[str] = mapped_column(String(128), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    # 重放**前**的失败事实。先写审计再清零 attempts，顺序反了这两个值就永久丢失。
+    attempts_before: Mapped[int] = mapped_column(Integer, nullable=False)
+    dead_lettered_at_before: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    result: Mapped[str] = mapped_column(String(16), nullable=False)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
 
 class MaintenanceRunModel(Base):
     """outbox.maintenance_runs（保留期维护的审计与新鲜度表）。
