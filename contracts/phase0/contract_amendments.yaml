@@ -1817,6 +1817,42 @@ amendments:
       - '基线 §17.7 的十个字面值以「状态建议」表述给出，非「状态机」章节；本轮按正文原文登记，Phase 1 验收时须复核。'
       - 'G-A 剩余 10 项 lifecycle_gap 与 G-C 8 项 Schema 缺口按所有者确认顺序后续批次处理，本次未触碰。'
 
+  - id: V205-R35-GA-THIRD-TEN
+    title: '#35 G-A 第三轮：剩余十项 lifecycle_gap 逐项裁定清零'
+    retroactive: false
+    recorded_at: '2026-11-24'
+    discovered_by: '#35 状态治理 G-A 第二轮后剩余 10 项 lifecycle_gap（3.2 三项与 3.3 七项）'
+    reason: >-
+      回基线逐项取证后，十项里只有 CreativeProposal 在 §2.4 明文给出六个 status 字面值
+      （DRAFT/PRECHECKED/CANDIDATE/SELECTED/REJECTED/ARCHIVED），据此登记权威状态机，
+      六条转移边由所有者按字面语义推导，registration_status 保持 PENDING_PHASE1_REVIEW。
+      其余九项的台账建议均为错向导：CharacterVoiceProfile 的许可撤销/过期是权利事实
+      （C.3 独立版本化），DeliverySpec 的审批后冻结与 DELIVERY_STALE 分属事件与 Manifest，
+      EscapeReport 的 RCA/关闭证据在 resolution，IntentContract 的审批在 approval 子对象，
+      两个 ProductionProfile 的策略变更走 ShotTierChangeRequest 与不可变 PolicyResolution，
+      Report 的处置在 ModerationCase，TimelineManifest 是 TimelineDraft 的交换投影（ADR-113），
+      ToolExchangePackage 的过期/撤销针对交付链接且包本身不可变。九项均收为
+      envelope_only + NO_LIFECYCLE 哨兵，status 分类缺口清零。另把台账三处写死的计数注释
+      改为「从 objects 派生」，避免注释与真实分类再次漂移。
+    adr: 'docs/adr/ADR-R21-status-field-authority.md'
+    approved_by: '项目所有者（2026-11-24 授权继续 G-A 第三轮；逐项按基线取证的最优裁定执行）'
+    approved_at: '2026-11-24'
+    source_commits:
+      - '2d7f77ca93e4bd0b31400a73aec21f0e2b5b746c'
+    additions:
+      state_machines:
+        - object: CreativeProposal
+    counts_after:
+      actions: 105
+      openapi_operations: 105
+      schema_objects: 91
+      state_machines: 54
+    residual_risks:
+      - '本修订只关契约层：CreativeProposal 尚无运行时 Domain Enum / DB CHECK / 动作入口，已标 PENDING_PHASE1_REVIEW。'
+      - '六条提案转移边由所有者按字面语义推导，正文只给状态数组未给箭头；正文若给出不同挂接须重裁定。'
+      - '九项 envelope_only 的 unblocks_when 是可机检的前提而非永久豁免：正文若给出对象级状态字面值，必须重新裁定并改分类。'
+      - '#35 G-A 18 项 lifecycle_gap 全部销项；G-C 8 项 Schema 缺口按所有者确认顺序后续批次处理，本次未触碰。'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——
