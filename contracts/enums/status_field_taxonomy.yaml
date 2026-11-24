@@ -54,7 +54,7 @@ basis_kinds:
     信封 status 是被拆分后剩下的占位位，真正的不变量在那些字段上。
 
 objects:
-  # ---------------- lifecycle：40 个已建模状态机对象 ----------------
+  # ---------------- lifecycle：有权威状态机的对象（数量从 objects 派生，不写死） ----------------
   - {object: Appeal, class: lifecycle}
   - {object: AssetVersion, class: lifecycle}
   - {object: BudgetLedgerTransaction, class: lifecycle}
@@ -103,7 +103,7 @@ objects:
   - {object: ArtifactManifest, class: lifecycle}
   - {object: AssetRegistrationReceipt, class: lifecycle}
 
-  # ---------------- envelope_only：17 个无独立生命周期的对象 ----------------
+  # ---------------- envelope_only：无独立生命周期的对象（数量从 objects 派生，不写死） ----------------
   - object: ClientAnnotation
     class: envelope_only
     basis: child_structure
@@ -236,7 +236,7 @@ objects:
     unblocks_when: >-
       所有者裁定 human_decision 与 disposition 是否各建 enum、以及与 ReworkTask 的联动不变量；在此之前不伪造缺陷生命周期。
 
-  # ---------------- lifecycle_gap：19 个应有生命周期但未登记状态机 ----------------
+  # ---------------- lifecycle_gap：待裁定债务（数量从 objects 派生，不写死） ----------------
   - object: BlockingAsset
     class: envelope_only
     basis: derived_projection
@@ -280,10 +280,16 @@ objects:
       所有者为参考集引入「权利待复核」这类对象级状态机，并说明它与导出门禁的分工；否则
       不可变集合永不建状态机。原台账的二选一已被基线取证否定，本轮按 immutable_record 销项。
   - object: CharacterVoiceProfile
-    class: lifecycle_gap
-    reason: 声音档案带许可范围（license_scope）与音频资产引用；声音授权可撤销、可过期，必然有状态，但正文未登记。
-    contract_ref: C.3 CharacterVoiceProfile 字段契约
-    unblocks_when: 正文补声音授权生命周期（含撤销与过期），随后登记状态机
+    class: envelope_only
+    basis: immutable_record
+    reason: >-
+      C.3 明确声音档案「独立版本化；声音素材、合成许可和可用范围可审计」，Phase 验收也要求
+      CharacterVoiceProfile 独立版本化并与 CharacterCard/Canon 正确关联。档案版本写完即定，
+      license_scope 表达的许可范围、撤销与过期是权利事实，变化时新建版本并保留审计，
+      不原地改写 status。台账原说「授权可撤销可过期必然有状态」把权利事实误当成对象生命周期。
+    unblocks_when: >-
+      正文为声音档案给出对象级状态字面值与转移链（含撤销/过期的挂接），并说明它与权利校验的
+      分工；否则许可变化一律新建版本，不解除。
   - object: ContinuityConstraint
     class: lifecycle
     reason: >-
@@ -307,20 +313,36 @@ objects:
       仅当正文为控制信号单列与 PrevizVersion 解耦的发布状态机（含独立审批与撤销语义）时才解除；
       在此之前给 status 建 enum 只会复制门禁结论。
   - object: CreativeProposal
-    class: lifecycle_gap
-    reason: 创意提案有评审人（reviewed_by）与决策理由（decision_reason），说明存在「待评审→采纳/否决」流程，但正文未把它登记为状态机。
-    contract_ref: C.3 CreativeProposal 字段契约
-    unblocks_when: 正文补提案评审流程与状态集（注意与 ShotVisualPlan 的 DRAFT→REVIEW→APPROVED 区分，不得复用同一套命名掩盖语义差异）
+    class: lifecycle
+    reason: >-
+      基线 2.4 已明文给出 status 六值 DRAFT / PRECHECKED / CANDIDATE / SELECTED / REJECTED /
+      ARCHIVED，并配套 reviewed_by / decision_reason；这是正文原文，不是台账推测。
+      已登记为权威状态机，状态字面值逐值取自 2.4。不得复用 ShotVisualPlan 的
+      DRAFT→REVIEW→APPROVED：两者语义不同（方案评审 vs 视觉计划锁定）。
+    unblocks_when: >-
+      已按裁定销项；正文若补出与六值不同的转移点或新增旁路状态，须重新裁定后修改状态机。
   - object: DeliverySpec
-    class: lifecycle_gap
-    reason: 交付规格「审批后冻结版本」——冻结即隐含状态迁移（草案→审批→冻结/取代），但正文未登记状态集。
-    contract_ref: 33.x 交付规格与 DeliveryManifest 字段契约
-    unblocks_when: 正文补交付规格的冻结与换版规则，随后登记状态机
+    class: envelope_only
+    basis: immutable_record
+    reason: >-
+      27.1 定义「审批后冻结版本」，31.x 的 DELIVERY.SPEC.APPROVE 事件是审批事实，27.3 明确
+      DeliverySpec 变更只会让现有 Manifest 标记 DELIVERY_STALE 并触发新 Manifest 版本。
+      规格版本写完即冻结，换版是新建 spec 版本而不是同一条记录的状态迁移；正文未给 spec 的
+      status 字面集。台账原拟的「草案→审批→冻结/取代」是把审批事件与派生 STALE 混成状态。
+    unblocks_when: >-
+      正文给出 DeliverySpec 自身的状态字面值与原地取代规则（且不再靠新建版本冻结）时解除；
+      在此之前审批事实由事件承载，STALE 由 Manifest 派生。
   - object: EscapeReport
-    class: lifecycle_gap
-    reason: 质量逃逸记录带 RCA 引用与关闭证据（rca_ref / resolution），从发现到关闭是一条明确的处置链，正文只给了字段。
-    contract_ref: 交付后质量逃逸章节
-    unblocks_when: 正文补逃逸处置状态链（发现→RCA→返工→关闭），随后登记状态机
+    class: envelope_only
+    basis: immutable_record
+    reason: >-
+      27.1 给 EscapeReport 的 rca_ref / resolution 是关联与关闭证据，27.3 规定「交付后发现缺陷
+      建立 EscapeReport……进入 RCA；不得覆盖已交付版本，修复后创建新交付版本并保留前后关系」。
+      逃逸报告记录发现事实，RCA 与返工在各自对象中推进，关闭以证据引用体现；正文没有给报告
+      自身的状态字面值。台账拟的「发现→RCA→返工→关闭」是把跨对象处置链塞进报告 status。
+    unblocks_when: >-
+      正文为逃逸报告给出明确状态字面值与转移点，并说明它与 RCA / ReworkTask / 新交付版本的
+      职责边界时解除；否则关闭证据只写在 resolution，不回写报告状态。
   - object: ExternalToolArtifact
     class: lifecycle
     reason: >-
@@ -332,25 +354,53 @@ objects:
     unblocks_when: >-
       已按裁定销项；若正文给出不同的暂存字面值或转正规则，须重新裁定后改写状态机与本分类。
   - object: IntentContract
-    class: lifecycle_gap
-    reason: 意图契约带审批（approval）与假设集（assumptions）；意图一旦被批准就成为下游硬约束，批准前后语义不同，但未登记状态。
-    contract_ref: C.3 IntentContract 字段契约
-    unblocks_when: 正文补意图契约的批准与变更口径
+    class: envelope_only
+    basis: immutable_record
+    reason: >-
+      2.5 的 Intent Contract 字段示例把审批结论放在 approval 子对象（status / approved_by /
+      approved_at），2.5.1 的 NEEDS_CLARIFICATION 与 WAITING_FOR_HUMAN 是澄清/任务路径状态，
+      不是契约对象的 status；42.x 又明确 IntentContract 版本化、每次编辑创建新版本，
+      不覆盖已审查版本。正文未给契约 status 的完整字面集，不能把 approval.status 或一个
+      澄清标记冒充对象生命周期（否则与 G-B 的 status_split 权威裁定冲突）。
+    unblocks_when: >-
+      正文给出 IntentContract 审批状态字面集与转移链，并明确它与 approval.status、澄清路径的
+      唯一权威关系时解除；在此之前版本事实由新版本承载。
   - object: ProjectProductionProfile
-    class: lifecycle_gap
-    reason: 项目生产策略带 policy_version，策略换版会改变后续镜头的默认分级；版本化策略的生效与取代是状态问题，正文未登记。
-    contract_ref: 17.4 项目等级 × 镜头等级二维矩阵
-    unblocks_when: 正文补策略版本的生效/取代规则，或明确策略只追加不改写（则改 immutable_record）
+    class: envelope_only
+    basis: immutable_record
+    reason: >-
+      17.10 给项目画像的字段是 project_tier / default_shot_tier / budget_pool_id /
+      policy_version，没有 status；17.5 规定每条策略规则带版本、适用范围与生效时间，
+      解析结果生成不可变 PolicyResolution 快照；17.7 又规定策略重配置走正式变更流程并留
+      TierChangeAudit。版本生效/取代由新版本与解析快照体现，不是项目画像对象自身的状态迁移。
+      台账二选一中的「只追加不改写」在基线上已成立，按其对应的 immutable_record 销项。
+    unblocks_when: >-
+      正文为项目策略画像给出独立状态字面值与原地改生效态的规则，并说明与 PolicyResolution
+      快照、ShotTierChangeRequest 的分工时解除；否则版本事实只由新版本承载。
   - object: Report
-    class: lifecycle_gap
-    reason: 举报对象带 decision_ref（处置决定引用），说明存在「待处置→已处置」流程，但正文未登记状态集。
-    contract_ref: 24.3 展示域对象字段（最小建议）
-    unblocks_when: 正文补举报处置流程与状态集（与 Appeal 的申诉链衔接）
+    class: envelope_only
+    basis: immutable_record
+    reason: >-
+      24.3 的 Report 是证据记录（evidence_refs / decision_ref），同一段明确「举报需分类并进入
+      ModerationQueue；举报内容不得自动视为事实，处理决定需人工审核」；31.x 的
+      COMMUNITY.REPORT.HANDLE 以 ModerationCase 为执行对象、禁止举报人自裁。处置状态在
+      ModerationCase 上，举报本身不推进；正文未给 Report 的状态字面值。台账原拟的
+      「待处置→已处置」会把审核职权错误地放进举报对象。
+    unblocks_when: >-
+      正文把 ModerationCase 处置状态直接映射到 Report.status 并给出字面集与职责边界时解除；
+      在此之前 decision_ref 只指向人工决定，举报对象不持有生命周期。
   - object: ShotProductionProfile
-    class: lifecycle_gap
-    reason: 镜头生产策略带 profile_version 与 effective_tier；与 ProjectProductionProfile 同理，版本生效是状态问题。
-    contract_ref: 17.4 项目等级 × 镜头等级二维矩阵
-    unblocks_when: 正文补镜头策略版本的生效/取代规则，或明确只追加不改写（则改 immutable_record）
+    class: envelope_only
+    basis: immutable_record
+    reason: >-
+      17.10 给镜头画像的字段是 requested_tier / effective_tier / profile_version / status，
+      17.10.1 示例中的 status / approval.status: APPROVED 是审批结论的字段值，不是状态枚举；
+      17.7 明确「禁止直接修改 effective_tier 或后台自动变更已锁定策略」，重配置必须走
+      ShotTierChangeRequest 的十态流程并留 TierChangeAudit。策略版本写定后生效，
+      变更以新版本 + 解析快照体现，镜头画像不另建一套与变更申请平行的 status。
+    unblocks_when: >-
+      正文给 ShotProductionProfile 自身的状态字面值与转移点，并允许在同一记录上原地改
+      effective_tier 时解除；否则所有等级变更仍由 ShotTierChangeRequest 授权。
   - object: ShotResourceAllocation
     class: envelope_only
     basis: derived_projection
@@ -374,15 +424,29 @@ objects:
     contract_ref: 17.7 镜头等级变更工作流 / 17.10 字段表
     unblocks_when: 已登记权威状态机；无需保留缺口债务。
   - object: TimelineManifest
-    class: lifecycle_gap
-    reason: 时间线清单是版本化描述（timeline_id / sequence_id / 帧率与轨道），与 TimelineDraft 同域；「发布版本→被取代」是隐含状态，正文未登记。
-    contract_ref: 33.2 TimelineDraft 字段组 / 33.3 状态机
-    unblocks_when: 正文补 TimelineManifest 与 TimelineDraft 的版本关系（若 Manifest 只是 Draft 的快照则改 envelope_only + derived_projection）
+    class: envelope_only
+    basis: derived_projection
+    reason: >-
+      32.5 把 TimelineManifest 定义为「版本化时间线描述」并给整数帧/有理帧率字段；33.2 明确
+      TimelineDraft 是平台侧唯一权威时间线对象，EDL/FCPXML/原生工程只是按 Format Profile
+      投影出的交换表示；32.x 的 ADR-113 又规定外部导入/回流状态由 ToolExchangeSession 与
+      UI 投影承载，不得混入 TimelineDraft 权威 status。Manifest 是可重算的交换投影，
+      给它独立状态会产生第二份时间线事实。台账二选一中的「Draft 快照」在基线上已成立。
+    unblocks_when: >-
+      正文把 TimelineManifest 提升为独立权威时间线并给出状态集时解除；在此之前它只是
+      TimelineDraft/AssetVersion 的交换投影，导入进度看会话对象。
   - object: ToolExchangePackage
-    class: lifecycle_gap
-    reason: 交换包的描述是「源版本固定不可变；下载链接短时有效，过期/撤销可追溯」——有效/过期/撤销是生命周期，正文只给了字段。
-    contract_ref: 32.6 文件导出、工程执行与成片回流闭环
-    unblocks_when: 正文补交换包的有效期与撤销状态链（与 ToolExchangeSession 的 EXPORTED 事件衔接）
+    class: envelope_only
+    basis: immutable_record
+    reason: >-
+      32.5 明确「源版本固定不可变」，32.6 第 2 步规定「创建不可变 ToolExchangePackage」，
+      10.x 资产谱系边界又规定它派生自 AssetVersion 谱系、不得平行建资产表。expires_at 与
+      撤销针对的是短时单用途交付链接（32.6 第 3 步），工具交互进度在 ToolExchangeSession；
+      包对象写完即定，不因链接过期而改写。台账原拟的「有效/过期/撤销状态链」把链接授权
+      误当成包生命周期，会给不可变包造出可原地复活的状态。
+    unblocks_when: >-
+      正文给包对象本身（而非交付链接）定义有效性状态与原地撤销规则，并说明与
+      ToolExchangeSession / AssetVersion 谱系的边界时解除；否则链接授权事实不写包。
 
 # 有状态机、但对象尚未进入 object_schemas 的缺口（显式登记，不得靠豁免消除）。
 # 闸门双向校验：对象补上 schema 后必须删条目（陈旧债务报红）；删条目不能让缺口消失。

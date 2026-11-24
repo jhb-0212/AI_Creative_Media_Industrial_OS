@@ -235,3 +235,134 @@ amendments:
       推导，registration_status 保持 PENDING_PHASE1_REVIEW。类型未变（string → string）。
     contract_ref: "17.7 镜头等级变更工作流 / 17.10 字段表 status"
     implementation: contracts/state_machines/state_machines.yaml
+
+  - object: CreativeProposal
+    field: status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      G-A 第三轮裁定：基线 2.4 明文给出六态字面值（DRAFT / PRECHECKED / CANDIDATE /
+      SELECTED / REJECTED / ARCHIVED），裸 string 收为 enum；不采用台账的「待评审→采纳/否决」
+      三态，也不复用 ShotVisualPlan 的 DRAFT→REVIEW→APPROVED。转移边主线依字面语义推导，
+      registration_status 保持 PENDING_PHASE1_REVIEW。类型未变（string → string）。
+    contract_ref: "2.4 创意提案对象（status 六值原文）"
+    implementation: contracts/state_machines/state_machines.yaml
+
+  - object: CharacterVoiceProfile
+    field: status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      G-A 第三轮裁定：C.3 明确声音档案独立版本化、许可范围可审计，license_scope 的撤销/过期
+      是权利事实，变化时新建版本，不原地改状态；裸 string 收为 NO_LIFECYCLE 哨兵。
+      台账「可撤销必然有状态」未采纳。类型未变（string → string）。
+    contract_ref: "C.3 所有权表（CharacterVoiceProfile）"
+    implementation: contracts/enums/status_field_taxonomy.yaml
+
+  - object: DeliverySpec
+    field: status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      G-A 第三轮裁定：27.1「审批后冻结版本」+ 31.x DELIVERY.SPEC.APPROVE + 27.3 的
+      DELIVERY_STALE 都指向「新版本/派生结论」，而非规格对象状态迁移；裸 string 收为
+      NO_LIFECYCLE 哨兵。台账的草案→审批→冻结链未采纳。类型未变（string → string）。
+    contract_ref: "27.1 交付核心实体 / 27.3 交付门禁与 Manifest"
+    implementation: contracts/enums/status_field_taxonomy.yaml
+
+  - object: EscapeReport
+    field: status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      G-A 第三轮裁定：逃逸报告记录发现事实，RCA / 返工在各自对象推进，关闭证据写 resolution，
+      不覆盖原交付（27.3）；正文无报告状态字面值。裸 string 收为 NO_LIFECYCLE 哨兵，
+      台账「发现→RCA→返工→关闭」未采纳。类型未变（string → string）。
+    contract_ref: "27.1 核心实体 / 27.3 交付后质量逃逸"
+    implementation: contracts/enums/status_field_taxonomy.yaml
+
+  - object: IntentContract
+    field: status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      G-A 第三轮裁定：2.5 把审批结论放在 approval 子对象，NEEDS_CLARIFICATION 属任务路径，
+      42.x 要求每次编辑新建版本；正文无契约 status 字面集。裸 string 收为 NO_LIFECYCLE
+      哨兵，不把 approval.status 冒充对象生命周期。类型未变（string → string）。
+    contract_ref: "2.5 导演意图理解引擎 / 42.x 版本化追加"
+    implementation: contracts/enums/status_field_taxonomy.yaml
+
+  - object: ProjectProductionProfile
+    field: status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      G-A 第三轮裁定：17.5 策略规则带版本与生效时间并生成不可变 PolicyResolution 快照，
+      17.7 变更走 ShotTierChangeRequest 与 TierChangeAudit；项目画像无独立 status 字面集。
+      裸 string 收为 NO_LIFECYCLE 哨兵。类型未变（string → string）。
+    contract_ref: "17.5 策略解析引擎 / 17.7 等级变更 / 17.10 字段表"
+    implementation: contracts/enums/status_field_taxonomy.yaml
+
+  - object: Report
+    field: status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      G-A 第三轮裁定：24.3 的 Report 是证据记录，处置在 ModerationQueue / ModerationCase，
+      决定由人工审核且禁止举报人自裁（31.x）；裸 string 收为 NO_LIFECYCLE 哨兵，
+      台账「待处置→已处置」未采纳。类型未变（string → string）。
+    contract_ref: "24.3 核心数据契约 / 31.x COMMUNITY.REPORT.HANDLE"
+    implementation: contracts/enums/status_field_taxonomy.yaml
+
+  - object: ShotProductionProfile
+    field: status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      G-A 第三轮裁定：17.10 的 status 只是配置示例中的审批结论，effective_tier 禁止原地改
+      （17.7），变更走 ShotTierChangeRequest 十态；裸 string 收为 NO_LIFECYCLE 哨兵。
+      类型未变（string → string）。
+    contract_ref: "17.7 等级变更工作流 / 17.10 字段与配置示例"
+    implementation: contracts/enums/status_field_taxonomy.yaml
+
+  - object: TimelineManifest
+    field: status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      G-A 第三轮裁定：33.2 明确 TimelineDraft 是唯一权威时间线，Manifest 只是交换投影；
+      ADR-113 又规定导入/回流进度不混入 Draft 权威 status。裸 string 收为 NO_LIFECYCLE
+      哨兵（basis=derived_projection），台账「自建版本状态」未采纳。类型未变（string → string）。
+    contract_ref: "32.5 外部工具域对象 / 33.2 权威对象 / ADR-113"
+    implementation: contracts/enums/status_field_taxonomy.yaml
+
+  - object: ToolExchangePackage
+    field: status
+    from: string
+    to: string
+    decided_at: "2026-11-24"
+    recorded_by: agent
+    reason: |
+      G-A 第三轮裁定：32.5/32.6 明确包不可变、源版本固定，expires_at 与撤销针对交付链接，
+      交互进度在 ToolExchangeSession；裸 string 收为 NO_LIFECYCLE 哨兵。台账的
+      「有效/过期/撤销状态链」把链接授权误当成包生命周期，未采纳。类型未变（string → string）。
+    contract_ref: "32.5 工程资产模型 / 32.6 导出闭环 / 10.x 资产谱系边界"
+    implementation: contracts/enums/status_field_taxonomy.yaml
