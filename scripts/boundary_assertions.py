@@ -1136,6 +1136,7 @@ def _tenant_scoped_business_tables() -> frozenset[tuple[str, str]]:
 _ORG_RLS_FORCED: tuple[tuple[str, str], ...] = (
     *((schema, table) for schema, table, _, _ in _ORG_RLS_TABLES),
     ("audit", "status_transitions"),
+    ("audit", "approval_signatures"),
 )
 
 
@@ -2460,3 +2461,72 @@ def data_transition_fact_table() -> AssertionResult:
         return (False, "ORM 映射未落在 audit schema")
     return (True, "")
 
+
+
+@assertion("data.accumulative_countersign")
+def data_accumulative_countersign() -> AssertionResult:
+    """累积式会签事实表的结构性保证 + 凑齐判定单一入口（ADR-R45 / DATA-7）。
+
+    四层判据，缺一即红：
+    1. 迁移回放文本含全部结构保证（表/唯一约束/三态 CHECK/席位 CHECK/三层守卫/
+       提交时事件校验/RLS FORCE）——只查表存在不够，价值全在约束上；
+    2. ORM 映射同源（表名 + schema + 约束名与迁移逐字一致）；
+    3. 凑齐判定是唯一纯函数且被服务调用；
+    4. AST 白名单：签署事实的写入点只在 countersign 服务（测试目录除外）——
+       写入点一旦散开，「绕过判定直接插 SIGNED 行」就静默放宽会签。
+    """
+    text = _rendered_migration_sql(
+        "data/migrations/versions/e4f5a6b7c8d9_audit_approval_signatures.py"
+    )
+    required = {
+        "事实表": "CREATE TABLE audit.approval_signatures",
+        "签署唯一约束": "uq_signature_event",
+        "三态 CHECK": "ck_signature_kind",
+        "席位正数 CHECK": "ck_signature_seat_positive",
+        "行级 append-only": "BEFORE UPDATE OR DELETE ON audit.approval_signatures",
+        "整表清空守卫": "BEFORE TRUNCATE ON audit.approval_signatures",
+        "提交时事件校验": "AFTER INSERT ON audit.approval_signatures",
+        "延迟到提交": "DEFERRABLE INITIALLY DEFERRED",
+        "RLS FORCE": "FORCE ROW LEVEL SECURITY",
+        "事件校验跨租户同宽": "AND tenant_id = NEW.tenant_id",
+    }
+    missing = [label for label, needle in required.items() if needle not in text]
+    if missing:
+        return (False, "会签事实表缺少结构性保证：" + "、".join(missing))
+
+    model = (ROOT / "packages/shared/approval_signature.py").read_text(encoding="utf-8")
+    if '__tablename__ = "approval_signatures"' not in model:
+        return (False, "ORM 映射未指向 approval_signatures：规则与持久化不同源")
+    if 'SCHEMA_NAME = "audit"' not in model:
+        return (False, "ORM 映射未落在 audit schema")
+    for constraint in ("uq_signature_event", "ck_signature_kind", "ck_signature_seat_positive"):
+        if f'name="{constraint}"' not in model:
+            return (False, f"ORM 缺约束名 {constraint}：autogenerate 会漂移")
+
+    rules = (ROOT / "packages/shared/countersign_rules.py").read_text(encoding="utf-8")
+    if "def evaluate_countersignature(" not in rules:
+        return (False, "凑齐判定纯函数缺失：判据无单一事实源")
+    service = (ROOT / "services/identity_access/countersign.py").read_text(encoding="utf-8")
+    if "evaluate_countersignature(" not in service:
+        return (False, "签署服务未调用唯一凑齐判据：判定与写入分裂")
+    if "principal_seats(" not in service:
+        return (False, "席位集合未从 Action Registry 派生：手写席位清单会腐化")
+
+    # AST 白名单：除测试外，只有签署服务可构造签署事实 ORM。
+    allowed_writer = "services/identity_access/countersign.py"
+    writers: list[str] = []
+    for root_name in ("services", "packages", "apps", "workers"):
+        base = ROOT / root_name
+        if not base.exists():
+            continue
+        for path in sorted(base.rglob("*.py")):
+            rel = path.relative_to(ROOT).as_posix()
+            if rel == allowed_writer:
+                continue
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id == "ApprovalSignatureModel"):
+                    writers.append(rel)
+    if writers:
+        return (False, "签署事实写入点越界（须只在 countersign 服务）：" + "、".join(sorted(set(writers))))
+    return (True, "")

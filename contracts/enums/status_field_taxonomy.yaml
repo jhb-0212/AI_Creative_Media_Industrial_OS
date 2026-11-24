@@ -107,6 +107,8 @@ objects:
   - {object: CreatorShareLink, class: lifecycle}
   - {object: Pattern, class: lifecycle}
   - {object: SharedReferenceAsset, class: lifecycle}
+  # R45 D2b：累积式会签签署事实（SIGNED/REVOKED/CONSUMED，ADR-R45）。
+  - {object: ApprovalSignature, class: lifecycle}
 
   # ---------------- envelope_only：无独立生命周期的对象（数量从 objects 派生，不写死） ----------------
   - object: ClientAnnotation

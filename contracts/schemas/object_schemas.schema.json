@@ -18,7 +18,7 @@
   ],
   "x-afs-p0-coverage": {
     "note": "已建模对象与显式登记为待补的对象之并集，构成 P0 契约对象全集。待补项按缺口性质分类，不把“正文有字段表但派生未覆盖”与“正文缺字段标识”混为一类。",
-    "total": 98,
+    "total": 99,
     "modeled": [
       "Appeal",
       "AssetReference",
@@ -117,7 +117,8 @@
       "SharedReferenceAsset",
       "CanonRevision",
       "RightsCase",
-      "RightsManifest"
+      "RightsManifest",
+      "ApprovalSignature"
     ],
     "p0_freeze_scope": {
       "decision": "AFS-P0-FREEZE-2026-11-13-01",
@@ -10591,6 +10592,110 @@
       "x-afs-sources": ["31 版权授权中心（RightsAsset/RightsGrant/LicenseScope/RevocationRecord 字段）", "Action Registry RIGHTS.STATUS.CHANGE（RightsManifest）", "31.6 导出权利与使用字段（rights_manifest_ref / usage_restrictions / audience_scope）"],
       "x-afs-invariants": [{"id": "RM-1", "enforced_by": "RUNTIME_PENDING", "statement": "授权范围可执行：授权不明、过期、超受众或 CRITICAL 阻断时禁止导出；撤销须引用 revocation_ref，不改写原清单。"}],
       "x-afs-required-basis": "版权授权中心与导出权利字段给出清单字段；本对象此前仅被 rights_manifest_ref 引用而未定义，本轮据正文补建。"
+    },
+    "ApprovalSignature": {
+      "type": "object",
+      "description": "累积式会签签署事实（推进前某席位已签署；ADR-R45 D2b）。",
+      "required": [
+        "signature_id",
+        "tenant_id",
+        "resource_type",
+        "resource_id",
+        "action_key",
+        "seat_index",
+        "subject",
+        "event_kind",
+        "status",
+        "entity_id",
+        "entity_type",
+        "schema_version",
+        "entity_version",
+        "status",
+        "owner_module",
+        "created_at",
+        "created_by",
+        "updated_at",
+        "audit_ref"
+      ],
+      "properties": {
+        "signature_id": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "organization_id": {
+          "type": ["string", "null"]
+        },
+        "resource_type": {
+          "type": "string"
+        },
+        "resource_id": {
+          "type": "string"
+        },
+        "action_key": {
+          "type": "string"
+        },
+        "seat_index": {
+          "type": "integer"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "event_kind": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "CONSUMED",
+            "REVOKED",
+            "SIGNED"
+          ]
+        },
+        "authority_ref": {
+          "type": ["string", "null"]
+        },
+        "evidence_refs": {
+          "type": "array", "items": {"type": "string"}
+        },
+        "occurred_at": {
+          "type": "string"
+        },
+        "event_id": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "entity_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer"
+        },
+        "entity_version": {
+          "type": "integer"
+        },
+        "owner_module": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "created_by": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": "string"
+        },
+        "audit_ref": {
+          "type": ["string", "null"]
+        }
+      },
+      "x-afs-sources": ["ADR-R45 §D3-a（累积式会签签署事实）"],
+      "x-afs-invariants": [{"id": "ASIG-1", "enforced_by": "RUNTIME_PENDING", "statement": "签署事实 append-only；同席位同主体不可重复签；凑齐需每席位恰好一个有效签署且跨席位主体互不相同；消费写 CONSUMED 后整组不可重放。"}],
+      "x-afs-required-basis": "状态与字段取自所有者 R3 裁定与 ADR-R45 §D3-a/D3-c；正文无独立字段表，required 含签署身份/席位/事件关键字段 + C.3.1 通用信封。"
     }
   }
 }

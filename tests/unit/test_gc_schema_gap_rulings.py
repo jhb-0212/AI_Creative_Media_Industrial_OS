@@ -124,10 +124,17 @@ def test_all_gap_ledgers_cleared_and_scriptlock_exemption_kept() -> None:
 
 
 def test_state_machine_and_enum_registry_counts_bumped() -> None:
+    """G-C 补登的对象在册，且计数注释与对象列表自洽。
+
+    计数不写死数值：本测试证明的命题是「G-C 的四项进了权威源 + 计数注释没有
+    与对象列表漂移」，而不是「总数恰好是 G-C 收口那一刻的 55」。R45 又加了一个
+    状态机对象后，写死的 55 会以失败伪装成新缺陷——判据里的计数一律派生。
+    """
     sm = _sm()
-    assert sm["total_objects"] == len(sm["objects"]) == 55
+    assert sm["total_objects"] == len(sm["objects"])
     registry = yaml.safe_load(ENUM_REGISTRY_PATH.read_text(encoding="utf-8"))
-    assert registry["object_count"] == 55
+    assert registry["object_count"] == len(registry["objects"])
+    assert registry["object_count"] == sm["total_objects"]
     for name in LIFECYCLE_ADDED:
         assert any(e["object"] == name for e in registry["objects"]), name
 

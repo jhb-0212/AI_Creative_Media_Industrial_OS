@@ -30,7 +30,7 @@
 version: 2
 source: AFS-ARCH-MASTER-V2.0.5 各章节状态机定义（由 Markdown 基线派生）
 authority_rule: 同一对象多处定义时，按 31.5 唯一权威状态机 > 32.6/C.7 > 34.x > 33.3 > C.3 取权威；24.11 为摘要不计入权威；差异不静默合并，见 conflict 字段。
-total_objects: 55
+total_objects: 56
 conflict_count: 6
 object_count_note: total_objects 只计持久化领域对象；UI 投影见 projections 分区（不计入对象数，也不得进枚举注册表）。
 
@@ -1206,3 +1206,26 @@ objects:
   - 26.2 资产生命周期和权威边界（状态链与授权撤销处置）
   - 26.2 共享主体库边界（经许可共享、Canon 独立授权）
   - docs/audits/2026-11-24-status-governance-ruling-packet.md §4（G-C 裁定）
+- object: ApprovalSignature
+  authoritative_source: ADR-R45 §D3-a/D3-c（累积式会签签署事实，D2b）
+  allowed_states: [SIGNED, REVOKED, CONSUMED]
+  initial_state: SIGNED
+  transitions:
+  - from: SIGNED
+    to: REVOKED
+  - from: SIGNED
+    to: CONSUMED
+  frozen_states: [REVOKED, CONSUMED]
+  note: >-
+    三态逐字取自所有者 2026-11-24 的 R3 裁定（SIGNED / REVOKED / CONSUMED），不做超时失效。
+    这是「推进前某席位已签署」的独立事实（ADR-R23 §D2-e 判定不能借 status_transitions 承载）。
+    签署落 SIGNED；签署人撤回写 REVOKED；凑齐放行时整组写 CONSUMED 使其一次性失效、不可重放。
+    append-only 事件日志：状态流转以新 event_kind 行表达，不原地 UPDATE。REVOKED/CONSUMED 为终态。
+    source_kind 标 owner_ruling（三态来自所有者裁定而非基线正文），registration_status 保持
+    PENDING_PHASE1_REVIEW——状态机语义待 Phase 1 验收固化；运行时实现与本契约同批落地。
+  source_kind: owner_ruling
+  registration_status: PENDING_PHASE1_REVIEW
+  all_sources:
+  - docs/adr/ADR-R45-accumulative-countersign.md §2-R3 / §D3-a / §D3-c
+  - contracts/security_boundary.yaml AUTH-5 residual_risk / DATA-7
+  - docs/adr/ADR-R23-status-transition-fact-table.md §D2-e（两类事实不混表）
