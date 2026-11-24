@@ -1980,6 +1980,50 @@ amendments:
       - 'ABANDONED 只覆盖 PREPARED。STORED_VERIFIED 之后的放弃（例如资产域永久拒绝后清理产物意图）刻意不开新边：终态上加边会让「已存储」与「已放弃」两个事实互相污染。'
       - 'media_type 的取值集由实现层 EXT_BY_MEDIA_TYPE 双射约束（png/jpg/webp/mp4/webm/wav/bin），契约只约束非空字符串。新增媒体类型须同改双射与回填口径，否则 T0 直接拒绝——这是刻意的 fail-closed，不是遗漏。'
       - 'abandon() 的 audit_ref 只校验非空，不校验指向的审计事件真实存在（跨域引用无物理外键）。当前调用点唯一（executor._abandon_intent），风险面窄。'
+  - id: 'V205-R42-C7B'
+    title: 'C7 人工 QC 入队恢复入口的专项席位与来源核验（ADR-R42 C7 实现补齐）'
+    retroactive: false
+    recorded_at: '2026-11-24'
+    discovered_by: '2026-11-24 外部代码审查报告（基线 dadbb17c）§六 C7 遗留；docs/audits/2026-11-24-r42-authorization-reconciliation.md §4.1；docs/proposals/r42-remaining-acceptance-c7-d6.md §1'
+    reason: >-
+      C7-b 不是新需求，而是契约违约。action_registry.yaml 早在 QC.TASK.ENQUEUE 上写死两条约束：
+      「仅在生成终态且携带产物引用时入队」「同一生成任务不得重复入队」。运行时的 POST /qc-tasks
+      两条都没做——project_id 与 quality_profile_version 直接取自请求体，既不核验任务是否终态、
+      是否携带已登记产物引用，也不核验项目/租户归属；同时该端点对「生成 Worker/受信调度服务」
+      与人工操作者不区分席位，使人工路径可以绕开 C7（只消费登记完成事件）与 C4（口径创建时冻结）。
+      契约里早于实现写明的 negative_test_id ACT-QC-NEG-002 一直没有对应真实用例：tests/permission
+      自述「仅校验契约本身，不依赖运行时」，所以「有编号」长期被误当成「有测试」。
+      补齐方式是新增独立动作 QC.TASK.RECOVER 承载人工恢复，而不是放宽 QC.TASK.ENQUEUE 的席位：
+      后者的席位本就是自动入队主体，改宽会让自动路径的最小权限一起放宽；且自动入队实际不经 HTTP
+      （GENERATION_SUCCEEDED → relay 直调 QCTaskService），与「HTTP 端点」本就不同源，
+      把两个主体塞进一个动作正是错位的来源。拆开之后每条约束各自可判，人工入口也能单独赋权与审计。
+      幂等事实不新建机制：uq_qc_governance_qc_tasks_generation_task UNIQUE(generation_task_id)
+      已在库层保证「同一生成任务至多一个有效 QC 任务」，自动路径已用它做并发兜底；人工入口接入
+      同一唯一键即可，再加幂等表或分布式锁属于为满足判据叠加重复层。
+      跨域归属核验不能同 Session：qc_governance_role 对 production_planning 无任何表授权，
+      须按域各开连接（复用既有的 production_planning 租户 UoW），不能以请求体字段替代权威事实。
+      本条目只登记契约面，实现批次须在 Owner 正式签署后启动——按 P4「不得以建议或合并替代授权」，
+      2026-11-24 的六项判据属工程审查基线，不是签署。
+    adr: 'docs/adr/ADR-R42-asset-registration-saga.md'
+    approved_by: '工程审查建议（2026-11-24 S2 裁决：保留端点 + 补来源核验，六项判据 C7-1~C7-6，载于 docs/proposals/r42-remaining-acceptance-c7-d6.md）；Owner 正式签署待补，签署前不得进入实现批次'
+    approved_at: '2026-11-24'
+    additions:
+      actions:
+        - action_key: 'QC.TASK.RECOVER'
+          why: '人工恢复入队入口。与自动入队分离后，专项席位、权威归属核验、生命周期约束可各自验收；共用 UNIQUE(generation_task_id) 幂等事实，不产生重复有效 QC 任务'
+    source_commits:
+      - '54aa49ff1721d660f3ccdc11672986f846ddd1eb'
+    counts_after:
+      actions: 106
+      openapi_operations: 106
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - '实现未落地：QC.TASK.RECOVER 在 action_implementations.yaml 登记为 not_implemented，POST /qc-tasks 现有行为未变。缺口没有消除，只是第一次被契约命名并可判定——持有 QC.TASK.ENQUEUE 的调用者仍可为不存在的资产、或自报 quality_profile_version 建 QC 任务。'
+      - '操作者/原因/来源无事件承载：audit_event 暂指 QC_TASK_QUEUED，因为恢复成功后产生的就是正常 QUEUED 事实；但 C7-6 要求的操作者与原因无处落。实现批次须新增独立事件或扩展载荷，那本身是一次契约修订，须另行登记，不得先实现后补契约。'
+      - 'QC.TASK.ENQUEUE 的 implemented.route 登记为 POST /qc-tasks，与自动入队实际路径（relay 直调 service）不同源。本条目不改：implemented 台账要求 route 必须是真实 HTTP 端点，非 HTTP 入口无处登记，改它须先改闸门能力。这是既有的契约表达缺口，不是本批引入。'
+      - 'C7-5 的并发验收未做：库层唯一键成立是必要条件，不是充分条件。人工与自动两条路径同时入队的真实并发用例尚不存在，实现批次须补（含撞唯一键映射为 409，而不是 500 或静默成功）。'
+      - 'Owner 签署未落纸：approved_by 记录的是工程审查基线。按 P4，签署缺失时本条目只证明「契约已登记」，不证明「实施已获批」。'
 
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
