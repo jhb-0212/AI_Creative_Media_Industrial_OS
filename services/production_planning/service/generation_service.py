@@ -144,9 +144,15 @@ class GenerationService:
         worker_id: str,
         locator: str,
         sha256: str,
+        media_type: str,
         attempt_id: str,
     ) -> ArtifactManifest:
-        """T0：落产物写入意图。此事务必须早于对象存储写入。"""
+        """T0：落产物写入意图。此事务必须早于对象存储写入。
+
+        ``media_type`` 必须与 ``locator`` 扩展名推导出的类型一致（双射），否则
+        拒绝——落一条「定位符说 png、类型字段说 mp4」的意图，等于让恢复流程与
+        T2 核验各自拿到互相矛盾的事实。
+        """
         task = await self._load(task_id)
         task.require_lease_owner(worker_id)
         locator = validate_locator_or_raise(locator)
@@ -159,6 +165,15 @@ class GenerationService:
                 ErrorRegistry.VALIDATION_ERROR,
                 detail="locator 内嵌摘要与产物 sha256 不一致，拒绝固化矛盾事实",
             )
+        normalized_media = media_type.strip().lower()
+        if parsed.media_type != normalized_media:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=(
+                    f"locator 推导的媒体类型 {parsed.media_type!r} 与申报的 "
+                    f"{media_type!r} 不一致，拒绝固化矛盾事实"
+                ),
+            )
         manifest = ArtifactManifest(
             entity_id=str(uuid4()),
             created_by=worker_id,
@@ -167,9 +182,55 @@ class GenerationService:
             project_id=task.project_id,
             locator=locator,
             sha256=digest,
+            media_type=normalized_media,
             attempt_id=attempt_id,
         )
         await self._repository.add_manifest(manifest)
+        return manifest
+
+    async def list_pending_artifacts(self, *, task_id: str) -> list[ArtifactManifest]:
+        """PR-G：任务当前所有未确认（PREPARED）的产物意图，按创建序稳定返回。
+
+        Worker 恢复入口只读调用：先看历史意图能否直接续上，再决定是否重新调模型。
+        """
+        task = await self._load(task_id)
+        return cast(
+            list[ArtifactManifest],
+            await self._repository.list_pending_prepared(task.generation_task_id),
+        )
+
+    async def abandon_artifact(
+        self,
+        *,
+        task_id: str,
+        worker_id: str,
+        attempt_id: str,
+        reason: str,
+    ) -> ArtifactManifest:
+        """PR-G：放弃未确认的产物意图（对象确定不存在或内容不可复用，将被新 attempt 取代）。
+
+        只有持有有效租约的 Worker 能放弃（``require_lease_owner`` 同时校验归属与
+        到期），只有 PREPARED 可放弃（状态机保证）。放弃不删除行——它保留
+        「我们曾尝试把这份内容落成这个定位符」的事实，供审计与孤儿对象对账。
+        """
+        task = await self._load(task_id)
+        task.require_lease_owner(worker_id)
+        manifest = await self._repository.get_manifest_by_task_attempt(
+            task.generation_task_id, attempt_id
+        )
+        if manifest is None:
+            raise DomainError(
+                ErrorRegistry.NOT_FOUND,
+                detail=(
+                    f"产物写入意图不存在"
+                    f"（task={task.generation_task_id}, attempt={attempt_id}）"
+                ),
+            )
+        manifest = cast(ArtifactManifest, manifest)
+        expected_version = manifest.entity_version
+        await self._repository.save_manifest(
+            manifest.abandon(f"t1-abandon:{reason}:{uuid4()}"), expected_version
+        )
         return manifest
 
     async def confirm_artifact(
@@ -198,10 +259,14 @@ class GenerationService:
                 ErrorRegistry.STATE_TRANSITION_DENIED,
                 detail=f"产物意图当前为 {manifest.status.value}，不能重复确认",
             )
-        if manifest.locator != locator or manifest.sha256 != sha256.strip().lower():
+        if (
+            manifest.locator != locator
+            or manifest.sha256 != sha256.strip().lower()
+            or manifest.media_type != media_type.strip().lower()
+        ):
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,
-                detail="落盘产物的 locator/sha256 与 T0 意图不一致，禁止登记",
+                detail="落盘产物的 locator/sha256/media_type 与 T0 意图不一致，禁止登记",
             )
         if not task.quality_profile_version.strip():
             raise DomainError(

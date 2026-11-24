@@ -30,8 +30,11 @@ class _RecordingRegistrar:
     def __init__(self, *, fail: bool = False) -> None:
         self.calls: list[tuple[str, str]] = []
         self._fail = fail
+        self.pending: list = []
 
-    async def prepare(self, task, *, locator: str, sha256: str, attempt_id: str):
+    async def prepare(
+        self, task, *, locator: str, sha256: str, media_type: str, attempt_id: str
+    ):
         self.calls.append(("prepare", locator))
         if self._fail:
             raise AssetRegistrationUnavailableError("模拟未接线")
@@ -40,6 +43,12 @@ class _RecordingRegistrar:
         self.calls.append(("register", artifact.stored.locator))
         if self._fail:
             raise AssetRegistrationUnavailableError("模拟未接线")
+
+    async def list_pending(self, task):
+        return list(self.pending)
+
+    async def abandon(self, task, attempt_id: str, reason: str):
+        self.calls.append(("abandon", reason))
 
 
 def _task(**overrides) -> SimpleNamespace:

@@ -1,10 +1,17 @@
-"""产物写入意图（ADR-R42 T0/T1）。
+"""产物写入意图（ADR-R42 T0/T1 + PR-G 崩溃恢复）。
 
 为什么它必须是持久化对象
 ------------------------
 对象存储写入成功、登记事务提交前进程崩溃，会留下一个无人认领的对象。只在内存里
 持有 ``locator`` 时，恢复流程除了重新调用模型（重复计费、可能换内容）别无选择。
 把意图先落库，恢复流程就能按 ``PREPARED`` 记录继续，且定位符与摘要从一开始就绑定。
+
+``media_type`` 为什么也固化在这里
+---------------------------------
+它是 T1 登记与 T2 核验的必需事实（资产扩展名、事件载荷一致性比对），却直到
+PR-G 才落库。此前只能从 T1 事件载荷取——事件一旦丢失或被盗改，就没有可比的
+落盘事实。把它与 ``locator``/``sha256`` 一起在 T0 固化，使「这份意图要落什么
+类型的内容」成为不可争议的持久事实，而不是依赖事件流回放。
 """
 
 from __future__ import annotations
@@ -33,6 +40,7 @@ class ArtifactManifest(Entity):
     project_id: str = ""
     locator: str = ""
     sha256: str = ""
+    media_type: str = ""
     attempt_id: str = ""
     status: ArtifactManifestStatus = ArtifactManifestStatus.PREPARED
 
@@ -43,6 +51,7 @@ class ArtifactManifest(Entity):
             ("project_id", 64),
             ("locator", 96),
             ("sha256", 64),
+            ("media_type", 64),
             ("attempt_id", 64),
         ):
             value = getattr(self, name)
@@ -71,6 +80,14 @@ class ArtifactManifest(Entity):
     def mark_stored(self, audit_ref: str) -> ArtifactManifest:
         """T1：对象已落盘并复核哈希，意图可以进入登记阶段。"""
         return self.transition_to(ArtifactManifestStatus.STORED_VERIFIED, audit_ref)
+
+    def abandon(self, audit_ref: str) -> ArtifactManifest:
+        """PR-G：放弃未确认的意图（对象确定不存在或内容不可复用，已被新 attempt 取代）。
+
+        只有 PREPARED 可放弃：已确认落盘的产物若被改写成放弃，会让一个真实存在
+        的对象变成无人认领的孤儿。这条边界由状态机保证，不靠调用方自觉。
+        """
+        return self.transition_to(ArtifactManifestStatus.ABANDONED, audit_ref)
 
 
 __all__ = ["ArtifactManifest"]

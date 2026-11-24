@@ -2215,6 +2215,7 @@
         "tenant_id",
         "locator",
         "sha256",
+        "media_type",
         "attempt_id",
         "entity_id",
         "entity_type",
@@ -2240,6 +2241,10 @@
           "description": "与 AssetVersion.storage_ref 同源的受控内容寻址定位符；manifest 只记录意图与确认，不自行解析路径。"
         },
         "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "media_type": {
+          "type": "string",
+          "description": "T0 固化的媒体类型（与 locator 扩展名同源）。T2 用它核对事件载荷的 media_type 与落盘意图一致，堵住「篡改类型但保持 locator 不变」的旁路。"
+        },
         "attempt_id": {"type": "string"},
         "entity_id": {
           "type": "string",
@@ -2251,6 +2256,7 @@
         "status": {
           "type": "string",
           "enum": [
+            "ABANDONED",
             "PREPARED",
             "STORED_VERIFIED"
           ]

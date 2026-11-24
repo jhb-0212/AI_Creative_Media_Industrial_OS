@@ -19,7 +19,7 @@ from services.production_planning.service.generation_service import GenerationSe
 from services.project_planning.repository.sqlalchemy_outbox_writer import (
     SqlAlchemyOutboxWriter,
 )
-from workers.generation.executor import GeneratedArtifact
+from workers.generation.executor import GeneratedArtifact, PreparedIntent
 
 
 class SagaAssetRegistrar:
@@ -33,7 +33,13 @@ class SagaAssetRegistrar:
         )
 
     async def prepare(
-        self, task: Any, *, locator: str, sha256: str, attempt_id: str
+        self,
+        task: Any,
+        *,
+        locator: str,
+        sha256: str,
+        media_type: str,
+        attempt_id: str,
     ) -> None:
         async with self._sessionmaker() as session:
             await set_tenant_context(session, task.tenant_id)
@@ -42,6 +48,7 @@ class SagaAssetRegistrar:
                 worker_id=task.lease_owner,
                 locator=locator,
                 sha256=sha256,
+                media_type=media_type,
                 attempt_id=attempt_id,
             )
             await session.commit()
@@ -56,6 +63,35 @@ class SagaAssetRegistrar:
                 locator=artifact.stored.locator,
                 sha256=artifact.stored.sha256,
                 media_type=artifact.stored.media_type,
+            )
+            await session.commit()
+
+    async def list_pending(self, task: Any) -> list[PreparedIntent]:
+        """PR-G 只读：取该任务未确认意图，供恢复流程判断能否直接续上 T1。"""
+        async with self._sessionmaker() as session:
+            await set_tenant_context(session, task.tenant_id)
+            manifests = await self._service(session).list_pending_artifacts(
+                task_id=task.entity_id
+            )
+            # 只读事务：不 commit，退出上下文即释放会话。
+            return [
+                PreparedIntent(
+                    attempt_id=manifest.attempt_id,
+                    locator=manifest.locator,
+                    sha256=manifest.sha256,
+                    media_type=manifest.media_type,
+                )
+                for manifest in manifests
+            ]
+
+    async def abandon(self, task: Any, attempt_id: str, reason: str) -> None:
+        async with self._sessionmaker() as session:
+            await set_tenant_context(session, task.tenant_id)
+            await self._service(session).abandon_artifact(
+                task_id=task.entity_id,
+                worker_id=task.lease_owner,
+                attempt_id=attempt_id,
+                reason=reason,
             )
             await session.commit()
 

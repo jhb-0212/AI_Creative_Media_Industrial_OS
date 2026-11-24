@@ -136,6 +136,7 @@ def _manifest_row(sample: dict[str, object], *, task_id: str | None = None,
         "pid": project_id or sample["project_id"],
         "locator": build_locator(digest, "png"),
         "sha": digest,
+        "media": "image/png",
         "attempt": f"attempt-{uuid.uuid4()}",
     }
 
@@ -144,9 +145,9 @@ _INSERT_MANIFEST = sa.text(
     "INSERT INTO production_planning.artifact_manifests "
     "(entity_id, entity_type, schema_version, entity_version, status, owner_module, "
     " tenant_id, created_at, created_by, updated_at, generation_task_id, project_id, "
-    " locator, sha256, attempt_id) "
+    " locator, sha256, media_type, attempt_id) "
     "VALUES (:eid, 'ArtifactManifest', 205, 1, 'PREPARED', 'production_planning', "
-    " :tid, :now, 'test-seeder', :now, :task_id, :pid, :locator, :sha, :attempt)"
+    " :tid, :now, 'test-seeder', :now, :task_id, :pid, :locator, :sha, :media, :attempt)"
 )
 
 

@@ -454,6 +454,7 @@ signatures:
     entity_version: integer
     generation_task_id: string
     locator: string
+    media_type: string
     owner_module: string
     project_id: string
     schema_version: integer

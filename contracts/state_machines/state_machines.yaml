@@ -995,20 +995,24 @@ objects:
   - docs/architecture/amendment-pack-r16-phase3-qc.md
   - docs/architecture/decision-register-r16.md（R16-D3-04 / R16-D3-05）
 - object: ArtifactManifest
-  authoritative_source: ADR-R42 附录 A（T0/T1 事务边界）；业主 2026-11-23 设计裁决 C2
-  allowed_states: [PREPARED, STORED_VERIFIED]
+  authoritative_source: ADR-R42 附录 A（T0/T1 事务边界）+ PR-G 崩溃恢复；业主 2026-11-23 设计裁决 C2
+  allowed_states: [PREPARED, STORED_VERIFIED, ABANDONED]
   initial_state: PREPARED
   transitions:
   - {from: PREPARED, to: STORED_VERIFIED}
-  frozen_states: [STORED_VERIFIED]
+  - {from: PREPARED, to: ABANDONED}
+  frozen_states: [STORED_VERIFIED, ABANDONED]
   note: >-
     产物写入意图（T0）先落库且不持有 I/O 事务；对象存储写入并复核 SHA256 后由 T1
-    推进 STORED_VERIFIED。确认态冻结：失败恢复只能重试未确认的 PREPARED 记录，
-    不得把已确认产物改写回未确认，更不能删除已登记资产充当补偿。
+    推进 STORED_VERIFIED。PR-G 增加放弃边：对象确定不存在或内容不可复用、且已被新
+    attempt 取代时 PREPARED→ABANDONED——不删除意图，它是「曾尝试这份内容」的事实。
+    STORED_VERIFIED 与 ABANDONED 均为冻结终态：恢复只能重试未确认的 PREPARED 记录，
+    不得把已确认或已放弃的事实改写回未确认，更不能删除已登记资产充当补偿。
   source_kind: owner_supplied_design
   registration_status: PENDING_PHASE1_REVIEW
   all_sources:
   - docs/adr/ADR-R42-asset-registration-saga.md（附录 A）
+  - docs/audits/2026-11-23-r42-implementation-reconciliation.md（PR-G 授权与实施审计）
   - 业主 2026-11-23 设计裁决 C2
 - object: AssetRegistrationReceipt
   authoritative_source: ADR-R42 D5（幂等回执）；业主 2026-11-23 设计裁决 C5

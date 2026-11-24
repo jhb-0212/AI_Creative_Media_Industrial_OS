@@ -165,6 +165,9 @@ class ArtifactManifestModel(Base, EntityMixin):
     project_id: Mapped[str] = mapped_column(String(64), nullable=False)
     locator: Mapped[str] = mapped_column(String(96), nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    # PR-G：T0 固化的媒体类型，与 locator 扩展名同源。T1/T2 与 PR-G 恢复都以它
+    # 为落盘事实，不再只依赖 T1 事件载荷（事件丢失/篡改时仍可核对）。
+    media_type: Mapped[str] = mapped_column(String(64), nullable=False)
     attempt_id: Mapped[str] = mapped_column(String(64), nullable=False)
 
 

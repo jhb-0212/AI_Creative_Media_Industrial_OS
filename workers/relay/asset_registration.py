@@ -264,8 +264,13 @@ def build_asset_registration_handlers(
             if (
                 manifest.locator != request.locator
                 or manifest.sha256 != request.sha256
+                or manifest.media_type != request.media_type
             ):
-                raise ReceiptEventError("登记请求的 locator/sha256 与产物意图不一致")
+                # media_type 与 locator 扩展名双射，但事件载荷可被篡改；落盘意图里
+                # 的 media_type 是 T0 固化事实，逐字比对才能挡住「换类型不换定位符」。
+                raise ReceiptEventError(
+                    "登记请求的 locator/sha256/media_type 与产物意图不一致"
+                )
             # 质量策略取冻结任务，不信事件自报（D7）。其余字段都已与上源事实核验过，
             # 这一份规范化输入既是指纹来源，也是冲突证据里的 observed 值。
             frozen_quality_profile = task.quality_profile_version or ""

@@ -163,7 +163,8 @@ async def test_same_task_different_attempt_records_conflict(
         )
         await svc.prepare_artifact(
             task_id=task_entity, worker_id="worker-e2e",
-            locator=locator_1, sha256=digest_1, attempt_id=attempt_1,
+            locator=locator_1, sha256=digest_1, media_type="image/png",
+            attempt_id=attempt_1,
         )
         await session.commit()
     async with prod_sm() as session:  # type: ignore[operator]
@@ -208,10 +209,10 @@ async def test_same_task_different_attempt_records_conflict(
                 "INSERT INTO production_planning.artifact_manifests "
                 "(entity_id, entity_type, schema_version, entity_version, status, "
                 "owner_module, tenant_id, created_at, created_by, updated_at, "
-                "generation_task_id, project_id, locator, sha256, attempt_id) "
+                "generation_task_id, project_id, locator, sha256, media_type, attempt_id) "
                 "VALUES (:eid, 'ArtifactManifest', 1, 1, 'STORED_VERIFIED', "
                 "'production-planning', :tid, :now, 'injected', :now, "
-                ":task, :proj, :loc, :sha, :attempt)"
+                ":task, :proj, :loc, :sha, 'image/png', :attempt)"
             ),
             {
                 "eid": f"injected-{uuid4()}",

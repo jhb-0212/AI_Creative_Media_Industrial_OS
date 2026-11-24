@@ -192,6 +192,7 @@ def _manifest_to_orm(manifest: ArtifactManifest) -> ArtifactManifestModel:
         project_id=manifest.project_id,
         locator=manifest.locator,
         sha256=manifest.sha256,
+        media_type=manifest.media_type,
         attempt_id=manifest.attempt_id,
     )
 
@@ -212,6 +213,7 @@ def _orm_to_manifest(model: ArtifactManifestModel) -> ArtifactManifest:
         project_id=model.project_id,
         locator=model.locator,
         sha256=model.sha256,
+        media_type=model.media_type,
         attempt_id=model.attempt_id,
     )
 
@@ -350,6 +352,28 @@ class SqlAlchemyGenerationTaskRepository:
         )
         model = result.scalar_one_or_none()
         return _orm_to_manifest(model) if model is not None else None
+
+    async def list_pending_prepared(
+        self, generation_task_id: str
+    ) -> list[ArtifactManifest]:
+        """PR-G：某任务所有未确认（PREPARED）的产物意图，按创建序稳定返回。
+
+        恢复流程凭它决定「对象是否已落盘、要不要重新调用模型」。顺序显式
+        ``ORDER BY created_at, entity_id``：调用方不得依赖数据库返回顺序（同一
+        时刻多个 attempt 时，顺序决定先核对哪一个，必须可复现）。
+        """
+        result = await self._session.execute(
+            select(ArtifactManifestModel)
+            .where(
+                ArtifactManifestModel.generation_task_id == generation_task_id,
+                ArtifactManifestModel.status == ArtifactManifestStatus.PREPARED.value,
+            )
+            .order_by(
+                ArtifactManifestModel.created_at.asc(),
+                ArtifactManifestModel.entity_id.asc(),
+            )
+        )
+        return [_orm_to_manifest(model) for model in result.scalars()]
 
     async def save_manifest(
         self, manifest: ArtifactManifest, expected_version: int

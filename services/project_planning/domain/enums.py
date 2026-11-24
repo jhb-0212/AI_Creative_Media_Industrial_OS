@@ -202,14 +202,22 @@ class GenerationTaskStatus(str, Enum):
 
 
 class ArtifactManifestStatus(str, Enum):
-    """产物写入意图的状态（ADR-R42 T0/T1）。
+    """产物写入意图的状态（ADR-R42 T0/T1 + PR-G 崩溃恢复）。
 
     PREPARED 是 T0 落库的写入意图；STORED_VERIFIED 表示对象写入并复核过
-    SHA256。确认态冻结：恢复只能重试未确认的 PREPARED，不能回退已确认事实。
+    SHA256；ABANDONED 表示该意图已被确认放弃——对象确定不存在且被新 attempt
+    取代，或读回内容校验失败不可复用。
+
+    三条约束：
+    - STORED_VERIFIED / ABANDONED 都是**终态**（frozen）：恢复只能重试未确认的
+      PREPARED，不能把已确认或已放弃的事实改写回未确认；
+    - 放弃必须有证据（对象不存在 / 哈希不符），不能因为「不想等了」就丢弃意图；
+    - 放弃的意图不删除：它是「我们曾经尝试过这份内容」的事实，删掉等于篡改历史。
     """
 
     PREPARED = "PREPARED"
     STORED_VERIFIED = "STORED_VERIFIED"
+    ABANDONED = "ABANDONED"
 
 
 class QCTaskStatus(str, Enum):
