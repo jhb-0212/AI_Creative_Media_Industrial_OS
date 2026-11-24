@@ -73,6 +73,7 @@
 - `V205-R35-GA-THIRD-TEN`
 - `V205-R35-GC`
 - `V205-R45`
+- `V205-R15-A36`
 
 契约名称全集必须精确等于「基线清单 ∪ 已批准修订」，由
 `scripts/freeze_manifest.py --check` 逐名称判定（不是只看数量）。

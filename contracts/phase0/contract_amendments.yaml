@@ -1940,6 +1940,47 @@ amendments:
       - 'ApprovalSignature 三态状态机为所有者裁定，registration_status=PENDING_PHASE1_REVIEW，待 Phase 1 验收固化。'
       - 'G-C 计数断言测试中的写死 55 改为派生（判据不写死计数），G-C 销项事实由 LIFECYCLE_ADDED 在册断言继续证明。'
 
+  - id: 'V205-R15-A36'
+    title: '产物意图的崩溃恢复与 media_type 事实化（ADR-R42 PR-G 补齐）'
+    retroactive: false
+    recorded_at: '2026-11-24'
+    discovered_by: '2026-11-24 外部代码审查报告（基线 dadbb17c）§五 R42 PREPARED 恢复缺口；ADR-R42 :94「失败恢复的权威依据是持久化事实」'
+    reason: >-
+      审查报告列出 PR-G 四项缺口：PREPARED 崩溃恢复未实现、manifest 未持久化 media_type、
+      无「放弃」终态、治理授权未对账。前三项是同一根因的三个面：产物意图只活在 Worker 内存里，
+      T0 提交后崩溃就变成不可判定的孤儿行——既不能证明对象已写入（没有 media_type，
+      「是不是同一产物」不可判定），也没有终态表达「已放弃」。后果是重启后一律重新调模型，
+      产物重复计费，PREPARED 行永久悬挂。A35 与 V205-R42-T2-FINGERPRINT 两条修订都显式写了
+      「不做 PREPARED 恢复（PR-G）」，本条目即时销项。
+      三件事一并做到事实层：① ArtifactManifest 增加 media_type（NOT NULL，按 locator 扩展名
+      回填），T0 校验 locator 与 media_type 双射、T1/T2/T3 全链路比对，使「同一产物」成为
+      可判定命题；② 新增 ABANDONED 终态与 PREPARED→ABANDONED 边（owner 为
+      GENERATION_PROCESS_ACTION，frozen_states 含 STORED_VERIFIED 与 ABANDONED），放弃必须
+      带 audit_ref 证据且不删除意图行——放弃本身是可审计事实，不是清理动作；③ 恢复入口按
+      存储事实三态区分：确定不存在（StorageObjectMissingError）与已损坏（StorageIntegrityError）
+      放弃并重生成，暂不可用（StorageUnavailableError）不放弃、报告失败留待重试。第三态是
+      本条目最关键的判据：把一次 I/O 抖动判成「对象没了」会永久丢失已付费产物，比崩溃本身更贵。
+      恢复路径沿用原 attempt_id 走 T2，不重复调用模型，也不新建第二个 manifest。
+      第四项（治理授权对账）不改契约，落在 docs/audits/2026-11-24-r42-authorization-reconciliation.md：
+      澄清 ADR 的「不激活实现」是文件自身范围声明而非禁止实施，并汇总已落纸的授权事实
+      （A35 的 approved_by / source_commits）。C7 / D6 两个口径仍待 Owner 签署，不在本条目内改代码。
+    adr: 'docs/adr/ADR-R42-asset-registration-saga.md'
+    approved_by: '继承 A35 业主设计裁决（2026-11-23：AssetRegistrar 升级为 Outbox 异步 Saga、T0–T3 四阶段）；本批为审查整改，未新增动作/Schema/状态机对象'
+    approved_at: '2026-11-24'
+    source_commits:
+      - '02a94c289b2be7f1d4cf25d16e44e767d31787da'
+    counts_after:
+      actions: 105
+      openapi_operations: 105
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - 'C7 手动 QC 入队端点未补来源核验：持有 QC.TASK.ENQUEUE 可为不存在的资产、或自报 quality_profile_version 建 QC 任务，与 C7（只消费登记完成事件）和 C4（口径创建时冻结）同时冲突。裁定建议见 2026-11-24-r42-authorization-reconciliation.md §4.1，签署前不改。'
+      - 'D6 死信人工重放仍无代码入口，workers/relay/consumer.py 三处注释声称「可人工重放」。这是「用注释声明能力」的口径缺口，按建议应以受权重放 + append-only 审计事件补齐（同文档 §4.2）；当前为显式挂账，不改写措辞掩盖。'
+      - 'ABANDONED 只覆盖 PREPARED。STORED_VERIFIED 之后的放弃（例如资产域永久拒绝后清理产物意图）刻意不开新边：终态上加边会让「已存储」与「已放弃」两个事实互相污染。'
+      - 'media_type 的取值集由实现层 EXT_BY_MEDIA_TYPE 双射约束（png/jpg/webp/mp4/webm/wav/bin），契约只约束非空字符串。新增媒体类型须同改双射与回填口径，否则 T0 直接拒绝——这是刻意的 fail-closed，不是遗漏。'
+      - 'abandon() 的 audit_ref 只校验非空，不校验指向的审计事件真实存在（跨域引用无物理外键）。当前调用点唯一（executor._abandon_intent），风险面窄。'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——
