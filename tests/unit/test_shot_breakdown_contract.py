@@ -223,7 +223,13 @@ def test_gap_ledger_no_longer_lists_the_gap() -> None:
         "ShotRevision 已有 schema（ADR-R17），陈旧债务必须删除；"
         "若这里报错，说明有人把已闭合的缺口又加回了台账"
     )
-    assert gaps, "缺口台账不该被清空——剩余 7 个业务对象仍是真实债务"
+    # G-C 后原「剩余 7 个业务对象」已全部补 schema：CanonRevision / RightsCase /
+    # RightsManifest 入 object_schemas，缺口台账按规则清空。旧断言以「债务仍存在」
+    # 为前提，修复后必须随被测事实升级——不能把「债务被清空」误判成闸门失效。
+    assert not gaps, (
+        "G-C 已把全部缺口补成 schema，台账必须清空；"
+        "若这里非空，说明有人把已闭合的缺口又加回了台账（陈旧债务）"
+    )
 
 
 def test_coverage_ledger_counts_match_definitions() -> None:

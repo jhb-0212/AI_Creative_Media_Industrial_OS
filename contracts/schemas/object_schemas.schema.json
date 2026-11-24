@@ -10036,7 +10036,7 @@
       },
       "additionalProperties": true,
       "x-afs-sources": ["31.5 社区对象状态机最终定义（PublicationReview 行）", "24.11 社区状态机、分享链接与复用状态机", "24.3 展示域对象字段（PublicationReview）"],
-      "x-afs-invariants": [{"id": "PR-1", "enforced_by": "RUNTIME_ENFORCED", "statement": "审核人与提交人职责分离：reviewer 不得等于 submitter；自审或 PG 缺项的审核决定必须拒绝。"}],
+      "x-afs-invariants": [{"id": "PR-1", "enforced_by": "RUNTIME_PENDING", "statement": "审核人与提交人职责分离：reviewer 不得等于 submitter；自审或 PG 缺项的审核决定必须拒绝。"}],
       "x-afs-required-basis": "31.5 明确列出审核人/规则版本/证据/原因/决定时间字段与职责分离规则；required 取构成审核记录的最小集合 + C.3.1 通用信封。"
     },
     "CreatorShareLink": {
@@ -10216,7 +10216,7 @@
       },
       "additionalProperties": true,
       "x-afs-sources": ["31.5 社区对象状态机最终定义（Pattern 行）", "26.2 资产生命周期和权威边界（Pattern 准入条件）", "docs/audits/2026-11-24-status-governance-ruling-packet.md §4（G-C 裁定：与 PatternRecord 分立）"],
-      "x-afs-invariants": [{"id": "PAT-1", "enforced_by": "RUNTIME_ENFORCED", "statement": "晋升必须人工裁定：REUSABLE_PATTERN 必须有 evidence_refs、rights_source 与 human_review_ref；community_heat 只作展示，不得作为状态转移的守卫条件。"}],
+      "x-afs-invariants": [{"id": "PAT-1", "enforced_by": "RUNTIME_PENDING", "statement": "晋升必须人工裁定：REUSABLE_PATTERN 必须有 evidence_refs、rights_source 与 human_review_ref；community_heat 只作展示，不得作为状态转移的守卫条件。"}],
       "x-afs-required-basis": "基线注册表 31.5 将 Pattern 与 C.3 PatternRecord 分别登记为两个对象，权威状态机出处不同；字段按 31.5 晋升规则 + 26.2 准入条件取证，不与 PatternRecord 合并。"
     },
     "SharedReferenceAsset": {
@@ -10308,7 +10308,7 @@
       },
       "additionalProperties": true,
       "x-afs-sources": ["26.2 资产生命周期和权威边界（共享参考资产状态建议）", "26.2 共享主体库边界与撤销处置", "docs/audits/2026-11-24-status-governance-ruling-packet.md §4（G-C 裁定：建模后补登状态机）"],
-      "x-afs-invariants": [{"id": "SRA-1", "enforced_by": "RUNTIME_ENFORCED", "statement": "授权撤销联动：REVOKED/QUARANTINED 须阻止新复用、定位既有引用并生成 impact_report_ref；健康度由可验证事实计算，不得用点赞数替代。"}],
+      "x-afs-invariants": [{"id": "SRA-1", "enforced_by": "RUNTIME_PENDING", "statement": "授权撤销联动：REVOKED/QUARANTINED 须阻止新复用、定位既有引用并生成 impact_report_ref；健康度由可验证事实计算，不得用点赞数替代。"}],
       "x-afs-required-basis": "26.2 给出完整状态链与共享/撤销口径，原以正文为权威（text_authority_only）；本轮补 schema 后按 31.11 将其移入 objects 并登记状态机。"
     },
     "CanonRevision": {
@@ -10404,7 +10404,7 @@
       },
       "additionalProperties": true,
       "x-afs-sources": ["Action Registry CANON.CHANGE.APPROVE（变更理由、影响范围、版本和回滚关系齐备）", "C.3 对象总表 CharacterCanon（事实冲突必须显式标记）", "31.5 Canon 权威边界"],
-      "x-afs-invariants": [{"id": "CR-1", "enforced_by": "RUNTIME_ENFORCED", "statement": "冲突不得自动裁定：conflict_flag=true 必须给出 conflict_detail 并经授权人确认；Agent/跨项目写入拒绝。"}],
+      "x-afs-invariants": [{"id": "CR-1", "enforced_by": "RUNTIME_PENDING", "statement": "冲突不得自动裁定：conflict_flag=true 必须给出 conflict_detail 并经授权人确认；Agent/跨项目写入拒绝。"}],
       "x-afs-required-basis": "Action Registry 与 C.3 给出变更字段与冲突复核口径；required 取其最小集合 + C.3.1 通用信封。"
     },
     "RightsCase": {
@@ -10490,7 +10490,7 @@
       },
       "additionalProperties": true,
       "x-afs-sources": ["Action Registry RIGHTS.STATUS.CHANGE（权利证据必须可追溯、双人或职责分离审批）", "TL-005 导出阻断（记录 RightsCase、主体、素材、受众与审计事件）", "31.5 Quality & Governance 域对象"],
-      "x-afs-invariants": [{"id": "RC-1", "enforced_by": "RUNTIME_ENFORCED", "statement": "无证据不得变更：evidence_refs 非空；CRITICAL 变更须 approver 与 co_approver 职责分离且不同人。"}],
+      "x-afs-invariants": [{"id": "RC-1", "enforced_by": "RUNTIME_PENDING", "statement": "无证据不得变更：evidence_refs 非空；CRITICAL 变更须 approver 与 co_approver 职责分离且不同人。"}],
       "x-afs-required-basis": "Action Registry 与 TL-005 给出案件字段与证据/审批口径；required 取其最小集合 + C.3.1 通用信封。"
     },
     "RightsManifest": {
@@ -10589,7 +10589,7 @@
       },
       "additionalProperties": true,
       "x-afs-sources": ["31 版权授权中心（RightsAsset/RightsGrant/LicenseScope/RevocationRecord 字段）", "Action Registry RIGHTS.STATUS.CHANGE（RightsManifest）", "31.6 导出权利与使用字段（rights_manifest_ref / usage_restrictions / audience_scope）"],
-      "x-afs-invariants": [{"id": "RM-1", "enforced_by": "RUNTIME_ENFORCED", "statement": "授权范围可执行：授权不明、过期、超受众或 CRITICAL 阻断时禁止导出；撤销须引用 revocation_ref，不改写原清单。"}],
+      "x-afs-invariants": [{"id": "RM-1", "enforced_by": "RUNTIME_PENDING", "statement": "授权范围可执行：授权不明、过期、超受众或 CRITICAL 阻断时禁止导出；撤销须引用 revocation_ref，不改写原清单。"}],
       "x-afs-required-basis": "版权授权中心与导出权利字段给出清单字段；本对象此前仅被 rights_manifest_ref 引用而未定义，本轮据正文补建。"
     }
   }
