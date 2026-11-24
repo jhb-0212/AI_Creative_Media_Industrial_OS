@@ -258,17 +258,39 @@ def grant_ops_partition_statements(
     )
 
 
-def revoke_ops_partition_statements(
-    partition: str,
+def _ops_partition_loop_block(
     *,
-    schema: str = OUTBOX_SCHEMA,
-) -> tuple[str, ...]:
-    """回滚 ``grant_ops_partition_statements``（迁移 downgrade 用）。"""
-    from packages.shared.config import get_settings
+    schema: str,
+    statements: tuple[str, ...],
+) -> str:
+    """把「遍历现存 outbox 分区」的骨架与一组 EXECUTE 语句拼成一个 DO 块。
 
-    ops_role = get_settings().postgres_outbox_ops_user
-    qualified = f"{quote_ident(schema)}.{quote_ident(partition)}"
-    return (f"REVOKE ALL ON {qualified} FROM {quote_ident(ops_role)}",)
+    授予与撤销共用这一处骨架，是返工换来的教训：两侧各写一份时，授予侧遍历
+    分区、撤销侧只撤父表——``alembic downgrade -1`` 才因残留的分区授权停在
+    ``role ... cannot be dropped because some objects depend on it``，而
+    ``upgrade`` / ``alembic check`` 一路绿灯（分区 ACL 是独立条目，不随父表撤销）。
+
+    谓词同样只有这一份。``c.relkind = 'r'`` 不能少：分区上的索引也
+    ``relispartition = true``，对着索引 GRANT/REVOKE 会报「… is an index」。
+    """
+    body = "\n".join(f"        {statement}" for statement in statements)
+    return (
+        "DO $$\n"
+        "DECLARE r record;\n"
+        "BEGIN\n"
+        "    FOR r IN\n"
+        "        SELECT c.relname\n"
+        "        FROM pg_class c\n"
+        "        JOIN pg_namespace n ON n.oid = c.relnamespace\n"
+        f"        WHERE n.nspname = '{schema}'\n"
+        "          AND c.relispartition\n"
+        "          AND c.relkind = 'r'\n"
+        "    LOOP\n"
+        f"{body}\n"
+        "    END LOOP;\n"
+        "END\n"
+        "$$"
+    )
 
 
 def ops_partition_grant_do_block(*, schema: str = OUTBOX_SCHEMA) -> str:
@@ -290,31 +312,37 @@ def ops_partition_grant_do_block(*, schema: str = OUTBOX_SCHEMA) -> str:
 
     role = get_settings().postgres_outbox_ops_user
     columns = ", ".join(ops_replay_update_columns())
-    # %I 由 SQL 的 format() 做标识符引用；角色名与列名都走 %I/%s 参数位，
+    # %I 由 SQL 的 format() 做标识符引用；角色名与列名都走 %I 参数位，
     # 不拼进 format 模板本身（否则分区名里出现引号就会打断语句）。
-    return f"""
-    DO $$
-    DECLARE r record;
-    BEGIN
-        FOR r IN
-            SELECT c.relname
-            FROM pg_class c
-            JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = '{schema}' AND c.relispartition
-              -- 只取表：分区上的索引同样 relispartition=true，对着索引 GRANT 会
-              -- 报 "… is an index"（本地实测踩过）。
-              AND c.relkind = 'r'
-        LOOP
-            EXECUTE format(
-                'GRANT SELECT ON {schema}.%I TO %I', r.relname, '{role}'
-            );
-            EXECUTE format(
-                'GRANT UPDATE ({columns}) ON {schema}.%I TO %I', r.relname, '{role}'
-            );
-        END LOOP;
-    END
-    $$
-    """.strip()
+    return _ops_partition_loop_block(
+        schema=schema,
+        statements=(
+            f"EXECUTE format('GRANT SELECT ON {schema}.%I TO %I', "
+            f"r.relname, '{role}');",
+            f"EXECUTE format('GRANT UPDATE ({columns}) ON {schema}.%I TO %I', "
+            f"r.relname, '{role}');",
+        ),
+    )
+
+
+def ops_partition_revoke_do_block(*, schema: str = OUTBOX_SCHEMA) -> str:
+    """撤销**所有现存**分区上的运维授权（``DROP ROLE`` 的前置条件）。
+
+    ``ops_partition_grant_do_block`` 的对偶。缺了它的后果不是"多留一点权限"，
+    而是整个 downgrade 硬失败：PG 拒绝删除仍持有对象权限的角色，而分区上的
+    GRANT 是独立于父表的 ACL 条目——只撤父表永远撤不完。CI 的 downgrade
+    roundtrip 就是被这一条挡下来的（``c5d6e7f8a9b0`` 首版）。
+    """
+    from packages.shared.config import get_settings
+
+    role = get_settings().postgres_outbox_ops_user
+    return _ops_partition_loop_block(
+        schema=schema,
+        statements=(
+            f"EXECUTE format('REVOKE ALL ON {schema}.%I FROM %I', "
+            f"r.relname, '{role}');",
+        ),
+    )
 
 
 __all__ = [
@@ -325,11 +353,11 @@ __all__ = [
     "grant_ops_partition_statements",
     "grant_outbox_partition_statements",
     "ops_partition_grant_do_block",
+    "ops_partition_revoke_do_block",
     "ops_replay_update_columns",
     "protect_partition_statements",
     "quote_ident",
     "relay_column_update_statements",
-    "revoke_ops_partition_statements",
     "revoke_outbox_partition_statements",
     "unprotect_partition_statements",
 ]

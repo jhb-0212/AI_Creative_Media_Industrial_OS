@@ -56,7 +56,10 @@ from packages.shared.config import (
 )
 from packages.shared.db_grants import OUTBOX_OPS, infra_converge_statements
 from packages.shared.db_roles import infra_role
-from packages.shared.partition_guard import ops_partition_grant_do_block
+from packages.shared.partition_guard import (
+    ops_partition_grant_do_block,
+    ops_partition_revoke_do_block,
+)
 from packages.shared.rls import tenant_scope_predicate
 
 revision: str = "c5d6e7f8a9b0"
@@ -204,11 +207,18 @@ def downgrade() -> None:
 
     PG 拒绝删除仍持有对象权限的角色；顺序反了会停在
     "role cannot be dropped because some objects depend on it"。
+
+    分区上的授权必须单独撤销：升级侧逐个分区 GRANT，而分区 ACL 是独立于
+    父表的条目——``REVOKE ALL ON outbox.outbox_events`` 不会连带撤销
+    ``outbox_events_y202611`` 上的授权。首版漏了这一步，``alembic check``
+    仍绿、CI 的 downgrade roundtrip 直接红（见 ``ops_partition_revoke_do_block``）。
     """
     role = infra_role(OUTBOX_OPS)
     op.execute(
         f"REVOKE ALL ON {_SCHEMA}.{_TABLE} FROM {role}"
     )
+    # 必须早于 DROP ROLE，且不能靠父表的 REVOKE 代替。
+    op.execute(ops_partition_revoke_do_block())
     op.execute(
         f"REVOKE ALL ON {_SCHEMA}.outbox_events FROM {role}"
     )

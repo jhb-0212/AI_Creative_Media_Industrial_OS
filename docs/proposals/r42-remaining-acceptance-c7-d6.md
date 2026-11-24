@@ -296,3 +296,36 @@ Owner 签署 A37 后启动。六项判据逐条落地，**两处与基线不同*
 - **观测面**：`outbox_maintenance` 的 metrics 里没有「重放次数 / 死信存量」指标。当前只能查表；加指标需要先定口径（按事件类型？按操作者？），不属于本批判据。
 - **死信查询入口**：本批只做写入口（重放），查询仍走只读 SQL 排障。加一个 `GET /outbox/dead-letters` 需要新的只读动作与席位登记，不在 D6-9 判据内——但不能因此假装「可查」已由平台提供。
 - **`FAILED` 枚举不可达**：见 8.2 第 1 条。若将来出现多步重放（例如先投递到暂存区再确认），这条路径才会活；届时必须同时补「失败也要留痕」的用例，而不是让枚举继续空转。
+
+### 8.5 合并前返工：downgrade 缺分区撤销（CI 抓到，已修）
+
+**事实**：CI `lint-and-test` 的 `Migration downgrade roundtrip` 步骤在 `dff7aaa` 上失败，报
+`role "outbox_ops_role" cannot be dropped because some objects depend on it`。
+
+**根因**：`upgrade()` 用 DO 块遍历现存分区授予运维角色权限，`downgrade()` 只撤了父表。
+PG 的分区 ACL 是独立于父表的条目，`REVOKE ALL ON outbox.outbox_events` 撤不掉
+`outbox_events_y202611` 上的授权，于是 `DROP ROLE` 停在依赖检查上。
+更深的成因是**一对生成器不对称**：授予侧有 `ops_partition_grant_do_block`，
+撤销侧只有单分区函数 `revoke_ops_partition_statements` 且从未被任何代码调用——
+它的 docstring 声称「迁移 downgrade 用」，实际是一段死代码，把缺口伪装成了已实现。
+
+**为什么我的验收没抓到**：本地只跑了 `upgrade head` 与 `alembic check`，两者都不执行
+`downgrade`。这是验收清单的缺口，不是运气问题——凡新增迁移，缺省必须跑一次往返。
+
+**修法**（不是往 downgrade 里补一条 SQL）：
+1. 抽出 `_ops_partition_loop_block`，授予与撤销**共用同一段分区谓词与循环骨架**，
+   两侧不可能再出现「覆盖集不同」；`relkind = 'r'` 的判据也随之只存在一份。
+2. 新增 `ops_partition_revoke_do_block` 作为授予侧的对偶，`downgrade()` 在
+   `DROP ROLE` 之前调用。
+3. 删除 `revoke_ops_partition_statements`：无调用点、docstring 与事实不符的死代码。
+
+**防呆**：新增 `tests/engineering/test_migration_downgrade_symmetry.py`——凡在
+`upgrade()` 里调用了分区授权生成器的迁移，`downgrade()` 必须调用对偶撤销，否则
+源码级报红（毫秒级，不必等 CI 的真库往返）。判据按「成对清单」登记，覆盖既有
+`grant_outbox_partition_statements` / `revoke_outbox_partition_statements` 那一对，
+不是给单个案例开的断言。已做负向验证：移除对偶调用后该用例报红，恢复后转绿。
+
+**验收**：本地在**全新空库**上复刻 CI 序列（`upgrade head` → `downgrade -1` →
+`upgrade head` → `alembic check`）全过；回滚后重建的库形态完整（角色属性
+`NOSUPERUSER/NOBYPASSRLS`、RLS 开启、双触发器在、三个现存分区与父表同形授权）。
+
