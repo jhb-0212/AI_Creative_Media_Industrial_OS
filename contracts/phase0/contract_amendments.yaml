@@ -1642,6 +1642,42 @@ amendments:
       - 'T3 两条转移边的入口债务（state_machine_gaps.yaml）是显式缺口，不是豁免；事件处理器落地后必须删条目，否则闸门以陈旧债务报红。'
       - 'ArtifactManifest 与 AssetRegistrationReceipt 的运行时 Lifecycle/Repository/Service 尚未实现；本条目只给权威状态集，不代表对象可写入。不得据此在代码里先写状态字符串再补状态机。'
 
+  - id: 'V205-R42-T2-FINGERPRINT'
+    title: 'T2 幂等冲突指纹与冲突审计事件（PR-F / ADR-R42 §4.3 实现补齐）'
+    retroactive: false
+    recorded_at: '2026-11-24'
+    discovered_by: '2026-11-23 R42 T2 幂等冲突根因审计（docs/audits/2026-11-23-r42-t2-idempotency-gap.md）'
+    reason: >-
+      T2 以 (tenant_id, generation_task_id) 为幂等键，但「键存在」被等同于「请求语义相同」：
+      回执已存在时直接 ACK，不比对本次请求的 SHA/项目/locator/媒体类型/质量策略；
+      并发命中唯一键的副本把 23505 当失败推死信，而非回读收敛。二者使「同键不同内容」
+      被洗成正常重复，违反 ADR-R42 §4.3/§4.4 的可审计冲突要求。
+      补齐方式：给 AssetRegistrationReceipt 增加 registration_fingerprint（规范化
+      tenant/task/project/attempt/locator/sha256/media_type/quality_profile_version 的
+      确定性 SHA-256，质量策略取冻结 GenerationTask 而非事件自报）；回执存在时同指纹
+      幂等返回、不同指纹发 ASSET_REGISTRATION_CONFLICT 审计事件（不改回执、不建第二资产）；
+      唯一键冲突回读既有回执转指纹比对。冲突事件落在 append-only 的 outbox.outbox_events
+      （无 DELETE 授权），由专用 no-op handler 正常 ack——不抬高 backlog、不被默认 webhook
+      误发，重投不重复记（先查幂等）。存量回执指纹为 NULL（不可变回执无法回填，不写伪默认值）。
+      这是已 DECIDED 决策的实现补齐，不新增 ADR 裁决；冲突事件据设计裁决复用审计事件，
+      不新建平行冲突表（覆盖根因报告 §3.3 的新建表建议——该建议被 2026-11-23 设计裁决
+      「回执加指纹列 + 冲突发事件、不新建表」取代）。
+    adr: 'docs/adr/ADR-R42-asset-registration-saga.md'
+    approved_by: '项目所有者（2026-11-23 第三批整改裁决：回执加指纹列、冲突发 append-only 审计事件、不新建表）'
+    approved_at: '2026-11-23'
+    source_commits:
+      - '7177af293273bcd5d8bcaa8552bd8e51ca8714c5'
+    counts_after:
+      actions: 105
+      openapi_operations: 105
+      schema_objects: 91
+      state_machines: 50
+    residual_risks:
+      - '存量回执 registration_fingerprint 为 NULL：无法证明与后续请求语义相同，handler 按冲突 fail-closed 记审计，不静默 ACK。这是不可变回执无法回填的必然结果，不是可修复缺口。'
+      - '冲突事件先查幂等在异常路径并发双写时可能产生两条相同冲突证据；二者都是真实事实、不丢数据不改状态，未引入确定性 event_id 的第二套身份机制。'
+      - '回执只存指纹不存原始字段，conflict_fields 无法从回执反推，不伪造该字段；原始语义可从 T1 REQUESTED 事件与冻结任务人工比对。'
+      - '本条目不改 R42 授权口径/QC 单路径/D6 人工重放，也不做 PREPARED 恢复（PR-G）。'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——

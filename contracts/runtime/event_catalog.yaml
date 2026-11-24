@@ -72,6 +72,22 @@ events:
       - tenant_id
       - reason
 
+  # R42 T2 幂等冲突（PR-F）：同幂等键收到语义不同的请求时，同事务发出的
+  # append-only 审计事实。不改回执、不建第二资产、不驱动任务状态机。
+  # 存于 append-only 的 outbox.outbox_events（无 DELETE 授权），由专用 no-op
+  # handler 正常 ack——不抬高 backlog、不被默认 webhook 误发。
+  - event_type: ASSET_REGISTRATION_CONFLICT
+    aggregate_type: AssetRegistrationReceipt
+    emitted_by: workers/relay/asset_registration.py
+    contract_ref: docs/adr/ADR-R42-asset-registration-saga.md#T2
+    payload_required:
+      - generation_task_id
+      - project_id
+      - tenant_id
+      - expected_fingerprint
+      - observed_fingerprint
+      - observed
+
   - event_type: QC_REPORT_CREATED
     aggregate_type: AssetVersion
     emitted_by: services/asset_service/service/asset_service.py

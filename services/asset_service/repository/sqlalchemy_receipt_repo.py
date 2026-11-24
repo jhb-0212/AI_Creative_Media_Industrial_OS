@@ -38,6 +38,7 @@ def _to_orm(receipt: AssetRegistrationReceipt) -> AssetRegistrationReceiptModel:
         project_id=receipt.project_id,
         asset_version_id=receipt.asset_version_id or None,
         message=receipt.message or None,
+        registration_fingerprint=receipt.registration_fingerprint or None,
     )
 
 
@@ -57,6 +58,7 @@ def _to_domain(model: AssetRegistrationReceiptModel) -> AssetRegistrationReceipt
         project_id=model.project_id,
         asset_version_id=model.asset_version_id or "",
         message=model.message or "",
+        registration_fingerprint=model.registration_fingerprint or "",
     )
 
 
