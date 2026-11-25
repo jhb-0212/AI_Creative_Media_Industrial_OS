@@ -2171,6 +2171,49 @@ amendments:
       - 'D6-3 以契约全集替代 handler 注册表：契约内类型若恰好无 handler，重放不会丢事件（relay 对无处理器事件不 ack），但会让积压上涨到报警——这是可接受的降级，不是等价物。'
       - '分区授权依赖两条路径（迁移补现存分区 + outbox_maintenance.create_partition 建未来分区）。若有人不走 create_partition 手工建分区，该分区没有运维授权，那个月的死信无法重放，且只在实际重放时暴露。'
       - 'P2（media_type / ABANDONED 追认）与本条目无关且仍未签署，[V-BLOCKED] 不变。'
+  - id: 'V205-R42-P2-RATIFY'
+    title: 'P2 追认：PR-G-2 media_type 事实化 / PR-G-3 ABANDONED 终态（Owner 2026-11-25 裁决）'
+    retroactive: true
+    recorded_at: '2026-11-25'
+    discovered_by: 'docs/audits/2026-11-24-r42-authorization-reconciliation.md §9.4（把 P2 收窄至 2 条并给出四要素模板）；本次 Owner 裁决原文见同文 §13'
+    reason: >-
+      本条目是 §9.4「关闭 P2 的最小动作」的执行结果，只补授权凭据，不改任何契约内容。
+      为什么必须是 retroactive: true——两项实施（02a94c2）早于本授权一天落地，按台账第 34 行
+      的纪律「事后追认不等于当时合规」，必须如实标注，不能回填成当时的授权。
+      为什么另立条目而不改 A36 的 approved_by——A36 正文与「继承 A35」的记载是历史事实，
+      改写它会让「授权发生在何时」与「条目写于何时」无法区分；同理不能把 02a94c2 塞进
+      A35/A36 的 source_commits，那两条指向各自的落地提交。所以 A36 一字未动，
+      读台账时须把本条与 A36 合并读，否则会误以为 A36 的授权范围本就包含这两项。
+      为什么只授两项而不整批追认 PR-G——PR-G-1（PREPARED 恢复）已有 A35 的 C2 明文授权，
+      PR-G-4 是文档对账，都不缺授权凭据；缺的只有两项，追认必须窄到缺口本身，
+      否则一次签字会把「已授权事项」也重新签一遍，反而模糊了原先的授权边界。
+      追认的技术理由（Owner 2026-11-25 裁决）：① media_type 与 locator、sha256 一起构成
+      产物身份，必须是 T0 持久化事实；受控扩展名映射可确定性回填，无法映射时 NOT NULL
+      收紧失败而非猜测填充，符合 fail-closed。② ABANDONED 语义受限：仅 PREPARED 可放弃、
+      归属 GENERATION_PROCESS_ACTION、须带审计引用、保留原意图行、STORED_VERIFIED 不得放弃，
+      存储暂时不可用不会被误判为放弃。③ 撤销这两项不是「删两个字段和一个枚举值」，
+      而要重设恢复期的媒体类型事实与失败意图终态，会破坏 PR-G 恢复链条的一致性。
+      边界（写死，不外扩）：不授权未来同类字段/状态的扩充，不扩大到整个 PR-G，
+      不重复授权 C7-b 与 D6-9。
+      本条目不改变 [V-BLOCKED]：追认只关闭「授权证据缺口」，技术验收是否通过属另一件事，
+      须另行复核（代码、契约派生、迁移升降级、真实 PostgreSQL、恢复故障场景）后才可解除。
+    adr: 'docs/adr/ADR-R42-asset-registration-saga.md'
+    approved_by: 'Owner 裁决（2026-11-25 原话「我选 A：追认 media_type 和 ABANDONED 两项，不选择 B 隔离回退」），授权对象为 PR-G-2 / PR-G-3 两项'
+    approved_at: '2026-11-25'
+    source_commits:
+      - '02a94c289b2be7f1d4cf25d16e44e767d31787da'
+    counts_after:
+      actions: 107
+      openapi_operations: 107
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - '追认不等于技术验收：本条只关闭授权证据缺口，[V-BLOCKED] 不解除。解除须另行复核代码、契约派生、迁移升级与降级、真实 PostgreSQL 测试与恢复故障场景，且复核结果单独落纸。'
+      - 'A36 仍写着 `approved_by` = 继承 A35（历史条目冻结）。台账读者若只看 A36，会得出「media_type / ABANDONED 在 A35 字面范围内」的错误结论——必须与本条合并读。'
+      - '`audit_ref` 的强制力弱于文本表述：`ArtifactManifest.abandon(audit_ref)` 只是必填位置参数，`_advance_version` 直接赋值、不校验非空，`abandon("")` 会被接受并落一个空审计引用。「必须有证据」目前靠调用方纪律与状态机边界，不是字段级约束。'
+      - '`media_type` 回填按小写扩展名精确匹配（SQL 的 LIKE 区分大小写）且只覆盖 7 种受控类型；历史数据若含 .gif / .mov / .PNG 等，该行保持 NULL，随后 ALTER COLUMN … NOT NULL 失败。fail-closed 成立，但报错只是 NOT NULL 违例、不指出具体 locator，排障需人工比对全表。'
+      - '本次追认不构成预授权：将来再出现同族字段或新终态，仍须单独裁决；不得以「P2 已追认」为由扩展本条范围。'
+      - '「保留原意图行」由状态机表达（终态冻结、放弃不删行），但 `artifact_manifests` 不是 append-only 表：既无授权层无 DELETE，也无拒绝删除的触发器，超级用户或直连 DDL 仍可删行。'
 
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
