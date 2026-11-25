@@ -2253,6 +2253,65 @@ amendments:
       - '不构成预授权：将来再出现同族字段、新终态，或又一次「迁移加了列却没同步 CHECK 约束」，仍须单独复核与单独裁决，不得以「P2 已解除」为由沿用本次结论。'
       - '偶发 ACL 红灯（test_append_only_tables_reject_row_mutation 单次失败、后续多轮全绿）根因未定位，不销项。它与 P2 解除无因果关系，不得据本条把它当作已闭环。'
       - '「已修复」的判定要看 alembic_version 是否到达 e7f8a9b0c1d2，而不是看代码里有没有 ABANDONED：约束由迁移下发，未执行到该版本的环境里 ck_artifact_manifests_status 仍是两值，手工改约束属禁止项。'
+  - id: 'V205-R42-D69-RESIDUAL-CLOSURE'
+    title: 'D6-9 三项残余风险收口：死信查询端点 / 重放指标 / result 枚举收窄（Owner 2026-11-25 授权）'
+    retroactive: false
+    recorded_at: '2026-11-25'
+    discovered_by: 'V205-R42-D69-IMPL residual_risks 第 1/2/3 条；复核记录 docs/audits/2026-11-25-p2-release-review.md §9'
+    reason: >-
+      本条登记的是 D69-IMPL 三条残余风险的收口，其中第 3 条（无死信查询端点）需要新增契约动作，
+      因此是一次**契约变更**：Action 107→108、OpenAPI 107→108；Schema 99、状态机 56 不变。
+      三项与处置理由：
+      ① result 收窄为单值 SUCCEEDED（迁移 f8a9b0c1d2e3）。建表时保留 FAILED 的理由是「将来多步重放
+      不必改表」，但本实现的重放是单事务「锁行 → 条件清标记 → 写审计」，任何拒绝都在写之前以
+      DomainError 发生，事务提交即全有、回滚即全无，FAILED 是任何路径都写不进去的值。保留它的代价
+      不是多一个值，而是让读代码的人以为失败路径漏写了去补一条分支——而补不了：审计表 append-only，
+      「先占位再改写终值」不可实现。为让一个枚举值可达而破坏 append-only，是把判据迁就枚举。
+      ② 观测面补「重放次数」：outbox_dead_letter_replays_total{event_type}，只在提交成功之后 +1。
+      台账原文说「没有重放次数 / 死信存量指标」，其中「死信存量」当时就已过时（outbox_relay_dead 早已
+      存在），缺的只是处置动作的次数。口径写死：只计成功（拒绝路径的证据在结构化日志与 4xx 指标里），
+      唯一标签 event_type（契约有限集），不打 operator（人员维度单调增长且不该用于阈值）。配告警
+      OutboxDeadLettersPresent（outbox_relay_dead > 0 持续 30m，warning）：死信不会自愈。
+      ③ 新增只读动作 OUTBOX.DEAD_LETTER.READ（GET /outbox/dead-letters）。只读独立席位：查询用于
+      **定位**，重放才是**处置**，合并会让「只想看看有哪些死信」也必须持有处置权。只返回运维元数据
+      （event_id / event_type / attempts / dead_lettered_at / occurred_at），不返回 payload——payload
+      有业务数据与跨域引用，整批吐到运维列表等于把「可读运维元数据」放大成「可读业务事件内容」。
+      键集分页 (dead_lettered_at, event_id) 倒序 + 游标而非 OFFSET：死信是正在被处置的队列，翻页
+      期间行会消失，OFFSET 会因此漏行；只按时间做锚点则会在「同一时刻批量进死信」时跨页丢行。
+      游标非法（含无时区时间）一律 422，不吞成空页——空页等于告诉运维「没有更多了」。
+      配部分索引 ix_outbox_dead_letter（迁移 f9b0c1d2e3f4）：死信占全表极小比例，普通复合索引会让
+      每次事件写入都为极少数行付维护代价；索引建在父表上，分区索引自动级联到已有与未来分区。
+      同时 runbook 的手工 SQL 重放段落已删除并替换为端点调用——那段 SQL 不落任何审计，留着手册
+      等于教人绕过 D6-9 的审计链。
+      另登记 [V-BLOCKED] 阻塞清单（contracts/phase0/verification_blocks.yaml + scripts/verification_blocks.py，
+      已接入 contract_check 第 13 项）：此前「还有哪些阻塞」只能靠 grep 五份审计文档再靠人脑合并，
+      而历史条目按 append-only 冻结后，同一事项在文档里同时存在「当时阻塞」与「后来解除」两种原文。
+      清单只收明确标注 [V-BLOCKED] 的事项（8 条：blocked 7 / lifted 1），刻意不收 P2 复核记录 §5 的
+      五项差额——那是挂账不是阻塞，混进来会让「阻塞」同时指两件事。
+      为什么两段式：本条与实施分两个提交。实施提交在前（4de236a...），登记提交在后并引用它，
+      与 V205-R42-D69 → V205-R42-D69-IMPL 同一口径。理由不是洁癖：source_commits 必须指向一个
+      真实存在的落地提交，而提交无法引用自身哈希。
+    adr: 'docs/adr/ADR-R42-asset-registration-saga.md'
+    approved_by: 'Owner 2026-11-25 会话指令「全做」。授权范围为当轮明确列出的三个可选项：① 死信观测指标与死信查询端点；② FAILED 枚举可达性；③ [V-BLOCKED] 阻塞清单的机器可查单一事实源。不含其它动作新增、字段扩充或状态机变更，也不构成对未来同类动作的预授权'
+    approved_at: '2026-11-25'
+    additions:
+      actions:
+        - action_key: 'OUTBOX.DEAD_LETTER.READ'
+          why: '死信处置的只读定位入口，与 REPLAY 分开登记的理由是权限：查询用于找到要处置的事件，重放才是处置；并成一个动作会让「只想看看有哪些死信」也必须持有处置权。只返回运维元数据（不返回 payload），租户范围只来自 Principal，分页有上限且用游标。'
+    source_commits:
+      - '4de236a14108d72f12a976b2aa23fbd5158c5ad2'
+    counts_after:
+      actions: 108
+      openapi_operations: 108
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - '新增动作是本次授权的具体标的，不是「运维类端点可以随手加」的先例：再加只读或写端点，仍须单独登记动作与席位，并说明为什么不能并入既有动作。'
+      - '查询端点只覆盖「当前库里的死信」。分区被摘除归档后（保留期维护），那些死信的事件元数据已不在主库，端点查不到——归档文件才是那部分事实的载体，不要据此认为「历史上没有进过死信」。'
+      - '重放计数器在进程内聚合：多副本各自计数、由 Prometheus 汇总；进程重启归零。它回答「处置动作发生了多少次」，不回答「处置过哪些事件」——后者看 outbox.dead_letter_replays 审计表。'
+      - 'result 收窄为单值后，若将来真的出现多步重放（先受理、后成功/失败），必须同时加值与给出失败路径，不能只把值加回去：一个允许却不可达的值正是本轮要消灭的东西。'
+      - '台账合并读成本：D69-IMPL 的 residual_risks 第 1/2/3 条仍是当时的正确表述（冻结不回改），只读那条会得出「三项都没做」的结论，必须与本条串读。'
+      - '阻塞清单的完整性靠两层保障：判据只保证「引用的东西存在、状态与字段不矛盾」，不保证「没有漏登记某个新阻塞」；后者靠 tests/unit/test_verification_blocks.py 的关键 id 白名单。新增一条阻塞时两处都要改，这个成本是刻意的。'
 
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
