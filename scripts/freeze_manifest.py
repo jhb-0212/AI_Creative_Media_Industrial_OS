@@ -11,6 +11,8 @@
 
 1. **权威源未变**：基线主文档的字节数与 SHA-256 与冻结清单一致；
 2. **派生文件未私改**：十一类冻结产物的字节数与 SHA-256 与清单一致；
+2b. **冻结依据未变**：登记于 ``frozen_inventory.yaml`` 的治理附件（如签署决议）
+   字节与 SHA-256 与清单一致——它们是「冻结这件事本身」的证据，不是契约产物；
 3. **演进有据**：当前契约名称全集必须精确等于
    「基线清单 ∪ 已批准修订」——任何未登记的新增、缺失的基线项、
    登记了却不存在的陈旧条目，全部报红。
@@ -112,6 +114,21 @@ ARTIFACTS: tuple[Artifact, ...] = (
     Artifact("⑩ ADR 主索引", ROOT / "docs" / "adr" / "adr_index.yaml", "31.12 / 32.13 / 33.15"),
     Artifact("⑪ 阶段表", ROOT / "contracts" / "phases" / "phase_map.yaml", "31.2 唯一阶段总表"),
 )
+
+# 冻结附件（治理文件）：冻结结论所依据的决议/签署件。
+#
+# 为什么不塞进 ARTIFACTS：十一类是基线 31.11 声明的**契约产物**，它们的名称全集要
+# 参与「基线 ∪ 修订 == 实际」的判定；把一份决议塞进去，会把「十一类」变成十二类，
+# 并让名称全集判定开始吃进非契约文件。
+#
+# 但附件也不能只写在某份审计的正文里：冻结的依据若能被悄悄替换，清单再绿也没有意义。
+# 所以字节与哈希登记在 frozen_inventory.yaml，由本脚本逐项复核——附件变了，
+# 意味着冻结依据变了，须重新裁决，而不是重签清单。
+# 附件的字段分两类：文本字段与正整数字节数。
+# 不复用 `_is_filled`：那个判据的语义是「追溯性字段是否已填」（只认字符串），
+# 拿它判 `bytes: 21327` 会把合法值判成缺失——判据语义不一致比缺陷本身更难查。
+_ATTACHMENT_TEXT_FIELDS = ("path", "sha256", "role")
+_HEX = frozenset("0123456789abcdef")
 
 
 def _load_yaml(path: Path) -> Any:
@@ -342,6 +359,90 @@ def check_manifest_integrity() -> list[str]:
         return problems
     if _sha256(MANIFEST_PATH) != declared[0]:
         problems.append("清单自身哈希与 .sha256 不符（清单正文被手改过）")
+    return problems
+
+
+# --------------------------------------------------------------------------- #
+# 第二层补：冻结附件（治理文件）的字节与哈希
+# --------------------------------------------------------------------------- #
+def attachment_entries(inventory: dict[str, Any]) -> list[dict[str, Any]]:
+    """读 ``frozen_inventory.yaml`` 的 ``attachments``；缺省视为「没有附件」。
+
+    缺省不报错是刻意的：冻结面在历史上确实没有附件，把「没登记」当损坏会让
+    所有既有分支的 --check 变红；但**登记了就必须完整**，缺字段属于结构损坏。
+    """
+    raw = inventory.get("attachments")
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise FreezeDriftError("frozen_inventory.attachments 必须是列表")
+    entries: list[dict[str, Any]] = []
+    for index, item in enumerate(raw):
+        where = f"frozen_inventory.attachments[{index}]"
+        if not isinstance(item, dict):
+            raise FreezeDriftError(f"{where} 必须是映射")
+        for field in _ATTACHMENT_TEXT_FIELDS:
+            value = item.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise FreezeDriftError(f"{where}.{field} 必须是非空字符串")
+        digest = str(item["sha256"])
+        if len(digest) != 64 or not set(digest) <= _HEX:
+            raise FreezeDriftError(f"{where}.sha256 不是 64 位十六进制：{digest!r}")
+        size = item.get("bytes")
+        if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
+            raise FreezeDriftError(f"{where}.bytes 必须是正整数，实际 {size!r}")
+        entries.append(item)
+    return entries
+
+
+def check_attachments(inventory: dict[str, Any]) -> list[str]:
+    """附件必须存在、字节与哈希与登记一致，且清单已把它登记进冻结面。
+
+    缺了第一条，「原件缺失」就会以「只有哈希没有文件」的形式复发——那正是这条
+    阻塞项原先的样子。缺了第二条，附件会变成一个只有 --check 看得见、清单看不见
+    的隐藏事实，读者仍要靠某份审计的正文才知道冻结依据是什么。
+    """
+    entries = attachment_entries(inventory)
+    if not entries:
+        return []
+
+    manifest_text = (
+        MANIFEST_PATH.read_text(encoding="utf-8") if MANIFEST_PATH.exists() else ""
+    )
+    problems: list[str] = []
+    seen: set[str] = set()
+    for entry in entries:
+        rel = str(entry["path"])
+        if rel in seen:
+            problems.append(f"附件重复登记：{rel}")
+            continue
+        seen.add(rel)
+
+        path = ROOT / rel
+        if not path.is_file():
+            problems.append(
+                f"附件缺失：{rel}（冻结依据不能只有哈希没有文件；"
+                "文件不在仓库时须由 Owner 指定外部权威存档，而不是删掉这条登记）"
+            )
+            continue
+        actual_bytes = path.stat().st_size
+        if actual_bytes != entry["bytes"]:
+            problems.append(
+                f"附件字节数与登记不符：{rel}（登记 {entry['bytes']}，实际 {actual_bytes}）"
+            )
+        digest = _sha256(path)
+        if digest != str(entry["sha256"]):
+            problems.append(
+                f"附件内容已变更：{rel}（登记 {str(entry['sha256'])[:16]}…，"
+                f"实际 {digest[:16]}…）；改动冻结依据须重新裁决，不是重签清单"
+            )
+        if manifest_text and (
+            f"`{rel}`" not in manifest_text or f"`{digest}`" not in manifest_text
+        ):
+            problems.append(
+                f"清单未登记附件 {rel}：附件的字节与哈希必须出现在 "
+                "phase0_manifest.md（改完 --write 重签，或它根本不该进冻结面）"
+            )
     return problems
 
 
@@ -632,6 +733,20 @@ def write_manifest() -> None:
     amendment_lines = (
         "\n".join(f"- `{a.id}`" for a in amendments) if amendments else "- （无）"
     )
+    attachment_lines: list[str] = []
+    for entry in attachment_entries(inventory):
+        rel = str(entry["path"])
+        path = ROOT / rel
+        if not path.is_file():
+            raise FreezeDriftError(f"冻结附件文件不存在，无法登记：{rel}")
+        attachment_lines.append(
+            f"| `{rel}` | {path.stat().st_size} | `{_sha256(path)}` | {entry['role']} |"
+        )
+    attachments_block = (
+        "\n".join(attachment_lines)
+        if attachment_lines
+        else "| （无） | — | — | 当前冻结面只由十一类契约产物构成 |"
+    )
     body = f"""# Phase 0 契约冻结包清单
 
 > 本文件由 `scripts/freeze_manifest.py --write` 生成，**禁止手改**。
@@ -651,6 +766,16 @@ def write_manifest() -> None:
 | 正文类目 | 文件 | 字节 | SHA-256 | 对应章节 |
 |---|---|---|---|---|
 {chr(10).join(rows)}
+
+## 冻结附件（治理文件）
+
+除十一类契约产物外，冻结结论所依据的治理文件也在此登记并校验字节：它们不是契约派生物，
+不参与「基线 ∪ 修订 == 实际」的名称全集判定，但一旦被改动，冻结的依据就变了——
+须重新裁决，而不是重签清单。
+
+| 文件 | 字节 | SHA-256 | 作用 |
+|---|---|---|---|
+{attachments_block}
 
 ## 已批准修订
 
@@ -691,6 +816,7 @@ def check_all() -> list[str]:
     problems += check_stray_baseline_copies()
     problems += check_baseline_self_reported_counts(inventory)
     problems += check_manifest_integrity()
+    problems += check_attachments(inventory)
     problems += check_amendment_consistency(inventory)
     problems += check_openapi_parity()
     return problems

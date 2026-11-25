@@ -113,6 +113,8 @@ class FrozenPack:
         self.openapi_path = root / "contracts" / "openapi" / "openapi.draft.yaml"
         self.schema = root / "contracts" / "schemas" / "object_schemas.schema.json"
         self.machines = root / "contracts" / "state_machines" / "state_machines.yaml"
+        self.attachment = root / "docs" / "baseline" / "RESOLUTION.md"
+        self.attachments: list[dict[str, object]] = []
 
         self._monkeypatch = monkeypatch
         for name, value in (
@@ -160,15 +162,34 @@ class FrozenPack:
         }
 
     def write_inventory(self) -> None:
-        _write_yaml(
-            self.inventory,
+        data: dict[str, object] = {
+            "baseline": self._baseline_block(),
+            "actions": self.BASE_ACTIONS,
+            "schema_objects": self.BASE_OBJECTS,
+            "state_machines": self.BASE_MACHINES,
+        }
+        # 只有用到附件的用例才写这个键：其余用例必须继续走「缺省无附件」的路径，
+        # 否则「没有 attachments 段就崩」这种回归会被夹具自己盖住。
+        if self.attachments:
+            data["attachments"] = self.attachments
+        _write_yaml(self.inventory, data)
+
+    def add_attachment(self, *, content: str = "# 冻结决议\n测试正文\n") -> Path:
+        """登记一份冻结附件并同步机读清单（不重签冻结包清单）。"""
+        import hashlib
+
+        self.attachment.parent.mkdir(parents=True, exist_ok=True)
+        self.attachment.write_text(content, encoding="utf-8")
+        self.attachments = [
             {
-                "baseline": self._baseline_block(),
-                "actions": self.BASE_ACTIONS,
-                "schema_objects": self.BASE_OBJECTS,
-                "state_machines": self.BASE_MACHINES,
-            },
-        )
+                "path": fm._rel(self.attachment),
+                "bytes": self.attachment.stat().st_size,
+                "sha256": hashlib.sha256(self.attachment.read_bytes()).hexdigest(),
+                "role": "冻结决议（测试）",
+            }
+        ]
+        self.write_inventory()
+        return self.attachment
 
     def write_valid(self) -> None:
         """写出一套「基线 + 一条已批准修订」的合规冻结包。"""
@@ -270,6 +291,60 @@ def test_missing_manifest_detected(pack: FrozenPack) -> None:
     pack.manifest.unlink()
     problems = fm.check_all()
     assert any("缺少冻结包清单" in p for p in problems)
+
+
+# --------------------------------------------------------------------------- #
+# 第二层补：冻结附件（治理文件）
+#
+# 这一层守的是「原件缺失」这条阻塞项：冻结的依据如果只存在于某份审计的正文里，
+# 它随时可以被悄悄替换而所有闸门仍绿。附件登记后，字节与哈希必须与清单同时成立。
+# --------------------------------------------------------------------------- #
+def test_registered_attachment_passes(pack: FrozenPack) -> None:
+    pack.add_attachment()
+    fm.write_manifest()
+    assert fm.check_all() == []
+
+
+def test_attachment_content_change_detected(pack: FrozenPack) -> None:
+    """决议正文被改 → 报「附件内容已变更」，且不提示重签清单（那是掩盖）。"""
+    attachment = pack.add_attachment()
+    fm.write_manifest()
+    attachment.write_text("# 冻结决议\n改过的正文\n", encoding="utf-8")
+    problems = fm.check_all()
+    assert any("附件内容已变更" in p for p in problems)
+    assert any("须重新裁决" in p for p in problems)
+
+
+def test_missing_attachment_detected(pack: FrozenPack) -> None:
+    """只有哈希没有文件，正是「引用 20 处、原件 0 份」的复发形态。"""
+    attachment = pack.add_attachment()
+    fm.write_manifest()
+    attachment.unlink()
+    problems = fm.check_all()
+    assert any("附件缺失" in p for p in problems)
+
+
+def test_attachment_not_registered_in_manifest_detected(pack: FrozenPack) -> None:
+    """登记进机读清单但没重签冻结包清单 → 清单看不见它，等于没登记。"""
+    pack.add_attachment()
+    problems = fm.check_all()
+    assert any("清单未登记附件" in p for p in problems)
+
+
+def test_attachment_missing_field_raises_readable_error(pack: FrozenPack) -> None:
+    import hashlib
+
+    attachment = pack.add_attachment()
+    pack.attachments = [
+        {
+            "path": fm._rel(attachment),
+            "bytes": attachment.stat().st_size,
+            "sha256": hashlib.sha256(attachment.read_bytes()).hexdigest(),
+        }
+    ]
+    pack.write_inventory()
+    with pytest.raises(fm.FreezeDriftError, match="role"):
+        fm.check_all()
 
 
 # --------------------------------------------------------------------------- #

@@ -28,6 +28,16 @@
 | ⑩ ADR 主索引 | `docs/adr/adr_index.yaml` | 33011 | `24cca2103e93296eae56d8118b15d0eeb5eb6a52a9f2ec44ff50d1f49d7c27ff` | 31.12 / 32.13 / 33.15 |
 | ⑪ 阶段表 | `contracts/phases/phase_map.yaml` | 4221 | `ee03d60c4008aff193cc19c06f96fbe96f9976d9bb7c4a1b6af7f80c6199528e` | 31.2 唯一阶段总表 |
 
+## 冻结附件（治理文件）
+
+除十一类契约产物外，冻结结论所依据的治理文件也在此登记并校验字节：它们不是契约派生物，
+不参与「基线 ∪ 修订 == 实际」的名称全集判定，但一旦被改动，冻结的依据就变了——
+须重新裁决，而不是重签清单。
+
+| 文件 | 字节 | SHA-256 | 作用 |
+|---|---|---|---|
+| `docs/baseline/Phase0-冻结评审决议.md` | 21327 | `05eb0c99385426ae7405c05aa908eb9fd0685b83853f7831b713594182f30aab` | Phase 0 契约冻结决议（AFS-P0-FREEZE-2026-11-13-01，2026-11-13，项目 owner 签署） |
+
 ## 已批准修订
 
 - `V205-R14-A1`
@@ -81,6 +91,7 @@
 - `V205-R42-P2-RATIFY`
 - `V205-R42-P2-BLOCK-LIFT`
 - `V205-R42-D69-RESIDUAL-CLOSURE`
+- `V205-R44-TC-DECISION-BLOCK-LIFT`
 
 契约名称全集必须精确等于「基线清单 ∪ 已批准修订」，由
 `scripts/freeze_manifest.py --check` 逐名称判定（不是只看数量）。
