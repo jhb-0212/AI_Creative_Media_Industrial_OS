@@ -2214,6 +2214,45 @@ amendments:
       - '`media_type` 回填按小写扩展名精确匹配（SQL 的 LIKE 区分大小写）且只覆盖 7 种受控类型；历史数据若含 .gif / .mov / .PNG 等，该行保持 NULL，随后 ALTER COLUMN … NOT NULL 失败。fail-closed 成立，但报错只是 NOT NULL 违例、不指出具体 locator，排障需人工比对全表。'
       - '本次追认不构成预授权：将来再出现同族字段或新终态，仍须单独裁决；不得以「P2 已追认」为由扩展本条范围。'
       - '「保留原意图行」由状态机表达（终态冻结、放弃不删行），但 `artifact_manifests` 不是 append-only 表：既无授权层无 DELETE，也无拒绝删除的触发器，超级用户或直连 DDL 仍可删行。'
+  - id: 'V205-R42-P2-BLOCK-LIFT'
+    title: 'P2 [V-BLOCKED] 解除：技术复核通过，五项已知差额继续挂账（Owner 2026-11-25 裁决）'
+    retroactive: false
+    recorded_at: '2026-11-25'
+    discovered_by: 'docs/audits/2026-11-25-p2-release-review.md §4（八项判据逐项附可复跑命令）、§5（五项已知差额）'
+    reason: >-
+      本条登记的是**状态变更**，不是契约变更：不新增、不删除任何 Action / Schema 对象 / 状态机，
+      计数仍为 107/107/99/56，运行时行为未改一行。
+      为什么可以解除：复核记录 §4 的八项判据全部实际运行并通过——代码、契约派生、迁移升级与降级
+      （含 -2 深度往返）、真实 PostgreSQL 行为、恢复故障场景、状态机边界、闸门。
+      判据是「复核已做且通过」，而不是「代码已合并」：P2 的实施在 02a94c2 就已合并，当时仍为
+      [V-BLOCKED]；可见「已合并」从来不是解除理由，这正是 P4「不得凭已合并证明已获批」要守的线。
+      为什么另立条目而不改 V205-R42-P2-RATIFY：台账纪律是「只能追加、不得改写历史条目」。
+      该条 residual_risks 第 1 条至今写着「[V-BLOCKED] 不解除」——那是复核执行前的正确表述，
+      冻结不回改。代价是台账必须两条合并读，该代价已写入本条残余风险，而不是留给读者自觉。
+      复核推翻了复核方自己上一轮的判断：上一轮结论是「主要实现已完成，剩余是挂账」，实际
+      ABANDONED 在真实库上不可写（迁移漏同步 ck_artifact_manifests_status，ORM 三值 / 库里两值），
+      两条生产放弃路径必然失败。解除依据是修复（e7f8a9b0c1d2）之后的判据，不是修复之前的——
+      若沿用上一轮结论直接解除，解除的就是一个假象。
+      解除范围写死，不外扩：只解 PR-G-2（media_type 事实化）/ PR-G-3（ABANDONED 终态）两项的
+      [V-BLOCKED]。§5 的五项已知差额不因解除而销项；TC-1~TC-5 技术选型、上游「实施是否获单独
+      授权」等其它 [V-BLOCKED] 各有其裁决路径，本条一字未涉；也不构成对未来同类字段/状态的预授权。
+    adr: 'docs/adr/ADR-R42-asset-registration-saga.md'
+    approved_by: 'Owner 裁决（2026-11-25 原话「解除」）。解除的对象是 P2 的阻塞状态，技术依据为 docs/audits/2026-11-25-p2-release-review.md §4；本条不新增任何业务授权'
+    approved_at: '2026-11-25'
+    source_commits:
+      - '5442e0aa9ab390e6978caf95ec7a96f6aeaa4c52'
+    counts_after:
+      actions: 107
+      openapi_operations: 107
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - '解除不等于销项：复核记录 §5 的五项差额继续挂账，本条不改变其中任何一项——audit_ref 无非空校验、artifact_manifests 非 append-only、ArtifactManifest 状态机条目仍为 PENDING_PHASE1_REVIEW、CI 往返深度靠人工同步、偶发 ACL 红灯根因未定位。'
+      - '台账合并读成本：P2-RATIFY 的「[V-BLOCKED] 不解除」与 C7B-IMPL / D69 的「P2 未签署，[V-BLOCKED] 不变」均为历史原文，冻结不回改。只读单条会得出「仍阻塞」的错误结论，必须与 P2-RATIFY、本条串读。'
+      - '解除的是 P2 这一项，不是 [V-BLOCKED] 这个标记本身：TC-1~TC-5 技术选型（PostgreSQL 18 / Valkey / Temporal / S3 / 目录形态）与上游「实施是否获单独授权」等条目各自维持原状态，不因本条解冻。'
+      - '不构成预授权：将来再出现同族字段、新终态，或又一次「迁移加了列却没同步 CHECK 约束」，仍须单独复核与单独裁决，不得以「P2 已解除」为由沿用本次结论。'
+      - '偶发 ACL 红灯（test_append_only_tables_reject_row_mutation 单次失败、后续多轮全绿）根因未定位，不销项。它与 P2 解除无因果关系，不得据本条把它当作已闭环。'
+      - '「已修复」的判定要看 alembic_version 是否到达 e7f8a9b0c1d2，而不是看代码里有没有 ABANDONED：约束由迁移下发，未执行到该版本的环境里 ck_artifact_manifests_status 仍是两值，手工改约束属禁止项。'
 
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
