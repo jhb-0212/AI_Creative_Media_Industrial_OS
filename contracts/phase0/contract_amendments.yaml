@@ -2383,6 +2383,16 @@ amendments:
     approved_at: '2026-11-13'
     source_commits:
       - 'f7c172fa09f488a7c9cb46758d349f48484489b8'
+    # 冻结附件的要求侧：本条批准哪一份文件进入冻结面，以及批准的是哪一版。
+    # 为什么要有这一侧：frozen_inventory.attachments 是**登记侧**，可以整段删除，
+    # 而删掉之后「要求」也一起消失——闸门看到的就是「本来就没有附件」。要求必须
+    # 住在另一处（已批准修订），删登记才会与「批准仍在」对不上而报红。
+    # 为什么连字节与哈希一起写：只写路径，挡不住「换文件、改登记、重签清单」的
+    # 连贯操作；写下批准时的指纹，换内容就必须连已批准修订一起改，那是另一回事。
+    frozen_attachments:
+      - path: 'docs/baseline/Phase0-冻结评审决议.md'
+        bytes: 21327
+        sha256: '05eb0c99385426ae7405c05aa908eb9fd0685b83853f7831b713594182f30aab'
     counts_after:
       actions: 108
       openapi_operations: 108
@@ -2391,7 +2401,8 @@ amendments:
     residual_risks:
       - '决议自称封存的基线（468816 字节 / sha256 66ec66d8…）在本机与 git 全历史中均已不存在，2026-11-13 的冻结哈希链无法重算。本条只锁「决议正文未变」，不得被读成「当初冻结的产物仍可复核」。'
       - '入仓件与原件同哈希，但两者都不带数字签名：能证明「与 owner 确认过的那一版一致」的只有签署栏文字与旁证（三份配套件时间序列、与仓库契约状态吻合）。要密码学证明须另做签署件摘要存证，本轮未做。'
-      - '附件不是 append-only 保护对象：attachments 段被改动时 --check 会红，但它挡不住「同时改文件、改登记、重签清单」的连贯操作。真正拦这类事的是 code review 与 Owner 裁决，不是闸门。'
+      - '附件已补上要求侧但仍不是 append-only 保护对象：删掉 frozen_inventory.attachments 段会与本条 frozen_attachments 对不上而报红；换掉文件内容须连本条的指纹一起改。真正挡不住的只剩「显式修改本条已批准修订」——那是 governance diff，靠 code review 与 Owner 裁决，不靠闸门。'
+      - '要求侧只做单向（批准 → 必须登记）：登记先落、修订后落是两段式登记的固有顺序（source_commits 不能指向自身），反过来要求「每条登记都必须已有批准」会让中间那次提交必然为红。反向的「偷加附件」由清单哈希与 review 兜，闸门不假装能兜住。'
       - '台账合并读成本：V205-R42-D69-RESIDUAL-CLOSURE 的 reason 与 V205-R44-TC-DECISION-BLOCK-LIFT 的 reason 均写于本条之前，其中的「blocked 7 / lifted 1」「blocked 2 / lifted 6」是各自登记当时的正确表述，冻结不回改；当前正确计数以 verification_blocks.yaml 为准。'
       - '同日两次解除（上午 TC-1~TC-5、下午本项）会让 2026-11-25 的对账记录出现三种计数。各记录都已标注其时点，串读顺序为：TC 对账记录 §7（blocked 2/lifted 6）→ 原件调查记录 §8（blocked 1/lifted 7）。'
 

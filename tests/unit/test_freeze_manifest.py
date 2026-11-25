@@ -70,8 +70,9 @@ def _amendment(
     added_machines: list[str] | None = None,
     removed_actions: list[str] | None = None,
     source_commits: list[str] | None = None,
+    approved_attachments: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
-    return {
+    entry: dict[str, object] = {
         "id": amendment_id,
         "title": "测试修订",
         "reason": "测试用",
@@ -87,6 +88,11 @@ def _amendment(
         },
         "removals": {"actions": [{"action_key": k} for k in (removed_actions or [])]},
     }
+    # 只有用到附件的用例才写这个键：附件的要求侧对绝大多数修订不适用，
+    # 夹具默认带上它会让「没有该键 = 与附件无关」这条语义失去测试覆盖。
+    if approved_attachments is not None:
+        entry["frozen_attachments"] = approved_attachments
+    return entry
 
 
 class FrozenPack:
@@ -190,6 +196,28 @@ class FrozenPack:
         ]
         self.write_inventory()
         return self.attachment
+
+    def authorize_attachment(self) -> None:
+        """让修订台账批准当前登记的那份附件，并重签清单（要求侧落纸）。"""
+        approved = [
+            {"path": entry["path"], "bytes": entry["bytes"], "sha256": entry["sha256"]}
+            for entry in self.attachments
+        ]
+        _write_yaml(
+            self.amendments,
+            {
+                "amendments": [
+                    _amendment(
+                        added_actions=self.ADDED_ACTIONS,
+                        added_objects=self.ADDED_OBJECTS,
+                        added_machines=self.ADDED_MACHINES,
+                        approved_attachments=approved,
+                    )
+                ],
+                "revocations": [],
+            },
+        )
+        fm.write_manifest()
 
     def write_valid(self) -> None:
         """写出一套「基线 + 一条已批准修订」的合规冻结包。"""
@@ -345,6 +373,166 @@ def test_attachment_missing_field_raises_readable_error(pack: FrozenPack) -> Non
     pack.write_inventory()
     with pytest.raises(fm.FreezeDriftError, match="role"):
         fm.check_all()
+
+
+# --------------------------------------------------------------------------- #
+# 第二层补（要求侧）：附件登记不得被静默移除
+#
+# 上面的用例证明「登记了什么就验什么」。但要求若只写在登记里，删掉整段
+# attachments 就让要求与登记一起消失——闸门会把「本来就没有附件」与「附件被
+# 悄悄移除」判成同一件事。所以要求侧必须另立在修订台账，并由下面这组用例证明
+# 它真的会拦人。
+# --------------------------------------------------------------------------- #
+def test_approved_attachment_passes(pack: FrozenPack) -> None:
+    pack.add_attachment()
+    pack.authorize_attachment()
+    assert fm.check_all() == []
+
+
+def test_removing_attachment_registration_detected(pack: FrozenPack) -> None:
+    """删掉整段 attachments 登记 → 必须报「批准纳入冻结面的附件未登记」。
+
+    这是本层的核心用例：登记侧的用例全绿，正因为它们验的是「登记了什么」，
+    而这里登记已经不存在了——唯一还能说话的是修订台账里那笔批准。
+    （清单此时仍是旧的、还登着那份附件；--write 会先一步拒绝，见下一条用例。）
+    """
+    pack.add_attachment()
+    pack.authorize_attachment()
+    pack.attachments = []
+    pack.write_inventory()
+
+    problems = fm.check_all()
+    assert any("批准纳入冻结面的附件未登记" in p for p in problems), problems
+    assert any("T-A1" in p for p in problems), problems
+
+
+def test_attachment_swapped_with_registration_detected(pack: FrozenPack) -> None:
+    """换文件 + 改登记（登记侧已自洽）→ 批准时的指纹仍会拦下。
+
+    只锁路径的话，「换掉冻结依据」只需「换文件 + 改登记 + 重签」三步就能全绿；
+    把批准时的字节与哈希记在修订台账里，换内容就必须连已批准修订一起改——
+    那是一次必须被看见的 governance diff。
+    """
+    attachment = pack.add_attachment()
+    pack.authorize_attachment()
+
+    attachment.write_text("# 换过的决议\n", encoding="utf-8")
+    import hashlib
+
+    pack.attachments = [
+        {
+            "path": fm._rel(attachment),
+            "bytes": attachment.stat().st_size,
+            "sha256": hashlib.sha256(attachment.read_bytes()).hexdigest(),
+            "role": "冻结决议（测试）",
+        }
+    ]
+    pack.write_inventory()
+
+    # 不加任何断言也能看出：这条消息只可能来自要求侧（登记侧此时是自洽的）。
+    problems = fm.check_all()
+    assert any("批准的内容不一致" in p for p in problems), problems
+    with pytest.raises(fm.FreezeDriftError, match="拒绝生成清单"):
+        fm.write_manifest()
+
+
+def test_write_refuses_when_approved_attachment_missing(pack: FrozenPack) -> None:
+    """要求侧不成立时 --write 必须拒绝：不签一份「附件表里没有它」的清单。
+
+    与 check 报红不是重复：--write 是唯一能产出清单的入口，若它照写，攻击者只需
+    「删登记 + 重签」就能得到一份自洽的清单，只等某次 check 被跳过。
+    """
+    pack.add_attachment()
+    pack.authorize_attachment()
+    pack.attachments = []
+    pack.write_inventory()
+    with pytest.raises(fm.FreezeDriftError, match="拒绝生成清单"):
+        fm.write_manifest()
+
+
+def test_conflicting_approvals_detected(pack: FrozenPack) -> None:
+    """同一份附件被两条修订批准成不同版本 → 要求侧自相矛盾，必须报红。"""
+    attachment = pack.add_attachment()
+    spec = {
+        "path": fm._rel(attachment),
+        "bytes": attachment.stat().st_size,
+        "sha256": "0" * 64,
+    }
+    _write_yaml(
+        pack.amendments,
+        {
+            "amendments": [
+                _amendment("T-A1", approved_attachments=[spec]),
+                _amendment("T-A2", approved_attachments=[{**spec, "sha256": "1" * 64}]),
+            ],
+            "revocations": [],
+        },
+    )
+    problems = fm.check_attachment_authorization(
+        fm._load_yaml(pack.inventory), fm.load_amendments()
+    )
+    assert any("批准为不同内容" in p for p in problems), problems
+
+
+def test_absolute_attachment_path_rejected(pack: FrozenPack) -> None:
+    """绝对路径 → 拒绝：校验读的与仓库里的必须是同一个文件。"""
+    attachment = pack.add_attachment()
+    pack.attachments[0]["path"] = str(attachment)
+    pack.write_inventory()
+    with pytest.raises(fm.FreezeDriftError, match="相对路径"):
+        fm.check_all()
+
+
+def test_parent_escape_attachment_path_rejected(pack: FrozenPack) -> None:
+    """`..` 上跳到仓库外 → 拒绝（冻结依据不能指向版本控制之外的文件）。"""
+    pack.add_attachment()
+    pack.attachments[0]["path"] = "../../Phase0-冻结评审决议.md"
+    pack.write_inventory()
+    with pytest.raises(fm.FreezeDriftError, match="上跳"):
+        fm.check_all()
+
+
+def test_symlink_attachment_rejected(pack: FrozenPack) -> None:
+    """符号链接 → 拒绝：字节必须直接来自仓库内的这个文件，而不是一层间接引用。"""
+    attachment = pack.add_attachment()
+    link = attachment.parent / "LINK.md"
+    try:
+        link.symlink_to(attachment)
+    except (OSError, NotImplementedError):
+        pytest.skip("当前环境不允许创建符号链接（Windows 需开发者模式/管理员）")
+    pack.attachments[0]["path"] = fm._rel(link)
+    pack.write_inventory()
+    with pytest.raises(fm.FreezeDriftError, match="符号链接"):
+        fm.check_all()
+
+
+# --------------------------------------------------------------------------- #
+# 仓库级：这两层判据都改掉才算真删，而那必然是一次显式 diff
+# --------------------------------------------------------------------------- #
+# Phase 0 冻结决议必须一直留在附件登记里，且由登记它入仓的那条修订批准。
+# 与 verification_blocks 的白名单同理：数据驱动判据能拦住「登记没了」，
+# 拦不住「连批准一起删」——后者只有在白名单里点名才看得见。
+_REQUIRED_ATTACHMENTS = {
+    "docs/baseline/Phase0-冻结评审决议.md": "V205-P0-FREEZE-RESOLUTION-REGISTER",
+}
+
+
+def test_repo_freeze_attachment_stays_registered_and_approved() -> None:
+    inventory = fm._load_yaml(fm.INVENTORY_PATH)
+    registered = {entry.path: entry for entry in fm.attachment_entries(inventory)}
+    approved = {
+        (amendment.id, att.path): att
+        for amendment in fm.load_amendments()
+        for att in amendment.approved_attachments
+    }
+    for path, amendment_id in _REQUIRED_ATTACHMENTS.items():
+        assert path in registered, f"冻结附件登记被移除：{path}"
+        spec = approved.get((amendment_id, path))
+        assert spec is not None, f"修订 {amendment_id} 不再批准冻结附件 {path}"
+        entry = registered[path]
+        assert (entry.size, entry.sha256) == (spec.size, spec.sha256), (
+            f"{path} 的登记内容与 {amendment_id} 批准的不一致"
+        )
 
 
 # --------------------------------------------------------------------------- #
