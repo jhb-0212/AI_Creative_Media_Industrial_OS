@@ -41,6 +41,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          # 迁移往返深度由 merge-base 派生（见 Migration downgrade roundtrip 一步）。
+          # 浅克隆取不到共同祖先，派生脚本会按「失败即失败」非零退出——所以必须拿全历史。
+          fetch-depth: 0
 
       - uses: actions/setup-python@v7
         with:
@@ -116,11 +120,14 @@ jobs:
         # 删约束的顺序错了，只有真库回滚才会报错（clean install 永远走 upgrade）。
         # 回滚再升级还顺带证明「rollback 之后这张库还能重新建成 head 形态」。
         #
-        # 深度必须 >= 本分支新增的迁移数。`-1` 只撤最新一格；加了迁移却仍写 `-1`，
-        # 上一个迁移的降级就再也没有运行时证据（本 PR 的 outbox 分区撤销正是
-        # 在 `-1` 时代被漏掉、靠升级 CI 才抓到的）。新增迁移时同步调大这个数。
+        # 深度由 scripts/migration_roundtrip_depth.py 从 merge-base 派生，不再手抄：
+        # 写死的常量在「加了迁移却忘改」时不报错，只是少撤一格（本仓库两次踩坑：
+        # outbox 分区撤销在 -1 时代被漏掉；本轮 3 个新增迁移仍写 -2，最早那个的
+        # 降级从未在 CI 执行过）。取不到 merge-base 时脚本非零退出，不猜默认值。
         run: |
-          uv run alembic downgrade -2
+          DEPTH="$(uv run python scripts/migration_roundtrip_depth.py)"
+          echo "downgrade depth: ${DEPTH}"
+          uv run alembic downgrade "-${DEPTH}"
           uv run alembic upgrade head
         env:
           POSTGRES_HOST: localhost

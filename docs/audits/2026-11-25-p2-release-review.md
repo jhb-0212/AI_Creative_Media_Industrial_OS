@@ -149,6 +149,10 @@ regex 允许扩展名 = (bin|jpg|mp4|png|wav|webm|webp)   ← 与回填映射逐
 | CI 往返深度人工同步 | `-2` 与「本分支新增 2 个迁移」对应；下次加迁移忘记调大会静默退化 | 已写入 CI 注释，无自动化约束 |
 | 偶发 ACL 红灯 | `test_append_only_tables_reject_row_mutation` 曾单次失败，后续多轮全绿 | 根因未定位，**不销项**；与本节其它项无关 |
 
+> **后写指针（2026-11-25，同日）**：上表第 4 行的**前提本身记错了数**——本分支新增的是
+> **3** 个迁移（`a7b8c9d0e1f2` / `c5d6e7f8a9b0` / `e7f8a9b0c1d2`），不是 2 个，`-2` 当场
+> 就已经少撤一格。该项已收口（深度改为派生），见 §8。其余四项不动。
+
 ---
 
 ## 6. `[V-BLOCKED]` 的当前状态
@@ -227,3 +231,68 @@ regex 允许扩展名 = (bin|jpg|mp4|png|wav|webm|webp)   ← 与回填映射逐
 | 代码 / 迁移 / 契约派生文件 | **未改一行** |
 
 **当前状态：P2 的 `[V-BLOCKED]` 于 2026-11-25 解除，依据 §4，边界为 §5。**
+
+---
+
+## 8. §5 第 4 项收口：往返深度改为派生（2026-11-25）
+
+> 追加于文末。§5 是复核当时的挂账清单，本节记录其中「CI 往返深度人工同步」一项
+> 的收口；其余四项保持挂账。
+
+### 8.1 事实：那个常量当场就已经少了
+
+```
+$ git diff --name-status dadbb17 HEAD -- data/migrations/versions
+A  data/migrations/versions/a7b8c9d0e1f2_artifact_manifest_media_type.py
+A  data/migrations/versions/c5d6e7f8a9b0_dead_letter_replays.py
+A  data/migrations/versions/e7f8a9b0c1d2_artifact_manifest_abandoned_status.py
+```
+
+三个，不是两个。CI 写 `-2`，于是只执行 `e7f8a9b0c1d2` 与 `c5d6e7f8a9b0` 的
+`downgrade()`；`a7b8c9d0e1f2` 的降级在 CI 里**一次都没跑过**。
+
+这不是笔误，是手抄常量的必然结果：它连「当时本分支加了几条」都对不上，而 CI 依然全绿。
+同一个坑此前已经踩过一次（`-1` 时代漏掉 `c5d6e7f8a9b0` 的分区撤销）。
+
+### 8.2 修法：深度从 merge-base 派生，取不到就红
+
+| 改动 | 内容 |
+|---|---|
+| `scripts/migration_roundtrip_depth.py`（新增） | N = `git diff --name-status <merge-base>..HEAD -- data/migrations/versions` 的 **A + M** 数；下限 1；出现 **D** 直接失败（迁移链不允许删条目）；T/U 等异常状态不猜；**拿不到 merge-base 非零退出**，不退回默认值 |
+| `.github/workflows/ci.yml` | `DEPTH="$(uv run python scripts/migration_roundtrip_depth.py)"` → `alembic downgrade "-${DEPTH}"`；checkout 改 `fetch-depth: 0`（浅克隆取不到共同祖先，派生脚本会红） |
+| `tests/engineering/test_migration_roundtrip_depth.py`（新增） | 9 例：A/M/D/R/异常状态逐项、取不到 merge-base 必须抛错、增量为 0 时取下限 1、**workflow 若被改回字面量 `downgrade -2` 会红**、真 git 仓库只数本分支增量 |
+
+为什么下限是 1 而不是 0：`-0` 不是合法往返；在 main 上跑时增量为 0，但仍要保住
+「回滚后还能重建 head」这条证据。
+
+为什么用 merge-base 而不是 `origin/main..HEAD`：分支落后 main 时，后者会把 main 上
+别人的迁移算进本分支增量，深度虚高且说不清来由。
+
+### 8.3 证据（本轮实跑）
+
+```
+$ python scripts/migration_roundtrip_depth.py
+3
+
+$ alembic downgrade -3
+  e7f8a9b0c1d2 -> c5d6e7f8a9b0
+  c5d6e7f8a9b0 -> a7b8c9d0e1f2
+  a7b8c9d0e1f2 -> e4f5a6b7c8d9
+$ alembic upgrade head
+  e4f5a6b7c8d9 -> a7b8c9d0e1f2 -> c5d6e7f8a9b0 -> e7f8a9b0c1d2
+```
+
+`a7b8c9d0e1f2` 的降级是**首次**有运行时证据，通过。也就是说这一项的缺陷是
+「没跑过」，不是「跑不过」——这两者必须分清，否则会把「覆盖面缺口」误记成「代码 bug」。
+
+负向验证：把 workflow 临时改回 `alembic downgrade -2`，守卫用例变红（报错直接指出
+缺 `alembic downgrade "-${DEPTH}"`），改回后转绿。断言不空转。
+
+### 8.4 边界
+
+- **只收口 §5 第 4 项。** 其余四项不动：`audit_ref` 无非空校验与 `artifact_manifests`
+  非 append-only 是 Owner 追认时已接受的边界（改它们须单独裁决），状态机条目
+  `PENDING_PHASE1_REVIEW` 属另一条治理线，偶发 ACL 红灯根因仍未定位。
+- 台账 `V205-R42-P2-BLOCK-LIFT` 的残余风险第 4 条（「CI 往返深度靠人工同步」）是
+  解除当时的正确表述，冻结不改；本项收口以本节为准，读账须串读。
+- 本节不改契约、不改运行时行为：新增的是一个 CI 脚本与一组断言。
