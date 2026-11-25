@@ -115,8 +115,12 @@ jobs:
         # 只做 upgrade head 时，downgrade 的正确性没有任何运行时证据：删索引、删表、
         # 删约束的顺序错了，只有真库回滚才会报错（clean install 永远走 upgrade）。
         # 回滚再升级还顺带证明「rollback 之后这张库还能重新建成 head 形态」。
+        #
+        # 深度必须 >= 本分支新增的迁移数。`-1` 只撤最新一格；加了迁移却仍写 `-1`，
+        # 上一个迁移的降级就再也没有运行时证据（本 PR 的 outbox 分区撤销正是
+        # 在 `-1` 时代被漏掉、靠升级 CI 才抓到的）。新增迁移时同步调大这个数。
         run: |
-          uv run alembic downgrade -1
+          uv run alembic downgrade -2
           uv run alembic upgrade head
         env:
           POSTGRES_HOST: localhost
