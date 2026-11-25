@@ -2406,6 +2406,49 @@ amendments:
       - '台账合并读成本：V205-R42-D69-RESIDUAL-CLOSURE 的 reason 与 V205-R44-TC-DECISION-BLOCK-LIFT 的 reason 均写于本条之前，其中的「blocked 7 / lifted 1」「blocked 2 / lifted 6」是各自登记当时的正确表述，冻结不回改；当前正确计数以 verification_blocks.yaml 为准。'
       - '同日两次解除（上午 TC-1~TC-5、下午本项）会让 2026-11-25 的对账记录出现三种计数。各记录都已标注其时点，串读顺序为：TC 对账记录 §7（blocked 2/lifted 6）→ 原件调查记录 §8（blocked 1/lifted 7）。'
 
+  - id: 'V205-R42-S1-AUTHORIZATION-ACK'
+    title: 'S1 正式认可：R42 实施授权口径由 Owner 明确认可，[V-BLOCKED] 解除（三层记录口径，不含新授权）'
+    retroactive: false
+    recorded_at: '2026-11-25'
+    discovered_by: 'docs/audits/2026-11-25-r42-s1-authorization-ack.md §2（P1–P4 四项前置的当前落点）、docs/audits/2026-11-24-r42-authorization-reconciliation.md §9（三层分列与逐项清单）'
+    reason: >-
+      本条登记的是**治理口径的认可与状态变更**，不是契约变更：不新增、不删除任何 Action /
+      Schema 对象 / 状态机，计数仍为 108/108/99/56；不改 ADR-R42 正文一字，不改技术栈，
+      不改运行时行为。
+      为什么此前一直 BLOCKED：2026-11-24 §8.1 把解除定成四条可核验前置（P1 三层分列 /
+      P2 授权可追溯 / P3 代码测试证据 / P4 不得以合并反推授权），并只给出「有条件认可」。
+      P1/P2 由同一记录 §9 补齐（三层表 + 逐项清单），P3/P4 早已成立，但 Owner 在条件补齐后
+      未再明确表态——缺的从来不是证据，是一句话。本条就是那一句话的落点。
+      认可的表述（逐字，见该记录 §1）：ADR-R42 正文保持历史原文不动；R42 实施状态以
+      2026-11-23 实施对账 + 2026-11-24 授权对账为事实源；该认可只确认原始架构决策 / 后续
+      实施授权 / 实际实施状态三层的记录口径。
+      范围写死，不外扩：只解 V-BLOCK-R42-IMPLEMENTATION-AUTH 一项。不构成对未列事项的追认，
+      不新增技术与业务授权，不预授权未来变更；PR-G-2、PR-G-3 的追认范围仍以
+      V205-R42-P2-RATIFY 为准，本条不改变其边界。R42 之外的工作不因本条获得任何授权。
+      为什么是 lifted_scope = DECISION 而不是 ALL：解除的是「等 Owner 一句明确认可」，
+      这一句到了；但清单 §9.2 逐项表之外的实施仍需各自授权，故条目内保留 remaining_gate。
+      写成 ALL 等于宣称「R42 整体放行」，那是这个认可没有说过的话。
+      为什么另立条目而不改既有条目：台账纪律是只能追加。V205-R42-P2-RATIFY 的 residual_risks
+      写着「[V-BLOCKED] 不解除」，2026-11-24 记录 §8.1 的标题写着「有条件认可，[V-BLOCKED]
+      不变」——都是各自当时的正确表述，冻结不回改。代价是台账与审计记录必须串读，已写入残余风险。
+    adr: 'docs/adr/ADR-R42-asset-registration-saga.md'
+    approved_by: 'Owner 2026-11-25 明确认可（原话逐字存于 docs/audits/2026-11-25-r42-s1-authorization-ack.md §1）：认可的是三层记录口径，不构成对未列事项的追认、不新增技术或业务授权、不预授权未来变更'
+    approved_at: '2026-11-25'
+    source_commits:
+      - '2a3f1dc'
+    counts_after:
+      actions: 108
+      openapi_operations: 108
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - '认可的是记录口径，不是「R42 全部实施已获授权」：授权范围就是 2026-11-24 记录 §9.2 的逐项表，表外项不在其中；表外若已有实施，仍须逐项追认（PR-G-2 / PR-G-3 就是这么补的）。'
+      - '不得把本条读成预授权：新的技术或业务变更、同族字段与状态的新增，仍须单独复核与单独裁决。'
+      - 'P4 仍然成立且方向不可反：L3（实施事实）不产生 L2（授权）效力；「代码已合并」在任何时候都不是「已获批」的证据。'
+      - '台账与审计记录合并读成本：V205-R42-P2-RATIFY 的「[V-BLOCKED] 不解除」、2026-11-24 记录 §8.1 的「有条件认可，[V-BLOCKED] 不变」、V205-R44-TC-DECISION-BLOCK-LIFT 的「S1 维持 BLOCKED」均为历史原文，冻结不回改。只读单条会得出「仍阻塞」的错误结论，必须与 2026-11-25-s1 认可记录串读。'
+      - '同日第三次计数变化：2026-11-25 先是 TC-1~TC-5（blocked 2/lifted 6）、再是原件入仓（blocked 1/lifted 7）、晚为本条（blocked 0/lifted 8）。三份记录各标时点，当前状态以 verification_blocks.yaml 为准。'
+      - '清单首次没有仍阻塞条目，不等于治理风险归零：P2 §5 的四项已知差额（audit_ref 非空校验、artifact_manifests 非 append-only、状态机条目 PENDING_PHASE1_REVIEW、偶发 ACL 红灯根因）是挂账而非 [V-BLOCKED]，不因本条转变性质。'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——

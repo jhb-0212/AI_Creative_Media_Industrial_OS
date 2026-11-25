@@ -93,6 +93,7 @@
 - `V205-R42-D69-RESIDUAL-CLOSURE`
 - `V205-R44-TC-DECISION-BLOCK-LIFT`
 - `V205-P0-FREEZE-RESOLUTION-REGISTER`
+- `V205-R42-S1-AUTHORIZATION-ACK`
 
 契约名称全集必须精确等于「基线清单 ∪ 已批准修订」，由
 `scripts/freeze_manifest.py --check` 逐名称判定（不是只看数量）。

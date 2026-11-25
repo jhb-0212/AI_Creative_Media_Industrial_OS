@@ -39,15 +39,19 @@ _REQUIRED_IDS = (
     "V-BLOCK-P2-MEDIA-TYPE-ABANDONED",
 )
 
-# 必须仍然是 BLOCKED 的条目：把状态改成 LIFTED 同样要显式改这里。
-# 只列 S1 这一条——TC-1~TC-5 的裁决 2026-11-23 已签（LIFTED + DECISION）；
-# 原始冻结决议于 2026-11-25 入仓并登记（LIFTED + ALL，台账
-# V205-P0-FREEZE-RESOLUTION-REGISTER）。两次解除都是从这份白名单里**显式**删掉的，
-# 不是靠改断言口径绕过的。
-# 「存在性」与「仍是阻塞」分开断言，是因为 2026-11-25 之前这两件事被混在一条
-# 断言里：一旦某条合法解除，就只能整条从白名单删掉，随后「它还在清单里」这件事
-# 就再也没人检查了。
-_MUST_STAY_BLOCKED = ("V-BLOCK-R42-IMPLEMENTATION-AUTH",)
+# 此刻应当仍处于 BLOCKED 的条目全集。**空元组是有内容的断言，不是放行**。
+#
+# 三次解除都是从这份白名单里**显式**删掉的，不是靠改口径绕过的：
+#   TC-1~TC-5（2026-11-23 裁决，LIFTED + DECISION）
+#   → 原始冻结决议（2026-11-25 入仓，LIFTED + ALL，V205-P0-FREEZE-RESOLUTION-REGISTER）
+#   → S1（2026-11-25 Owner 明确认可，LIFTED + DECISION，V205-R42-S1-AUTHORIZATION-ACK）。
+#
+# 断言用**相等**而不是「子集」：只断言子集的话，空元组会变成恒真式——之后任何人新增
+# 一条阻塞、或把某条改回 BLOCKED，都无人察觉。相等把「当下为 0」变成一条需要签字的状态。
+# 「存在性」与「仍是阻塞」仍是两条独立断言：一旦某条合法解除就只能移出后者，而前者
+# （_REQUIRED_IDS）继续保证它还在清单里——2026-11-25 之前这两件事压在一条断言里，
+# 解除时只能整条删掉，此后「它还在清单里」就再没人检查了。
+_MUST_STAY_BLOCKED: tuple[str, ...] = ()
 
 
 def _block(**overrides: Any) -> dict[str, Any]:
@@ -320,17 +324,25 @@ def test_required_blocks_are_not_silently_removed() -> None:
     assert not missing, f"疑似被静默删除: {sorted(missing)}"
 
 
-def test_must_stay_blocked_blocks_are_not_silently_lifted() -> None:
-    """这两条本轮仍必须是 BLOCKED；改成 LIFTED 要显式改白名单，不能顺手带过。
+def test_blocked_set_matches_whitelist_exactly() -> None:
+    """清单当前仍阻塞的条目必须**恰好等于**白名单；此刻两者都是空集。
 
     与上一条分开放，是因为「存在」和「仍阻塞」是两个不同的承诺。上一轮把它们
     压在一条断言里，TC-1~TC-5 合法解除时唯一的选择就是整条移出白名单——于是
-    「它们还在清单里」这件事也随之失去检查。解除本身也不是免费的：清单的判据
-    会要求 lifted_by / lift_evidence 互为凭据，这条断言只防「连凭据都没有就改状态」。
+    「它们还在清单里」这件事也随之失去检查。
+
+    为什么判相等而不是判子集：白名单清空后，子集断言恒真，等于这条用例从此消失。
+    判相等则两侧都要动——新增一条阻塞、或把已解除的改回 BLOCKED，都会在 CI 里留下
+    一次必须解释的 diff。0 不是「没人管」，是一条被断言的当前状态。
+
+    解除也不是免费的：清单判据会要求 lifted_by / lift_evidence 互为凭据，本条只防
+    「白名单没跟着改」这一种情况。
     """
     still_blocked = set(open_block_ids(load_registry()))
-    lifted_quietly = set(_MUST_STAY_BLOCKED) - still_blocked
-    assert not lifted_quietly, f"疑似被静默解除: {sorted(lifted_quietly)}"
+    assert still_blocked == set(_MUST_STAY_BLOCKED), (
+        f"仍阻塞集合与白名单不符：新增 {sorted(still_blocked - set(_MUST_STAY_BLOCKED))}，"
+        f"已解除 {sorted(set(_MUST_STAY_BLOCKED) - still_blocked)}"
+    )
 
 
 def test_p2_is_lifted_in_repository_registry() -> None:

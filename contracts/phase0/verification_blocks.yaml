@@ -54,8 +54,8 @@ version: 1
 registry_version: '2026-11-25'
 counts:
   total: 8
-  blocked: 1
-  lifted: 7
+  blocked: 0
+  lifted: 8
 blocks:
   - id: 'V-BLOCK-ORIGINAL-FREEZE-RESOLUTION'
     title: '原始冻结决议原件缺失（多处引用、原件 0 份）'
@@ -99,28 +99,43 @@ blocks:
 
   - id: 'V-BLOCK-R42-IMPLEMENTATION-AUTH'
     title: 'R42 实施是否获单独授权 / S1 事实源口径待 Owner 认可'
-    status: 'BLOCKED'
+    status: 'LIFTED'
     raised_by: 'docs/audits/2026-11-23-r42-implementation-reconciliation.md'
     raised_at: '2026-11-23'
     evidence:
       - 'docs/audits/2026-11-23-r42-implementation-reconciliation.md'
       - 'docs/audits/2026-11-24-r42-authorization-reconciliation.md'
+      - 'docs/audits/2026-11-25-r42-s1-authorization-ack.md'
       - 'docs/adr/ADR-R44-technology-and-infrastructure-baseline.md'
       - 'docs/architecture/technology-decision-matrix.md'
     gap: >-
       2026-11-24 对账记录已给出结论（授权存在、缺的是一页汇总，本文即汇总）并建议
       S1 口径，但 Owner 只做了「有条件认可」，条件满足后未再明确认可该口径；
-      2026-11-25 的 P2 解除在 §14.2 明确声明**不覆盖**本项。三个事实并存，
-      当前状态必须以本行为准，而不是以某份文档的正文为准。
-      另有一条容易被忽略的反证：ADR-R44 §9.1「签署范围」原文写着「**不在本次范围**：
-      R42 实施授权口径（BOOT-01 登记的 BLOCKED 项，仍待 Owner 单独裁决）」，
-      决策矩阵签署信息同句。也就是说 2026-11-23 的七项技术裁决**明确排除**了本项——
-      TC 的解除不构成本项的任何证据，「相邻条目已裁决」不等于「本项已认可」。
+      2026-11-25 的 P2 解除在 §14.2 明确声明**不覆盖**本项。
+      这个「缺一句话」的状态已于 2026-11-25 解除：Owner 明确认可 S1 口径并落纸
+      （台账 V205-R42-S1-AUTHORIZATION-ACK，记录见 evidence 第 3 项）。
+      解除的是「等一句明确认可」，不是「R42 整体放行」——表外实施仍须逐项授权，
+      见 remaining_gate。
+      一条不应被解除抹掉的反证（保留在此，供后人判断解除的边界）：ADR-R44 §9.1
+      「签署范围」原文写着「**不在本次范围**：R42 实施授权口径（BOOT-01 登记的
+      BLOCKED 项，仍待 Owner 单独裁决）」，决策矩阵签署信息同句——2026-11-23 的
+      七项技术裁决**明确排除**了本项，TC 的解除当时不构成任何证据。
     unblocks_when: >-
-      Owner 明确认可 S1 口径（ADR-R42 正文保持历史原文不动；实施状态以
-      2026-11-23 实施对账 + 2026-11-24 授权对账为事实源），并落纸为台账修订
-      或对账记录追加节。
+      已满足：Owner 于 2026-11-25 明确认可（ADR-R42 正文保持历史原文不动；实施状态以
+      2026-11-23 实施对账 + 2026-11-24 授权对账为事实源；只确认三层记录口径，不追认
+      未列事项、不新增技术或业务授权、不预授权未来变更），原话逐字存于
+      docs/audits/2026-11-25-r42-s1-authorization-ack.md §1，并落纸为台账修订。
     decision_owner: 'Owner'
+    lifted_at: '2026-11-25'
+    lifted_by: 'V205-R42-S1-AUTHORIZATION-ACK'
+    lift_evidence: 'docs/audits/2026-11-25-r42-s1-authorization-ack.md'
+    lifted_scope: 'DECISION'
+    remaining_gate:
+      summary: >-
+        认可的是记录口径，不是授权扩容：授权范围就是 2026-11-24 记录 §9.2 的逐项表，
+        表外实施仍须逐项追认；PR-G-2 / PR-G-3 的追认范围仍以 V205-R42-P2-RATIFY 为准；
+        新变更不因本条获得预授权；P4 方向不可反（已合并 ≠ 已获批）。
+      source: 'docs/audits/2026-11-24-r42-authorization-reconciliation.md'
 
   - id: 'V-BLOCK-TC-1'
     title: 'TC-1 技术选型：Temporal 作为持久化执行核心'
