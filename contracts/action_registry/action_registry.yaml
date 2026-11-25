@@ -3,7 +3,7 @@
 # 校验口径：action_key 全局唯一、命名规范、audit_event 与 negative_test_id 一一对应
 registry_source: 'AFS-ARCH-MASTER-V2.0.5 / 31.6 Action Registry'
 registry_version: 'V2.0.5'
-total_actions: 107
+total_actions: 108
 actions:
   - action_key: 'PROJECT.CREATE'
     resource_type: 'Project'
@@ -1207,4 +1207,15 @@ actions:
     audit_event: 'outbox.dead_letter_replays'
     negative_test_id: 'ACT-OUTBOX-NEG-001'
     negative_test_desc: '不存在的原始事件、未死信、已投递、跨租户、并发双发五类均拒绝且不产生投递副作用'
+    status: 'ACTIVE'
+  - action_key: 'OUTBOX.DEAD_LETTER.READ'
+    resource_type: 'OutboxEvent'
+    scope: 'tenant'
+    risk_level: 'LOW'
+    token_required: true
+    allowed_principals: '消息总线运维操作者'
+    approval_requirement: '只读动作，不产生任何状态变更：用于运维排障时确认「哪些事件已放弃投递」，是重放的前置定位手段，不构成处置授权。主体须取自可信认证上下文并持有专项运维席位；租户范围只来自 Principal，不得由查询参数指定（跨租户列举会泄露别处的事件元数据，由 RLS 与应用层双重拦截）；只返回运维元数据（event_id / event_type / attempts / dead_lettered_at / occurred_at），不得返回事件 payload；分页须有上限且使用游标，不得提供可枚举全表的无界查询。'
+    audit_event: 'OUTBOX_DEAD_LETTER_READ'
+    negative_test_id: 'ACT-OUTBOX-NEG-002'
+    negative_test_desc: '跨租户不可见（RLS + 显式租户条件）、非法游标 422、超限 limit 422、已重放事件不再出现在结果集'
     status: 'ACTIVE'

@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import (
 
 from apps.api.main import app
 from packages.shared.database import build_migration_url
+from packages.shared.metrics import OUTBOX_DEAD_LETTER_REPLAYS_TOTAL
 from tests.conftest import TEST_TENANT_ID, make_test_token
 from workers.relay.consumer import _CLAIM
 
@@ -438,3 +439,79 @@ async def test_audit_rows_are_append_only(admin_engine: AsyncEngine) -> None:
     audits = await _audit_rows(admin_engine, event_id)
     assert len(audits) == 1
     assert audits[0]["reason"] == "留痕"
+
+
+# --------------------------------------------------------------------------- #
+# 库层防线：result 只允许 SUCCEEDED（FAILED 已收窄掉）
+# --------------------------------------------------------------------------- #
+async def test_result_check_rejects_failed(admin_engine: AsyncEngine) -> None:
+    """``result = 'FAILED'`` 必须被库拒绝。
+
+    这不是「顺手加一条负向用例」。建表时允许两值，是为了「将来多步重放不必
+    改表」，但同事务全有或全无的重放里 FAILED 永远写不进去——一个允许却不可达
+    的值会让人以为失败路径漏写了。收窄之后，这条断言把「不可达」从注释里的
+    说明变成库的事实：谁想写它，立刻撞约束。
+
+    绕过应用直接 INSERT 是唯一能触达这条约束的方式（应用层根本不构造 FAILED），
+    所以负向测试必须用超级用户直连构造，否则测的是应用而不是库。
+    """
+    event_id = await _seed_dead_letter(admin_engine)
+    now = datetime.now(UTC)
+    with pytest.raises(DBAPIError) as exc:
+        async with admin_engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO outbox.dead_letter_replays "
+                    "(replay_id, source_event_id, tenant_id, event_type, operator, "
+                    " reason, attempts_before, dead_lettered_at_before, result, "
+                    " failure_reason, created_at) "
+                    "VALUES (:rid, :eid, :tid, :etype, 'ops', '手工写入', 5, :now, "
+                    " 'FAILED', '不允许的终态', :now)"
+                ),
+                {
+                    "rid": uuid.uuid4(),
+                    "eid": event_id,
+                    "tid": TEST_TENANT_ID,
+                    "etype": _EVENT_TYPE,
+                    "now": now,
+                },
+            )
+    assert "ck_dead_letter_replays_result" in str(exc.value), str(exc.value)
+    assert await _audit_rows(admin_engine, event_id) == [], "被拒绝的写入不得残留"
+
+
+# --------------------------------------------------------------------------- #
+# 观测面：重放成功才计数，拒绝不计
+# --------------------------------------------------------------------------- #
+def _replay_counter() -> float:
+    """按 event_type 读当前累计值（Counter 是进程内单例，测试直接读内部值）。
+
+    不用 ``generate_latest()`` 解析文本：那样测的是渲染格式，而这里要证明的是
+    「提交成功的重放才会 +1」，与文本格式无关。
+    """
+    return OUTBOX_DEAD_LETTER_REPLAYS_TOTAL.labels(event_type=_EVENT_TYPE)._value.get()
+
+
+async def test_replay_increments_counter_only_on_success(
+    admin_engine: AsyncEngine,
+) -> None:
+    before = _replay_counter()
+
+    # 拒绝路径（不在死信态）不得计数：一次失败的尝试不是一次重放。
+    alive = await _seed_dead_letter(admin_engine, dead_lettered=False)
+    async with _client(roles=[_REPLAY_ROLE]) as client:
+        rejected = await client.post(
+            f"/outbox/dead-letters/{alive}/replay", json={"reason": "不该成功"}
+        )
+    assert rejected.status_code == 409, rejected.text
+    assert _replay_counter() == before, "被拒绝的重放不得计入重放次数"
+
+    event_id = await _seed_dead_letter(admin_engine)
+    async with _client(roles=[_REPLAY_ROLE]) as client:
+        ok = await client.post(
+            f"/outbox/dead-letters/{event_id}/replay", json={"reason": "验证计数"}
+        )
+    assert ok.status_code == 200, ok.text
+    assert _replay_counter() == before + 1, "提交成功的重放必须 +1"
+
+

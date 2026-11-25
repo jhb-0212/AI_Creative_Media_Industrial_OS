@@ -1,0 +1,172 @@
+# [V-BLOCKED] 阻塞事项清单（机器可查的单一事实源）
+#
+# 为什么要有这个文件
+# ----------------
+# 「解除一条 [V-BLOCKED]」此前要在 4 处手改指针：台账条目、复核记录、对账记录、
+# PR 描述。改漏一处不会报错，只会让下一个人读到旧状态；而「还有哪些阻塞在挡
+# 什么」这个问题，此前唯一的答案是 grep 五份审计文档再靠人脑合并。合并的成本
+# 不高，合错的可能性很高——尤其当历史条目按 append-only 纪律冻结不改时，
+# 同一事项在文档里同时存在「当时阻塞」与「后来解除」两种原文。
+#
+# 本文件回答且只回答一个问题：**此刻哪些 [V-BLOCKED] 仍然成立，依据分别是什么。**
+#
+# 边界（刻意不收什么）
+# ----------------
+# 1. 只收审计记录里明确标注 `[V-BLOCKED]` 的事项。复核记录 §5 的五项差额
+#    （audit_ref 无非空校验 / artifact_manifests 非 append-only / 状态机条目
+#    PENDING_PHASE1_REVIEW / CI 往返深度 / 偶发 ACL 红灯）是**挂账**不是
+#    [V-BLOCKED]，留在 docs/audits/2026-11-25-p2-release-review.md §5，不收进来：
+#    把它们混进来会让「阻塞」这个词同时指两件事，清单就失去判据价值。
+# 2. 不复制文档正文。`gap` 只写「现在缺什么」，论证与证据留在原文，靠
+#    `evidence` 指路。复制正文等于制造第二份会漂移的叙述。
+# 3. 不代替裁决。`status: BLOCKED` 的意思是「还在等一个决定」，不是
+#    「本文件的作者认为应该怎么做」。
+#
+# 校验（scripts/verification_blocks.py --check，已接入 contract_check）
+# ----------------------------------------------------------------
+# * id 唯一；status ∈ {BLOCKED, LIFTED}；计数字段与实际条目一致；
+# * `raised_by` / `evidence` / `lift_evidence` 指向的文件必须存在；
+# * `lifted_by` 必须是 contract_amendments.yaml 里真实存在的修订 id，
+#   且 `lift_evidence` 文档里必须提到这个 id —— 两处指针互为凭据，
+#   只写其中一处会得出「已解除但找不到裁决」或「有裁决但没记录」；
+# * LIFTED 必须有 lifted_at；BLOCKED 不得带任何 lifted_* 字段（状态含糊即报红）。
+version: 1
+registry_version: '2026-11-25'
+counts:
+  total: 8
+  blocked: 7
+  lifted: 1
+blocks:
+  - id: 'V-BLOCK-ORIGINAL-FREEZE-RESOLUTION'
+    title: '原始冻结决议原件缺失（引用 17 处、原件 0 份）'
+    status: 'BLOCKED'
+    raised_by: 'docs/audits/2026-11-22-phase0-independent-review.md'
+    raised_at: '2026-11-22'
+    evidence:
+      - 'docs/audits/2026-11-22-phase0-independent-review.md'
+    gap: >-
+      决议 AFS-P0-FREEZE-2026-11-13-01 被当作最高权威反复引用，但仓库内没有任何
+      同名原件；至今仍是「引用多于实体」。技术整改无法填补这个缺口——哈希一致只
+      证明文件没被改，不证明人已批准。
+    unblocks_when: >-
+      Owner 提供决议原件（或其正式副本）并登记进冻结清单，或在审计记录中明确
+      「以项目外存档为权威、仓库内不再持有原件」并给出可核验的存档凭据。
+    decision_owner: 'Owner'
+
+  - id: 'V-BLOCK-R42-IMPLEMENTATION-AUTH'
+    title: 'R42 实施是否获单独授权 / S1 事实源口径待 Owner 认可'
+    status: 'BLOCKED'
+    raised_by: 'docs/audits/2026-11-23-r42-implementation-reconciliation.md'
+    raised_at: '2026-11-23'
+    evidence:
+      - 'docs/audits/2026-11-23-r42-implementation-reconciliation.md'
+      - 'docs/audits/2026-11-24-r42-authorization-reconciliation.md'
+    gap: >-
+      2026-11-24 对账记录已给出结论（授权存在、缺的是一页汇总，本文即汇总）并建议
+      S1 口径，但 Owner 只做了「有条件认可」，条件满足后未再明确认可该口径；
+      2026-11-25 的 P2 解除在 §14.2 明确声明**不覆盖**本项。三个事实并存，
+      当前状态必须以本行为准，而不是以某份文档的正文为准。
+    unblocks_when: >-
+      Owner 明确认可 S1 口径（ADR-R42 正文保持历史原文不动；实施状态以
+      2026-11-23 实施对账 + 2026-11-24 授权对账为事实源），并落纸为台账修订
+      或对账记录追加节。
+    decision_owner: 'Owner'
+
+  - id: 'V-BLOCK-TC-1'
+    title: 'TC-1 技术选型：Temporal 作为持久化执行核心'
+    status: 'BLOCKED'
+    raised_by: 'docs/audits/2026-11-23-blueprint-vs-repo-reconciliation.md'
+    raised_at: '2026-11-23'
+    evidence:
+      - 'docs/audits/2026-11-23-blueprint-vs-repo-reconciliation.md'
+    gap: >-
+      方案要求 Temporal 承载生成流程，仓库内无 Temporal 服务/workflow，R42 已用
+      Outbox Saga + Worker + Relay 实现异步长流程与补偿。双持久化执行引擎会让
+      「长流程状态」出现两个权威源。
+    unblocks_when: >-
+      Owner 在三个选项中裁定其一：(a) 维持 Saga，Temporal 降为后备研究；
+      (b) 仅对新流程引入、R42 链不迁；(c) 全面迁移（须 ADR 修订 + 冻结重签）。
+    decision_owner: 'Owner'
+
+  - id: 'V-BLOCK-TC-2'
+    title: 'TC-2 技术选型：PostgreSQL 18.x'
+    status: 'BLOCKED'
+    raised_by: 'docs/audits/2026-11-23-blueprint-vs-repo-reconciliation.md'
+    raised_at: '2026-11-23'
+    evidence:
+      - 'docs/audits/2026-11-23-blueprint-vs-repo-reconciliation.md'
+    gap: >-
+      方案要求从现有版本评估升级到 18.x；当前为 postgres:16，迁移链/RLS/分区均在
+      16 上验证。升级涉及 RLS、分区、复合外键全链复验。
+    unblocks_when: >-
+      Owner 裁定 (a) 维持 16 并单独立 upgrade PoC 子 PR，或 (b) 立项 18 并在全链
+      复验完成后再切换。
+    decision_owner: 'Owner'
+
+  - id: 'V-BLOCK-TC-3'
+    title: 'TC-3 技术选型：Valkey'
+    status: 'BLOCKED'
+    raised_by: 'docs/audits/2026-11-23-blueprint-vs-repo-reconciliation.md'
+    raised_at: '2026-11-23'
+    evidence:
+      - 'docs/audits/2026-11-23-blueprint-vs-repo-reconciliation.md'
+    gap: >-
+      方案把 Valkey 列为优先候选；当前为 redis:7 + redis-py + fail-open 熔断
+      runbook，缓存故障语义（fail-open）已被限流设计依赖，替换须协议兼容/TTL/Lua/
+      锁/恢复/故障注入全套证据。
+    unblocks_when: >-
+      Owner 裁定 (a) 维持 Redis 7，或 (b) 独立 Valkey PoC，通过后再改默认、
+      不与领域重构同 PR。
+    decision_owner: 'Owner'
+
+  - id: 'V-BLOCK-TC-4'
+    title: 'TC-4 技术选型：S3 兼容对象存储'
+    status: 'BLOCKED'
+    raised_by: 'docs/audits/2026-11-23-blueprint-vs-repo-reconciliation.md'
+    raised_at: '2026-11-23'
+    evidence:
+      - 'docs/audits/2026-11-23-blueprint-vs-repo-reconciliation.md'
+    gap: >-
+      方案要求 S3 兼容对象存储负责媒体产物；当前为本地 FS + local:// 内容寻址，
+      无 S3/MinIO/SeaweedFS。定位器契约已绑定 local://，换 S3 须改
+      storage_locator 契约并重签冻结。
+    unblocks_when: >-
+      Owner 裁定 (a) 保留 Storage Port、S3 作为新 backend 增量接入，或
+      (b) 维持本地 FS 至试播后再定。
+    decision_owner: 'Owner'
+
+  - id: 'V-BLOCK-TC-5'
+    title: 'TC-5 技术选型：services/shot_planning 独立域'
+    status: 'BLOCKED'
+    raised_by: 'docs/audits/2026-11-23-blueprint-vs-repo-reconciliation.md'
+    raised_at: '2026-11-23'
+    evidence:
+      - 'docs/audits/2026-11-23-blueprint-vs-repo-reconciliation.md'
+    gap: >-
+      方案给出独立目录 services/shot_planning；Shot 现属 services/project_planning，
+      归属走 Scene→Episode→Project（ADR-R16~19 已定）。目录形态与既有 ADR 不一致，
+      方案自身亦声明「不机械搬迁」。
+    unblocks_when: >-
+      Owner 裁定 (a) 维持归属规则、仅做物理拆分且不改归属链，或 (b) 维持现状、
+      推迟到生产图域立项时一并裁。
+    decision_owner: 'Owner'
+
+  - id: 'V-BLOCK-P2-MEDIA-TYPE-ABANDONED'
+    title: 'P2：PR-G-2 media_type 事实化 / PR-G-3 ABANDONED 终态'
+    status: 'LIFTED'
+    raised_by: 'docs/audits/2026-11-24-r42-authorization-reconciliation.md'
+    raised_at: '2026-11-24'
+    evidence:
+      - 'docs/audits/2026-11-24-r42-authorization-reconciliation.md'
+      - 'docs/audits/2026-11-25-p2-release-review.md'
+    gap: >-
+      曾缺两件事：Owner 对两项既有实施的追认（2026-11-25 已追认），以及技术复核
+      （同期执行，查出 `ck_artifact_manifests_status` 缺 ABANDONED 并修复）。两者
+      都已落纸，本条保留 gap 是为了让「为什么曾经阻塞」可读，不是仍在等决定。
+    unblocks_when: >-
+      已满足：追认（V205-R42-P2-RATIFY）+ 复核八项判据通过 + Owner 裁决解除
+      （V205-R42-P2-BLOCK-LIFT）。
+    decision_owner: 'Owner'
+    lifted_at: '2026-11-25'
+    lifted_by: 'V205-R42-P2-BLOCK-LIFT'
+    lift_evidence: 'docs/audits/2026-11-25-p2-release-review.md'

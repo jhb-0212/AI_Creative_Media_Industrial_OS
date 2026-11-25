@@ -203,7 +203,12 @@ implemented:
     route: "POST /budget-ledger/{entity_id}/refund"
     module: services/budget_quota/api/budget_routes.py
   # --- 平台运维（事件总线）---
-  # 没有 list/query 端点与它配套：死信查询走只读 SQL 排障，重放是本动作唯一的写入口。
+  # 读与写是两个动作、两个席位：查询用于定位要处置的事件，重放才是处置。
+  # 查询不是重放的「前置步骤」而是独立能力——把它并进 REPLAY 会让「只想看看
+  # 有哪些死信」也必须持有处置权。
+  OUTBOX.DEAD_LETTER.READ:
+    route: "GET /outbox/dead-letters"
+    module: services/outbox_ops/api/outbox_ops_routes.py
   OUTBOX.DEAD_LETTER.REPLAY:
     route: "POST /outbox/dead-letters/{event_id}/replay"
     module: services/outbox_ops/api/outbox_ops_routes.py

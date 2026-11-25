@@ -28,6 +28,10 @@
     allowed_states 与转移边、枚举注册表、Schema 的 status.enum、status 字段分类台账、
     别名/跨域标记层、已实现对象的 Domain Enum 与数据库 CHECK 全部逐值对齐。
     （旧版只比对象名不比状态集，于是三处状态集合可以各自漂移而全绿。）
+13. `[V-BLOCKED]` 阻塞清单（contracts/phase0/verification_blocks.yaml）：
+    状态取值合法、计数一致、引用的文档真实存在、解除项必须指到真实台账修订且
+    证据文档里能查到该修订 id。判据实现在 scripts/verification_blocks.py，
+    与 CLI `--check` 同源——清单不能有一套「脚本认为对」和一套「闸门认为对」。
 
 设计要点（不屎山代码）：
 - 状态值与转移边一律结构化（allowed_states / transitions / guards.transition）；
@@ -3927,6 +3931,33 @@ def check_phase_map_against_baseline() -> bool:
         )
     return ok
 
+
+# --------------------------------------------------------------------------- #
+# [V-BLOCKED] 阻塞清单（单一事实源）
+# --------------------------------------------------------------------------- #
+def check_verification_blocks() -> bool:
+    """阻塞清单自身的判据（与 CLI ``scripts/verification_blocks.py --check`` 同源）。
+
+    为什么闸门要管一份「文档清单」：它的价值全在「能被信任」。一份引用了不存在
+    文档、或声称已解除却指不到裁决的清单，读起来和真的没有区别——两者都是几行
+    YAML。判据放在同一个模块里，保证脚本与闸门不会各有一套口径。
+    """
+    from scripts.verification_blocks import check_registry, load_registry
+
+    problems = check_registry(load_registry())
+    if problems:
+        for problem in problems:
+            print(f"[FAIL] 阻塞清单：{problem}")
+        return False
+    registry = load_registry()
+    counts = registry["counts"]
+    print(
+        f"[PASS] 阻塞清单：{counts['total']} 条"
+        f"（blocked {counts['blocked']} / lifted {counts['lifted']}）"
+    )
+    return True
+
+
 def main() -> int:
     ok = True
     yaml_files = list(CONTRACTS.rglob("*.yaml")) + list(CONTRACTS.rglob("*.yml"))
@@ -3962,6 +3993,7 @@ def main() -> int:
         ok &= check_event_catalog()
         ok &= check_security_boundary()
         ok &= check_proposal_status()
+        ok &= check_verification_blocks()
     except ValueError as exc:
         # 契约文件缺失/为空/非映射时，load_yaml_mapping 统一抛 ValueError；
         # 这是脚本级致命错误（契约损坏无法继续校验），在此统一兜底报红。

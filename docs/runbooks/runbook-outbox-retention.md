@@ -37,6 +37,8 @@ ORDER BY c.relname;
 SELECT count(*) FROM outbox.outbox_events WHERE published_at IS NULL;
 
 -- 死信（P2-2）：attempts 达上限、relay 已放弃投递的事件（必须人工看）
+-- 常规处置走 GET /outbox/dead-letters（见 §4）；本 SQL 用于端点不可用时的
+-- 应急排障，或在库里核对端点返回的结果。
 SELECT event_id, event_type, aggregate_type, aggregate_id,
        attempts, next_attempt_at, dead_lettered_at
 FROM outbox.outbox_events
@@ -113,17 +115,36 @@ Get-Content -LiteralPath "D:\backup\outbox\outbox_events_y202601.sha256"
 | `REFUSED ... S3 归档尚未接入` | `--archive-dir` 写成了 `s3://` | 改用本地目录；S3 需要先接凭证（见 ADR 未做项） |
 | `拒绝删除 ... 必须同时给 --archive-dir` | 安全默认 | 补归档目录，不要手工 DROP |
 | 导出中途异常 | 事务未提交，分区未摘除 | 看错误修环境（磁盘/权限）后重跑；已产出的半截文件不可信，删掉重来 |
-| `dead_lettered_at` 非空的积压 | 事件已投递失败到上限（毒事件/下游长期不可用） | 按 §1 查 event_type 与 payload；修复下游后用**迁移角色**执行重放（见下），不要批量清空死信 |
+| `dead_lettered_at` 非空的积压 | 事件已投递失败到上限（毒事件/下游长期不可用） | 用 `GET /outbox/dead-letters` 查 event_type 与 attempts；修复下游后用 `POST /outbox/dead-letters/{event_id}/replay` 处置。**不要**手工 SQL 改三列（见下） |
 
-死信重放（用迁移角色连接，`app_role` 对 outbox 无 UPDATE）：
+死信处置：只用端点，不要手工 SQL
+--------------------------------
 
-```sql
-UPDATE outbox.outbox_events
-SET dead_lettered_at = NULL, attempts = 0, next_attempt_at = now()
-WHERE event_id = '<event_id>';
+```bash
+# 1) 定位（只读；按进入死信时间倒序，游标分页）
+GET /outbox/dead-letters?limit=50
+#    → items[].event_id / event_type / attempts / dead_lettered_at / occurred_at
+#    → next_cursor 非空表示还有下一页，原样回传 cursor 参数继续翻
+
+# 2) 确认下游已修复后，逐条放行（写；调用者身份与理由落审计表）
+POST /outbox/dead-letters/{event_id}/replay
+{"reason": "下游 5xx 已修复，确认可投递"}
 ```
 
-只重放已确认下游能处理的事件；同一 `event_type` 连续多次进死信，先修下游再批量重放。
+为什么手册不再给手工 SQL（此前这一段写的是 `UPDATE ... SET dead_lettered_at = NULL`）：
+手工改库**不落任何审计**——操作者、理由、重放前的失败次数全部消失，等于把
+「谁在什么时候放行了一条本该被丢弃的事件」变成不可回答的问题。端点把这三件事
+写进 append-only 的 `outbox.dead_letter_replays`，并且顺带做了租户校验、
+状态校验与并发互斥。手工 SQL 只应作为端点不可用时的应急手段，且必须在事后
+补记（who / why / 哪些 event_id）。
+
+`replay` 只是把事件交回正常领取，不等于已投递：之后仍走 relay 的
+claim → handler → ack，失败会重新进死信。只重放已确认下游能处理的事件；
+同一 `event_type` 连续多次进死信，先修上游再批量重放。
+
+观测：`outbox_relay_dead`（当前死信数）持续 > 0 超过 30 分钟会触发
+`OutboxDeadLettersPresent`；重放成功次数看 `outbox_dead_letter_replays_total`。
+存量不降而重放次数上涨，说明新进速度快于处置——先查上游。
 
 
 ## 5. 常驻维护没跑（新鲜度告警）

@@ -81,6 +81,23 @@ OUTBOX_RELAY_DEAD = Gauge(
     "死信事件总数（最近一轮扫描采样，投递已放弃、待人工重放）",
 )
 
+# 人工重放计数。与 OUTBOX_RELAY_DEAD 分工明确：Gauge 回答「现在积压多少死信」，
+# Counter 回答「处置动作发生了多少次」——只看 Gauge 时，「一直有 5 条」与
+# 「重放了 100 条又新进 100 条」在曲线上无法区分。
+#
+# 口径（台账 D69 残余风险第 2 条要求先定口径）：
+# - 只计**成功**重放：拒绝路径（未死信 / 已投递 / 跨租户 / 并发）是「有人在做
+#   不该做的事」或「看错了状态」，它的证据在结构化日志与 4xx 指标里，不该混进
+#   「重放次数」——否则「这个月重放了多少条」永远算不对。
+# - 唯一的标签是 event_type：它由契约枚举约束（有限集），且排障时最有用的问句
+#   「哪类事件在反复进死信」刚好按它聚合。不打 operator（人员维度会随时间单调
+#   增长，且不该用于阈值告警）。
+OUTBOX_DEAD_LETTER_REPLAYS_TOTAL = Counter(
+    "outbox_dead_letter_replays_total",
+    "死信人工重放成功次数（按事件类型）",
+    ["event_type"],
+)
+
 OUTBOX_RELAY_RUN_ERRORS = Counter(
     "outbox_relay_run_errors_total",
     "Relay 单轮失败次数（stage=enumerate/tenant）",

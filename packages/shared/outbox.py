@@ -39,6 +39,22 @@ from packages.shared.database import Base
 # 独立 schema 名称（平台级事件总线，跨领域共享）。
 SCHEMA_NAME = "outbox"
 
+# 死信重放审计的 result 允许集合：**只有 SUCCEEDED 一个值**。
+#
+# 建表时（c5d6e7f8a9b0）写的是 ``result IN ('SUCCEEDED', 'FAILED')``，理由是
+# 「留待将来多步重放」。实际上本实现的重放是「锁行 → 条件清标记 → 写审计」的
+# 单事务，全有或全无，不存在「已受理但失败」的中间态：任何失败都在写之前以
+# DomainError 拒绝，落库就一定是成功。于是 FAILED 是一个**永远写不进去的枚举值**。
+#
+# 保留它的代价不是「多一个值」，而是读代码的人会以为失败路径漏写了，进而去
+# 补一条本不该存在的失败分支（或在别处 import 这个值做判定）。虚假的可选值
+# 比缺一个值更贵：缺值会报错，假值会误导。将来真出现多步重放时，加值与给出
+# 失败路径必须是**同一次**改动，而不是现在先把值留着。
+#
+# 这段表达式同时被 ORM 与迁移 f8a9b0c1d2e3 引用，避免两处手写文本漂移。
+DEAD_LETTER_REPLAY_SUCCEEDED = "SUCCEEDED"
+DEAD_LETTER_REPLAY_RESULT_CHECK = f"result = '{DEAD_LETTER_REPLAY_SUCCEEDED}'"
+
 
 class OutboxEventModel(Base):
     """outbox_events 表模型（不可变审计事件，append-only）。"""
@@ -49,6 +65,15 @@ class OutboxEventModel(Base):
         Index("ix_outbox_aggregate", "aggregate_id"),
         Index("ix_outbox_published", "published_at"),
         Index("ix_outbox_tenant", "tenant_id"),
+        # 死信列表的部分索引（迁移 f9b0c1d2e3f4）：死信只占全表极小比例，
+        # 全表索引会让写入为极少数行付代价；条件索引进而把排序也一并覆盖——
+        # 死信查询固定按 dead_lettered_at 倒序、event_id 倒序做键集分页。
+        Index(
+            "ix_outbox_dead_letter",
+            "dead_lettered_at",
+            "event_id",
+            postgresql_where=text("dead_lettered_at IS NOT NULL"),
+        ),
         {"schema": SCHEMA_NAME},
     )
 
@@ -109,7 +134,7 @@ class DeadLetterReplayModel(Base):
         Index("ix_outbox_dead_letter_replays_source_event", "source_event_id"),
         Index("ix_outbox_dead_letter_replays_tenant_created", "tenant_id", "created_at"),
         CheckConstraint(
-            "result IN ('SUCCEEDED', 'FAILED')",
+            DEAD_LETTER_REPLAY_RESULT_CHECK,
             name="ck_dead_letter_replays_result",
         ),
         {"schema": SCHEMA_NAME},

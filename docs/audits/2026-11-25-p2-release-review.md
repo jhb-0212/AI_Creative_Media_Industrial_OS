@@ -296,3 +296,91 @@ $ alembic upgrade head
 - 台账 `V205-R42-P2-BLOCK-LIFT` 的残余风险第 4 条（「CI 往返深度靠人工同步」）是
   解除当时的正确表述，冻结不改；本项收口以本节为准，读账须串读。
 - 本节不改契约、不改运行时行为：新增的是一个 CI 脚本与一组断言。
+
+---
+
+## 9. 台账 `D69-IMPL` 三项残余风险收口（2026-11-25）
+
+> 追加于文末。§5 是 P2 复核当时的挂账清单；本节处理的是**另一条线上**的三项：
+> `V205-R42-D69-IMPL` 的 `residual_risks` 第 1/2/3 条。两者不可混读——§5 的五项
+> 在本节一个字都没动。
+
+### 9.1 三条各自是一句「没做」，不是「做不到」
+
+| # | 台账原文 | 实际性质 |
+|---|---|---|
+| 1 | `result` 的 FAILED 枚举当前不可达；CHECK 保留两个值是为了将来多步重放不必改表 | 表里允许一个**任何代码路径都写不进**的值 |
+| 2 | 观测面缺失：没有「重放次数 / 死信存量」指标 | 后半句**当时就已过时**：`outbox_relay_dead` 早就在；缺的只是「重放次数」 |
+| 3 | 只有写入口（重放），没有死信查询端点 | 契约里没有查询动作，「可查」仍靠只读 SQL，且「可查」曾被当成已交付 |
+
+第 2 条值得单独指出：台账写这句话时，`packages/shared/metrics.py` 里已经有
+`OUTBOX_RELAY_DEAD`（复核 R2 加的）。这不是谁的记忆出错，而是**台账里的
+现状描述天然会过期**，而它一旦冻结就没人回头改——所以本节不复述台账，只记录
+这次实际补了什么、依据是什么。
+
+### 9.2 三项的做法与理由
+
+**(1) `result` 收窄为单值 `SUCCEEDED`**（迁移 `f8a9b0c1d2e3`）
+
+保留 FAILED 的代价不是「多一个值」，而是读代码的人会得出「失败路径漏写了」的结论，
+去补一条本不该存在的分支，或在别处 import 它做判定。补路径也不可行：重放是
+「锁行 → 条件清标记 → 写审计」的单事务，而 `dead_letter_replays` 是 append-only，
+「先占位再改写终值」根本不可实现——为让一个值可达而破坏 append-only，是把判据
+迁就枚举。
+
+表达式 `result = 'SUCCEEDED'` 由 `packages/shared/outbox.py` 的常量统一提供，
+ORM 与迁移共用一份文本，避免两处手写漂移。迁移的前置检查写成 SQL `DO` 块而不是
+Python 侧 `scalar_one()`：迁移会被 `boundary_assertions` 以 op 替身回放，Python 侧
+查库会把一条授权断言打成执行异常。
+
+**(2) 观测面：补「重放次数」，并区分存量与动作**
+
+- `outbox_dead_letter_replays_total{event_type}`（Counter）：只在**提交成功之后**
+  才 +1。放在服务层看似更「领域内」，但服务返回时事务还没提交——提交失败会让重放
+  整体回滚而计数器不回滚，那样「重放次数」会把失败记成成功，且无处纠正。
+- 口径写死：只计成功（拒绝路径的证据在结构化日志与 4xx 指标里，混进来会让
+  「这个月重放了多少条」永远算不对）；唯一标签是 `event_type`（契约有限集），
+  不打 operator（人员维度单调增长，且不该用于阈值）。
+- 告警 `OutboxDeadLettersPresent`（`outbox_relay_dead > 0` 持续 30m）：死信不会自愈；
+  用 30m 排除正常处置窗口，用 warning 而不是 critical —— 一条毒事件就足以触发，
+  长期 critical 会让人对这条规则脱敏。
+
+**(3) 死信查询端点 `OUTBOX.DEAD_LETTER.READ`**（`GET /outbox/dead-letters`）
+
+- 新动作登记后计数为 **Action 108 / OpenAPI 108**（原 107/107），Schema 99、状态机 56 不变。
+- 只读、独立席位语义：查询用于**定位**，重放才是**处置**；并成一个动作会让
+  「只想看看有哪些死信」也必须持有处置权。
+- 只返回运维元数据（`event_id` / `event_type` / `attempts` / `dead_lettered_at` /
+  `occurred_at`），**不返回 payload**：payload 里有业务数据与跨域引用，整批吐到运维
+  列表等于把「可读运维元数据」放大成「可读业务事件内容」。
+- 键集分页（`(dead_lettered_at, event_id)` 倒序 + 游标），不用 OFFSET：死信是正在
+  被处置的队列，翻页期间行会消失，OFFSET 会因此漏行；只按时间做锚点则会在
+  「同一时刻批量进死信」时跨页丢行。
+- 新增部分索引 `ix_outbox_dead_letter`（迁移 `f9b0c1d2e3f4`）：死信只占全表极小
+  比例，普通复合索引会让每次事件写入都为极少数行付维护代价；建在父表上，分区
+  索引会自动级联到已有与未来分区。
+- runbook 的手工 SQL 重放段落已删除并替换为端点调用：那段 SQL **不落任何审计**，
+  留着手册等于教人绕过 D6-9 的审计链。
+
+### 9.3 证据（本轮实跑）
+
+```
+$ python scripts/migration_roundtrip_depth.py
+5
+$ alembic downgrade -1 → upgrade head     # f8a9b0c1d2e3 / f9b0c1d2e3f4 各自往返通过
+$ SELECT pg_get_constraintdef(... 'ck_dead_letter_replays_result')
+CHECK (((result)::text = 'SUCCEEDED'::text))
+```
+
+- `pytest tests`：**1800 收集 / 1799 passed / 1 skipped**，0 fail 0 error（JUnit 计数，exit 0）。
+  新增 50 例：查询单元 19、查询集成 12、阻塞清单 17、重放指标 1、result 约束 1。
+- `contract_check` 全 PASS（含新增第 13 项「阻塞清单」判据）。
+- `ruff` 全绿；`mypy`（CI 口径）215 文件无问题。
+
+### 9.4 边界
+
+- **不销 §5 的五项**：本节与那五项无关，读账须分开。
+- **不改历史条目**：`V205-R42-D69-IMPL` 的 `residual_risks` 第 1/2/3 条是记录当时的
+  正确表述，冻结不回改；本节是新事实。代价是台账必须串读到本条对应的新修订
+  `V205-R42-D69-RESIDUAL-CLOSURE`。
+- **不预授权**：新增只读动作是**这一次**的契约变更，不构成「以后可以随手加端点」。

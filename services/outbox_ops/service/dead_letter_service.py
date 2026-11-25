@@ -28,14 +28,31 @@ from functools import lru_cache
 from uuid import UUID, uuid4
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
-from packages.shared.outbox import DeadLetterReplayModel
+from packages.shared.outbox import (
+    DEAD_LETTER_REPLAY_SUCCEEDED,
+    DeadLetterReplayModel,
+)
 from packages.shared.paths import contract_file
 from packages.shared.yaml_strict import load_yaml_file
 from services.outbox_ops.repository.dead_letter_repo import (
+    DeadLetterSummaryRow,
     SqlAlchemyDeadLetterRepository,
 )
 
 _EVENT_CATALOG_PATH = contract_file("runtime", "event_catalog.yaml")
+
+# 游标分隔符用 "|"：ISO 时间与 UUID 都不含它，因此 split 不会歧义。
+# 不用 base64 或签名：游标里只有「上一页最后一行的 dead_lettered_at 与
+# event_id」，这两项本来就在上一页的响应里原样返回给调用方，编码不会增加任何
+# 保密性，只会让排障时要多一步解码。真正需要防的是「格式非法」——那由
+# decode_cursor 显式拒绝。
+_CURSOR_SEPARATOR = "|"
+
+# 单页上限。上限存在不是为了防"大响应"，而是因为死信是人工处置队列：
+# 一次拉 1000 条没人会逐条看，反而掩盖「积压量级」这件事——积压量级应该由
+# 指标回答（outbox_relay_dead），列表回答的是「这一批具体是谁」。
+MAX_PAGE_SIZE = 200
+DEFAULT_PAGE_SIZE = 50
 
 
 @lru_cache(maxsize=1)
@@ -67,6 +84,104 @@ class ReplayResult:
     event_type: str
     attempts_before: int
     dead_lettered_at_before: datetime
+
+
+@dataclass(frozen=True)
+class DeadLetterPage:
+    """一页死信（``next_cursor`` 为空表示后面没有了）。"""
+
+    items: tuple[DeadLetterSummaryRow, ...]
+    next_cursor: str | None
+
+
+def encode_cursor(dead_lettered_at: datetime, event_id: UUID) -> str:
+    """把「上一页最后一行」编码成游标。"""
+    return f"{dead_lettered_at.isoformat()}{_CURSOR_SEPARATOR}{event_id}"
+
+
+def decode_cursor(raw: str) -> tuple[datetime, UUID]:
+    """解析游标；非法游标按请求参数错误拒绝（422），不吞成 500 或空页。
+
+    为什么必须校验到「带时区」这一层：``datetime.fromisoformat`` 也接受
+    ``2026-11-25T06:00:00``（无时区）。拿一个 naive 时间与 timestamptz 比较，
+    PG 会按服务器时区解释——同一份游标在不同部署里指向不同的行，翻页会静默
+    跳行。宁可拒绝，也不要一个"看起来能用、偶尔漏一条"的分页。
+    """
+    at_text, separator, event_text = raw.partition(_CURSOR_SEPARATOR)
+    if not separator:
+        raise DomainError(
+            ErrorRegistry.VALIDATION_ERROR,
+            detail=f"cursor 格式非法（应为 <dead_lettered_at>|<event_id>）: {raw!r}",
+        )
+    try:
+        dead_lettered_at = datetime.fromisoformat(at_text)
+    except ValueError:
+        raise DomainError(
+            ErrorRegistry.VALIDATION_ERROR,
+            detail=f"cursor 的 dead_lettered_at 不是合法时间: {at_text!r}",
+        ) from None
+    if dead_lettered_at.tzinfo is None:
+        raise DomainError(
+            ErrorRegistry.VALIDATION_ERROR,
+            detail=f"cursor 的 dead_lettered_at 必须带时区: {at_text!r}",
+        )
+    try:
+        event_id = UUID(event_text)
+    except ValueError:
+        raise DomainError(
+            ErrorRegistry.VALIDATION_ERROR,
+            detail=f"cursor 的 event_id 不是合法 UUID: {event_text!r}",
+        ) from None
+    return dead_lettered_at, event_id
+
+
+class DeadLetterQueryService:
+    """死信集合的只读查询（排障入口）。
+
+    与 :class:`DeadLetterReplayService` 分开而不是并成一个类：一个只读、一个写
+    且要判「能不能重放」，两者的权限席位、事务语义、出错方式都不同。合成一个
+    ``DeadLetterService`` 会让「这个类到底会不会改数据」无法从类型上看出来，
+    而这正是审计要能一眼回答的事。
+    """
+
+    def __init__(self, repository: SqlAlchemyDeadLetterRepository) -> None:
+        self._repository = repository
+
+    async def list_dead_letters(
+        self,
+        *,
+        tenant_id: UUID,
+        limit: int = DEFAULT_PAGE_SIZE,
+        event_type: str | None = None,
+        cursor: str | None = None,
+    ) -> DeadLetterPage:
+        """取一页死信。
+
+        不校验 ``event_type`` 是否在事件契约内：契约是**当前**登记的类型集合，
+        而库里可能存在已经下线的类型的历史死信——按契约拒绝会让人查不到自己
+        要找的东西，且报错原因与事实相反（"类型不存在"其实是"类型已下线"）。
+        过滤一个不存在的类型只是返回空页，这是正确且无歧义的。
+        """
+        if limit < 1 or limit > MAX_PAGE_SIZE:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=f"limit 必须在 1..{MAX_PAGE_SIZE} 之间: {limit}",
+            )
+        after = None if cursor is None else decode_cursor(cursor)
+        rows = await self._repository.list_dead_letters(
+            tenant_id=tenant_id,
+            fetch=limit + 1,
+            event_type=event_type,
+            after=after,
+        )
+        has_more = len(rows) > limit
+        items = rows[:limit]
+        next_cursor = (
+            encode_cursor(items[-1].dead_lettered_at, items[-1].event_id)
+            if has_more and items
+            else None
+        )
+        return DeadLetterPage(items=tuple(items), next_cursor=next_cursor)
 
 
 class DeadLetterReplayService:
@@ -139,7 +254,7 @@ class DeadLetterReplayService:
             reason=reason,
             attempts_before=row.attempts,
             dead_lettered_at_before=row.dead_lettered_at,
-            result="SUCCEEDED",
+            result=DEAD_LETTER_REPLAY_SUCCEEDED,
             failure_reason=None,
         )
         await self._repository.record(replay)
