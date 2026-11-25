@@ -2312,6 +2312,50 @@ amendments:
       - 'result 收窄为单值后，若将来真的出现多步重放（先受理、后成功/失败），必须同时加值与给出失败路径，不能只把值加回去：一个允许却不可达的值正是本轮要消灭的东西。'
       - '台账合并读成本：D69-IMPL 的 residual_risks 第 1/2/3 条仍是当时的正确表述（冻结不回改），只读那条会得出「三项都没做」的结论，必须与本条串读。'
       - '阻塞清单的完整性靠两层保障：判据只保证「引用的东西存在、状态与字段不矛盾」，不保证「没有漏登记某个新阻塞」；后者靠 tests/unit/test_verification_blocks.py 的关键 id 白名单。新增一条阻塞时两处都要改，这个成本是刻意的。'
+  - id: 'V205-R44-TC-DECISION-BLOCK-LIFT'
+    title: 'TC-1~TC-5 决策阻塞解除：ADR-R44 七项裁决签署后清单未同步（补登记 Owner 2026-11-23 裁决）'
+    retroactive: true
+    recorded_at: '2026-11-25'
+    discovered_by: 'docs/audits/2026-11-25-tc-decision-block-reconciliation.md（对账记录）、docs/adr/ADR-R44-technology-and-infrastructure-baseline.md §4 / §9.1、docs/architecture/technology-decision-matrix.md'
+    reason: >-
+      本条登记的是**清单状态同步**，不是契约变更，也不是技术裁决：不新增/删除任何 Action、
+      Schema 对象、状态机，计数仍为 108/108/99/56；不改 ADR-R44 正文，不改技术决策矩阵，
+      不改任何技术栈配置。
+      为什么标 retroactive: true：裁决发生在 2026-11-23（提交 b6ab0aa，ADR-R44 PROPOSED → DECIDED），
+      本条是 2026-11-25 对既有裁决的**补登记**。事后追认不等于当时合规，也不等于当时清单是对的——
+      事实正相反：清单在 2026-11-23 之后仍把 TC-1~TC-5 记为「等 Owner 裁定其一」，属于治理台账未同步，
+      这两天里任何依据清单判断「还有 7 条阻塞」的结论都是错的。
+      为什么可以解除：五条的 unblocks_when 写的都是「Owner 在选项中裁定其一」，而 ADR-R44 §4 的裁决栏
+      逐项落在这些选项内——TC-1 (b) 仅新流程引入 Temporal / R42 不迁；TC-2 (b) 先做 PG18.7 全链 PoC、
+      验证前继续 PG16；TC-3 (b) 独立 Valkey PoC、保留 redis-py、不切生产默认；TC-4 (a) 经现有
+      Storage Port 增量接入 S3；TC-5 (a) 独立领域与 Schema、归属链不变。解除条件是「Owner 裁定」，
+      不是「裁定后再由复核方批准」，所以阻塞在签署时即已消失。
+      解除的**只是决策层**。清单此前把两层压进一条 gap，本条把它拆开：LIFTED 条目必须带
+      lifted_scope = DECISION 与 remaining_gate，写明「仍未解除的执行门槛」及其权威出处（ADR §4 执行约束栏）。
+      现行技术栈一项未变（PG16 / Redis 7 / local:// / Outbox Saga / 无 Temporal 服务 / 无独立 Broker），
+      PoC/立项状态仍全部 NOT RUN——NOT RUN 不是 PASS，本次解除不把它变成 PASS。
+      为什么这不构成 S1 的签署证据：ADR-R44 §9.1 的签署范围原文明确列出「不在本次范围：R42 实施授权口径
+      （BOOT-01 登记的 BLOCKED 项，仍待 Owner 单独裁决）」，决策矩阵签署信息同句；P2 解除条目亦声明不覆盖。
+      三处独立证据一致，故 V-BLOCK-R42-IMPLEMENTATION-AUTH 维持 BLOCKED，一字未动。
+      为什么另立条目而不改既有条目：台账纪律是只能追加。V205-R42-D69-RESIDUAL-CLOSURE 的 reason 里
+      「8 条：blocked 7 / lifted 1」是该条登记当时的正确表述，冻结不回改；代价是台账须串读，已写入残余风险。
+    adr: 'docs/adr/ADR-R44-technology-and-infrastructure-baseline.md'
+    approved_by: 'Owner 2026-11-23 会话指令「TC-1~7 七项是最优状态就签署」，采纳 ADR-R44 七项推荐裁决（签署记录见该 ADR §9.1）。本条仅同步 TC-1~TC-5 的决策阻塞状态，不含 TC-6/TC-7（清单未登记这两项），不构成技术栈切换授权，不覆盖 R42 实施授权口径（S1）'
+    approved_at: '2026-11-23'
+    source_commits:
+      - 'b6ab0aa9f564b1efddbfad4f3ba2b753e529aa61'
+    counts_after:
+      actions: 108
+      openapi_operations: 108
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - '解除的是决策阻塞，不是执行门槛：TC-2/3/4 的 PoC 与 TC-5 的 SHOT-01 仍为 NOT RUN，切换前四道门槛（[E5] 运行证据 / 独立 ADR 修订 + Owner 签署 / 冻结清单重签 / 不与领域重构同 PR）一条未过。把本条读成「可以改生产配置」即违反 ADR-R44 §4.1。'
+      - 'remaining_gate 是索引不是权威：权威在 ADR-R44 §4 的「执行约束」栏与 §5 的 PoC 门槛。两处若出现分歧，以 ADR 为准并修正清单，不得反向用清单去改 ADR。'
+      - '台账合并读成本：V205-R42-D69-RESIDUAL-CLOSURE 的 reason 写着「8 条：blocked 7 / lifted 1」，是 2026-11-25 登记当时的正确表述，冻结不回改；只读该条会得出「仍有 7 条阻塞」。当前正确计数为 8 条：blocked 2 / lifted 6，以 verification_blocks.yaml 与对账记录为准。'
+      - '不覆盖 S1：V-BLOCK-R42-IMPLEMENTATION-AUTH 维持 BLOCKED，等 Owner 明确认可「ADR-R42 正文保持历史原文、实施状态以两份对账记录为事实源」；「有条件认可」不得被本条或 P2 条目写成无条件认可。'
+      - '不预授权未来同类条目：凡 lifted_scope = DECISION 的解除，必须在 ADR 中存在已签署的裁决栏，且 lifted_by 指到真实台账修订、lift_evidence 文档提到该 id（判据已强制）。不得以「TC 已经这么做过」为由跳过裁决直接标 LIFTED。'
+      - '引用计数不是判据：AFS-P0-FREEZE-2026-11-13-01 的「引用 17 处」口径为「git grep、只数 tracked 文件、排除写该句的文档自身」，在 cd2a7ec 上可精确复现（19-2）；HEAD 为 20 行 / 7 文件。该数字随审计增长单调上升（其中 3 行正是记录本事项带来的），故清单改登记 as_of_commit + 命令，不再用裸数字当断言。真正的缺口是「原件 0 份」。'
 
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #

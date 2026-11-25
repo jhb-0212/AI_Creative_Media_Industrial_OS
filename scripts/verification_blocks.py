@@ -19,6 +19,20 @@
 这四类问题都不会让「打开文件看一眼」变红。所以判据必须能独立运行，并且接进
 ``contract_check``——清单自己若是靠自觉维护的，它迟早会开始骗人。
 
+为什么 LIFTED 要分两层
+----------------------
+TC-1~TC-5 的裁决 2026-11-23 就签了，清单却仍记「等 Owner 裁定其一」，于是「还有
+7 条阻塞」这个当前状态错了两天。根因不是漏改状态，而是清单把「决策阻塞」与
+「执行门槛」压在同一条 gap 里：拆不开，就只剩两种写法——继续 BLOCKED（状态错），
+或标 LIFTED 而不提门槛（「已裁决」被读成「已放行」）。
+
+所以 LIFTED 必须带 ``lifted_scope``：``ALL`` 表示所缺全部补齐，``DECISION`` 表示
+只解除了决策层、必须同时给出 ``remaining_gate``。两者互为反证，写在同一条判据里，
+不会出现「状态改了、边界忘了」。
+
+``remaining_gate`` 是索引不是权威（指向 ADR 的执行约束栏），清单不复制裁决正文——
+复制出来的第二份叙述必然漂移，而漂移的叙述比没有叙述更危险。
+
 判据的设计取向：**只做可机械判定的部分**。它不评价 `gap` 写得对不对、
 `unblocks_when` 是否合理——那是复核者的事。它保证的是「这条记录指向的东西
 真实存在，且状态与字段不矛盾」。
@@ -55,7 +69,16 @@ _REQUIRED_FIELDS = (
     "unblocks_when",
     "decision_owner",
 )
-_LIFT_FIELDS = ("lifted_at", "lifted_by", "lift_evidence")
+# `lifted_scope` 与 lifted_* 同属「只有 LIFTED 才能有」的字段：BLOCKED 条目带它
+# 同样属于状态含糊，所以放进同一个元组，让两侧判据共用一份清单。
+_LIFT_FIELDS = ("lifted_at", "lifted_by", "lift_evidence", "lifted_scope")
+
+SCOPE_ALL = "ALL"
+SCOPE_DECISION = "DECISION"
+_LIFT_SCOPES = frozenset({SCOPE_ALL, SCOPE_DECISION})
+
+_GATE_FIELDS = ("summary", "source")
+_REFERENCE_FIELDS = ("as_of_commit", "command", "matched_lines", "files")
 
 
 def load_registry(path: pathlib.Path = BLOCKS_PATH) -> dict[str, Any]:
@@ -122,6 +145,79 @@ def _date_problem(label: str, raw: Any) -> str | None:
     return None
 
 
+def _gate_problems(
+    item: dict[str, Any], *, block_id: str, root: pathlib.Path
+) -> list[str]:
+    """``remaining_gate``：决策解除了，但执行门槛还在，门槛必须指得到权威条款。"""
+    gate = item.get("remaining_gate")
+    if not isinstance(gate, dict):
+        return [f"{block_id}.remaining_gate 必须是映射（summary + source）"]
+    problems: list[str] = []
+    missing = [field for field in _GATE_FIELDS if _is_blank(gate.get(field))]
+    if missing:
+        return [f"{block_id}.remaining_gate 缺少字段: {missing}"]
+    path_problem = _path_problem(
+        root, f"{block_id}.remaining_gate.source", gate.get("source")
+    )
+    if path_problem:
+        problems.append(path_problem)
+    return problems
+
+
+def _reference_problems(item: dict[str, Any], *, block_id: str) -> list[str]:
+    """``reference_baseline``：把「引用 N 处」锚定到提交 + 命令，而不是裸数字。
+
+    只做机械判定，不重算计数——重算会让「新增一份审计引用了这个 id」也变成闸门
+    失败，等于惩罚记录本身。要防的是另一种事：给出一个**不可复跑**的数字。
+    """
+    raw = item.get("reference_baseline")
+    if raw is None:
+        return []
+    if not isinstance(raw, dict):
+        return [f"{block_id}.reference_baseline 必须是映射"]
+
+    problems: list[str] = []
+    missing = [field for field in _REFERENCE_FIELDS if _is_blank(raw.get(field))]
+    if missing:
+        return [f"{block_id}.reference_baseline 缺少字段: {missing}"]
+
+    commit = raw["as_of_commit"]
+    if not isinstance(commit, str) or not commit.strip():
+        problems.append(f"{block_id}.reference_baseline.as_of_commit 必须是非空字符串")
+    elif not all(char in "0123456789abcdef" for char in commit.strip()):
+        problems.append(
+            f"{block_id}.reference_baseline.as_of_commit 不是提交哈希: {commit!r}"
+        )
+
+    counts: dict[str, int] = {}
+    for name in ("matched_lines", "files"):
+        value = raw.get(name)
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            problems.append(
+                f"{block_id}.reference_baseline.{name} 必须是正整数，实际 {value!r}"
+            )
+        else:
+            counts[name] = value
+    if (
+        "matched_lines" in counts
+        and "files" in counts
+        and counts["files"] > counts["matched_lines"]
+    ):
+        problems.append(
+            f"{block_id}.reference_baseline: 命中文件数 {counts['files']} 大于命中行数 "
+            f"{counts['matched_lines']}，口径不可能成立"
+        )
+
+    command = str(raw["command"])
+    if isinstance(commit, str) and commit.strip() not in command:
+        problems.append(
+            f"{block_id}.reference_baseline.command 没有锚定到 as_of_commit "
+            f"{commit!r}：对工作区直接 grep 会数进未跟踪副本与测试产物，"
+            "换个时间换个目录跑出的数就不一样（17 / 20 / 23 / 25 就是这么来的）"
+        )
+    return problems
+
+
 def _lift_problems(
     item: dict[str, Any],
     *,
@@ -156,7 +252,43 @@ def _lift_problems(
                 f"lift_evidence 文档 {evidence} 中找不到裁决 id {lifted_by}："
                 "两处指针必须互为凭据，否则会出现「有裁决无记录」或「有记录无裁决」"
             )
+
+    problems.extend(
+        _scope_problems(item, block_id=str(item["id"]), root=root)
+    )
     return problems
+
+
+def _scope_problems(
+    item: dict[str, Any], *, block_id: str, root: pathlib.Path
+) -> list[str]:
+    """解除到哪一层：ALL 与 DECISION 的字段搭配互为反证。
+
+    这一对规则是本文件最核心的防呆。缺了它，TC-1~TC-5 只能二选一：
+    继续标 BLOCKED（当前状态是错的），或者标 LIFTED 而不说执行门槛还在
+    （「已裁决」被读成「已放行」）。两种错都真实发生过。
+    """
+    scope = item.get("lifted_scope")
+    if scope not in _LIFT_SCOPES:
+        return [
+            f"{block_id}.lifted_scope 非法: {scope!r}（应为 {sorted(_LIFT_SCOPES)}）："
+            "解除必须说清解除到哪一层，否则读者只能自己猜"
+        ]
+
+    if scope == SCOPE_DECISION:
+        if _is_blank(item.get("remaining_gate")):
+            return [
+                f"{block_id} 标为 DECISION（决策层解除）却未写 remaining_gate："
+                "这会被读成「整件事都放行了」，而 PoC/切换门槛通常一条都没过"
+            ]
+        return _gate_problems(item, block_id=block_id, root=root)
+
+    if "remaining_gate" in item:
+        return [
+            f"{block_id} 标为 ALL（全部解除）却带着 remaining_gate："
+            "状态自相矛盾——门槛还在就不是全部解除，应改为 DECISION"
+        ]
+    return []
 
 
 def check_registry(
@@ -213,6 +345,8 @@ def check_registry(
 
         present_lift = [f for f in _LIFT_FIELDS if not _is_blank(item.get(f))]
         if status == BLOCKED:
+            if "remaining_gate" in item:
+                present_lift.append("remaining_gate")
             if present_lift:
                 problems.append(
                     f"{block_id} 状态为 BLOCKED 却带着解除字段 {present_lift}："
@@ -222,6 +356,8 @@ def check_registry(
             problems.extend(
                 _lift_problems(item, root=root, amendment_ids=amendment_ids)
             )
+
+        problems.extend(_reference_problems(item, block_id=block_id))
 
     declared = registry.get("counts")
     if not isinstance(declared, dict):
@@ -240,16 +376,24 @@ def check_registry(
 
 
 def render_table(registry: dict[str, Any]) -> str:
-    """人读视图：一行一条，解除的标注裁决 id。"""
+    """人读视图：一行一条，解除的标注裁决 id，并区分解除到哪一层。"""
     lines = [f"{'ID':<34} {'STATUS':<8} TITLE"]
     for item in entries(registry):
         status = str(item.get("status"))
-        suffix = f"  ← lifted by {item.get('lifted_by')}" if status == LIFTED else ""
+        suffix = ""
+        if status == LIFTED:
+            suffix = f"  ← lifted by {item.get('lifted_by')}"
+            if item.get("lifted_scope") == SCOPE_DECISION:
+                suffix += "（决策已解除，执行门槛仍在）"
         lines.append(f"{item.get('id')!s:<34} {status:<8} {item.get('title')}{suffix}")
     counts = registry.get("counts") or {}
     lines.append(
         f"\n合计 {counts.get('total')} 条：blocked {counts.get('blocked')} / "
         f"lifted {counts.get('lifted')}"
+    )
+    lines.append(
+        "读法：BLOCKED = 还在等决定；LIFTED(DECISION) = 决定已下但执行门槛未解除；"
+        "LIFTED(ALL) = 所缺的全部补齐。三者不可互相替代。"
     )
     return "\n".join(lines)
 
@@ -296,7 +440,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  解除条件: {str(item.get('unblocks_when')).strip()}")
         print(f"  裁决人: {item.get('decision_owner')}")
         if str(item.get("status")) == LIFTED:
-            print(f"  解除: {item.get('lifted_at')} / {item.get('lifted_by')}")
+            print(
+                f"  解除: {item.get('lifted_at')} / {item.get('lifted_by')}"
+                f" / scope={item.get('lifted_scope')}"
+            )
+            gate = item.get("remaining_gate")
+            if isinstance(gate, dict) and not _is_blank(gate.get("summary")):
+                print(f"  执行门槛（未解除）: {str(gate.get('summary')).strip()}")
+                print(f"    权威出处: {gate.get('source')}（本行是索引，以该文件为准）")
         print()
     return 0
 
