@@ -65,6 +65,7 @@ blocks:
     evidence:
       - 'docs/audits/2026-11-22-phase0-independent-review.md'
       - 'docs/audits/2026-11-25-tc-decision-block-reconciliation.md'
+      - 'docs/audits/2026-11-25-freeze-resolution-origin-investigation.md'
     reference_baseline:
       as_of_commit: '57bcc46'
       command: 'git grep -c "AFS-P0-FREEZE-2026-11-13-01" 57bcc46'
@@ -74,6 +75,11 @@ blocks:
       决议 AFS-P0-FREEZE-2026-11-13-01 被当作最高权威反复引用，但仓库内没有任何
       同名原件；至今仍是「引用多于实体」。技术整改无法填补这个缺口——哈希一致只
       证明文件没被改，不证明人已批准。
+      2026-11-25 调查（见 evidence 第 3 项）在仓库父目录找到候选原件与两份配套件，
+      证物链自洽、与仓库契约状态吻合；但**它仍未入仓、也未由 Owner 指定为权威**。
+      「找到」不等于「解除」：清单的解除条件是一条治理决定，不是一次检索结果。
+      另有一项不可复核：决议自称封存的基线为 468816 字节 / sha256 66ec66d8…，该文件
+      在本机与 git 全历史中均不存在，故「2026-11-13 冻结哈希」这条链无法重算。
       标题此前写「引用 17 处」，那个数在当时的口径下没错（git grep、只数 tracked
       文件、排除写该句的文档自身，在 cd2a7ec 上 19-2=17 可精确复现），但没有写下
       前提，于是后续被读成「17 是当前值」并与其他口径（20 / 23 / 25）互相矛盾。
