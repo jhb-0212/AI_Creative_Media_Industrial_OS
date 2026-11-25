@@ -40,14 +40,14 @@ _REQUIRED_IDS = (
 )
 
 # 必须仍然是 BLOCKED 的条目：把状态改成 LIFTED 同样要显式改这里。
-# 只列这两条——TC-1~TC-5 的裁决 2026-11-23 已签，它们已在清单里 LIFTED(DECISION)。
+# 只列 S1 这一条——TC-1~TC-5 的裁决 2026-11-23 已签（LIFTED + DECISION）；
+# 原始冻结决议于 2026-11-25 入仓并登记（LIFTED + ALL，台账
+# V205-P0-FREEZE-RESOLUTION-REGISTER）。两次解除都是从这份白名单里**显式**删掉的，
+# 不是靠改断言口径绕过的。
 # 「存在性」与「仍是阻塞」分开断言，是因为 2026-11-25 之前这两件事被混在一条
 # 断言里：一旦某条合法解除，就只能整条从白名单删掉，随后「它还在清单里」这件事
 # 就再也没人检查了。
-_MUST_STAY_BLOCKED = (
-    "V-BLOCK-ORIGINAL-FREEZE-RESOLUTION",
-    "V-BLOCK-R42-IMPLEMENTATION-AUTH",
-)
+_MUST_STAY_BLOCKED = ("V-BLOCK-R42-IMPLEMENTATION-AUTH",)
 
 
 def _block(**overrides: Any) -> dict[str, Any]:

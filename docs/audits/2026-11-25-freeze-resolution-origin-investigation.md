@@ -99,7 +99,10 @@
 保持 `BLOCKED`。这是当前状态，不是失败——但下一次对外表述仍须写「条件通过、原件不在仓库」，
 不得因为「我们其实找到过」就省略。
 
-## 6. 本记录不改变什么
+## 6. 本记录落纸时（2026-11-25 下午，尚待裁决）不改变什么
+
+> 本节是**落纸当时**的状态，同日下午已由 §8 更新。保留原文是为了让「先取证、后裁决」
+> 这个顺序可核对——不是先改了状态再补理由。
 
 - 清单状态：仍 `BLOCKED`，`unblocks_when` 一字未改；
 - 仓库内容：**没有复制任何文件入仓**，`docs/baseline/` 仍只有基线本体；
@@ -122,3 +125,50 @@ find . -type f -size 468816c
 # C1—C3 关闭证据（八个对象均应有字段）
 python -c "import json;d=json.load(open('contracts/schemas/object_schemas.schema.json',encoding='utf-8'));print({k:len(v.get('properties',{})) for k,v in (d.get('$defs') or d.get('definitions')).items() if k in {'ConstraintPack','CameraRig','BlockingAsset','ReworkTask','CreatorWorkspace','CreatorGate','CreatorPublicationCheck','CreatorRelease'}})"
 ```
+
+## 8. Owner 裁决与执行（2026-11-25 下午）
+
+Owner 选择**路径 A**：入仓并登记冻结面；对「决议自称封存的基线」选择**如实记录为不可复核**。
+裁决登记为台账修订 **`V205-P0-FREEZE-RESOLUTION-REGISTER`**（`retroactive: true`，
+`approved_at` 取决议日 2026-11-13、`recorded_at` 取 2026-11-25，`source_commits` 指向入仓提交
+`f7c172f`）。
+
+执行分两段，顺序不能反（台账的 `source_commits` 不能指向自身哈希）：
+
+1. **入仓与登记**（`f7c172f`）：原件逐字节复制为 `docs/baseline/Phase0-冻结评审决议.md`
+   （21327 字节 / `05eb0c99…`，与仓外原件同哈希，暂存区字节实测一致）；
+   `frozen_inventory.yaml` 新增 `attachments` 段；`freeze_manifest.py` 新增附件层，
+   `--check` 现在要求「文件存在 + 字节哈希一致 + 清单里登着它」三条同时成立；
+   清单重签，新增「冻结附件（治理文件）」段。
+2. **解除登记**（本条）：台账条目 `V205-P0-FREEZE-RESOLUTION-REGISTER`；清单
+   `V-BLOCK-ORIGINAL-FREEZE-RESOLUTION` 改 `LIFTED` + `lifted_scope: ALL`。
+
+### 8.1 为什么登记为「附件」而不是第十二类
+
+`31.11` 的十一类是**契约产物**，其名称全集要参与「基线 ∪ 修订 == 实际」的判定。把决议塞进去，
+会把十一类变成十二类，并让名称全集判定开始吃进非契约文件——判定一旦混入不同性质的对象，
+它给出的绿就不再指向同一件事。附件层只锁字节与哈希，不参与名称全集，两件事各归各位。
+
+### 8.2 解除的边界（读出这四个字才算读懂本条）
+
+- 解除的是「**原件不在工程证据链里**」。原件现在在仓库里，任何 clone 都能核验其字节；
+- **不是**「当初冻结的那一版仍可复核」：468816 字节 / `66ec66d8…` 那一版在本机与 git 全历史
+  中都不存在，这条哈希链无法重算，且不随解除消失；
+- **不是**「决议有密码学证明」：入仓件是纯 Markdown、无数字签名，能证明的只有「与 owner
+  确认过的那一版字节一致」；
+- **不是**「以后任何文件都能自称原件入仓」：入仓须由 Owner 指定，且文件本身要能指到签署栏。
+
+### 8.3 计数与取代关系
+
+清单计数由 **8 条：blocked 2 / lifted 6** 变为 **8 条：blocked 1 / lifted 7**。
+同日两份记录各自标注时点，串读顺序：
+
+| 记录 | 时点 | 当时计数 |
+|---|---|---|
+| `2026-11-25-tc-decision-block-reconciliation.md` §7 | 上午（TC-1~TC-5 解除后） | blocked 2 / lifted 6 |
+| 本记录 §8 | 下午（原件入仓后） | blocked 1 / lifted 7 |
+
+仍阻塞的只剩 `V-BLOCK-R42-IMPLEMENTATION-AUTH`（S1）：它等的是 Owner 对实施授权口径的
+明确认可，不是文件。两者不可互相替代——「原件找到了」不构成 S1 的证据，正如「TC 已裁决」
+也不构成。
+

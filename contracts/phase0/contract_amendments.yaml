@@ -2357,6 +2357,44 @@ amendments:
       - '不预授权未来同类条目：凡 lifted_scope = DECISION 的解除，必须在 ADR 中存在已签署的裁决栏，且 lifted_by 指到真实台账修订、lift_evidence 文档提到该 id（判据已强制）。不得以「TC 已经这么做过」为由跳过裁决直接标 LIFTED。'
       - '引用计数不是判据：AFS-P0-FREEZE-2026-11-13-01 的「引用 17 处」口径为「git grep、只数 tracked 文件、排除写该句的文档自身」，在 cd2a7ec 上可精确复现（19-2）；HEAD 为 20 行 / 7 文件。该数字随审计增长单调上升（其中 3 行正是记录本事项带来的），故清单改登记 as_of_commit + 命令，不再用裸数字当断言。真正的缺口是「原件 0 份」。'
 
+  - id: 'V205-P0-FREEZE-RESOLUTION-REGISTER'
+    title: '原始冻结决议入仓：AFS-P0-FREEZE-2026-11-13-01 登记为冻结附件，[V-BLOCKED] 解除（Owner 选路径 A）'
+    retroactive: true
+    recorded_at: '2026-11-25'
+    discovered_by: 'docs/audits/2026-11-25-freeze-resolution-origin-investigation.md §2（证物清单与指纹）、§3（与仓库证据对照）'
+    reason: >-
+      本条登记的是**入仓与状态变更**，不是契约变更：不新增/删除任何 Action、Schema 对象、状态机，
+      计数仍为 108/108/99/56；不改基线正文，不改十一类产物，冻结面新增的只是一份治理附件。
+      原件此前并非不存在，而是从未入仓：它一直在仓库父目录（项目工作区），游离于版本控制之外，
+      于是「引用 20 处、原件 0 份」。本条的落地动作是把该文件逐字节复制进
+      docs/baseline/Phase0-冻结评审决议.md（21327 字节，sha256 05eb0c99…），并在
+      frozen_inventory.yaml 的 attachments 段登记，由 freeze_manifest 逐次复核。
+      为什么标 retroactive: true：决议签署于 2026-11-13（项目 owner 敬宏波，签署栏确认 C1—C4
+      当日关闭），本条是 2026-11-25 的补登记。补登记不等于当时合规——事实是这份决议在项目管理上
+      一直有效，但在工程证据链上是缺席的：任何 clone 仓库的人都无法核验它。
+      为什么登记为「附件」而不是塞进十一类：31.11 的十一类是契约产物，其名称全集要参与
+      「基线 ∪ 修订 == 实际」的判定；把决议塞进去会把十一类变成十二类，并让名称全集开始吃进
+      非契约文件。附件层只锁字节与哈希，不参与名称全集。
+      解除的范围写死：只解 V-BLOCK-ORIGINAL-FREEZE-RESOLUTION 一项。S1（R42 实施授权口径）
+      与其它 [V-BLOCKED] 各有裁决路径，本条一字未涉；也不构成「以后任何文件都能自称原件入仓」
+      的先例——入仓必须由 Owner 指定，且必须能指到签署栏。
+    adr: 'docs/baseline/Phase0-冻结评审决议.md'
+    approved_by: 'Owner 2026-11-25 选择处置路径 A（入仓并登记冻结面）；决议本身的签署为项目 owner 敬宏波 2026-11-13（见该件第八节签署栏）。本条只把既有签署件纳入工程证据链，不新增任何技术或业务授权'
+    approved_at: '2026-11-13'
+    source_commits:
+      - 'f7c172fa09f488a7c9cb46758d349f48484489b8'
+    counts_after:
+      actions: 108
+      openapi_operations: 108
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - '决议自称封存的基线（468816 字节 / sha256 66ec66d8…）在本机与 git 全历史中均已不存在，2026-11-13 的冻结哈希链无法重算。本条只锁「决议正文未变」，不得被读成「当初冻结的产物仍可复核」。'
+      - '入仓件与原件同哈希，但两者都不带数字签名：能证明「与 owner 确认过的那一版一致」的只有签署栏文字与旁证（三份配套件时间序列、与仓库契约状态吻合）。要密码学证明须另做签署件摘要存证，本轮未做。'
+      - '附件不是 append-only 保护对象：attachments 段被改动时 --check 会红，但它挡不住「同时改文件、改登记、重签清单」的连贯操作。真正拦这类事的是 code review 与 Owner 裁决，不是闸门。'
+      - '台账合并读成本：V205-R42-D69-RESIDUAL-CLOSURE 的 reason 与 V205-R44-TC-DECISION-BLOCK-LIFT 的 reason 均写于本条之前，其中的「blocked 7 / lifted 1」「blocked 2 / lifted 6」是各自登记当时的正确表述，冻结不回改；当前正确计数以 verification_blocks.yaml 为准。'
+      - '同日两次解除（上午 TC-1~TC-5、下午本项）会让 2026-11-25 的对账记录出现三种计数。各记录都已标注其时点，串读顺序为：TC 对账记录 §7（blocked 2/lifted 6）→ 原件调查记录 §8（blocked 1/lifted 7）。'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——

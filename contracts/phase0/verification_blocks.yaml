@@ -54,12 +54,12 @@ version: 1
 registry_version: '2026-11-25'
 counts:
   total: 8
-  blocked: 2
-  lifted: 6
+  blocked: 1
+  lifted: 7
 blocks:
   - id: 'V-BLOCK-ORIGINAL-FREEZE-RESOLUTION'
     title: '原始冻结决议原件缺失（多处引用、原件 0 份）'
-    status: 'BLOCKED'
+    status: 'LIFTED'
     raised_by: 'docs/audits/2026-11-22-phase0-independent-review.md'
     raised_at: '2026-11-22'
     evidence:
@@ -75,20 +75,27 @@ blocks:
       决议 AFS-P0-FREEZE-2026-11-13-01 被当作最高权威反复引用，但仓库内没有任何
       同名原件；至今仍是「引用多于实体」。技术整改无法填补这个缺口——哈希一致只
       证明文件没被改，不证明人已批准。
-      2026-11-25 调查（见 evidence 第 3 项）在仓库父目录找到候选原件与两份配套件，
-      证物链自洽、与仓库契约状态吻合；但**它仍未入仓、也未由 Owner 指定为权威**。
-      「找到」不等于「解除」：清单的解除条件是一条治理决定，不是一次检索结果。
-      另有一项不可复核：决议自称封存的基线为 468816 字节 / sha256 66ec66d8…，该文件
-      在本机与 git 全历史中均不存在，故「2026-11-13 冻结哈希」这条链无法重算。
+      2026-11-25 调查（见 evidence 第 3 项）在仓库父目录找到原件与两份配套件，证物链
+      自洽、与仓库契约状态吻合；当日 Owner 选择路径 A（入仓并登记冻结面），原件已逐字节
+      入仓为 docs/baseline/Phase0-冻结评审决议.md（21327 字节 / sha256 05eb0c99…），
+      并登记于 frozen_inventory.yaml 的 attachments 段，由 freeze_manifest 逐次复核。
+      **解除的是「原件不在工程证据链里」，不是「当初冻结的那一版仍可复核」**：决议自称
+      封存的基线为 468816 字节 / sha256 66ec66d8…，该文件在本机与 git 全历史中均不存在，
+      故「2026-11-13 冻结哈希」这条链无法重算。这条限制不随解除消失。
       标题此前写「引用 17 处」，那个数在当时的口径下没错（git grep、只数 tracked
       文件、排除写该句的文档自身，在 cd2a7ec 上 19-2=17 可精确复现），但没有写下
       前提，于是后续被读成「17 是当前值」并与其他口径（20 / 23 / 25）互相矛盾。
       口径与逐文件分解见对账记录 §6；本条目改为登记 as_of_commit + 命令，不再用
-      裸数字当断言。真正的缺口是「原件 0 份」，那个数不随谁写文档而变化。
+      裸数字当断言。
     unblocks_when: >-
-      Owner 提供决议原件（或其正式副本）并登记进冻结清单，或在审计记录中明确
-      「以项目外存档为权威、仓库内不再持有原件」并给出可核验的存档凭据。
+      已满足（路径 A）：Owner 于 2026-11-25 选择「入仓并登记冻结面」，原件已入仓
+      docs/baseline/Phase0-冻结评审决议.md 并登记进 phase0_manifest 的冻结附件段；
+      另一条路径（以项目外存档为权威）未被采用。
     decision_owner: 'Owner'
+    lifted_at: '2026-11-25'
+    lifted_by: 'V205-P0-FREEZE-RESOLUTION-REGISTER'
+    lift_evidence: 'docs/audits/2026-11-25-freeze-resolution-origin-investigation.md'
+    lifted_scope: 'ALL'
 
   - id: 'V-BLOCK-R42-IMPLEMENTATION-AUTH'
     title: 'R42 实施是否获单独授权 / S1 事实源口径待 Owner 认可'
