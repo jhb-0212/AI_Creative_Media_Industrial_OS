@@ -387,6 +387,6 @@ debt:
     reason: "分区按月动态创建，静态文件无法枚举；FORCE RLS 下无策略 = 零行（fail-closed，但功能不可用）"
     unblocks_when: "partition_guard 从本文件的 outbox 策略派生新分区策略（单事实源），而非在矩阵里再列一遍"
   - id: AUTHZ-7
-    what: "迁移执行身份仍是超级用户（CI 与本地统一为 postgres）"
-    reason: "PG16 实测：非超级用户 + CREATEROLE 在第一条角色收敛语句（ALTER ROLE app_role）即 permission denied——PG16 取消了对既有角色的隐式 ADMIN。要让 afs_migrator 顶替，必须给它对全部运行时角色的 ADMIN，等于把「超级用户」换成「可自授任意角色」，权限面没有变小"
-    unblocks_when: "迁移改为「角色创建与运行时授权分离」（bootstrap 脚本持 ADMIN，迁移只做 DDL）后，CI 再切非超级用户执行者"
+    what: "迁移执行者仍是 postgres 超级用户（2026-11-27 复核：不变；已裁定不在本分支关闭）"
+    reason: "两条实测叠在一起：①PG16 上非超管 + CREATEROLE 在第一条 ALTER ROLE 即 permission denied（PG16 取消了隐式 ADMIN），要让 afs_migrator 顶替就得给它对全部运行时角色的 ADMIN，等于用「可自授任意角色」换掉「超级用户」，权限面没变小；②角色与授权 DDL 分散在 23 个历史迁移里（8f3b2c1d4e5a 一个文件 43 处），clean install 依赖它们按序执行。把角色 DDL 抽到 bootstrap 必须重写整条链与对应 downgrade，再重算授权回放的期望集——那是「重建时间胶囊」，不是功能分支里能顺手做的事。当前的控制手段是：超管只存在于 CI/部署侧，应用侧一律非超管且启动期由 verify_rls_enforcement 断言 rolsuper=f / rolbypassrls=f"
+    unblocks_when: "独立分支「重建迁移链」：bootstrap 脚本持 ADMIN 建角色与授权（声明来自 db_roles / db_grants），历史迁移改写为纯结构 DDL，CI 以非超管执行 upgrade→downgrade→upgrade 往返并全绿。触发条件：一旦出现「非 CI 人员持有超管口令」的部署面，本条按 P0 处理，不再挂账"
