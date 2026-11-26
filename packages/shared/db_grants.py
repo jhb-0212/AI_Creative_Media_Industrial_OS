@@ -37,6 +37,7 @@ N-06 的表面现象是「``project_planning_role`` 持有契约里不存在的 
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 # 业务域键 == schema 名（DATA-1：一域一角色一 schema）。顺序即 db_roles 的
@@ -598,15 +599,23 @@ def referenced_schemas(domain: str) -> tuple[str, ...]:
     return tuple(sorted({grant.schema for grant in DOMAIN_GRANTS[domain]}))
 
 
-def schema_usage_statements(role: str, domain: str) -> list[str]:
+def schema_usage_statements(
+    role: str, domain: str, *, schemas: Sequence[str] | None = None
+) -> list[str]:
     """该域角色需要的 ``GRANT USAGE ON SCHEMA`` 全集（由 :func:`referenced_schemas` 派生）。
 
     单独成函数供两处调用：``converge_statements``（迁移与断言）与补 USAGE 的
     修复迁移。两处共用同一份派生，避免「迁移补了 A、断言要求 B」这种第二次分裂。
+
+    ``schemas`` 是**历史迁移的冻结范围**。迁移是时间胶囊：它执行时的库还没有
+    后来才出现的 schema（如 ``qc_maintenance``），按今天的派生结果去 GRANT 会在
+    clean install 上直接失败（``schema does not exist``），而已升级的库又不会
+    重跑那条迁移。不传表示按当前矩阵派生（断言 / 初始化）。
     """
+    selected = referenced_schemas(domain) if schemas is None else tuple(schemas)
     return [
         f"GRANT USAGE ON SCHEMA {schema} TO {role}"
-        for schema in referenced_schemas(domain)
+        for schema in selected
     ]
 
 
@@ -704,11 +713,25 @@ def converge_statements(
     不撤销就等于把同一个根因留给「下一次建表」（``8f3b2c1d4e5a`` 曾给域角色
     授了 ``SELECT, INSERT, UPDATE, DELETE`` 的默认权限，而 ``b7c8d9e0f1a2``
     的「默认零授权」只覆盖了 app_role——旧机制在新角色上复发）。
+
+    ``tables`` 不仅决定对哪些表 REVOKE/GRANT，也决定为哪些 schema 补 USAGE：
+    同一个快照必须同时约束两者，否则历史迁移仍会按**今天的**矩阵对一个尚未
+    创建的 schema 发 ``GRANT USAGE``——clean install 在第一句就失败，而已升级
+    的库不会重跑该迁移，于是这个缺口只在「从零建库」时才暴露。
     """
+    selected_grants = tuple(
+        grant for grant in DOMAIN_GRANTS[domain]
+        if tables is None or grant.table in tables
+    )
+    usage = (
+        referenced_schemas(domain)
+        if tables is None
+        else tuple(sorted({grant.schema for grant in selected_grants}))
+    )
     return _grants_converge(
         role,
         DOMAIN_GRANTS[domain],
-        usage_schemas=referenced_schemas(domain),
+        usage_schemas=usage,
         tables=tables,
         default_privilege_schemas=DOMAINS,
     )
@@ -961,8 +984,12 @@ MAINTENANCE_SESSION = f"{MAINTENANCE_SCHEMA}.assert_session_member()"
 MAINTENANCE_ENUMERATE = f"{MAINTENANCE_SCHEMA}.enumerate_due_tasks()"
 MAINTENANCE_DETECT = f"{MAINTENANCE_SCHEMA}.detect_projection_anomalies()"
 MAINTENANCE_RECONCILE = f"{MAINTENANCE_SCHEMA}.reconcile_tenant_tasks(text)"
-MAINTENANCE_DENIAL = f"{MAINTENANCE_SCHEMA}.record_maintenance_denial(text, text, text)"
+MAINTENANCE_DENIAL = (
+    f"{MAINTENANCE_SCHEMA}.record_maintenance_denial(text, text, text, text, text)"
+)
+MAINTENANCE_REPAIR = f"{MAINTENANCE_SCHEMA}.repair_tenant_task(text, text, text)"
 MAINTENANCE_HELPER = f"{MAINTENANCE_SCHEMA}._projection_anomalies(uuid)"
+MAINTENANCE_MAINTAIN_SINCE = 170000
 SECDEF_SIGNATURE = "audit.assert_signature_event_exists()"
 
 # 白名单：维护身份**只能**经这些函数触达数据库，且函数数量本身就是边界——
@@ -1050,6 +1077,58 @@ def maintenance_command_statements() -> list[str]:
     return statements
 
 
+def maintenance_repair_statements(
+    server_version_num: int = 160000,
+) -> list[str]:
+    """修复命令的授权面：**按 PostgreSQL 版本取锁权限**（WP-A.2）。
+
+    修复事务要在读 ``qc_tasks`` 之前取 ``SHARE ROW EXCLUSIVE``（它能挡住普通
+    INSERT/UPDATE/DELETE，而 ``ACCESS SHARE`` 挡不住）。PG 的锁权限规则意味着
+    这句话在 PG16 上没有「只给锁、不给写」的选项：
+
+    * **PG17+**：``MAINTAIN`` 允许 ``LOCK TABLE`` 且不授予 DML。采用。
+    * **PG16**：只能用 ``UPDATE``。这是**兼容性例外**——``UPDATE`` 真的给了
+      owner 改写源表的能力，``NOLOGIN`` 不能把它变成「锁专用权限」。这条风险
+      必须如实记录，不能宣称数据库已验证「UPDATE 只用于加锁」。
+
+    版本分支用参数而不是读环境：迁移从活库取 ``server_version_num`` 传入，闸门
+    回放时取不到就用最低支持版本（160000），两侧因此是同一份声明、同一份输出。
+    """
+    from packages.shared.db_roles import maintenance_role
+
+    owner = maintenance_role("owner")
+    operator = maintenance_role("operator")
+    login = maintenance_role("login")
+    statements: list[str] = []
+    if server_version_num >= MAINTENANCE_MAINTAIN_SINCE:
+        statements.append(
+            f"GRANT MAINTAIN ON TABLE {QC_GOVERNANCE}.qc_tasks TO {owner}"
+        )
+        # 幂等收紧：先前的 PG16 部署升到 PG17 后，残留的 UPDATE 必须收回，
+        # 否则「升级即降权」只是纸面结论。
+        statements.append(
+            f"REVOKE UPDATE ON TABLE {QC_GOVERNANCE}.qc_tasks FROM {owner}"
+        )
+    else:
+        statements.append(f"GRANT UPDATE ON TABLE {QC_GOVERNANCE}.qc_tasks TO {owner}")
+    statements.append(f"REVOKE ALL ON FUNCTION {MAINTENANCE_REPAIR} FROM PUBLIC")
+    statements.append(f"GRANT EXECUTE ON FUNCTION {MAINTENANCE_REPAIR} TO {operator}")
+    statements.append(f"GRANT EXECUTE ON FUNCTION {MAINTENANCE_REPAIR} TO {login}")
+    return statements
+
+
+def maintenance_repair_restore_statements(
+    server_version_num: int = 160000,
+) -> list[str]:
+    """``dowdown`` 用：撤回修复命令的锁权限（回滚必须归还能力）。"""
+    from packages.shared.db_roles import maintenance_role
+
+    owner = maintenance_role("owner")
+    if server_version_num >= MAINTENANCE_MAINTAIN_SINCE:
+        return [f"REVOKE MAINTAIN ON TABLE {QC_GOVERNANCE}.qc_tasks FROM {owner}"]
+    return [f"REVOKE UPDATE ON TABLE {QC_GOVERNANCE}.qc_tasks FROM {owner}"]
+
+
 def maintenance_identity_restore_statements() -> list[str]:
     """``downgrade`` 用：把被 WP-03 收紧的 PUBLIC 执行权放回原状。
 
@@ -1073,7 +1152,9 @@ __all__ = [
     "MAINTENANCE_ENUMERATE",
     "MAINTENANCE_GUARD",
     "MAINTENANCE_HELPER",
+    "MAINTENANCE_MAINTAIN_SINCE",
     "MAINTENANCE_RECONCILE",
+    "MAINTENANCE_REPAIR",
     "MAINTENANCE_SCHEMA",
     "MAINTENANCE_SESSION",
     "OUTBOX_OPS",
@@ -1094,6 +1175,8 @@ __all__ = [
     "maintenance_identity_restore_statements",
     "maintenance_identity_statements",
     "maintenance_membership_statements",
+    "maintenance_repair_restore_statements",
+    "maintenance_repair_statements",
     "validate_infra_matrix",
     "validate_matrix",
 ]

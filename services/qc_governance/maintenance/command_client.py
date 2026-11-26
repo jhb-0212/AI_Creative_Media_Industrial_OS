@@ -48,18 +48,13 @@ class MaintenanceCommandClient:
     """
 
     RECONCILE = "reconcile_tenant_tasks"
+    REPAIR = "repair_tenant_task"
 
     def __init__(
         self, engine: AsyncEngine, *, logger: logging.Logger | None = None
     ) -> None:
         self._engine = engine
         self._logger = logger
-        self._known_reasons = {
-            "work_order_not_found",
-            "kind_mismatch",
-            "not_approved",
-            "session_mismatch",
-        }
 
     # ------------------------------------------------------------------ #
     # 对外入口
@@ -91,6 +86,29 @@ class MaintenanceCommandClient:
             attempt_id=attempt_id,
         )
 
+    async def repair_task(
+        self, work_order_id: str, task_id: str, *, attempt_id: str
+    ) -> MaintenanceCallResult:
+        """在工单授权范围内原子修复单个任务的投影。
+
+        失败区分两类：工单/授权判定属于 ``DENIED``（策略不允许），执行期错误属于
+        ``FAILED``。两类都由适配层在回滚后另开事务补记——修复命令自己无法在
+        回滚的事务里留下失败行。
+        """
+        return await self._run(
+            sql=(
+                f"SELECT * FROM qc_maintenance.{self.REPAIR}"
+                "(:work_order_id, :task_id, :attempt_id)"
+            ),
+            params={
+                "work_order_id": work_order_id,
+                "task_id": task_id,
+                "attempt_id": attempt_id,
+            },
+            work_order_id=work_order_id,
+            attempt_id=attempt_id,
+        )
+
     # ------------------------------------------------------------------ #
     # 协议实现
     # ------------------------------------------------------------------ #
@@ -111,17 +129,29 @@ class MaintenanceCommandClient:
             # 事务已随上下文管理器回滚。这里**不能**复用那个连接补记：它可能仍
             # 处于 aborted 状态；更关键的是，复用会把「失败事务」和「账本写入」
             # 重新绑成同一个原子单元，正好破坏补记要的独立性。
-            reason = classify_denial(error, self._known_reasons)
-            recorded = await self._record_denial(work_order_id, reason, attempt_id)
+            reason = classify_denial(error)
+            recorded = await self._record_denial(
+                work_order_id,
+                reason,
+                attempt_id,
+                action=_action_of(sql),
+                outcome=_outcome_of(reason),
+            )
             return MaintenanceCallResult(
                 rows=[], denial=reason, denial_recorded=recorded, attempt_id=attempt_id
             )
         return MaintenanceCallResult(rows=rows, attempt_id=attempt_id)
 
     async def _record_denial(
-        self, work_order_id: str | None, reason: str, attempt_id: str
+        self,
+        work_order_id: str | None,
+        reason: str,
+        attempt_id: str,
+        *,
+        action: str,
+        outcome: str,
     ) -> bool:
-        """补记一行 DENIED；失败返回 False 并告警（不抛，避免掩盖原始拒绝）。"""
+        """补记一行失败侧账；失败返回 False 并告警（不抛，避免掩盖原始拒绝）。"""
         if work_order_id is None:
             # 发现/检测没有工单维度：它们的拒绝只可能来自权限或会话守卫，账本
             # 没有工单可挂。这不是「记过了」，而是「记不了」——必须告警。
@@ -136,17 +166,19 @@ class MaintenanceCommandClient:
                 await conn.execute(
                     text(
                         "SELECT qc_maintenance.record_maintenance_denial("
-                        ":work_order_id, :reason, :attempt_id)"
+                        ":work_order_id, :reason, :attempt_id, :outcome, :action)"
                     ),
                     {
                         "work_order_id": work_order_id,
                         "reason": reason,
                         "attempt_id": attempt_id,
+                        "outcome": outcome,
+                        "action": action,
                     },
                 )
         except Exception as error:
             self._warn(
-                "拒绝补记失败：这条拒绝事实已丢失，需人工核对",
+                "补记失败：这条失败事实已丢失，需人工核对",
                 reason=reason,
                 attempt_id=attempt_id,
                 error=repr(error),
@@ -160,20 +192,47 @@ class MaintenanceCommandClient:
         self._logger.error(message, extra={"maintenance": fields})
 
 
-def classify_denial(error: exc.DBAPIError, known: set[str]) -> str:
+# 授权/策略层面的原因记 DENIED；其余（执行期错误、未知）记 FAILED。
+_DENIAL_REASONS = frozenset(
+    {
+        "work_order_not_found",
+        "kind_mismatch",
+        "not_approved",
+        "session_mismatch",
+        "task_not_authorized",
+        "tenant_mismatch",
+        "permission_denied",
+    }
+)
+
+# 原因 → 稳定短语。顺序敏感：先匹配更具体的拒绝，避免被通用词吃掉。
+_DENIAL_TOKENS: tuple[tuple[str, str], ...] = (
+    ("未授权修复任务", "task_not_authorized"),
+    ("不在工单授权范围内", "tenant_mismatch"),
+    ("不存在", "work_order_not_found"),
+    ("类型是", "kind_mismatch"),
+    ("不得执行", "not_approved"),
+    ("不是维护权限组", "session_mismatch"),
+)
+
+
+def classify_denial(error: exc.DBAPIError) -> str:
     """把数据库异常归类成稳定原因（只用于补记口径，不改变拒绝本身）。"""
     message = str(getattr(error, "orig", error))
-    tokens = {
-        "work_order_not_found": "不存在",
-        "kind_mismatch": "类型是",
-        "not_approved": "不得执行对账",
-        "session_mismatch": "不是维护权限组",
-    }
-    for reason, token in tokens.items():
-        if reason in known and token in message:
+    for token, reason in _DENIAL_TOKENS:
+        if token in message:
             return reason
     if "permission denied" in message or "insufficient_privilege" in message:
         # 入口被 schema/EXECUTE 拒绝时，被拒的那个函数**根本没被调用**，
         # 它无法自己写审计；这一行只能由适配层补记。
         return "permission_denied"
     return "other"
+
+
+def _outcome_of(reason: str) -> str:
+    return "DENIED" if reason in _DENIAL_REASONS else "FAILED"
+
+
+def _action_of(sql: str) -> str:
+    """账本的 action 必须与实际调用的命令一致，不能一律记成 reconcile。"""
+    return "repair_tenant_task" if "repair_tenant_task" in sql else "reconcile_tenant_tasks"

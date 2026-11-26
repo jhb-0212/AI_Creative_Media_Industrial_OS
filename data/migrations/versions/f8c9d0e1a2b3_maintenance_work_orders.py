@@ -456,7 +456,9 @@ def _create_commands() -> None:
     op.execute(
         f"""
         CREATE FUNCTION {_MAINT}.record_maintenance_denial(
-            p_work_order_id text, p_reason text, p_attempt_id text)
+            p_work_order_id text, p_reason text, p_attempt_id text,
+            p_outcome text DEFAULT 'DENIED',
+            p_action text DEFAULT 'reconcile_tenant_tasks')
         RETURNS void
         LANGUAGE plpgsql
         SECURITY DEFINER
@@ -467,18 +469,32 @@ def _create_commands() -> None:
         BEGIN
             PERFORM {_MAINT}.assert_session_member();
 
-            -- 尝试键必填：它既是幂等键，也是「同一次拒绝只能留一行」的依据。
+            -- 尝试键必填：它既是幂等键，也是「同一次尝试只能留一行」的依据。
             -- 允许空值会让重试变成静默的重复记账，账本再也无法按次数聚合。
             IF p_attempt_id IS NULL OR btrim(p_attempt_id) = '' THEN
-                RAISE EXCEPTION '补记拒绝必须携带 attempt_id'
+                RAISE EXCEPTION '补记必须携带 attempt_id'
                     USING ERRCODE = 'invalid_parameter_value';
+            END IF;
+
+            -- 只允许两种“失败侧”结论：被拒（策略/授权不允许）与失败（执行出错）。
+            -- 成功结论只能由命令自己写，调用方无法借这个函数伪造成功。
+            IF p_outcome NOT IN ('DENIED', 'FAILED') THEN
+                RAISE EXCEPTION '补记函数只能记录 DENIED / FAILED，收到 %', p_outcome
+                    USING ERRCODE = 'invalid_parameter_value';
+            END IF;
+
+            -- 动作名同样走白名单：账本是按「哪个命令」聚合的，自由文本会让同一
+            -- 命令因大小写/别名拆成多行。
+            IF p_action NOT IN ('reconcile_tenant_tasks', 'repair_tenant_task') THEN
+                p_action := 'other';
             END IF;
 
             -- 原因走白名单而不是自由文本：账本要可聚合，不能变成谁都能写内容的
             -- 日志表；未知原因一律记成 'other'，避免把错误口径灌进审计视图。
             IF p_reason NOT IN ('work_order_not_found', 'kind_mismatch',
                                'not_approved', 'session_mismatch',
-                               'permission_denied') THEN
+                               'task_not_authorized', 'tenant_mismatch',
+                               'repair_failed', 'permission_denied') THEN
                 p_reason := 'other';
             END IF;
 
@@ -492,7 +508,7 @@ def _create_commands() -> None:
                 (work_order_id, tenant_id, attempt_id, action, outcome, detail,
                  created_at)
             VALUES (p_work_order_id, v_tenant, p_attempt_id,
-                    'reconcile_tenant_tasks', 'DENIED',
+                    p_action, p_outcome,
                     jsonb_build_object('reason', p_reason,
                                        'actor', session_user),
                     now())

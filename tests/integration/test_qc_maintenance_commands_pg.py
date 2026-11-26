@@ -140,6 +140,7 @@ async def test_work_order_must_be_created_requested_and_approved_in_order(
                     "tenant_id": uuid.uuid4(),
                     "kind": "RECONCILE",
                     "idem": f"bad-{entity_id}",
+                    "target_task_id": None,
                 },
             )
         await session.rollback()
@@ -181,6 +182,7 @@ async def test_idempotency_key_prevents_duplicate_intent(admin_sessionmaker) -> 
                     "tenant_id": tenant,
                     "kind": "RECONCILE",
                     "idem": idem,
+                    "target_task_id": None,
                 },
             )
         await session.rollback()
@@ -371,8 +373,17 @@ async def test_enumerate_returns_tenant_and_count_only(
 async def test_permissions_are_read_only_and_whitelist_bound(
     admin_sessionmaker,
 ) -> None:
-    """权限面证明：只读、无 PUBLIC、白名单、owner 不可登录。"""
+    """权限面证明：只读、无 PUBLIC、白名单、owner 不可登录。
+
+    ``qc_tasks`` 的写侧权限被**版本适配**收窄：PG17+ 只有 ``MAINTAIN``（够锁表、
+    不够改行）；PG16 没有 MAINTAIN，只能用 ``UPDATE`` 代替，这是版本限制下的
+    例外而不是设计选择——因此这里按版本分别断言，并把 DML 面钉死为 UPDATE
+    一项（不得顺势拿到 INSERT/DELETE/TRUNCATE）。
+    """
     async with admin_sessionmaker() as session:
+        version = int(
+            await session.scalar(text("SELECT current_setting('server_version_num')"))
+        )
         owner_select = await session.scalar(
             text("SELECT has_table_privilege(:r, 'qc_governance.qc_tasks', 'SELECT')"),
             {"r": _OWNER},
@@ -383,6 +394,14 @@ async def test_permissions_are_read_only_and_whitelist_bound(
         )
         owner_insert = await session.scalar(
             text("SELECT has_table_privilege(:r, 'qc_governance.qc_tasks', 'INSERT')"),
+            {"r": _OWNER},
+        )
+        owner_delete = await session.scalar(
+            text("SELECT has_table_privilege(:r, 'qc_governance.qc_tasks', 'DELETE')"),
+            {"r": _OWNER},
+        )
+        owner_truncate = await session.scalar(
+            text("SELECT has_table_privilege(:r, 'qc_governance.qc_tasks', 'TRUNCATE')"),
             {"r": _OWNER},
         )
         worker_exec = await session.scalar(
@@ -414,6 +433,7 @@ async def test_permissions_are_read_only_and_whitelist_bound(
                        AND p.proname IN ('enumerate_due_tasks',
                                          'detect_projection_anomalies',
                                          'reconcile_tenant_tasks',
+                                         'repair_tenant_task',
                                          'assert_session_member',
                                          '_projection_anomalies')
                     """
@@ -421,9 +441,23 @@ async def test_permissions_are_read_only_and_whitelist_bound(
             )
         ).all()
 
-    assert owner_select is True, "只读命令需要 SELECT 才能读源表"
-    assert owner_update is False, "本阶段不得给 owner 任何写权限（修复阶段才补锁权限）"
+    assert owner_select is True, "维护命令需要 SELECT 才能读源表"
     assert owner_insert is False
+    assert owner_delete is False
+    assert owner_truncate is False, "修复只需要锁表，不需要任何行级删除能力"
+    if version >= 170000:
+        maintain = await session.scalar(
+            text(
+                "SELECT has_table_privilege(:r, 'qc_governance.qc_tasks', 'MAINTAIN')"
+            ),
+            {"r": _OWNER},
+        )
+        assert maintain is True, "PG17+ 必须走 MAINTAIN"
+        assert owner_update is False, "升上 MAINTAIN 后旧 UPDATE 必须收回"
+    else:
+        assert owner_update is True, (
+            f"PG{version} 无 MAINTAIN，复用 UPDATE 取锁是已记录的版本例外"
+        )
     assert worker_exec is False, "质检 Worker 不得调用维护命令"
     assert helper_exec is False, "内部取数函数不得对任何身份开放"
     assert owner_login is False

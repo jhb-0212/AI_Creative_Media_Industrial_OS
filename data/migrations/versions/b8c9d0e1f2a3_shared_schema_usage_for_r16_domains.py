@@ -74,6 +74,7 @@ from alembic import op
 from packages.shared.db_grants import (
     BUDGET_QUOTA,
     DOMAINS,
+    MAINTENANCE_SCHEMA,
     PRODUCTION_PLANNING,
     QC_GOVERNANCE,
     referenced_schemas,
@@ -90,11 +91,27 @@ depends_on: str | Sequence[str] | None = None
 _REPAIRED_DOMAINS = (PRODUCTION_PLANNING, BUDGET_QUOTA, QC_GOVERNANCE)
 
 
+def _frozen_schemas(domain: str) -> tuple[str, ...]:
+    """写下本 revision 时已存在的 schema（排除之后才建的维护 schema）。
+
+    这是时间胶囊的另一半：表范围靠「当时的矩阵」冻结，schema 范围也必须冻结。
+    维护 schema ``qc_maintenance`` 晚于本迁移才由 ``a8b9c0d1e2f3`` 创建；若照今
+    天的派生结果对它 ``GRANT USAGE``，clean install 在读到这一句时就报
+    ``schema "qc_maintenance" does not exist``——已升级的库不会重跑，缺口只在
+    从零建库时暴露。
+    """
+    return tuple(
+        schema for schema in referenced_schemas(domain) if schema != MAINTENANCE_SCHEMA
+    )
+
+
 def upgrade() -> None:
     """按矩阵派生结果补齐 USAGE（幂等：已授予时重复 GRANT 无副作用）。"""
     for domain in DOMAINS:
         role = domain_role(domain)
-        for statement in schema_usage_statements(role, domain):
+        for statement in schema_usage_statements(
+            role, domain, schemas=_frozen_schemas(domain)
+        ):
             op.execute(statement)
 
 
@@ -108,6 +125,6 @@ def downgrade() -> None:
     """
     for domain in _REPAIRED_DOMAINS:
         role = domain_role(domain)
-        shared = (schema for schema in referenced_schemas(domain) if schema != domain)
-        for schema in shared:
-            op.execute(f"REVOKE USAGE ON SCHEMA {schema} FROM {role}")
+        for schema in _frozen_schemas(domain):
+            if schema != domain:
+                op.execute(f"REVOKE USAGE ON SCHEMA {schema} FROM {role}")

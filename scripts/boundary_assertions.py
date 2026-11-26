@@ -1774,6 +1774,7 @@ def data_role_grants_least_privilege() -> AssertionResult:
         maintenance_command_statements,
         maintenance_identity_statements,
         maintenance_membership_statements,
+        maintenance_repair_statements,
         validate_infra_matrix,
         validate_matrix,
     )
@@ -1831,8 +1832,13 @@ def data_role_grants_least_privilege() -> AssertionResult:
             *maintenance_membership_statements(),
             *maintenance_identity_statements(),
             # WP-A 第一阶段：三个只读命令 + 会话成员判定（含 owner 对 qc_tasks 的
-            # 只读授权）。修复阶段的锁权限届时单独追加，不在这里提前扩张。
+            # 只读授权）。
             *maintenance_command_statements(),
+            # WP-A.2：修复命令的锁权限与 EXECUTE 白名单。闸门回放迁移时没有活库，
+            # 迁移侧按最低支持版本（PG16）取分支，这里必须取同一分支，否则回放
+            # 会因「PG17 的 MAINTAIN 语句」被判成迁移多执行。PG17+ 的真实 ACL
+            # 由 PG18 集成验收单独核对。
+            *maintenance_repair_statements(server_version_num=160000),
         ],
     )
     if problems:

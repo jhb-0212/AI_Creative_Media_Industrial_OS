@@ -145,7 +145,7 @@ async def test_record_failure_alarms_instead_of_silence(
                 await conn.execute(
                     text(
                         "REVOKE EXECUTE ON FUNCTION "
-                        "qc_maintenance.record_maintenance_denial(text, text, text) "
+                        "qc_maintenance.record_maintenance_denial(text, text, text, text, text) "
                         f"FROM {role}"
                     )
                 )
@@ -153,7 +153,7 @@ async def test_record_failure_alarms_instead_of_silence(
         assert result.denial == "not_approved", "原拒绝原因不能被补记失败掩盖"
         assert result.denial_recorded is False
         assert any(
-            "拒绝补记失败" in record.message for record in caplog.records
+            "补记失败" in record.message for record in caplog.records
         ), "补记失败必须有告警，否则丢的是无声的审计缺口"
     finally:
         for role in (_LOGIN, _OPERATOR):
@@ -161,7 +161,7 @@ async def test_record_failure_alarms_instead_of_silence(
                 await conn.execute(
                     text(
                         "GRANT EXECUTE ON FUNCTION "
-                        "qc_maintenance.record_maintenance_denial(text, text, text) "
+                        "qc_maintenance.record_maintenance_denial(text, text, text, text, text) "
                         f"TO {role}"
                     )
                 )

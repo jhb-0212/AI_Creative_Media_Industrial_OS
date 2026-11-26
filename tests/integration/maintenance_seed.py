@@ -25,7 +25,7 @@ INSERT INTO qc_maintenance.maintenance_work_orders
      target_task_id, result_summary, failure_reason)
 VALUES (:entity_id,'MaintenanceWorkOrder',1,1,'REQUESTED','qc_maintenance',
         :tenant_id, now(),'tester',now(),NULL,
-        :kind, :idem, 'tester', NULL, NULL, NULL, NULL, NULL)
+        :kind, :idem, 'tester', NULL, NULL, :target_task_id, NULL, NULL)
 """
 
 _APPROVE_SQL = """
@@ -48,6 +48,7 @@ async def create_work_order(
     kind: str = "RECONCILE",
     idem: str | None = None,
     approve: bool = True,
+    target_task_id: str | None = None,
 ) -> str:
     entity_id = str(uuid.uuid4())
     await session.execute(
@@ -57,6 +58,7 @@ async def create_work_order(
             "tenant_id": tenant,
             "kind": kind,
             "idem": idem or f"idem-{entity_id}",
+            "target_task_id": target_task_id,
         },
     )
     if approve:
