@@ -119,25 +119,16 @@ roles:
       login: true
       attributes: [NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE]
       owner_membership: none
-    # 集群里存在、但主迁移链从未创建过的两个 NOLOGIN 角色（干净库里不存在）。
-    # 登记而不是假装不存在：不登记的集群角色是「审计看不到的权限面」。
-    # 已裁定退役（AUTHZ-6）。取证修正：E12 的「零授权、零对象、零成员关系」
-    # 只在开发主库成立——它们是 pending/feat-ownership 那套未合并设计的审计 /
-    # 修复身份，三个实验库（ai_film_industrial / t5_lab / lab_rework_tasks）
-    # 仍挂着 95 / 86 / 95 条影子依赖（策略 audit_quarantine_scope、
-    # repair_row_scope，函数 ownership_repair_allows）。
-    # 执行工具 scripts/retire_legacy_roles.py：--check 逐库列出引用，--drop 仅在
-    # 全集群零引用时删除。本条登记保留到角色真正消失为止，之后随之一并删除。
-    afs_audit:
-      name: afs_audit
-      login: false
-      attributes: [NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE]
-      owner_membership: none
-    afs_data_repair:
-      name: afs_data_repair
-      login: false
-      attributes: [NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE]
-      owner_membership: none
+    # afs_audit / afs_data_repair 已于 2026-11-26 在集群级退役（DROP ROLE），
+    # 因此不再登记：本表只承载「存在的角色」，已消失的身份留在提交历史与
+    # scripts/retire_legacy_roles.py 的取证输出里。
+    # 退役记录：二者是 pending/feat-ownership 未合并设计的审计 / 修复身份，
+    # 三个实验库（ai_film_industrial / t5_lab / lab_rework_tasks）曾各挂
+    # 95 / 86 / 95 条 pg_shdepend 依赖（audit_quarantine_scope、repair_row_scope
+    # 与 43 / 38 / 43 条含 pg_has_role(..., 'afs_data_repair') 的
+    # quarantine_restrictive_* 策略）。先逐库删策略、DROP OWNED BY 撤授权，
+    # 再 --check（零引用）→ --drop。这些策略的定义仍可从
+    # data/migrations/pending/feat-ownership 重放，删除可重建。
 
 # --------------------------------------------------------------------------- #
 # 4. 权限矩阵现状（DD-2：本轮不接管，避免与冻结的历史迁移输入形成双事实源）
@@ -398,10 +389,6 @@ debt:
     what: "维护四角色已建立但尚未接入运行时连接（qc_worker 无非超级用户业务授权；维护工单表与维护命令未实现）"
     reason: "WP-03 只关闭「身份与授权面」：角色属性、成员关系、PUBLIC EXECUTE、会话身份守卫。把 qc_worker 接成质检域运行角色要改连接池与授权矩阵，属于独立工作包"
     unblocks_when: "qc_worker 接入质检域连接池并完成真实角色集成验收后，删除本条"
-  - id: AUTHZ-6
-    what: "afs_audit / afs_data_repair 已裁定退役，但集群里仍有三个实验库的依赖未清"
-    reason: "裁定为退役（无用即删）。复核取证推翻了 E12 的「零引用」：本库与干净库确实零引用，但 ai_film_industrial / t5_lab / lab_rework_tasks 仍以 95 / 86 / 95 条影子依赖挂着它们（pending/feat-ownership 的 audit_quarantine_scope、repair_row_scope 策略与 ownership_repair_allows 函数）。DROP ROLE 会因这些跨库依赖失败，而清库等于改三个库的授权面，属独立治理动作"
-    unblocks_when: "对三个实验库执行清理（删策略 / 撤授权 / 删函数）后运行 scripts/retire_legacy_roles.py --drop，确认 pg_roles 中两者消失；随后删掉本文件里的两条角色登记与本条 open question"
   - id: AUTHZ-7
     what: "迁移执行身份仍是超级用户（CI 与本地统一为 postgres）"
     reason: "PG16 实测：非超级用户 + CREATEROLE 在第一条角色收敛语句（ALTER ROLE app_role）即 permission denied——PG16 取消了对既有角色的隐式 ADMIN。要让 afs_migrator 顶替，必须给它对全部运行时角色的 ADMIN，等于把「超级用户」换成「可自授任意角色」，权限面没有变小"
