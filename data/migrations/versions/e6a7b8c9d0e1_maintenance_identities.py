@@ -85,7 +85,14 @@ def _create_role(role: str, *, login: bool, password: str | None = None) -> None
     ``ALTER`` 与 ``CREATE`` 等价（两边写的是同一组属性）。
     """
     attributes = "LOGIN" if login else "NOLOGIN"
-    password_sql = f" PASSWORD '{password}'" if password is not None else ""
+    # 口令来自配置，可能含单引号。PG 的 DDL 没有绑定参数，所以按 SQL 字面量
+    # 的规则转义（标准 conforming strings 下把 ' 写成 '' 就是正确字面量）。
+    # 不转义会让「口令里有引号」变成语法错误，或在最坏情况下拼出一条额外语句。
+    password_sql = (
+        " PASSWORD '" + password.replace("'", "''") + "'"
+        if password is not None
+        else ""
+    )
     op.execute(
         f"""
         DO $$
