@@ -43,6 +43,8 @@ _ROLE_FIELD_BY_ENV: dict[str, str] = {
     "POSTGRES_QC_MAINTENANCE_OPERATOR_USER": "postgres_qc_maintenance_operator_user",
     "POSTGRES_QC_MAINTENANCE_LOGIN_USER": "postgres_qc_maintenance_login_user",
     "POSTGRES_QC_WORKER_USER": "postgres_qc_worker_user",
+    # WP-B 调度发现身份（迁移 a5b6c7d8e9f0 创建）。
+    "POSTGRES_QC_SCHEDULER_USER": "postgres_qc_scheduler_user",
 }
 
 
@@ -121,6 +123,14 @@ class Settings(BaseSettings):
     )
     postgres_qc_worker_user: str = "qc_worker"
     postgres_qc_worker_password: SecretStr = SecretStr("qc_worker_dev_password")
+    # 调度发现身份（WP-B / 迁移 a5b6c7d8e9f0）：唯一可登录、且**只能**调用
+    # 零参发现函数 ``enumerate_due_tasks()`` 的身份。它不读投影、不读业务表、
+    # 不做维护——「全域发现」是「全域授权」的反面，混成一个角色就等于把
+    # 「知道有哪些租户待检」变成「能读全库」。
+    postgres_qc_scheduler_user: str = "qc_scheduler"
+    postgres_qc_scheduler_password: SecretStr = SecretStr(
+        "qc_scheduler_dev_password"
+    )
 
     # Redis（可能内嵌口令，按密钥处理，repr 不落明文）
     redis_url: SecretStr = SecretStr("redis://localhost:16379/0")
@@ -291,6 +301,10 @@ class Settings(BaseSettings):
         "qc": (
             ("postgres_qc_governance_password", "POSTGRES_QC_GOVERNANCE_PASSWORD"),
             ("postgres_asset_service_password", "POSTGRES_ASSET_SERVICE_PASSWORD"),
+            # WP-B：QC Worker 进程新增调度发现池。它虽然是「只能发现」的身份，
+            # 仍然是一份可登录凭证——缺省时拿仓库里的开发口令去连生产库，
+            # 就是「看起来隔离了、实际共享口令」的静默降级，必须 fail-closed。
+            ("postgres_qc_scheduler_password", "POSTGRES_QC_SCHEDULER_PASSWORD"),
         ),
     }
 

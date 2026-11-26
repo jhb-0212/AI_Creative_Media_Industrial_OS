@@ -1770,11 +1770,14 @@ def data_role_grants_least_privilege() -> AssertionResult:
         business_tables,
         converge_statements,
         declared_privileges,
+        discovery_guard_statements,
         infra_converge_statements,
         maintenance_command_statements,
+        maintenance_function_public_reclaim_statements,
         maintenance_identity_statements,
         maintenance_membership_statements,
         maintenance_repair_statements,
+        scheduler_statements,
         validate_infra_matrix,
         validate_matrix,
     )
@@ -1839,6 +1842,13 @@ def data_role_grants_least_privilege() -> AssertionResult:
             # 会因「PG17 的 MAINTAIN 语句」被判成迁移多执行。PG17+ 的真实 ACL
             # 由 PG18 集成验收单独核对。
             *maintenance_repair_statements(server_version_num=160000),
+            # WP-B：调度发现身份只有「schema USAGE + 发现函数 EXECUTE」，
+            # 以及为发现守卫函数作 PUBLIC 收紧（守卫只判定身份、不返回数据）。
+            *discovery_guard_statements(),
+            # 没有这一步，「只能发现」会被 PUBLIC 默认执行权绕过：白名单之外
+            # 任何一个遗留函数都会让调度身份拿到 EXECUTE。
+            *maintenance_function_public_reclaim_statements(),
+            *scheduler_statements(),
         ],
     )
     if problems:

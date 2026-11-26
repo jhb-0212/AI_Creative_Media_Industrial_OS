@@ -30,6 +30,7 @@ from packages.shared.config import get_process_settings
 from packages.shared.database import (
     create_asset_service_engine,
     create_qc_governance_engine,
+    create_qc_scheduler_engine,
     create_sessionmaker,
 )
 from packages.shared.logging import get_logger, setup_logging
@@ -44,6 +45,7 @@ from services.qc_governance.repository.task_projection_repo import (
 )
 from services.qc_governance.service.qc_task_service import QCTaskService
 from workers.qc.asset_inspector import AssetIntegrityInspector
+from workers.qc.scheduler import MaintenanceTenantDiscovery, TenantScheduler
 from workers.qc.worker import QCExecutor, QCInspection, QCWorker
 
 logger = get_logger(__name__)
@@ -97,6 +99,39 @@ def _make_scope(sessionmaker: Any, report_lookup: Any | None = None) -> Any:
     return scope
 
 
+def _make_tenant_scope(
+    sessionmaker: Any, report_lookup: Any | None = None
+) -> Any:
+    """按租户打开的作用域：先注入 RLS 租户上下文，再交出同一套服务/仓储。
+
+    为什么必须在**这里**注入：调度发现只给出租户 id，读 ``qc_tasks`` 仍要过
+    ``tenant_isolation_qc_tasks``。不带上下文时策略返回 0 行，而「读不到」会被
+    上层解释成「这个租户没有待检任务」——真实的 RLS 生效与真实的空队列给出
+    同一个结论，排障时无法区分。
+
+    与 ``_make_scope`` 共用同一套装配（服务、仓储、核验器），差别只有开场
+    那一次 ``set_tenant_context``：租户上下文是连接上的事实，不是服务的参数。
+    """
+
+    @asynccontextmanager
+    async def tenant_scope(tenant: Any) -> AsyncIterator[_QCUnit]:
+        async with sessionmaker() as session:
+            await set_tenant_context(session, tenant)
+            repository = SqlAlchemyQCTaskRepository(session)
+            yield _QCUnit(
+                service=QCTaskService(
+                    repository,
+                    SqlAlchemyOutboxWriter(session),
+                    report_lookup=report_lookup,
+                    projection=SqlAlchemyTaskProjectionRepository(session),
+                ),
+                repository=repository,
+                session=session,
+            )
+
+    return tenant_scope
+
+
 def _default_worker_id() -> str:
     host = socket.gethostname() or "unknown-host"
     return f"{host}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
@@ -138,7 +173,12 @@ def _make_report_lookup(asset_sessionmaker: Any) -> Any:
     return lookup
 
 
-def _build_worker(scope: Any, args: argparse.Namespace, inspector: QCExecutor) -> QCWorker:
+def _build_worker(
+    scope: Any,
+    args: argparse.Namespace,
+    inspector: QCExecutor,
+    tenant_scope: Any,
+) -> QCWorker:
     """装配 Worker：作用域工厂 + 检测器 + 租约参数。
 
     核验器不在这里传：它跟着**作用域**走（见 ``_make_scope``），因为判定前核验
@@ -147,6 +187,7 @@ def _build_worker(scope: Any, args: argparse.Namespace, inspector: QCExecutor) -
     """
     return QCWorker(
         scope=scope,
+        scope_for_tenant=tenant_scope,
         executor=inspector,
         worker_id=args.worker_id,
         lease_seconds=args.lease_seconds,
@@ -154,13 +195,25 @@ def _build_worker(scope: Any, args: argparse.Namespace, inspector: QCExecutor) -
     )
 
 
-async def _run_cycle(worker: QCWorker, args: argparse.Namespace) -> bool:
-    """一轮调度。各阶段事务边界由 Worker 内部负责。"""
+async def _run_cycle(
+    scheduler: TenantScheduler, args: argparse.Namespace
+) -> bool | None:
+    """一轮调度：``True`` 有活 / ``False`` 空闲 / ``None`` 阻断。
+
+    ``--sweep`` 也走租户委派：回收「过期租约」必须知道在哪些租户里找，而这份
+    清单只能来自发现身份。用旧清单或全域直读都会把「发现挂了」变成「清扫静默
+    跳过」。
+    """
     if args.sweep:
-        reclaimed = await worker.sweep_expired()
+        reclaimed = await scheduler.sweep()
+        if reclaimed is None:
+            logger.error(
+                "tenant discovery unavailable: sweep skipped, not a clean queue"
+            )
+            return None
         logger.info("reclaimed %d expired QC lease(s)", reclaimed)
         return False
-    return await worker.run_once()
+    return await scheduler.run_once()
 
 
 async def _main(argv: list[str] | None = None) -> int:
@@ -169,6 +222,7 @@ async def _main(argv: list[str] | None = None) -> int:
     setup_logging(settings.log_level)
     engine = create_qc_governance_engine()
     sessionmaker = create_sessionmaker(engine)
+    scheduler_engine = create_qc_scheduler_engine()
     asset_engine = None
     report_lookup: Any | None = None
     if args.no_detector:
@@ -196,15 +250,26 @@ async def _main(argv: list[str] | None = None) -> int:
     # 每阶段一个新工作单元（P1-01）；核验器随作用域注入，判定前核验永远与判定
     # 共用同一个服务实例，不会出现「装配了这个、跑了那个」。
     worker = _build_worker(
-        _make_scope(sessionmaker, report_lookup), args, inspector
+        _make_scope(sessionmaker, report_lookup),
+        args,
+        inspector,
+        _make_tenant_scope(sessionmaker, report_lookup),
+    )
+    scheduler = TenantScheduler(
+        discovery=MaintenanceTenantDiscovery(scheduler_engine), worker=worker
     )
     try:
         if args.sweep or args.once:
-            await _run_cycle(worker, args)
+            outcome = await _run_cycle(scheduler, args)
+            if outcome is None:
+                # 一次性运行必须用退出码说出「阻断」，否则定时任务看到 0 就
+                # 以为「队列干净、无需处理」，把停摆放进绿区。
+                logger.error("one-shot QC cycle blocked: discovery unavailable")
+                return 2
             return 0
         while True:
             try:
-                busy = await _run_cycle(worker, args)
+                busy = await _run_cycle(scheduler, args)
             except Exception:
                 logger.exception("QC worker cycle failed")
                 busy = False
@@ -213,6 +278,7 @@ async def _main(argv: list[str] | None = None) -> int:
     finally:
         if asset_engine is not None:
             await asset_engine.dispose()
+        await scheduler_engine.dispose()
         await engine.dispose()
     return 0
 

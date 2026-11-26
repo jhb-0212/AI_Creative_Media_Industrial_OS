@@ -226,6 +226,27 @@ def create_qc_maintenance_engine(settings: Settings | None = None) -> AsyncEngin
     return _make_engine(build_qc_maintenance_login_database_url(settings))
 
 
+def build_qc_scheduler_database_url(settings: Settings | None = None) -> str:
+    """构造调度发现身份 DSN（角色 ``qc_scheduler``，WP-B）。
+
+    这一池只被允许调用零参发现函数（``enumerate_due_tasks()``）：它返回
+    「租户 + 待检条数」，不含任务内容。把发现与「领取/执行」拆成两个身份，
+    是为了让「知道有哪些租户有活」不再是「能读全库」的同义词——真要读任务，
+    必须落到 QC 池并在租户上下文里读。
+    """
+    cfg = _settings_or_default(settings)
+    return _build_url(
+        cfg.postgres_qc_scheduler_user,
+        cfg.postgres_qc_scheduler_password.get_secret_value(),
+        cfg,
+    )
+
+
+def create_qc_scheduler_engine(settings: Settings | None = None) -> AsyncEngine:
+    """调度发现专用引擎（独立连接池、独立身份）。"""
+    return _make_engine(build_qc_scheduler_database_url(settings))
+
+
 def _make_engine(url: str) -> AsyncEngine:
     """按给定 DSN 创建异步引擎（连接池参数为高并发预留）。"""
     return create_async_engine(

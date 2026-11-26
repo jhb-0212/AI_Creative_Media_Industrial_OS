@@ -93,6 +93,27 @@ def maintenance_roles() -> dict[str, str]:
     return {key: maintenance_role(key) for key in _MAINTENANCE_ROLE_FIELDS}
 
 
+# 调度发现身份（WP-B）。它既不属维护四角色（不该能改数据），也不属业务域
+# （没有自有 schema）——单独一项而不是塞进上面两张表：塞进维护表会让
+# ``maintenance_roles()`` 这个集合同时表示「能维护」和「只能发现」两种身份，
+# 授权矩阵照它派生权限时就会把「发现」也授成「维护」。
+_SCHEDULER_ROLE_FIELDS: dict[str, str] = {
+    "discovery": "postgres_qc_scheduler_user",
+}
+
+
+def scheduler_role(key: str = "discovery") -> str:
+    """调度发现角色名（当前只有 ``discovery`` 一个身份）。"""
+    try:
+        field = _SCHEDULER_ROLE_FIELDS[key]
+    except KeyError:
+        raise LookupError(
+            f"未知调度角色 {key!r}；已知：{sorted(_SCHEDULER_ROLE_FIELDS)}"
+        ) from None
+    value: str = getattr(get_settings(), field)
+    return value
+
+
 # 业务域 → 配置字段。键就是 schema 名（DATA-1：一域一角色一 schema）。
 # 这张表存在的理由：调用方按**域**取角色（``domain_role("asset_service")``），
 # 而不是靠 ``domain_role_names()`` 的元组下标——下标用法一旦有人调整顺序，
@@ -150,4 +171,5 @@ __all__ = [
     "maintenance_role",
     "maintenance_roles",
     "relay_role_name",
+    "scheduler_role",
 ]

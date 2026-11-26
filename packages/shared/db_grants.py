@@ -989,6 +989,10 @@ MAINTENANCE_DENIAL = (
 )
 MAINTENANCE_REPAIR = f"{MAINTENANCE_SCHEMA}.repair_tenant_task(text, text, text)"
 MAINTENANCE_HELPER = f"{MAINTENANCE_SCHEMA}._projection_anomalies(uuid)"
+# 工作单状态机的触发器函数：它不能直接调用，但 ACL 上默认带 PUBLIC EXECUTE，
+# 调度身份会经由 PUBLIC 拿到可执行判定——收 PUBLIC 时必须点名它。
+MAINTENANCE_TRANSITION_TRIGGER = f"{MAINTENANCE_SCHEMA}.enforce_work_order_transition()"
+DISCOVERY_GUARD = f"{MAINTENANCE_SCHEMA}.assert_discovery_identity()"
 MAINTENANCE_MAINTAIN_SINCE = 170000
 SECDEF_SIGNATURE = "audit.assert_signature_event_exists()"
 
@@ -1129,6 +1133,105 @@ def maintenance_repair_restore_statements(
     return [f"REVOKE UPDATE ON TABLE {QC_GOVERNANCE}.qc_tasks FROM {owner}"]
 
 
+SCHEDULER_DISCOVERY_FUNCTIONS: tuple[str, ...] = (MAINTENANCE_ENUMERATE,)
+
+
+def discovery_guard_statements() -> list[str]:
+    """发现守卫函数的授权面：它在 SECDEF 发现函数内由 owner 执行。
+
+    守卫本身是 ``SECURITY INVOKER`` 且只做身份判定、不返回数据，但按本仓的
+    统一口径仍收回 ``PUBLIC``：一个「谁都能调」的判定函数会让「身份判定」
+    变成可被任何角色反复探询的接口。
+    """
+    from packages.shared.db_roles import maintenance_role
+
+    owner = maintenance_role("owner")
+    return [
+        f"REVOKE ALL ON FUNCTION {DISCOVERY_GUARD} FROM PUBLIC",
+        f"GRANT EXECUTE ON FUNCTION {DISCOVERY_GUARD} TO {owner}",
+    ]
+
+
+def maintenance_function_public_reclaim_statements() -> list[str]:
+    """收回 ``qc_maintenance`` 里残留的 ``PUBLIC`` 执行权。
+
+    为什么必须收：调度身份手上只有「schema USAGE + 发现函数 EXECUTE」两张牌，
+    但 PostgreSQL 新建函数默认带 ``PUBLIC EXECUTE``。只要 schema 里有一个函数
+    没被逐条收回，``qc_scheduler`` 就会经 ``PUBLIC`` 拿到它的 EXECUTE——授权面
+    看起来是白名单，实际判定是「白名单 ∪ 所有漏网函数」。
+    工作单状态机触发器 ``enforce_work_order_transition`` 就是这类残留：它是
+    触发器函数、无法直接调用，但在 ACL 上确实可执行。
+
+    两句合起来才是完整口径：补收历史残留；并给 owner 之后**自己创建**的函数
+    设默认（迁移以超级用户建对象，这一句不覆盖那种情况，故必须同时补收）。
+    """
+    from packages.shared.db_roles import maintenance_role
+
+    owner = maintenance_role("owner")
+    return [
+        f"REVOKE ALL ON FUNCTION {MAINTENANCE_TRANSITION_TRIGGER} FROM PUBLIC",
+        f"ALTER DEFAULT PRIVILEGES FOR ROLE {owner} "
+        f"IN SCHEMA {MAINTENANCE_SCHEMA} REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC",
+    ]
+
+
+def maintenance_function_public_reclaim_restore_statements() -> list[str]:
+    """``downgrade`` 用：把上一条收回的 ``PUBLIC`` 执行权放回原状。"""
+    from packages.shared.db_roles import maintenance_role
+
+    owner = maintenance_role("owner")
+    return [
+        f"ALTER DEFAULT PRIVILEGES FOR ROLE {owner} "
+        f"IN SCHEMA {MAINTENANCE_SCHEMA} GRANT EXECUTE ON FUNCTIONS TO PUBLIC",
+        f"GRANT EXECUTE ON FUNCTION {MAINTENANCE_TRANSITION_TRIGGER} TO PUBLIC",
+    ]
+
+
+def scheduler_statements() -> list[str]:
+    """调度发现身份的授权面（WP-B）：**只能**调用零参发现函数。
+
+    为什么把它写成「正向白名单 + 反向收紧」两句一组：
+
+    * 正向只有 ``USAGE ON SCHEMA`` 与 ``EXECUTE ON enumerate_due_tasks()``。
+      发现函数是 SECURITY DEFINER，读表发生在 owner 名下，返回的只有
+      「租户 + 待检条数」——Scheduler 因此**读不到**任务内容、租户业务表、
+      甚至连投影都不读。
+    * 反向对维护命令逐个 ``REVOKE``：新角色本来就没有这些权限，但重建角色、
+      手工授权、或将来有人「顺手」把它加进 operator 时，收敛语句必须能把
+      它拉回声明状态。只靠「建的时候干净」不是声明式。
+
+    不做「拒绝对 qc_tasks 的 SELECT」这类语句：它没有该权限，``REVOKE`` 一个
+    从未授予的表权限只会制造一条永远不生效的语句，让授权集合看起来比实际更大。
+    """
+    from packages.shared.db_roles import scheduler_role
+
+    scheduler = scheduler_role()
+    statements = [f"GRANT USAGE ON SCHEMA {MAINTENANCE_SCHEMA} TO {scheduler}"]
+    for function in SCHEDULER_DISCOVERY_FUNCTIONS:
+        statements.append(f"GRANT EXECUTE ON FUNCTION {function} TO {scheduler}")
+    for function in (
+        *MAINTENANCE_COMMAND_FUNCTIONS,
+        MAINTENANCE_REPAIR,
+    ):
+        if function in SCHEDULER_DISCOVERY_FUNCTIONS:
+            continue
+        statements.append(f"REVOKE ALL ON FUNCTION {function} FROM {scheduler}")
+    return statements
+
+
+def scheduler_restore_statements() -> list[str]:
+    """``downgrade`` 用：归还 Scheduler 的全部权限（角色本身由迁移删除）。"""
+    from packages.shared.db_roles import scheduler_role
+
+    scheduler = scheduler_role()
+    statements = [
+        f"REVOKE EXECUTE ON FUNCTION {function} FROM {scheduler}"
+        for function in SCHEDULER_DISCOVERY_FUNCTIONS
+    ]
+    statements.append(f"REVOKE USAGE ON SCHEMA {MAINTENANCE_SCHEMA} FROM {scheduler}")
+    return statements
+
+
 def maintenance_identity_restore_statements() -> list[str]:
     """``downgrade`` 用：把被 WP-03 收紧的 PUBLIC 执行权放回原状。
 
@@ -1142,6 +1245,7 @@ __all__ = [
     "ALL_TABLE_PRIVILEGES",
     "ASSET_SERVICE",
     "BUDGET_QUOTA",
+    "DISCOVERY_GUARD",
     "DOMAINS",
     "DOMAIN_GRANTS",
     "INFRA_ROLES",
@@ -1157,10 +1261,12 @@ __all__ = [
     "MAINTENANCE_REPAIR",
     "MAINTENANCE_SCHEMA",
     "MAINTENANCE_SESSION",
+    "MAINTENANCE_TRANSITION_TRIGGER",
     "OUTBOX_OPS",
     "PRODUCTION_PLANNING",
     "PROJECT_PLANNING",
     "QC_GOVERNANCE",
+    "SCHEDULER_DISCOVERY_FUNCTIONS",
     "SECDEF_SIGNATURE",
     "TableGrant",
     "business_tables",
@@ -1168,15 +1274,20 @@ __all__ = [
     "declared_column_privileges",
     "declared_privileges",
     "declared_tables",
+    "discovery_guard_statements",
     "infra_converge_statements",
     "legacy_r16_grant_statements",
     "legacy_statements",
     "maintenance_command_statements",
+    "maintenance_function_public_reclaim_restore_statements",
+    "maintenance_function_public_reclaim_statements",
     "maintenance_identity_restore_statements",
     "maintenance_identity_statements",
     "maintenance_membership_statements",
     "maintenance_repair_restore_statements",
     "maintenance_repair_statements",
+    "scheduler_restore_statements",
+    "scheduler_statements",
     "validate_infra_matrix",
     "validate_matrix",
 ]
