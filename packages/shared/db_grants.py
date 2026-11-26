@@ -957,7 +957,23 @@ def validate_infra_matrix() -> list[str]:
 
 MAINTENANCE_SCHEMA = "qc_maintenance"
 MAINTENANCE_GUARD = f"{MAINTENANCE_SCHEMA}.assert_session_identity()"
+MAINTENANCE_SESSION = f"{MAINTENANCE_SCHEMA}.assert_session_member()"
+MAINTENANCE_ENUMERATE = f"{MAINTENANCE_SCHEMA}.enumerate_due_tasks()"
+MAINTENANCE_DETECT = f"{MAINTENANCE_SCHEMA}.detect_projection_anomalies()"
+MAINTENANCE_RECONCILE = f"{MAINTENANCE_SCHEMA}.reconcile_tenant_tasks(text)"
+MAINTENANCE_DENIAL = f"{MAINTENANCE_SCHEMA}.record_maintenance_denial(text, text)"
+MAINTENANCE_HELPER = f"{MAINTENANCE_SCHEMA}._projection_anomalies(uuid)"
 SECDEF_SIGNATURE = "audit.assert_signature_event_exists()"
+
+# 白名单：维护身份**只能**经这些函数触达数据库，且函数数量本身就是边界——
+# 多一个函数就多一个可被调用的能力，所以这里用元组而不是「按前缀匹配」。
+MAINTENANCE_COMMAND_FUNCTIONS: tuple[str, ...] = (
+    MAINTENANCE_SESSION,
+    MAINTENANCE_ENUMERATE,
+    MAINTENANCE_DETECT,
+    MAINTENANCE_RECONCILE,
+    MAINTENANCE_DENIAL,
+)
 
 
 def maintenance_membership_statements() -> list[str]:
@@ -1002,6 +1018,38 @@ def maintenance_identity_statements() -> list[str]:
     ]
 
 
+def maintenance_command_statements() -> list[str]:
+    """三个只读维护命令 + 会话成员判定的授权面（WP-A 第一阶段）。
+
+    只读阶段**刻意不授予任何写权限**：
+    * 对 ``qc_governance.qc_tasks`` 只有 ``SELECT``——检测/对账只读源表；
+    * 不给 ``UPDATE``/``DELETE``/``TRUNCATE``，也不给 PG17 的 ``MAINTAIN``。
+      修复命令（``repair_tenant_task``）落地时才按 PG 版本补锁权限，届时本函数
+      会多一段「版本适配」的语句，而不是在今天就提前扩大权限面。
+
+    由于三条命令都是 SECURITY DEFINER（owner 执行），owner 必须能真正读到
+    ``qc_tasks`` 与投影：它需要 schema USAGE + 表 SELECT，而 FORCE RLS 让它仍
+    被策略约束——所以迁移里另加「仅对维护 owner 开放」的读取策略，而不是
+    给它 BYPASSRLS。
+    """
+    from packages.shared.db_roles import maintenance_role
+
+    owner = maintenance_role("owner")
+    operator = maintenance_role("operator")
+    login = maintenance_role("login")
+    statements = [
+        f"GRANT USAGE ON SCHEMA {QC_GOVERNANCE} TO {owner}",
+        f"GRANT SELECT ON TABLE {QC_GOVERNANCE}.qc_tasks TO {owner}",
+        # 内部取数函数是对外命令的实现细节，不构成能力：REVOKE 而不 GRANT。
+        f"REVOKE ALL ON FUNCTION {MAINTENANCE_HELPER} FROM PUBLIC",
+    ]
+    for function in MAINTENANCE_COMMAND_FUNCTIONS:
+        statements.append(f"REVOKE ALL ON FUNCTION {function} FROM PUBLIC")
+        statements.append(f"GRANT EXECUTE ON FUNCTION {function} TO {operator}")
+        statements.append(f"GRANT EXECUTE ON FUNCTION {function} TO {login}")
+    return statements
+
+
 def maintenance_identity_restore_statements() -> list[str]:
     """``downgrade`` 用：把被 WP-03 收紧的 PUBLIC 执行权放回原状。
 
@@ -1019,8 +1067,15 @@ __all__ = [
     "DOMAIN_GRANTS",
     "INFRA_ROLES",
     "INFRA_ROLE_GRANTS",
+    "MAINTENANCE_COMMAND_FUNCTIONS",
+    "MAINTENANCE_DENIAL",
+    "MAINTENANCE_DETECT",
+    "MAINTENANCE_ENUMERATE",
     "MAINTENANCE_GUARD",
+    "MAINTENANCE_HELPER",
+    "MAINTENANCE_RECONCILE",
     "MAINTENANCE_SCHEMA",
+    "MAINTENANCE_SESSION",
     "OUTBOX_OPS",
     "PRODUCTION_PLANNING",
     "PROJECT_PLANNING",
@@ -1035,6 +1090,7 @@ __all__ = [
     "infra_converge_statements",
     "legacy_r16_grant_statements",
     "legacy_statements",
+    "maintenance_command_statements",
     "maintenance_identity_restore_statements",
     "maintenance_identity_statements",
     "maintenance_membership_statements",

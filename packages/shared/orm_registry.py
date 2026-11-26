@@ -32,6 +32,8 @@ _ORM_MODULES: tuple[str, ...] = (
     # 调度投影（qc_maintenance schema）：派生自 qc_tasks，但独立成表，
     # 不进 orm.py 是为了让「投影不是业务表」这条边界在文件层面可见。
     "services.qc_governance.repository.projection_orm",
+    # 维护工单与审计账本（qc_maintenance schema）：维护身份的唯一授权载体。
+    "services.qc_governance.repository.maintenance_orm",
 )
 
 
