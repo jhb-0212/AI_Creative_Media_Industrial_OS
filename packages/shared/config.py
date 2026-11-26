@@ -21,8 +21,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 #   relay              —— Outbox 投递进程：完全不碰身份密钥。
 #   outbox_maintenance —— Outbox 运维 CLI：用 postgres 超级用户做 DDL。
 #   identity           —— 身份签发服务：持私钥（+公钥）签发令牌。
+#   qc_maintenance     —— 维护命令进程：只持维护登录身份，不碰任何业务域口令。
 ProcessRole = Literal[
-    "api", "relay", "outbox_maintenance", "identity", "generation", "qc"
+    "api",
+    "relay",
+    "outbox_maintenance",
+    "identity",
+    "generation",
+    "qc",
+    "qc_maintenance",
 ]
 
 # 数据库角色配置项：环境变量名 → Settings 字段名（单一事实源）。
@@ -305,6 +312,15 @@ class Settings(BaseSettings):
             # 仍然是一份可登录凭证——缺省时拿仓库里的开发口令去连生产库，
             # 就是「看起来隔离了、实际共享口令」的静默降级，必须 fail-closed。
             ("postgres_qc_scheduler_password", "POSTGRES_QC_SCHEDULER_PASSWORD"),
+        ),
+        # 维护命令进程：只有维护登录身份一份凭证——它不连 qc_governance
+        # （读不到任务表）、不连 asset_service（不登记报告）、也不做发现。
+        # 故意不给它业务域口令：多给一份就是多一条「顺手读一下」的路径。
+        "qc_maintenance": (
+            (
+                "postgres_qc_maintenance_login_password",
+                "POSTGRES_QC_MAINTENANCE_LOGIN_PASSWORD",
+            ),
         ),
     }
 

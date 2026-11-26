@@ -132,6 +132,19 @@ class QCWorker:
             except DomainError as exc:
                 logger.info("skip QC claim %s: %s", candidate.entity_id, exc)
                 return None
+            if tenant is not None:
+                # 会话已注入租户 A 却领到租户 B 的任务，只有两种可能：RLS 策略失效，
+                # 或有人把别处查到的行当成了本租户的行。两种都必须当场炸掉——
+                # 继续执行会以 A 的租约去改 B 的任务状态。
+                claimed_tenant = getattr(claimed, "tenant_id", None)
+                if claimed_tenant is not None and str(claimed_tenant) != str(
+                    tenant
+                ):
+                    raise RuntimeError(
+                        "租户上下文错配：会话租户 "
+                        f"{tenant} 领到了任务 {claimed.entity_id}"
+                        f"（租户 {claimed_tenant}）"
+                    )
             await unit.commit()
             return claimed
 
@@ -203,24 +216,6 @@ class QCWorker:
                     continue
             reclaimed += 1
         return reclaimed
-
-    async def run_once(self) -> bool:
-        if await self.process_one():
-            return True
-        reclaimed = await self.sweep_expired()
-        if reclaimed:
-            logger.info("reclaimed %d expired QC lease(s)", reclaimed)
-        return False
-
-    async def run_forever(self) -> None:
-        while True:
-            try:
-                busy = await self.run_once()
-            except Exception:
-                logger.exception("QC worker cycle failed")
-                busy = False
-            if not busy:
-                await asyncio.sleep(self.idle_sleep)
 
 
 def _now() -> datetime:

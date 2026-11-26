@@ -33,15 +33,8 @@ from packages.shared.database import (
     create_sessionmaker,
 )
 from packages.shared.db_roles import maintenance_role, scheduler_role
-from packages.shared.outbox_writer import SqlAlchemyOutboxWriter
-from services.qc_governance.domain.qc_task import EnqueueOrigin
-from services.qc_governance.repository.qc_task_repo import SqlAlchemyQCTaskRepository
-from services.qc_governance.repository.task_projection_repo import (
-    SqlAlchemyTaskProjectionRepository,
-)
-from services.qc_governance.service.qc_task_service import QCTaskService
-from tests.conftest import set_test_scope
 from tests.integration.planning_seed import seed_project
+from tests.integration.qc_seed import seed_tenant_task
 from workers.qc.__main__ import _make_scope, _make_tenant_scope
 from workers.qc.scheduler import MaintenanceTenantDiscovery
 from workers.qc.worker import QCWorker
@@ -53,6 +46,7 @@ _OWNER = maintenance_role("owner")
 
 @pytest.fixture(scope="module")
 async def qc_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """qc_governance_role 连接（与生产 Worker 同角色）。"""
     engine = create_qc_governance_engine()
     sm = create_sessionmaker(engine)
     try:
@@ -70,34 +64,7 @@ class _NeverInspects:
         return None
 
 
-async def _seed_tenant_task(
-    qc_sm: async_sessionmaker[AsyncSession],
-    admin_sm: async_sessionmaker[AsyncSession],
-    *,
-    suffix: str,
-) -> tuple[uuid.UUID, str]:
-    tenant = uuid.uuid4()
-    project_id = f"proj-sched-{suffix}"
-    await seed_project(admin_sm, project_id=project_id, tenant=tenant)
-    async with qc_sm() as session:
-        await set_test_scope(session, tenant_id=tenant)
-        service = QCTaskService(
-            SqlAlchemyQCTaskRepository(session),
-            SqlAlchemyOutboxWriter(session),
-            projection=SqlAlchemyTaskProjectionRepository(session),
-        )
-        task = await service.enqueue(
-            project_id=project_id,
-            asset_version_id=f"av-sched-{suffix}",
-            generation_task_id=f"gen-sched-{suffix}",
-            quality_profile_version=f"qp-{suffix}",
-            tenant_id=tenant,
-            origin=EnqueueOrigin(source="RELAY", operator_id="outbox-relay"),
-            shot_id=f"shot-{suffix}",
-            qc_task_id=f"qc-sched-{suffix}",
-        )
-        await session.commit()
-        return tenant, task.entity_id
+_seed_tenant_task = seed_tenant_task
 
 
 def _as_role_engine(role: str) -> AsyncEngine:

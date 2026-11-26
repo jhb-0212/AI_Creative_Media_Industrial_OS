@@ -34,7 +34,7 @@ from packages.shared.database import (
     create_sessionmaker,
 )
 from packages.shared.logging import get_logger, setup_logging
-from packages.shared.rls import set_tenant_context
+from packages.shared.rls import set_tenant_context, verify_rls_enforcement
 from services.asset_service.repository.qc_report_lookup import build_report_lookup
 from services.project_planning.repository.sqlalchemy_outbox_writer import (
     SqlAlchemyOutboxWriter,
@@ -45,7 +45,12 @@ from services.qc_governance.repository.task_projection_repo import (
 )
 from services.qc_governance.service.qc_task_service import QCTaskService
 from workers.qc.asset_inspector import AssetIntegrityInspector
-from workers.qc.scheduler import MaintenanceTenantDiscovery, TenantScheduler
+from workers.qc.scheduler import (
+    CycleOutcome,
+    MaintenanceTenantDiscovery,
+    TenantScheduler,
+    verify_discovery_identity,
+)
 from workers.qc.worker import QCExecutor, QCInspection, QCWorker
 
 logger = get_logger(__name__)
@@ -197,8 +202,8 @@ def _build_worker(
 
 async def _run_cycle(
     scheduler: TenantScheduler, args: argparse.Namespace
-) -> bool | None:
-    """一轮调度：``True`` 有活 / ``False`` 空闲 / ``None`` 阻断。
+) -> CycleOutcome:
+    """一轮调度：``blocked`` / ``busy`` / ``tenant_errors`` 三个维度分开上报。
 
     ``--sweep`` 也走租户委派：回收「过期租约」必须知道在哪些租户里找，而这份
     清单只能来自发现身份。用旧清单或全域直读都会把「发现挂了」变成「清扫静默
@@ -210,9 +215,9 @@ async def _run_cycle(
             logger.error(
                 "tenant discovery unavailable: sweep skipped, not a clean queue"
             )
-            return None
+            return CycleOutcome(blocked=True)
         logger.info("reclaimed %d expired QC lease(s)", reclaimed)
-        return False
+        return CycleOutcome()
     return await scheduler.run_once()
 
 
@@ -223,6 +228,13 @@ async def _main(argv: list[str] | None = None) -> int:
     engine = create_qc_governance_engine()
     sessionmaker = create_sessionmaker(engine)
     scheduler_engine = create_qc_scheduler_engine()
+    # 启动期两道身份断言，缺一都不是「已验收」：
+    # 1) QC 池本身必须是 NOBYPASSRLS 角色——否则租户上下文只是装饰，RLS 不生效；
+    # 2) 发现身份必须「只能发现」——授权面是迁移期事实，进程运行期看不见它，
+    #    只有把声明变成启动断言，别处补的一句 GRANT 才会以启动失败暴露出来。
+    # 生产环境前者硬失败、非生产告警（与 API lifespan 同一口径）。
+    await verify_rls_enforcement(engine, app_env=settings.app_env)
+    await verify_discovery_identity(scheduler_engine)
     asset_engine = None
     report_lookup: Any | None = None
     if args.no_detector:
@@ -261,19 +273,26 @@ async def _main(argv: list[str] | None = None) -> int:
     try:
         if args.sweep or args.once:
             outcome = await _run_cycle(scheduler, args)
-            if outcome is None:
+            if outcome.blocked:
                 # 一次性运行必须用退出码说出「阻断」，否则定时任务看到 0 就
                 # 以为「队列干净、无需处理」，把停摆放进绿区。
                 logger.error("one-shot QC cycle blocked: discovery unavailable")
                 return 2
+            if outcome.tenant_errors:
+                # 「部分失败」同样不是成功：这一轮没覆盖完所有被发现的租户。
+                logger.error(
+                    "one-shot QC cycle degraded: %d tenant(s) failed",
+                    outcome.tenant_errors,
+                )
+                return 3
             return 0
         while True:
             try:
-                busy = await _run_cycle(scheduler, args)
+                outcome = await _run_cycle(scheduler, args)
             except Exception:
                 logger.exception("QC worker cycle failed")
-                busy = False
-            if not busy:
+                outcome = CycleOutcome()
+            if not outcome.busy and not outcome.degraded:
                 await asyncio.sleep(args.idle_sleep)
     finally:
         if asset_engine is not None:

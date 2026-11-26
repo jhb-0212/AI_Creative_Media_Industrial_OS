@@ -32,6 +32,7 @@ ENTRYPOINTS: dict[str, str] = {
     "workers/identity/app.py": "identity",
     "workers/generation/__main__.py": "generation",
     "workers/qc/__main__.py": "qc",
+    "workers/qc_maintenance/__main__.py": "qc_maintenance",
 }
 
 
