@@ -106,7 +106,7 @@ def _report_lookup(
 ):
     """报告核验器替身：只承认 ``known`` 里的 id，其余视为不存在。"""
 
-    async def lookup(qc_report_id: str, want_tenant):
+    async def lookup(qc_report_id: str, want_tenant, organization_id):
         if qc_report_id not in known:
             return None
         return ReportFacts(asset_version_id=asset_version_id, tenant_id=tenant_id)

@@ -87,6 +87,7 @@ class QCTaskService:
         origin: EnqueueOrigin,
         shot_id: str = "",
         qc_task_id: str = "",
+        organization_id: UUID | None = None,
     ) -> QCTask:
         """创建 QUEUED。重复入队拒绝（业务冲突，不是 500）。
 
@@ -114,6 +115,7 @@ class QCTaskService:
             asset_version_id=asset_version_id,
             generation_task_id=generation_task_id,
             quality_profile_version=quality_profile_version,
+            organization_id=organization_id,
         )
         try:
             await self._repository.add(task)
@@ -206,6 +208,9 @@ class QCTaskService:
             tenant_id=facts.tenant_id,
             origin=origin,
             shot_id=facts.shot_id,
+            # 组织随事实走：恢复不是「重新定义这次生成了什么」，所以组织只能
+            # 来自生成任务行，不能来自调用方这次请求的身份声明。
+            organization_id=facts.organization_id,
         )
 
     async def _load(self, task_id: str) -> QCTask:
@@ -408,7 +413,12 @@ class QCTaskService:
                     "未装配 report_lookup 时拒绝终结（fail-closed）"
                 ),
             )
-        facts = await self._report_lookup(qc_report_id, task.tenant_id)
+        # 第三个参数是任务事实里的组织归属：报告表的可见性经
+        # asset_versions → projects 继承组织面 RLS，Worker/CLI 没有 Principal，
+        # 只能靠这一行事实建立组织上下文去读。
+        facts = await self._report_lookup(
+            qc_report_id, task.tenant_id, task.organization_id
+        )
         if facts is None:
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,

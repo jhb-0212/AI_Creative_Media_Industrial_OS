@@ -23,7 +23,7 @@ from typing import Any, Literal
 from adapters.storage.ports import ObjectStoragePort, StorageError
 from packages.identity.principal import Principal
 from packages.shared.outbox_writer import SqlAlchemyOutboxWriter
-from packages.shared.rls import set_tenant_context
+from packages.shared.rls import set_organization_context, set_tenant_context
 from packages.shared.storage_locator import parse_locator
 from services.asset_service.domain.enums import AssetStatus
 from services.asset_service.repository.sqlalchemy_asset_repo import (
@@ -86,6 +86,10 @@ class AssetIntegrityInspector:
     async def inspect(self, task: Any) -> QCInspection:
         async with self.asset_sessionmaker() as session:
             await set_tenant_context(session, task.tenant_id)
+            # 组织级项目的资产版本经 ``EXISTS(projects)`` 继承组织面 RLS，
+            # 不注入组织就读不到——会被误判成「资产不存在」而 blocked。
+            # 组织只来自任务事实行（``task.organization_id``），不在这里推断。
+            await set_organization_context(session, task.organization_id)
             assets = SqlAlchemyAssetRepository(session)
             service = AssetService(
                 assets,

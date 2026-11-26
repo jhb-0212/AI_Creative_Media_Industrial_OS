@@ -90,7 +90,7 @@ class _NeverInspects:
 
 
 def _report_lookup(reports: dict[str, tuple[str, uuid.UUID]]) -> Any:
-    async def lookup(report_id: str, tenant_id: Any) -> Any:
+    async def lookup(report_id: str, tenant_id: Any, organization_id: Any) -> Any:
         facts = reports.get(report_id)
         if facts is None:
             return None

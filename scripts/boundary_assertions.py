@@ -1102,8 +1102,6 @@ _ORG_RLS_TABLES: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
             ("production_planning", "generation_tasks"),
             ("budget_quota", "shot_budget_requests"),
             ("qc_governance", "gate_decisions"),
-            # Phase 3：QC 待检队列同样以父项目存在性表达组织可见性。
-            ("qc_governance", "qc_tasks"),
             # A35 / ADR-R42：产物写入意图与登记回执都自带 project_id，
             # 组织可见性经父项目传递；漏登记会让这两张表的策略不被求值。
             ("production_planning", "artifact_manifests"),
@@ -1113,6 +1111,24 @@ _ORG_RLS_TABLES: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
     # R16：预算账本是追加式流水，无 project/org 列，按租户维度兜底隔离
     #（"tenant" 形态：仍校验 tenant 谓词与 FORCE，只是不要求父项目存在性）。
     ("budget_quota", "budget_ledger", "tenant", ()),
+    # WP-D：QC 待检队列从「父项目存在性」改为「租户维度」。
+    #
+    # 为什么必须改：旧形态让 ``qc_tasks`` 的可见性**间接继承 projects 的 RLS**，
+    # 于是组织级项目的任务对**调度器与 QC Worker 一律不可见**——发现函数
+    # （SECURITY DEFINER）能数到待检条数，领取却永远读不到行，队列表面上「非空、
+    # 无进展」。这正是 WP-C 用 409 挡住的那条成因链，只是它在 qc_tasks 上复发：
+    # 策略是 OR/AND 语义之外还**传染**被引用表的策略，而调度器没有组织可注入。
+    #
+    # 为什么这样不越界：待检队列本来就是**系统级调度、租户级执行**的工作队列
+    # （``QC.TASK.PROCESS`` 的 allowed_principals 是「QC Worker（租约持有者）」这个
+    # 系统席位，不是人类浏览者）；组织是**随行事实**（``organization_id``）供下游
+    # 建上下文，不是可见性谓词。项目归属仍由复合外键
+    # ``(project_id, tenant_id) -> projects`` 在所有连接上强制。
+    #
+    # 代价说得明白：同一租户内、持有 QC Worker 席位的身份可以看见别的组织的待检
+    # 任务元数据（项目/产物引用）。它读不到别的组织的报告与资产——那两张表仍是
+    # 组织面 RLS（``qc_reports`` 经两跳 EXISTS）。
+    ("qc_governance", "qc_tasks", "tenant", ()),
 )
 
 

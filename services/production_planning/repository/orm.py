@@ -18,6 +18,7 @@ denied，不是代码评审的意见。
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import UUID
 
 from sqlalchemy import (
     CheckConstraint,
@@ -27,6 +28,7 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    Uuid,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -120,6 +122,10 @@ class GenerationTaskModel(Base, EntityMixin):
     quality_profile_version: Mapped[str] = mapped_column(
         String(64), nullable=False, server_default=""
     )
+    # 组织归属：入队时随事实下传给 QC，用于在 Worker 侧建立组织上下文。
+    # 为什么不从 ``projects`` 现查：该表的 RLS 要求组织上下文，而 Worker 没有
+    # ``current_organization_id``——查不到正是「没有组织」，两者会混成一件事。
+    organization_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
 
 
 class ArtifactManifestModel(Base, EntityMixin):

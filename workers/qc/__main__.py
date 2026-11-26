@@ -34,7 +34,11 @@ from packages.shared.database import (
     create_sessionmaker,
 )
 from packages.shared.logging import get_logger, setup_logging
-from packages.shared.rls import set_tenant_context, verify_rls_enforcement
+from packages.shared.rls import (
+    set_organization_context,
+    set_tenant_context,
+    verify_rls_enforcement,
+)
 from services.asset_service.repository.qc_report_lookup import build_report_lookup
 from services.project_planning.repository.sqlalchemy_outbox_writer import (
     SqlAlchemyOutboxWriter,
@@ -170,10 +174,15 @@ def _make_report_lookup(asset_sessionmaker: Any) -> Any:
     读取口径仍复用资产域的 ``build_report_lookup``（一处实现，两个进程共用）。
     """
 
-    async def lookup(qc_report_id: str, tenant_id: Any) -> Any:
+    async def lookup(qc_report_id: str, tenant_id: Any, organization_id: Any) -> Any:
         async with asset_sessionmaker() as session:
             await set_tenant_context(session, tenant_id)
-            return await build_report_lookup(session)(qc_report_id, tenant_id)
+            # ``qc_reports`` 的组织面约束经 ``EXISTS(asset_versions) →
+            # EXISTS(projects)`` 传递；组织来自任务事实行，不注入就一律读不到。
+            await set_organization_context(session, organization_id)
+            return await build_report_lookup(session)(
+                qc_report_id, tenant_id, organization_id
+            )
 
     return lookup
 

@@ -57,6 +57,10 @@ class GenerationFacts:
     shot_id: str
     asset_version_id: str
     quality_profile_version: str
+    # 组织归属（项目级作用域）：``None`` = 租户级项目。携带它不是为了展示，
+    # 而是因为 QC 的产物读回与报告核验都受组织面 RLS 约束，而 Worker 进程
+    # 没有 Principal——组织只能作为**事实**从数据行随任务下传，不能凭空推断。
+    organization_id: UUID | None = None
 
 
 # ``(generation_task_id, project_id, tenant_id) -> GenerationFacts | None``

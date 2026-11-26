@@ -25,8 +25,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Protocol
 from uuid import UUID
 
 
@@ -38,8 +38,23 @@ class ReportFacts:
     tenant_id: UUID
 
 
-# ``(qc_report_id, tenant_id) -> ReportFacts | None``
-ReportLookup = Callable[[str, UUID], Awaitable[ReportFacts | None]]
+class ReportLookup(Protocol):
+    """``(qc_report_id, tenant_id, organization_id) -> ReportFacts | None``。
+
+    为什么组织要作为第三个参数显式传入
+    ----------------------------------
+    报告表的可见性经 ``asset_versions → projects`` 继承组织面 RLS。API 侧的
+    会话已由 UoW 注入组织上下文，读自己的报告不需要额外信息；但 QC Worker /
+    运维 CLI 没有 Principal，组织只能来自任务事实行。把这个差异留在适配层
+    （忽略参数 vs 用参数建上下文），端口本身只声明「核验需要知道组织」。
+
+    第三参必须显式声明为 ``UUID | None`` 而不是可选位置参数：``None`` 是
+    「租户级项目」这一**有效事实**，与「调用方忘了传」在类型上就不该混淆。
+    """
+
+    async def __call__(
+        self, qc_report_id: str, tenant_id: UUID, organization_id: UUID | None
+    ) -> ReportFacts | None: ...
 
 
 __all__ = ["ReportFacts", "ReportLookup"]

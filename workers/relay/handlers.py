@@ -31,7 +31,7 @@ relay 以 ``outbox_relay_role`` 连接，只持有 outbox schema 的 SELECT + UP
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 from uuid import UUID
 
@@ -43,6 +43,9 @@ from packages.shared.event_payloads import (
 )
 from packages.shared.logging import get_logger
 from packages.shared.rls import set_tenant_context
+from services.production_planning.repository.generation_facts_lookup import (
+    build_generation_facts_lookup,
+)
 from services.project_planning.repository.sqlalchemy_outbox_writer import (
     SqlAlchemyOutboxWriter,
 )
@@ -68,6 +71,11 @@ class GenerationSucceeded:
     quality_profile_version: str
     project_id: str
     shot_id: str
+    # 组织归属（``None`` = 租户级项目）。它**不**在 ``GENERATION_SUCCEEDED``
+    # 载荷里——事件契约（``payload_schema_version: 1``）已冻结，改载荷等于先
+    # 实现后补契约。组织由 relay 从事件来源行（``generation_tasks``）读出，
+    # 见 ``make_sql_enqueue``。
+    organization_id: UUID | None = None
 
 
 class MalformedEventError(ValueError):
@@ -125,6 +133,7 @@ async def enqueue_idempotently(service: Any, request: GenerationSucceeded) -> bo
             quality_profile_version=request.quality_profile_version,
             tenant_id=request.tenant_id,
             origin=EnqueueOrigin(source="RELAY", operator_id="outbox-relay"),
+            organization_id=request.organization_id,
         )
     except DomainError as exc:
         if exc.error_code is ErrorRegistry.IDEMPOTENCY_CONFLICT:
@@ -140,10 +149,43 @@ async def enqueue_idempotently(service: Any, request: GenerationSucceeded) -> bo
 EnqueueFn = Callable[[GenerationSucceeded], Awaitable[bool]]
 
 
-def make_sql_enqueue(qc_sessionmaker: Any) -> EnqueueFn:
-    """生产用入队实现：QC 角色独立会话，事务提交后才算入队成功。"""
+def make_sql_enqueue(
+    qc_sessionmaker: Any, production_planning_sessionmaker: Any | None = None
+) -> EnqueueFn:
+    """生产用入队实现：QC 角色独立会话，事务提交后才算入队成功。
+
+    组织归属从事件来源行读
+    ----------------------
+    QC 的产物读回与报告核验受组织面 RLS 约束，而 QC Worker 没有 Principal。
+    组织只能作为**事实**从 ``generation_tasks.organization_id`` 读出来随任务
+    落库；把它塞进事件载荷需要改冻结契约，而把它「按项目现查」需要组织上下文
+    ——正是这里缺的东西。
+
+    未注入生产会话时组织按 ``None`` 处理（只能服务租户级项目）：这只在测试与
+    纯内存装配下成立，生产装配必须提供会话（``workers/relay/__main__.py`` 已
+    提供）。宁可让测试显式说明「租户级」，也不猜。
+    """
+
+    async def _organization_of(request: GenerationSucceeded) -> UUID | None:
+        if production_planning_sessionmaker is None:
+            return request.organization_id
+        async with production_planning_sessionmaker() as session:
+            await set_tenant_context(session, request.tenant_id)
+            facts = await build_generation_facts_lookup(session)(
+                request.generation_task_id, request.project_id, request.tenant_id
+            )
+        if facts is None:
+            # 事件存在 ⟺ 终态已提交，拿不到来源行就是发出方违约。此时**不**
+            # 入队：没有组织归属的待检项在组织级项目上会永远无法终结。
+            raise MalformedEventError(
+                "GENERATION_SUCCEEDED 的来源生成任务不可见，"
+                f"无法确定组织归属: generation_task_id={request.generation_task_id} "
+                f"project_id={request.project_id}"
+            )
+        return facts.organization_id
 
     async def enqueue(request: GenerationSucceeded) -> bool:
+        organization_id = await _organization_of(request)
         async with qc_sessionmaker() as session:
             await set_tenant_context(session, request.tenant_id)
             service = QCTaskService(
@@ -151,7 +193,9 @@ def make_sql_enqueue(qc_sessionmaker: Any) -> EnqueueFn:
                 SqlAlchemyOutboxWriter(session),
                 projection=SqlAlchemyTaskProjectionRepository(session),
             )
-            created = await enqueue_idempotently(service, request)
+            created = await enqueue_idempotently(
+                service, replace(request, organization_id=organization_id)
+            )
             # 幂等跳过时也提交：本事务没有新写入，提交只是释放连接与行锁。
             await session.commit()
             return created
@@ -182,7 +226,15 @@ def build_handlers(
     """
     handlers: dict[str, EventHandler] = {}
     if qc_sessionmaker is not None:
-        handlers.update(build_generation_handlers(make_sql_enqueue(qc_sessionmaker)))
+        handlers.update(
+            build_generation_handlers(
+                # 组织归属必须从生产会话读来源行；缺会话时退回租户级口径。
+                make_sql_enqueue(
+                    qc_sessionmaker,
+                    production_planning_sessionmaker=production_planning_sessionmaker,
+                )
+            )
+        )
     if production_planning_sessionmaker is not None and asset_sessionmaker is not None:
         handlers.update(
             build_asset_registration_handlers(

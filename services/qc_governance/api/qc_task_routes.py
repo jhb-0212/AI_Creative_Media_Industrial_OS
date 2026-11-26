@@ -176,29 +176,18 @@ async def recover_qc_task(
     ``production_planning`` 本就零授权），用写连接会让「其实只读」这个事实
     无法在数据库层被验证。
     """
-    # 组织级项目必须先被挡住，而不是进队列后无声失败。
+    # 组织归属只从数据库事实取，不从请求体 / Principal 自报取。
     #
-    # 成因链是纯数据面的：``project_planning.projects`` 的 RLS 除租户外还要求
-    # ``organization_id = app.current_organization_id``；``asset_versions`` 经
+    # ``project_planning.projects`` 的 RLS 除租户外还要求
+    # ``organization_id = app.current_organization_id``，``asset_versions`` 经
     # ``EXISTS(projects)``、``qc_reports`` 再经 ``EXISTS(asset_versions)`` 传递
-    # 该约束。而 QC Worker 没有 Principal，注入不了组织→组织级项目的产物读回
-    # 与报告核验一律 fail-closed：任务会被反复领取、反复失败，看得见日志、
-    # 却永远不终结。
+    # 该约束。API 侧会话已由 UoW 注入组织，因此这里读得到；而 QC Worker 没有
+    # Principal，必须能从任务事实行读到组织才能建上下文。
     #
-    # 在入口拒绝的代价是「带组织声明的租户级项目也会被拒」（过度拒绝），换来
-    # 的是「绝不把注定失败的任务放进队列」。真正打通需要组织随事实链路传递
-    # （QC 任务列 + 生成事实端口 + 事件载荷 + Worker 作用域），那是一次带契约
-    # 修订的独立批次，不在这里硬凑。
-    if principal.organization_id is not None:
-        raise DomainError(
-            ErrorRegistry.PHASE_NOT_ENABLED,
-            detail=(
-                "组织级 QC 尚未打通：QC Worker 进程没有组织上下文，"
-                "产物读回与报告核验都会 fail-closed。"
-                f"当前请求带组织声明 {principal.organization_id}，拒绝入队——"
-                "否则任务会进队列后反复领取失败、永不终结"
-            ),
-        )
+    # 所以组织随 ``facts.organization_id`` 落进 QC 任务行（见
+    # ``QCTaskService.enqueue``），入口不再按「有没有组织声明」拒绝：拒绝会把
+    # 正常的组织级项目挡在门外，而真正的风险（组织丢失）由下游的 fail-closed
+    # 核验兜住。此前用 Principal 判 409 是权宜之计，现已随 WP-D 拆除。
     if facts_factory is None:
         raise DomainError(
             ErrorRegistry.INTERNAL_ERROR,
@@ -220,6 +209,9 @@ async def recover_qc_task(
             ),
         )
     # 授权对象是**事实行里的** project_id：请求体只用来选择，不参与归属判定。
+    #
+    # 这里用 Principal 的路径授权（``authorize_on_parent``）而不是用事实里的组织
+    # 再判一次：组织是数据可见性维度，授权是「谁被允许请求恢复」——两者不能互换。
     await authorize_on_parent(
         "QC.TASK.RECOVER",
         principal,

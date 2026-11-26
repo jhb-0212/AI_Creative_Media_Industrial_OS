@@ -41,6 +41,9 @@ class _Task:
         self.asset_version_id = asset_version_id
         self.project_id = project_id
         self.quality_profile_version = quality_profile_version
+        # 领域对象一定有这个属性（租户级项目为 None）；替身也要有，否则测的是
+        # 「替身缺字段」而不是检测器行为。
+        self.organization_id = None
 
 
 async def _seed_asset(

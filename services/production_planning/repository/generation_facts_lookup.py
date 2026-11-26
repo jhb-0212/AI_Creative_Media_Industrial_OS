@@ -65,6 +65,7 @@ def build_generation_facts_lookup(session: AsyncSession) -> GenerationFactsLooku
             shot_id=model.shot_id,
             asset_version_id=model.asset_version_id,
             quality_profile_version=model.quality_profile_version,
+            organization_id=model.organization_id,
         )
 
     return lookup

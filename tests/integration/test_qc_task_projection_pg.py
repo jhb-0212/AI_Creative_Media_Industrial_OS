@@ -216,7 +216,7 @@ async def test_terminal_state_retires_projection_row(
 
     # 判定需要报告核验器；这里只验证投影的终态语义，因此用一个只读装配
     # （report_lookup 存在但不参与本用例结论）。
-    async def lookup(qc_report_id: str, tid) -> object:
+    async def lookup(qc_report_id: str, tid, organization_id) -> object:
         from packages.shared.evidence_ports import ReportFacts
 
         return ReportFacts(asset_version_id=f"av-proj-{suffix}", tenant_id=tid)

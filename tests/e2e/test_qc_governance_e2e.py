@@ -25,10 +25,10 @@ PASSED → 投影清除」，但它的任务是由服务层 ``enqueue`` 直接�
 - 负向：持有租约但拿**别的资产**的报告终结 → 被拒，任务留在 RUNNING，
   投影仍在（证明核验不是「有 id 就放行」）。
 
-已知缺口（本轮首次被证伪，已加**入口守卫**，待完整打通）
---------------------------------------------------------
-本文件的两条正向/负向用例走的是**租户内项目**（``organization_id`` 为空），
-可以端到端跑通。带组织的项目跑不通，原因链是纯数据面的：
+已知缺口与后续修复（WP-D）
+--------------------------
+前两条用例走的是**租户内项目**（``organization_id`` 为空）。带组织的项目曾经跑不
+通，原因链是纯数据面的：
 
 1. ``project_planning.projects`` 的 RLS 除租户外还要求
    ``organization_id = current_setting('app.current_organization_id')``；
@@ -37,15 +37,18 @@ PASSED → 投影清除」，但它的任务是由服务层 ``enqueue`` 直接�
 4. 而 Worker 进程没有 Principal，``workers/qc/__main__.py`` 的
    ``_make_report_lookup`` 只能注入租户，注不进组织。
 
-结果曾经是：组织内项目的任务**能入队，然后永远领不完**——检测器读不到资产
-（``InspectionBlockedError``，不是假 REJECTED），核验读不到报告
-（fail-closed），租约反复过期回队，任务在队列里打转。
+曾用**入口守卫**兜住（``POST /qc-tasks`` 见组织声明即 409）：换来「注定失败的
+任务不进队列」，代价是「组织级项目一律做不了 QC」。
 
-现在的处置是**入口守卫**：``POST /qc-tasks`` 只要请求带组织声明就直接
-409 ``PHASE_NOT_ENABLED``，并说明成因。代价是「带组织声明的租户级项目也会
-被拒」（过度拒绝），换来的是「注定失败的任务绝不进队列」。见本文件第三条
-用例。完整打通需要组织随事实链路传递（任务列 + 生成事实端口 + 事件载荷 +
-Worker 作用域），那是一次带契约修订的独立批次，不在测试里改口径吞掉。
+WP-D 的修法是让组织作为**事实**随链路下传，而不是把它塞进冻结的事件载荷：
+
+- ``generation_tasks`` / ``qc_tasks`` 各加 ``organization_id``（迁移
+  ``b6c7d8e9f0a1``）；生产创建从验签 Principal 落组织，人工恢复从生成事实读；
+- relay 自动入队时用生产会话读来源行的组织（事件契约一字不动）；
+- Worker 的检测器与报告核验器用任务行里的组织 ``set_organization_context``。
+
+于是第三条用例从「入口 409」改成「组织级全链路正向」，并且断言组织**真的落库**
+（而不是靠请求身份临时携带——那会在 Worker 侧丢）。
 """
 
 from __future__ import annotations
@@ -90,10 +93,9 @@ _TENANT = uuid.uuid4()
 def _actor(subject_id: str, roles: list[str]) -> AsyncClient:
     """真实 JWT + 真实 ASGI 端点；角色取自契约 ``allowed_principals`` 原文。
 
-    刻意**不带组织声明**：本用例走的是租户内项目（``organization_id`` 为
-    空）。原因不是省事，而是 Worker 侧报告核验的组织面缺口（见文件尾
-    ``KNOWN_GAP``）——那是一条需要单独裁决的治理问题，不能靠本用例
-    「顺手带个 org claim」掩盖成已支持。
+    默认**不带组织声明**：前三段链路走租户内项目（``organization_id`` 为空）。
+    需要组织的那条用例自己用 ``_org_actor`` 造带组织签发的 token——组织必须来自
+    验签 Principal，而不是测试自己在请求体里写一个字符串。
     """
     token = make_test_token(
         subject_id=subject_id, roles=roles, tenant_id=_TENANT
@@ -154,6 +156,7 @@ async def _seed_generation_task(
     *,
     project_id: str,
     asset_version_id: str,
+    organization_id: uuid.UUID | None = None,
 ) -> str:
     """播一条**成功终态**的生成任务事实（人工恢复入队的前提）。
 
@@ -188,6 +191,7 @@ async def _seed_generation_task(
                 prompt_ref="prompt-e2e",
                 asset_version_id=asset_version_id,
                 quality_profile_version=_QUALITY_PROFILE,
+                organization_id=organization_id,
             )
         )
         await session.commit()
@@ -222,6 +226,21 @@ async def _task_row(
                 {"id": task_id},
             )
         ).one()
+
+
+async def _task_organization(
+    admin_sm: async_sessionmaker[AsyncSession], task_id: str
+) -> uuid.UUID | None:
+    """读待检任务行里的组织归属（``NULL`` 就是租户级项目，不是「读失败」）。"""
+    async with admin_sm() as session:
+        value = await session.scalar(
+            text(
+                "SELECT organization_id FROM qc_governance.qc_tasks "
+                "WHERE entity_id = :id"
+            ),
+            {"id": task_id},
+        )
+    return value
 
 
 async def _projection_count(
@@ -336,16 +355,21 @@ async def test_http_recovery_task_is_picked_up_and_finished_with_real_report(
         )
 
 
-async def test_org_scoped_recovery_is_refused_before_it_enters_the_queue(
-    admin_sessionmaker
+async def test_org_scoped_task_runs_the_whole_chain_and_persists_organization(
+    admin_sessionmaker, asset_sessionmaker, qc_engines
 ) -> None:
-    """组织级请求必须在入口被拒：宁可 409，也不让注定失败的任务进队列。
+    """组织级项目：入队 → 落组织 → 领取 → 组织上下文核验报告 → PASSED。
 
-    这条不是「顺手测个 4xx」。没有它，缺口的表现是「任务能入队、Worker 反复
-    领取反复失败、永远不终结」——那是一类最贵的故障：监控上看队列非空、
-    Worker 上全是日志、但没有任何终态可交接。守卫把故障前移到请求方。
+    这条用例曾经断言「组织级请求被 409 拒绝」。现在改为断言**全链路通过**，
+    因为 409 只是权宜之计：它把注定失败的任务挡在门外，也把正常的组织级项目
+    一起挡掉了。真正要证明的是组织作为事实穿过了 Worker 边界：
 
-    同时断言**没有副产物**：拒绝路径不得留下 qc_tasks 行或投影行。
+    - 入队后 ``qc_tasks.organization_id`` 必须是那条组织（来自生成任务行）；
+    - 核验器只能靠这一行建组织上下文去读报告——它没有 Principal；
+    - 最终落到 PASSED 并离开投影。
+
+    若组织没有真正落库/注入，这里的表现是「报告不存在 → 422 拒绝 →
+    任务停在 RUNNING」，用例会红，而不是悄悄绿成「拒绝得对」。
     """
     org = uuid.uuid4()
     async with admin_sessionmaker() as session:
@@ -377,6 +401,7 @@ async def test_org_scoped_recovery_is_refused_before_it_enters_the_queue(
     async with (
         _org_actor("producer_org", ["制片"]) as producer,
         _org_actor("asset_worker_org", ["Worker"]) as asset_worker,
+        _org_actor("qc_worker_org", ["QC Worker"]) as qc_worker,
         _org_actor("recover_org", ["运维恢复操作者"]) as recover,
     ):
         resp = await producer.post(
@@ -391,44 +416,54 @@ async def test_org_scoped_recovery_is_refused_before_it_enters_the_queue(
         project_id = resp.json()["entity_id"]
         asset_id = await _create_asset(asset_worker, project_id)
         generation_task_id = await _seed_generation_task(
-            admin_sessionmaker, project_id=project_id, asset_version_id=asset_id
+            admin_sessionmaker,
+            project_id=project_id,
+            asset_version_id=asset_id,
+            organization_id=org,
+        )
+        task_id = await _recover(
+            recover, generation_task_id, project_id, "组织级项目恢复"
         )
 
-        refused = await recover.post(
-            "/qc-tasks",
-            json={
-                "generation_task_id": generation_task_id,
-                "project_id": project_id,
-                "reason": "组织级项目恢复尝试",
-            },
+        stored_org = await _task_organization(admin_sessionmaker, task_id)
+        assert stored_org == org, (
+            "组织必须随事实落进待检任务行：Worker 没有 Principal，"
+            "组织一旦只存在于请求里，跨进程就会丢"
         )
-        assert refused.status_code == 409, refused.text
-        body = refused.json()
-        assert body["error_code"] == "PHASE_NOT_ENABLED", refused.text
-        assert "组织" in body["message"], "拒绝理由必须指向组织上下文缺失，而不是泛化拒绝"
+        assert await _projection_count(admin_sessionmaker, task_id) == 1
 
-        async with admin_sessionmaker() as session:
-            tasks = int(
-                await session.scalar(
-                    text(
-                        "SELECT count(*) FROM qc_governance.qc_tasks "
-                        "WHERE generation_task_id = :g"
-                    ),
-                    {"g": generation_task_id},
-                )
-            )
-            projections = int(
-                await session.scalar(
-                    text(
-                        "SELECT count(*) FROM qc_maintenance.task_projection p "
-                        "JOIN qc_governance.qc_tasks t ON t.entity_id = p.task_id "
-                        "WHERE t.generation_task_id = :g"
-                    ),
-                    {"g": generation_task_id},
-                )
-            )
-        assert tasks == 0, "被入口拒绝的请求不得留下待检任务"
-        assert projections == 0, "被入口拒绝的请求不得留下调度投影"
+        report_id = await _create_report(
+            qc_worker, asset_id, f"rep_org_{uuid.uuid4().hex[:8]}"
+        )
+
+        qc_engine, scheduler_engine = qc_engines
+        sm = create_sessionmaker(qc_engine)
+        inspector = _ReportReplayingInspector(report_id)
+        report_lookup = _make_report_lookup(asset_sessionmaker)
+        worker = QCWorker(
+            scope=_make_scope(sm, report_lookup),
+            scope_for_tenant=_make_tenant_scope(sm, report_lookup),
+            executor=inspector,
+            worker_id=f"e2e-org-{uuid.uuid4().hex[:8]}",
+            lease_seconds=120,
+        )
+        scheduler = TenantScheduler(
+            discovery=_ScopedDiscovery(engine=scheduler_engine, tenants={_TENANT}),
+            worker=worker,
+        )
+        outcome = await scheduler.run_once()
+
+        assert outcome.blocked is False
+        assert outcome.tenant_errors == 0, (
+            "组织级任务若因组织上下文缺失而失败，这里必须表现为租户错误，"
+            "不能悄悄跳过"
+        )
+
+        row = await _task_row(admin_sessionmaker, task_id)
+        assert row.status == "PASSED", (
+            "组织级报告必须能被 Worker 核验；停在 RUNNING 说明组织没进会话"
+        )
+        assert await _projection_count(admin_sessionmaker, task_id) == 0
 
 
 async def test_foreign_asset_report_is_refused_and_task_stays_running(

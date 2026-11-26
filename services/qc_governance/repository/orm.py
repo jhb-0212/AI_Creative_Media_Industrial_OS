@@ -14,7 +14,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, Index, Integer, String
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    DateTime,
+    Index,
+    Integer,
+    String,
+    Uuid,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -122,6 +130,9 @@ class QCTaskModel(Base, EntityMixin):
     qc_report_id: Mapped[str] = mapped_column(
         String(64), nullable=False, server_default=""
     )
+    # 组织归属（``NULL`` = 租户级项目）。Worker 没有 Principal，组织只能作为
+    # 事实随任务行下传；从项目表现查会撞上项目表的组织面 RLS。
+    organization_id: Mapped[Any | None] = mapped_column(Uuid, nullable=True)
 
 
 __all__ = ["SCHEMA_NAME", "GateDecisionModel", "QCTaskModel"]

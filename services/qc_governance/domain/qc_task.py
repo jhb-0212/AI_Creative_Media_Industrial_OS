@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
+from uuid import UUID
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.entity import Entity
@@ -100,6 +101,9 @@ class QCTask(Entity):
     lease_generation: int = 0
     attempt_count: int = 0
     qc_report_id: str = ""
+    # 组织归属：从生成事实行（或人工恢复时的 Principal）随任务落库。
+    # ``None`` = 租户级项目；Worker 据此建立组织上下文去读资产与写报告。
+    organization_id: UUID | None = None
 
     def __post_init__(self) -> None:
         super()._validate_envelope()
@@ -298,6 +302,8 @@ class QCTask(Entity):
                 "attempt_count": self.attempt_count,
                 "lease_generation": self.lease_generation,
                 "qc_report_id": self.qc_report_id,
+                # 组织归属不进响应：QCTask 的响应形状由冻结契约声明。它是
+                # Worker 建上下文的内部事实，不是对外字段。
             }
         )
         return data

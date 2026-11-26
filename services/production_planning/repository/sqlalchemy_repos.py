@@ -136,6 +136,7 @@ def _task_to_orm(task: GenerationTask) -> GenerationTaskModel:
         attempt_count=task.attempt_count,
         asset_version_id=task.asset_version_id,
         quality_profile_version=task.quality_profile_version,
+        organization_id=task.organization_id,
     )
 
 
@@ -172,6 +173,7 @@ def _task_to_domain(model: GenerationTaskModel) -> GenerationTask:
         attempt_count=model.attempt_count,
         asset_version_id=model.asset_version_id,
         quality_profile_version=model.quality_profile_version,
+        organization_id=model.organization_id,
     )
 
 

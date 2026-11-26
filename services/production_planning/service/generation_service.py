@@ -60,6 +60,7 @@ class GenerationService:
         created_by: str,
         tenant_id: UUID,
         generation_task_id: str = "",
+        organization_id: UUID | None = None,
     ) -> GenerationTask:
         """创建生成任务，一律停在 REQUESTED，等 Worker 持租约领取。
 
@@ -86,6 +87,14 @@ class GenerationService:
 
         仓储方法在归属不符或路线已撤销时返回 None，这里统一转成 NOT_FOUND：
         不区分「路线不存在」与「路线不属于你」，避免泄露他人路线是否存在。
+
+        组织归属是事实而不是推断
+        ------------------------
+        ``organization_id`` 只来自验签 Principal，随任务行落库。下游 QC 的
+        Worker / 调度器都没有 Principal，又受组织面 RLS 约束，必须能从一个
+        已提交的数据行读到组织，才能建立组织上下文。任何时刻都不允许下游
+        「猜」组织（比如按项目现查）——那会把「查不到」与「不属于任何组织」
+        混成同一件事。
         """
         route = await self._repository.get_route_by_ref(
             production_route_ref,
@@ -116,6 +125,7 @@ class GenerationService:
             budget_ref=budget_ref,
             prompt_ref=prompt_ref,
             quality_profile_version=frozen_quality_profile,
+            organization_id=organization_id,
         )
         await self._repository.add(task)
         self._outbox_writer.record(

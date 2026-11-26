@@ -45,6 +45,7 @@ def _to_orm(task: QCTask) -> QCTaskModel:
         lease_generation=task.lease_generation,
         attempt_count=task.attempt_count,
         qc_report_id=task.qc_report_id,
+        organization_id=task.organization_id,
     )
 
 
@@ -78,6 +79,7 @@ def _to_domain(model: QCTaskModel) -> QCTask:
         lease_generation=model.lease_generation,
         attempt_count=model.attempt_count,
         qc_report_id=model.qc_report_id,
+        organization_id=model.organization_id,
     )
 
 

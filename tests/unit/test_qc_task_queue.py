@@ -48,7 +48,9 @@ def _service(
     repo = FakeQCTaskRepository()
     outbox = InMemoryOutboxWriter()
 
-    async def lookup(qc_report_id: str, tenant_id: UUID) -> ReportFacts | None:
+    async def lookup(
+        qc_report_id: str, tenant_id: UUID, organization_id: UUID | None
+    ) -> ReportFacts | None:
         if known_report_ids is not None and qc_report_id not in known_report_ids:
             return None
         return ReportFacts(

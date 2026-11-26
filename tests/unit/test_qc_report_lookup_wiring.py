@@ -102,7 +102,7 @@ async def test_lookup_returns_ownership_facts(patched_repo) -> None:
     tenant = uuid4()
     patched_repo(SimpleNamespace(asset_version_id="asset-1", tenant_id=tenant))
 
-    facts = await build_report_lookup(object())("report-1", tenant)
+    facts = await build_report_lookup(object())("report-1", tenant, None)
     assert facts is not None
     assert facts.asset_version_id == "asset-1"
     assert facts.tenant_id == tenant
@@ -112,12 +112,17 @@ async def test_lookup_returns_none_for_unknown_report(patched_repo) -> None:
     from services.asset_service.repository.qc_report_lookup import build_report_lookup
 
     patched_repo(None)
-    assert await build_report_lookup(object())("missing", uuid4()) is None
+    assert await build_report_lookup(object())("missing", uuid4(), None) is None
 
 
-async def test_sessionmaker_variant_sets_tenant_context(patched_repo, monkeypatch) -> None:
-    """Worker 侧必须显式设租户上下文：否则 RLS 下读到 0 行，
+async def test_sessionmaker_variant_sets_tenant_and_organization_context(
+    patched_repo, monkeypatch
+) -> None:
+    """Worker 侧必须显式设租户 + 组织上下文：否则 RLS 下读到 0 行，
     「越权」与「报告不存在」会给出同一个结论。
+
+    组织级项目的报告还要多一层 ``EXISTS(projects)`` 的组织面约束，只设租户
+    仍然读不到——这两条上下文缺一条都会表现成「报告不存在」。
 
     注入点必须在 **workers** 而非 services：业务代码自行注入 RLS 作用域被
     SCOPE-4 禁止（唯一注入点是 ``build_tenant_uow_dependency``）。
@@ -125,9 +130,10 @@ async def test_sessionmaker_variant_sets_tenant_context(patched_repo, monkeypatc
     from workers.qc.__main__ import _make_report_lookup
 
     tenant = uuid4()
+    organization = uuid4()
     patched_repo(SimpleNamespace(asset_version_id="asset-1", tenant_id=tenant))
 
-    seen: list[Any] = []
+    seen: list[tuple[str, Any]] = []
 
     class _Session:
         async def __aenter__(self):
@@ -138,11 +144,15 @@ async def test_sessionmaker_variant_sets_tenant_context(patched_repo, monkeypatc
 
     import workers.qc.__main__ as worker_main
 
-    async def _record(session, tenant_id):
-        seen.append(tenant_id)
+    async def _record_tenant(session, tenant_id):
+        seen.append(("tenant", tenant_id))
 
-    monkeypatch.setattr(worker_main, "set_tenant_context", _record)
+    async def _record_organization(session, organization_id):
+        seen.append(("organization", organization_id))
 
-    facts = await _make_report_lookup(lambda: _Session())("report-1", tenant)
+    monkeypatch.setattr(worker_main, "set_tenant_context", _record_tenant)
+    monkeypatch.setattr(worker_main, "set_organization_context", _record_organization)
+
+    facts = await _make_report_lookup(lambda: _Session())("report-1", tenant, organization)
     assert facts is not None and facts.asset_version_id == "asset-1"
-    assert seen == [tenant]
+    assert seen == [("tenant", tenant), ("organization", organization)]
