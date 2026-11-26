@@ -955,6 +955,62 @@ def validate_infra_matrix() -> list[str]:
     return problems
 
 
+MAINTENANCE_SCHEMA = "qc_maintenance"
+MAINTENANCE_GUARD = f"{MAINTENANCE_SCHEMA}.assert_session_identity()"
+SECDEF_SIGNATURE = "audit.assert_signature_event_exists()"
+
+
+def maintenance_membership_statements() -> list[str]:
+    """维护身份的成员关系（同样只有矩阵能声明）。
+
+    两句都做成**无条件**语句而不是 ``DO $$ IF EXISTS … $$`` 包裹：PG 里重复
+    ``GRANT <组> TO <成员>`` 是幂等的，对非成员 ``REVOKE`` 也只发一条 warning，
+    所以「重复执行」不需要条件分支；而条件分支会把语句变成一段 plpgsql，
+    闸门就无法按「逐条授权语句」比对，只能退化成模糊匹配。
+    """
+    from packages.shared.db_roles import maintenance_role
+
+    operator = maintenance_role("operator")
+    return [
+        f"GRANT {operator} TO {maintenance_role('login')}",
+        f"REVOKE {operator} FROM {maintenance_role('worker')}",
+    ]
+
+
+def maintenance_identity_statements() -> list[str]:
+    """维护身份（``operator`` / ``login``）到达守卫所需的授权，与 SECDEF 函数收紧。
+
+    为什么不在迁移里直接写这几句：授权面只有一个执行器（矩阵），迁移只是它的
+    执行者。让维护授权走这里，判据才能把「矩阵声明」与「迁移实际执行」逐条
+    比对；写在迁移里就变成第二份事实源，且下一次有人往迁移补一句 GRANT 时
+    闸门再也拦不住。
+
+    只给 ``operator`` / ``login``：``qc_worker`` 是常规质检 Worker，它在维护
+    schema 里没有任何可达路径——这条边界靠授权面表达，而不是靠调用方自觉。
+    """
+    from packages.shared.db_roles import maintenance_role
+
+    operator = maintenance_role("operator")
+    login = maintenance_role("login")
+    return [
+        f"GRANT USAGE ON SCHEMA {MAINTENANCE_SCHEMA} TO {operator}",
+        f"GRANT USAGE ON SCHEMA {MAINTENANCE_SCHEMA} TO {login}",
+        f"REVOKE ALL ON FUNCTION {MAINTENANCE_GUARD} FROM PUBLIC",
+        f"GRANT EXECUTE ON FUNCTION {MAINTENANCE_GUARD} TO {operator}",
+        f"GRANT EXECUTE ON FUNCTION {MAINTENANCE_GUARD} TO {login}",
+        f"REVOKE ALL ON FUNCTION {SECDEF_SIGNATURE} FROM PUBLIC",
+    ]
+
+
+def maintenance_identity_restore_statements() -> list[str]:
+    """``downgrade`` 用：把被 WP-03 收紧的 PUBLIC 执行权放回原状。
+
+    ``assert_session_identity`` 不进这里——downgrade 会把它删掉，给一个即将
+    消失的函数授 PUBLIC 执行权没有意义。真正需要复原的只有历史函数的默认口径。
+    """
+    return [f"GRANT EXECUTE ON FUNCTION {SECDEF_SIGNATURE} TO PUBLIC"]
+
+
 __all__ = [
     "ALL_TABLE_PRIVILEGES",
     "ASSET_SERVICE",
@@ -963,10 +1019,13 @@ __all__ = [
     "DOMAIN_GRANTS",
     "INFRA_ROLES",
     "INFRA_ROLE_GRANTS",
+    "MAINTENANCE_GUARD",
+    "MAINTENANCE_SCHEMA",
     "OUTBOX_OPS",
     "PRODUCTION_PLANNING",
     "PROJECT_PLANNING",
     "QC_GOVERNANCE",
+    "SECDEF_SIGNATURE",
     "TableGrant",
     "business_tables",
     "converge_statements",
@@ -976,6 +1035,9 @@ __all__ = [
     "infra_converge_statements",
     "legacy_r16_grant_statements",
     "legacy_statements",
+    "maintenance_identity_restore_statements",
+    "maintenance_identity_statements",
+    "maintenance_membership_statements",
     "validate_infra_matrix",
     "validate_matrix",
 ]

@@ -38,6 +38,11 @@ _ROLE_FIELD_BY_ENV: dict[str, str] = {
     "POSTGRES_RELAY_USER": "postgres_relay_user",
     "POSTGRES_OUTBOX_OPS_USER": "postgres_outbox_ops_user",
     "POSTGRES_APP_USER": "postgres_app_user",
+    # WP-03 维护四角色（迁移 c9d0e1f2a3b4 创建）。
+    "POSTGRES_QC_MAINTENANCE_OWNER_USER": "postgres_qc_maintenance_owner_user",
+    "POSTGRES_QC_MAINTENANCE_OPERATOR_USER": "postgres_qc_maintenance_operator_user",
+    "POSTGRES_QC_MAINTENANCE_LOGIN_USER": "postgres_qc_maintenance_login_user",
+    "POSTGRES_QC_WORKER_USER": "postgres_qc_worker_user",
 }
 
 
@@ -100,6 +105,22 @@ class Settings(BaseSettings):
     postgres_budget_quota_password: SecretStr = SecretStr("budget_quota_dev_password")
     postgres_qc_governance_user: str = "qc_governance_role"
     postgres_qc_governance_password: SecretStr = SecretStr("qc_governance_dev_password")
+    # 维护四角色（WP-03 / 迁移 c9d0e1f2a3b4）。四者刻意不是「一个角色加权限」：
+    #   owner     —— 维护对象的属主，只持有对象、不登录、不 BYPASSRLS；
+    #   operator  —— 维护权限组，只作为成员关系的目标，不登录；
+    #   login     —— 人的维护身份，唯一可登录的维护角色，operator 的成员；
+    #   qc_worker —— 常规质检 Worker 身份，**刻意不是** operator 成员：
+    #               Worker 能执行维护命令，等于把「自动流水线」变成「任意修数人」。
+    # 之所以要 4 个而不是 2 个：权限组的成员关系是可审计事实（谁属于 operator），
+    # 而「谁能登录」是可连接事实——合到一个角色上，这两件事就再也分不开。
+    postgres_qc_maintenance_owner_user: str = "qc_maintenance_owner"
+    postgres_qc_maintenance_operator_user: str = "qc_maintenance_operator"
+    postgres_qc_maintenance_login_user: str = "qc_maintenance_login"
+    postgres_qc_maintenance_login_password: SecretStr = SecretStr(
+        "qc_maintenance_dev_password"
+    )
+    postgres_qc_worker_user: str = "qc_worker"
+    postgres_qc_worker_password: SecretStr = SecretStr("qc_worker_dev_password")
 
     # Redis（可能内嵌口令，按密钥处理，repr 不落明文）
     redis_url: SecretStr = SecretStr("redis://localhost:16379/0")

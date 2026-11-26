@@ -27,13 +27,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from packages.shared.config import get_settings
 from packages.shared.database import build_migration_url, create_sessionmaker
-from sqlalchemy.ext.asyncio import create_async_engine
 
 # 一批的行数上限：批太大持锁久、批太小回填慢。200 是「一个事务几百毫秒」的量级。
 _DEFAULT_BATCH = 200

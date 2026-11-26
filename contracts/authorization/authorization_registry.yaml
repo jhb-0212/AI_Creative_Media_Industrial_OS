@@ -67,7 +67,7 @@ domains:
   - { id: shot_planning,        schema: shot_planning,    runtime_role: svc_shot_planning,        legacy_role: null }
   - { id: generation_execution, schema: generation_execution, runtime_role: svc_generation_execution, legacy_role: null }
   - { id: asset_service,        schema: asset_service,    runtime_role: svc_asset,                 legacy_role: asset_service_role }
-  - { id: qc_governance,        schema: qc_governance,    runtime_role: svc_qc_governance,        legacy_role: null }
+  - { id: qc_governance,        schema: qc_governance,    runtime_role: svc_qc_governance,        legacy_role: qc_governance_role }
   - { id: workflow,             schema: workflow,         runtime_role: svc_workflow,              legacy_role: null }
   - { id: outbox_relay,         schema: outbox,           runtime_role: svc_outbox_relay,          legacy_role: outbox_relay_role }
   - { id: identity,             schema: auth,             runtime_role: svc_identity,              legacy_role: null }
@@ -97,6 +97,41 @@ roles:
       attributes: [NOCREATEROLE, NOCREATEDB, NOSUPERUSER, NOBYPASSRLS]
       owner_membership: none
       capabilities: [read_only_diagnostics, process_ops]
+    # 维护四角色（WP-03，迁移 c9d0e1f2a3b4 创建）。四者分开登记而不是合成一条
+    # 「维护身份」：可登录性、权限组成员关系、对象属主是三种可审计事实。
+    qc_maintenance_owner:
+      name: qc_maintenance_owner
+      login: false
+      attributes: [NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE]
+      owner_membership: none
+    qc_maintenance_operator:
+      name: qc_maintenance_operator
+      login: false
+      attributes: [NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE]
+      owner_membership: none
+    qc_maintenance_login:
+      name: qc_maintenance_login
+      login: true
+      attributes: [NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE]
+      owner_membership: { mode: group_member, group: qc_maintenance_operator, admin: false }
+    qc_worker:
+      name: qc_worker
+      login: true
+      attributes: [NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE]
+      owner_membership: none
+    # 集群里存在但仓库从未声明过的两个 NOLOGIN 壳角色（E12 取证：零授权、零对象、
+    # 零成员关系）。登记而不是假装不存在：不登记的集群角色是「审计看不到的权限面」。
+    # 它们当前的授权范围就是「无」——本条登记是待决事项的显式载体，不是背书保留。
+    afs_audit:
+      name: afs_audit
+      login: false
+      attributes: [NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE]
+      owner_membership: none
+    afs_data_repair:
+      name: afs_data_repair
+      login: false
+      attributes: [NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE]
+      owner_membership: none
 
 # --------------------------------------------------------------------------- #
 # 4. 权限矩阵现状（DD-2：本轮不接管，避免与冻结的历史迁移输入形成双事实源）
@@ -313,6 +348,24 @@ exceptions:
     observed_search_path: "pg_catalog, outbox"
     observed_public_execute: true
 
+  - object: industrial.audit.function.assert_signature_event_exists()
+    kind: SECURITY_DEFINER
+    reason: "SECURITY DEFINER 校验签署指向的事件存在（当前实现）"
+    owner: platform-security
+    unblocks_when: "触发器内联校验后移除"
+    expires_at: "2027-01-01"
+    execute_roles: [svc_asset, svc_project_planning]
+    effective_owner: afs_owner
+    observed_owner: postgres
+    search_path: "pg_catalog, pg_temp"
+    accessed_resources: [industrial.outbox.table.outbox_events]
+    privilege_scope: "仅 existence 判定，不返回业务内容"
+    security_test: "tests/integration/test_secdef_no_cross_tenant.py"
+    public_execute: false
+    # 迁移 c9d0e1f2a3b4 已 REVOKE PUBLIC；GRANT 给 svc_* 等它们被创建后由 IP-4 执行。
+    observed_search_path: "pg_catalog, outbox"
+    observed_public_execute: false
+
 # --------------------------------------------------------------------------- #
 # 7. 显式债务（未覆盖范围与接管条件）—— 不得用「没写」冒充「已覆盖」
 # --------------------------------------------------------------------------- #
@@ -335,3 +388,15 @@ debt:
     what: "未来 outbox 分区无策略"
     reason: "分区按月动态创建，静态文件无法枚举；FORCE RLS 下无策略 = 零行（fail-closed，但功能不可用）"
     unblocks_when: "partition_guard 从本文件的 outbox 策略派生新分区策略（单事实源），而非在矩阵里再列一遍"
+  - id: AUTHZ-5
+    what: "维护四角色已建立但尚未接入运行时连接（qc_worker 无非超级用户业务授权；维护工单表与维护命令未实现）"
+    reason: "WP-03 只关闭「身份与授权面」：角色属性、成员关系、PUBLIC EXECUTE、会话身份守卫。把 qc_worker 接成质检域运行角色要改连接池与授权矩阵，属于独立工作包"
+    unblocks_when: "qc_worker 接入质检域连接池并完成真实角色集成验收后，删除本条"
+  - id: AUTHZ-6
+    what: "afs_audit / afs_data_repair 两个壳角色的去留未决"
+    reason: "E12 取证：零授权、零对象、零成员关系，仓库无任何引用；登记是为了让集群角色可审计，不代表保留决定"
+    unblocks_when: "确认无依赖后按治理流程 DROP（需先证明无人在用），或并入新的维护身份模型"
+  - id: AUTHZ-7
+    what: "迁移执行身份仍是超级用户（CI 与本地统一为 postgres）"
+    reason: "PG16 实测：非超级用户 + CREATEROLE 在第一条角色收敛语句（ALTER ROLE app_role）即 permission denied——PG16 取消了对既有角色的隐式 ADMIN。要让 afs_migrator 顶替，必须给它对全部运行时角色的 ADMIN，等于把「超级用户」换成「可自授任意角色」，权限面没有变小"
+    unblocks_when: "迁移改为「角色创建与运行时授权分离」（bootstrap 脚本持 ADMIN，迁移只做 DDL）后，CI 再切非超级用户执行者"

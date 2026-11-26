@@ -1557,6 +1557,7 @@ def evaluate_least_privilege(
     grant_forbidden_literals: dict[str, list[str]],
     unfrozen_converge_calls: list[str],
     infra_converge: dict[str, list[str]] | None = None,
+    auxiliary_converge: Sequence[str] = (),
 ) -> list[str]:
     """判定「域角色的授权面 == 矩阵声明」（纯函数，供负向用例喂构造数据）。
 
@@ -1632,6 +1633,14 @@ def evaluate_least_privilege(
             for statement in infra_converge[infra]
             if _is_authorization_statement(statement)
         }
+    # 第三类授权面：既不是业务域的表级权限，也不是运维角色的收敛——维护身份对
+    # 维护 schema / 守卫函数 / SECDEF 函数的授权与收紧。它们同样由 db_grants
+    # 声明、由迁移执行；不并进来就会变成「迁移多执行 N 条」而被迫放宽判据。
+    expected_set |= {
+        statement.strip()
+        for statement in auxiliary_converge
+        if _is_authorization_statement(statement)
+    }
     if rendered_set != expected_set:
         missing = sorted(expected_set - rendered_set)
         unexpected = sorted(rendered_set - expected_set)
@@ -1692,6 +1701,8 @@ def data_role_grants_least_privilege() -> AssertionResult:
         converge_statements,
         declared_privileges,
         infra_converge_statements,
+        maintenance_identity_statements,
+        maintenance_membership_statements,
         validate_infra_matrix,
         validate_matrix,
     )
@@ -1741,6 +1752,14 @@ def data_role_grants_least_privilege() -> AssertionResult:
             path: _non_docstring_literals(path) for path in scan_paths
         },
         unfrozen_converge_calls=_unfrozen_converge_calls(scan_paths),
+        # 维护身份的授权面（WP-03）：不属任何业务域、也不是运维角色，
+        # 但同样是「矩阵声明 → 迁移执行」。这里只并 upgrade 的语句：闸门回放
+        # 的是 upgrade()，downgrade 的复原语句不在比对集合里（否则会要求
+        # 每条 downgrade 语句都必须在 upgrade 里出现一次，语义反了）。
+        auxiliary_converge=[
+            *maintenance_membership_statements(),
+            *maintenance_identity_statements(),
+        ],
     )
     if problems:
         return (False, "；".join(problems))

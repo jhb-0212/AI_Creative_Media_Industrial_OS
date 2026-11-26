@@ -64,6 +64,35 @@ def infra_roles() -> dict[str, str]:
     return {infra: infra_role(infra) for infra in _INFRA_ROLE_FIELDS}
 
 
+# 维护四角色（WP-03）。它们不自带 schema、不进 ``DOMAINS``——把维护身份混进
+# 业务域集合会让「一域一角色」的覆盖判据对它们求值成永真式（同 ``INFRA_ROLES``
+# 的理由）。但维护身份也不是「运维角色」：运维清理投递事实，维护改的是业务
+# 状态且必须留工单，两者的授权面与审计义务都不同，所以单独一张表。
+_MAINTENANCE_ROLE_FIELDS: dict[str, str] = {
+    "owner": "postgres_qc_maintenance_owner_user",
+    "operator": "postgres_qc_maintenance_operator_user",
+    "login": "postgres_qc_maintenance_login_user",
+    "worker": "postgres_qc_worker_user",
+}
+
+
+def maintenance_role(key: str) -> str:
+    """维护角色名（``owner`` / ``operator`` / ``login`` / ``worker``）。"""
+    try:
+        field = _MAINTENANCE_ROLE_FIELDS[key]
+    except KeyError:
+        raise LookupError(
+            f"未知维护角色 {key!r}；已知：{sorted(_MAINTENANCE_ROLE_FIELDS)}"
+        ) from None
+    value: str = getattr(get_settings(), field)
+    return value
+
+
+def maintenance_roles() -> dict[str, str]:
+    """``键 -> 角色名`` 全量映射（迁移、注册表断言与集成用例按它取用）。"""
+    return {key: maintenance_role(key) for key in _MAINTENANCE_ROLE_FIELDS}
+
+
 # 业务域 → 配置字段。键就是 schema 名（DATA-1：一域一角色一 schema）。
 # 这张表存在的理由：调用方按**域**取角色（``domain_role("asset_service")``），
 # 而不是靠 ``domain_role_names()`` 的元组下标——下标用法一旦有人调整顺序，
@@ -118,5 +147,7 @@ __all__ = [
     "domain_roles",
     "infra_role",
     "infra_roles",
+    "maintenance_role",
+    "maintenance_roles",
     "relay_role_name",
 ]
