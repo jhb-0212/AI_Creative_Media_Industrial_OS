@@ -13,6 +13,26 @@
 # 当前状态：P2-1 已关闭。PROJECT.CREATE / EPISODE.CREATE 的 audit_event
 # 已进入 event_catalog.yaml 并由 ProjectService / EpisodeService 真实发出，
 # 因此两条缺口删除——保留空 gaps 是"无未落地事件"的显式事实，不是遗漏。
+#
+# 2026-11-24 新增 1 条：OUTBOX.DEAD_LETTER.REPLAY 的 audit_event 写的是**表名**。
+# 这是契约表达缺口——audit_event 字段的语义假设「审计 = 发一个事件」，而本动作的
+# 审计载体是 append-only 运维表 outbox.dead_letter_replays：运维主体对
+# outbox.outbox_events 只有 SELECT + 三列 UPDATE，刻意没有 INSERT（给运维主体
+# 补 INSERT 等于允许它伪造任意业务事件）。所以这里登记为「不发事件」，而不是
+# 为了字段自洽去变造一条事件类型塞进 event_catalog。
 version: 1
 
-gaps: {}
+gaps:
+  OUTBOX.DEAD_LETTER.REPLAY:
+    audit_event: outbox.dead_letter_replays
+    reason: >-
+      审计载体是运维表不是事件：写一行 outbox.dead_letter_replays 即可满足
+      「谁、何时、为什么重放了哪条事件」以及「重放前的失败事实是什么」
+      （attempts_before / dead_lettered_at_before 由锁行时的数据库事实快照而来）。
+      动作主体（outbox_ops_role）对 outbox.outbox_events 只有 SELECT + 三列 UPDATE，
+      刻意没有 INSERT——给运维主体补 INSERT 等于允许它伪造任意业务事件。
+      因此这里登记为「不发事件」，而不是为字段自洽变造一条事件类型塞进 event_catalog。
+    contract_ref: docs/proposals/r42-remaining-acceptance-c7-d6.md §3.1 D6-4；amendments V205-R42-D69
+    unblocks_when: >-
+      event_catalog 为「审计载体是表」提供正式表达（例如 audit_carrier: table/event
+      字段）时删除本条；或者将来出现独立的运维事件类型（不是本动作的审计替身）。

@@ -23,7 +23,7 @@ objects:
 - object: ApprovalSignature
   states: [CONSUMED, REVOKED, SIGNED]
 - object: ArtifactManifest
-  states: [PREPARED, STORED_VERIFIED]
+  states: [ABANDONED, PREPARED, STORED_VERIFIED]
 - object: AssetRegistrationReceipt
   states: [COMPLETED, REJECTED]
 - object: AssetVersion

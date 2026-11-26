@@ -24,5 +24,8 @@
 
 gaps: {}
 
-# G-C 已把 CanonRevision / RightsCase / RightsManifest 补入 object_schemas.schema.json，
-# 三条债务按「补 schema 后必须删条目」规则删除；保留空 gaps 作为结构，新增 ACTIVE 缺口仍登记于此。
+# 已关闭的缺口（按「补 schema 或登记豁免后必须删条目」规则删除，留档备查）：
+# - G-C：CanonRevision / RightsCase / RightsManifest 已补入 object_schemas.schema.json。
+# - 2026-11-24：OutboxEvent 已由实施批次登记为运维基础设施类型豁免
+#   （resource_schema_exemptions.yaml）——正文没有事件总线的字段口径，
+#   为它发明一份 schema 等于凭空创造契约正文。

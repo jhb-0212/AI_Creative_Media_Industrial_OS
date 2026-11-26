@@ -43,6 +43,8 @@ from adapters.model_gateway.ports import (
 from adapters.storage.ports import (
     ObjectStoragePort,
     StorageError,
+    StorageIntegrityError,
+    StorageObjectMissingError,
     StoredObject,
 )
 from packages.shared.logging import get_logger
@@ -99,25 +101,60 @@ class GeneratedArtifact:
     upstream_request_id: str = ""
 
 
+@dataclass(frozen=True)
+class PreparedIntent:
+    """恢复视角的未确认写入意图（PR-G）。
+
+    只含恢复所需事实：定位符、摘要、媒体类型与 attempt 标识。刻意不携带 enty 信封
+    与状态——恢复流程只关心「对象在不在、内容对不对、能不能沿用这条意图」，
+    其余字段属于持久层，不该泄漏进 Worker 的判定逻辑。
+    """
+
+    attempt_id: str
+    locator: str
+    sha256: str
+    media_type: str
+
+
 class AssetRegistrar(Protocol):
     """R42 两段式登记端口：T0 写意图，T1 确认存储并发出登记请求。
 
     成功不再由这里返回资产 ID——那等于 Worker 自报登记结果。资产 ID 只能来自
     T2 回执，由 relay 的 T3 处理器写回任务终态。
+
+    PR-G 扩展两个只读/补偿方法：``list_pending`` 让 Worker 崩溃重领后能先看历史
+    意图、避免重复调用模型；``abandon`` 让确认「对象不存在/不可复用」的旧意图
+    被有依据地放弃（不删除，保留事实）。
     """
 
     async def prepare(
-        self, task: Any, *, locator: str, sha256: str, attempt_id: str
+        self,
+        task: Any,
+        *,
+        locator: str,
+        sha256: str,
+        media_type: str,
+        attempt_id: str,
     ) -> None: ...
 
     async def register(self, task: Any, artifact: GeneratedArtifact) -> None: ...
+
+    async def list_pending(self, task: Any) -> list[PreparedIntent]: ...
+
+    async def abandon(self, task: Any, attempt_id: str, reason: str) -> None: ...
 
 
 class UnwiredAssetRegistrar:
     """未接线时的占位：明确拒绝，而不是让产物落库后无人登记。"""
 
     async def prepare(
-        self, task: Any, *, locator: str, sha256: str, attempt_id: str
+        self,
+        task: Any,
+        *,
+        locator: str,
+        sha256: str,
+        media_type: str,
+        attempt_id: str,
     ) -> None:
         raise AssetRegistrationUnavailableError(
             f"资产登记端口未接线（task={getattr(task, 'entity_id', '?')}）"
@@ -127,6 +164,16 @@ class UnwiredAssetRegistrar:
         raise AssetRegistrationUnavailableError(
             f"资产登记端口未接线（task={getattr(task, 'entity_id', '?')}，"
             f"产物={artifact.stored.locator}）"
+        )
+
+    async def list_pending(self, task: Any) -> list[PreparedIntent]:
+        # 未接线时没有任何历史意图可续：返回空表，让正常生成路径处理
+        # （prepare 会在那里明确拒绝，错误发生在它该发生的地方）。
+        return []
+
+    async def abandon(self, task: Any, attempt_id: str, reason: str) -> None:
+        raise AssetRegistrationUnavailableError(
+            f"资产登记端口未接线（task={getattr(task, 'entity_id', '?')}）"
         )
 
 
@@ -157,6 +204,13 @@ class StorageBackedGenerationExecutor:
 
     async def execute(self, task: Any) -> GenerationOutcome:
         task_id = getattr(task, "entity_id", "?")
+
+        # PR-G：先尝试从历史未确认意图恢复。对象已落盘则直接续 T1，不重新调用
+        # 模型（避免重复计费与「重跑换内容」）；确定不存在/不可复用则放弃旧意图，
+        # 落到下面的正常生成路径。返回 None 表示「没有可续的意图」。
+        recovered = await self._recover(task)
+        if recovered is not None:
+            return recovered
 
         try:
             prompt = await self._resolve_prompt(getattr(task, "prompt_ref", ""))
@@ -205,7 +259,11 @@ class StorageBackedGenerationExecutor:
         attempt_id = f"{task.entity_id}:{getattr(task, 'attempt_count', 1)}:{digest[:8]}"
         try:
             await self._registrar.prepare(
-                task, locator=locator, sha256=digest, attempt_id=attempt_id
+                task,
+                locator=locator,
+                sha256=digest,
+                media_type=artifact_bytes.media_type,
+                attempt_id=attempt_id,
             )
         except Exception as exc:
             logger.exception("artifact intent failed for task %s", task_id)
@@ -245,6 +303,118 @@ class StorageBackedGenerationExecutor:
                 f"|upstream={artifact_bytes.upstream_request_id or '-'}"
             ),
         )
+
+    # ---- PR-G：崩溃恢复 -------------------------------------------------- #
+
+    async def _recover(self, task: Any) -> GenerationOutcome | None:
+        """调用模型前，尝试复用历史未确认意图（PR-G）。
+
+        返回 ``None`` 表示「没有可续的意图 → 走正常生成」；返回 Outcome 表示
+        已经完成（成功续上 T1）或无法安全继续（保留意图并报告失败）。
+
+        三态处置（区分「确定不存在 / 存在但不可复用 / 暂不可用」）：
+        - 确定不存在（``StorageObjectMissingError``）→ 放弃该意图，继续正常生成；
+        - 存在但不可复用（其余 ``StorageIntegrityError``）→ 放弃，绝不登记损坏内容；
+        - 暂不可用（``StorageUnavailableError`` 等）→ **不放弃**，返回失败留给重试，
+          绝不把一次抖动误判成永久缺失。
+        """
+        task_id = getattr(task, "entity_id", "?")
+        try:
+            pending = await self._registrar.list_pending(task)
+        except Exception as exc:
+            # 读不到历史意图就不能假设「没有」——那会盲目重新调用模型。交上层重试。
+            logger.exception("recovery query failed for task %s", task_id)
+            return _failed(f"recovery-query-{type(exc).__name__}", str(exc))
+
+        for intent in pending:
+            # 读回内容即同时完成「存在性 + 哈希校验」（storage.get 内部复核 sha256）。
+            try:
+                data = await self._storage.get(intent.locator)
+            except StorageObjectMissingError:
+                logger.warning(
+                    "recovery: object missing for task %s (attempt=%s)",
+                    task_id,
+                    intent.attempt_id,
+                )
+                if not await self._abandon_intent(task, intent, "object-absent", task_id):
+                    return _failed(
+                        "recovery-abandon-failed",
+                        f"放弃缺失意图失败（attempt={intent.attempt_id}）",
+                    )
+                continue
+            except StorageIntegrityError as exc:
+                # 存在但内容不可复用（哈希不符 / 超限 / 异常形态）。放弃并重新生成，
+                # 不用损坏内容向下游登记。
+                logger.error(
+                    "recovery: object unusable for task %s (attempt=%s): %s",
+                    task_id,
+                    intent.attempt_id,
+                    exc,
+                )
+                if not await self._abandon_intent(
+                    task, intent, "content-integrity", task_id
+                ):
+                    return _failed(
+                        "recovery-abandon-failed",
+                        f"放弃损坏意图失败（attempt={intent.attempt_id}）",
+                    )
+                continue
+            except StorageError as exc:
+                # 无法判定（后端不可用 / 定位符损坏）：不做任何破坏性动作，
+                # 保留意图，交给后续重试。
+                logger.warning(
+                    "recovery: storage undetermined for task %s: %s", task_id, exc
+                )
+                return _failed(f"storage-undetermined-{type(exc).__name__}", str(exc))
+
+            # 内容已读回并复核：沿用原 attempt_id 完成 T1，不重新调用模型。
+            artifact = GeneratedArtifact(
+                stored=StoredObject(
+                    locator=intent.locator,
+                    sha256=intent.sha256,
+                    size_bytes=len(data),
+                    media_type=intent.media_type,
+                ),
+                attempt_id=intent.attempt_id,
+            )
+            try:
+                await self._registrar.register(task, artifact)
+            except Exception as exc:
+                logger.exception("recovered registration failed for task %s", task_id)
+                return _failed(f"recovered-register-{type(exc).__name__}", str(exc))
+            logger.info(
+                "recovered stored artifact for task %s (attempt=%s)",
+                task_id,
+                intent.attempt_id,
+            )
+            return GenerationOutcome(
+                result="SUCCEEDED",
+                evidence_ref=_clip(
+                    f"{intent.locator}|sha256={intent.sha256}|recovered"
+                ),
+            )
+
+        return None
+
+    async def _abandon_intent(
+        self,
+        task: Any,
+        intent: PreparedIntent,
+        reason: str,
+        task_id: str,
+    ) -> bool:
+        """放弃一条未确认意图；失败返回 ``False``（调用方转为失败并保留意图）。"""
+        try:
+            await self._registrar.abandon(task, intent.attempt_id, reason)
+        except Exception as exc:
+            logger.exception(
+                "abandon intent failed for task %s (attempt=%s): %s",
+                task_id,
+                intent.attempt_id,
+                exc,
+            )
+            return False
+        return True
 
 
 def _failed(kind: str, detail: str) -> GenerationOutcome:

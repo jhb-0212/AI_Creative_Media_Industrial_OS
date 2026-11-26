@@ -528,12 +528,20 @@ GENERATION_TASK_LIFECYCLE = Lifecycle(
     frozen_states=(),
 )
 
-# R42 T1：产物意图只有一条确认边，归 GENERATION.PROCESS（对象存储写入由
-# 持有租约的 Generation Worker 完成）。确认态冻结，恢复只重试 PREPARED 行。
+# R42 T1 + PR-G：产物意图的确认边与放弃边。二者都归 GENERATION.PROCESS
+# （对象存储写入/核对由持有租约的 Generation Worker 完成）。
+#   PREPARED → STORED_VERIFIED：对象写入并复核 SHA256 后确认落盘；
+#   PREPARED → ABANDONED：对象确定不存在/内容不可复用，意图被放弃（有新 attempt 取代）。
+# 后两态都冻结：恢复只重试 PREPARED，不得回改写已确认或已放弃的事实。
 ARTIFACT_MANIFEST_TRANSITIONS: tuple[Transition[ArtifactManifestStatus], ...] = (
     Transition(
         ArtifactManifestStatus.PREPARED,
         ArtifactManifestStatus.STORED_VERIFIED,
+        GENERATION_PROCESS_ACTION,
+    ),
+    Transition(
+        ArtifactManifestStatus.PREPARED,
+        ArtifactManifestStatus.ABANDONED,
         GENERATION_PROCESS_ACTION,
     ),
 )
@@ -542,7 +550,10 @@ ARTIFACT_MANIFEST_LIFECYCLE = Lifecycle(
     states=tuple(ArtifactManifestStatus),
     edges=ARTIFACT_MANIFEST_TRANSITIONS,
     initial_states=(ArtifactManifestStatus.PREPARED,),
-    frozen_states=(ArtifactManifestStatus.STORED_VERIFIED,),
+    frozen_states=(
+        ArtifactManifestStatus.STORED_VERIFIED,
+        ArtifactManifestStatus.ABANDONED,
+    ),
 )
 ARTIFACT_MANIFEST_ALLOWED_TRANSITIONS: dict[
     ArtifactManifestStatus, frozenset[ArtifactManifestStatus]

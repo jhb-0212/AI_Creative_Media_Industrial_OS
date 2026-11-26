@@ -637,6 +637,14 @@ events:
     - generation_task_id
     - quality_profile_version
     - tenant_id
+    # 审计三元组（C7-6）：入队有两个入口（relay 自动投递 / 人工恢复），
+    # 共用同一个唯一键与同一段创建代码，表里两条记录长得一样——
+    # 「谁建的、从哪条路来的、为什么」只能由本事件回答。日志会轮转，outbox 行不会。
+    # reason 对自动入队为空串（它不欠解释），但字段恒在：不给「有时有、有时没有」
+    # 留解释空间——那正是审计字段最后变得不可用的方式。
+    - source
+    - operator_id
+    - reason
     contract_ref: contracts/state_machines/state_machines.yaml#QCTask
   - event_type: QC_TASK_STARTED
     aggregate_type: QCTask

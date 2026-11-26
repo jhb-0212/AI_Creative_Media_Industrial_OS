@@ -58,6 +58,9 @@ from apps.api.wiring import register_cross_domain_ports  # noqa: E402
 from services.asset_service.api.asset_routes import router as asset_router  # noqa: E402
 from services.budget_quota.api.budget_routes import ledger_router as budget_ledger_router  # noqa: E402
 from services.budget_quota.api.budget_routes import router as budget_router  # noqa: E402
+from services.outbox_ops.api.outbox_ops_routes import (  # noqa: E402
+    router as outbox_ops_router,
+)
 from services.production_planning.api.generation_routes import (  # noqa: E402
     router as generation_router,
 )
@@ -98,6 +101,7 @@ app.include_router(budget_router)
 app.include_router(budget_ledger_router)
 app.include_router(gate_router)
 app.include_router(qc_task_router)
+app.include_router(outbox_ops_router)
 
 # 跨域端口装配（组合根职责，见 apps/api/wiring.py）：
 # QC 终结要核验「报告是否真属于本任务的资产版本」，而报告在资产域。QC 域只声明

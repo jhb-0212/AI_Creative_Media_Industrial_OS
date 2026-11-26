@@ -20,35 +20,13 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 # 将项目根加入 sys.path，便于导入 packages / services。
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from packages.identity.revoked_token_model import RevokedTokenModel  # noqa: F401
-from packages.shared.approval_signature import ApprovalSignatureModel  # noqa: F401
 from packages.shared.config import get_settings
 from packages.shared.database import Base, build_migration_url
-from packages.shared.outbox import OutboxEventModel  # noqa: F401
-from packages.shared.status_transition import StatusTransitionModel  # noqa: F401
-from services.asset_service.repository.orm import (  # noqa: F401
-    AssetRegistrationReceiptModel,
-    AssetVersionModel,
-    QCReportModel,
-)
-from services.budget_quota.repository.orm import (  # noqa: F401
-    BudgetLedgerModel,
-    ShotBudgetRequestModel,
-)
-from services.production_planning.repository.orm import (  # noqa: F401
-    ArtifactManifestModel,
-    GenerationTaskModel,
-    ProductionRouteModel,
-)
-from services.project_planning.repository.orm import (  # noqa: F401
-    EpisodeModel,
-    ProjectModel,
-    ScriptModel,
-)
-from services.qc_governance.repository.orm import (  # noqa: F401
-    GateDecisionModel,
-    QCTaskModel,
-)
+from packages.shared.orm_registry import load_all_orm_models
+
+# 各域 ORM 模型由唯一入口导入：这里再写一份 import 清单，就等于让
+# 「autogenerate 看到的表」与「漂移断言看到的表」有两个可能不一致的来源。
+load_all_orm_models()
 
 config = context.config
 

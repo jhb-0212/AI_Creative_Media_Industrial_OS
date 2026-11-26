@@ -479,6 +479,60 @@ DOMAIN_GRANTS[QC_GOVERNANCE] = (
 
 
 # --------------------------------------------------------------------------- #
+# 平台运维角色（不是业务域：不拥有任何 schema，只操作事件总线的投递状态）
+# --------------------------------------------------------------------------- #
+# 为什么这里必须有第二张矩阵，而不是把运维角色塞进 DOMAINS
+# ------------------------------------------------------------
+# `DOMAINS` 的语义是「一域一角色一自有 schema」，覆盖判据、`business_tables`、
+# 组织 RLS 应检集合全都建立在「域 == schema」上。运维角色没有自己的 schema，
+# 塞进去会让「本域 schema 的每张 ORM 表都必须在矩阵里」这条判据对它求值成
+# 空集——看起来通过，实际是把判据变成永真式。
+#
+# 但也不能不声明：`data.role_grants_least_privilege` 禁止**此后**的迁移手写
+# GRANT（授权只能经矩阵收敛），没有声明载体时，新角色与新表的授权要么写不出
+# 来（只能手写 GRANT 然后被闸门拦下），要么被迫给某个业务域角色扩权——后者是
+# 权限倒退，比缺一个角色严重得多。D6-9 需要「读事件 + 清死信标记 + 写运维审计表」
+# 三者同时成立，而 outbox_relay_role 刻意没有 INSERT（否则可伪造任意业务事件），
+# 业务域角色刻意没有 outbox 的 UPDATE。所以这张表是权限边界的直接产物。
+OUTBOX_OPS = "outbox_ops"
+INFRA_ROLES: tuple[str, ...] = (OUTBOX_OPS,)
+
+INFRA_ROLE_GRANTS: dict[str, tuple[TableGrant, ...]] = {
+    OUTBOX_OPS: (
+        _grant(
+            "outbox",
+            "outbox_events",
+            "SELECT",
+            "SELECT：按 event_id 定位死信事件并 FOR UPDATE 读取失败事实"
+            "（attempts / dead_lettered_at）。RLS 仍按租户生效，跨租户查不到即 404。",
+            source="infra",
+        ),
+        _grant(
+            "outbox",
+            "outbox_events",
+            "UPDATE",
+            "UPDATE：重放只清死信标记三列（attempts 归零、next_attempt_at=now()、"
+            "dead_lettered_at=NULL），交回正常 claim。刻意不给 published_at："
+            "投递时间只能由真正投递成功的 relay 写，运维动作不得伪造「已投递」。"
+            "事件内容（payload / event_type / tenant_id）任何角色都不得改写。",
+            source="infra",
+            columns=("attempts", "dead_lettered_at", "next_attempt_at"),
+        ),
+        _grant(
+            "outbox",
+            "dead_letter_replays",
+            "SELECT INSERT",
+            "INSERT：每次重放尝试落一行 append-only 审计（操作者/理由/重放前失败次数/"
+            "重放前死信时刻/结果/失败原因）；SELECT：排障回读。"
+            "无 UPDATE/DELETE：审计行一旦写入即定稿，结果以新行表达，"
+            "改写历史等于抹掉「当时谁按什么理由放行的」。",
+            source="migration",
+        ),
+    ),
+}
+
+
+# --------------------------------------------------------------------------- #
 # 派生视图与语句生成
 # --------------------------------------------------------------------------- #
 def declared_privileges(domain: str) -> dict[tuple[str, str], frozenset[str]]:
@@ -559,6 +613,56 @@ def _privileges_sql(privileges: frozenset[str]) -> str:
     return ", ".join(sorted(privileges, key=lambda p: order.get(p, len(order))))
 
 
+def _grants_converge(
+    role: str,
+    grants: tuple[TableGrant, ...],
+    *,
+    usage_schemas: tuple[str, ...],
+    tables: frozenset[str] | None,
+    default_privilege_schemas: tuple[str, ...],
+) -> list[str]:
+    """把一组声明收敛成 SQL 语句（业务域与运维角色共用同一实现）。
+
+    抽出来的唯一理由：两类角色的收敛规则必须**逐字相同**——REVOKE ALL 再按矩阵
+    GRANT、默认权限一并撤销、语句顺序稳定。分成两份实现后，「运维角色忘了撤默认
+    权限」这种缺口只能靠人去比对两段代码，而它恰好是最难在运行库上发现的一类。
+
+    ``usage_schemas`` 由调用方给出而不是在这里从 ``grants`` 反推：域角色的
+    USAGE 口径是 :func:`referenced_schemas`（已被 ACL 对账判据引用），运维角色
+    没有域，口径是它被授过表权限的 schema 全集。两套口径各自唯一，不在本函数里
+    合成第三套。
+    """
+    # schema USAGE 是「能访问这些 schema」的前置条件，和表级授权同属授权面：
+    # 只授表不授 USAGE，第一次读写就是 permission denied for schema。
+    statements: list[str] = [
+        f"GRANT USAGE ON SCHEMA {schema} TO {role}" for schema in usage_schemas
+    ]
+    statements += [
+        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} REVOKE ALL ON TABLES FROM {role}"
+        for schema in default_privilege_schemas
+    ] + [
+        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
+        f"REVOKE ALL ON SEQUENCES FROM {role}"
+        for schema in default_privilege_schemas
+    ] + [
+        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} REVOKE ALL ON TABLES FROM PUBLIC"
+        for schema in default_privilege_schemas
+    ]
+    selected = [
+        grant for grant in grants if tables is None or grant.table in tables
+    ]
+    # 撤销按**表**去重，且全部先于授予。同一张表可能既有整表权限又有列级权限
+    # （运维角色的 outbox_events = SELECT 整表 + UPDATE 三列）；若按「每条声明
+    # revoke→grant」直译，第二条声明的 ``REVOKE ALL`` 会把第一条刚授的 SELECT
+    # 一起抹掉，最终 ACL 与矩阵不符却没人报错——语句逐条看都对。
+    for qualified in dict.fromkeys(grant.qualified() for grant in selected):
+        statements.append(f"REVOKE ALL ON {qualified} FROM PUBLIC")
+        statements.append(f"REVOKE ALL ON {qualified} FROM {role}")
+    for grant in selected:
+        statements.append(grant.grant_statement(role))
+    return statements
+
+
 def converge_statements(
     role: str, domain: str, *, tables: frozenset[str] | None = None
 ) -> list[str]:
@@ -585,31 +689,33 @@ def converge_statements(
     授了 ``SELECT, INSERT, UPDATE, DELETE`` 的默认权限，而 ``b7c8d9e0f1a2``
     的「默认零授权」只覆盖了 app_role——旧机制在新角色上复发）。
     """
-    # schema USAGE 是「能访问这些 schema」的前置条件，和表级授权同属授权面：
-    # 只授表不授 USAGE，第一次读写就是 permission denied for schema。
-    # 集合由矩阵派生（``referenced_schemas``）而不是写死本域 + project_planning：
-    # 硬编码版本只覆盖了「自己域 + 跨域只读」，于是 post-matrix 新建的域从来没拿到
-    # outbox/audit/auth 的 USAGE——表权限在、ACL 对账绿、写事件即 42501。
-    statements: list[str] = list(schema_usage_statements(role, domain))
-    statements += [
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} REVOKE ALL ON TABLES FROM {role}"
-        for schema in DOMAINS
-    ] + [
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
-        f"REVOKE ALL ON SEQUENCES FROM {role}"
-        for schema in DOMAINS
-    ] + [
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} REVOKE ALL ON TABLES FROM PUBLIC"
-        for schema in DOMAINS
-    ]
-    for grant in DOMAIN_GRANTS[domain]:
-        if tables is not None and grant.table not in tables:
-            continue
-        qualified = grant.qualified()
-        statements.append(f"REVOKE ALL ON {qualified} FROM PUBLIC")
-        statements.append(f"REVOKE ALL ON {qualified} FROM {role}")
-        statements.append(grant.grant_statement(role))
-    return statements
+    return _grants_converge(
+        role,
+        DOMAIN_GRANTS[domain],
+        usage_schemas=referenced_schemas(domain),
+        tables=tables,
+        default_privilege_schemas=DOMAINS,
+    )
+
+
+def infra_converge_statements(
+    role: str, infra: str, *, tables: frozenset[str] | None = None
+) -> list[str]:
+    """平台运维角色的授权收敛语句（与 :func:`converge_statements` 同规则）。
+
+    与域角色的唯一差别是「默认权限撤销的作用域」：域角色覆盖五个业务 schema，
+    运维角色只覆盖它真正被授过表权限的 schema（``outbox``）。多撤不会更安全，
+    少撤会让新分区/新表天生带权限——所以按声明派生，而不是抄一份 DOMAINS。
+    """
+    grants = INFRA_ROLE_GRANTS[infra]
+    schemas = tuple(sorted({grant.schema for grant in grants}))
+    return _grants_converge(
+        role,
+        grants,
+        usage_schemas=schemas,
+        tables=tables,
+        default_privilege_schemas=schemas,
+    )
 
 
 def legacy_statements(role: str, domain: str) -> list[str]:
@@ -768,12 +874,80 @@ def validate_matrix() -> list[str]:
     return problems
 
 
+def validate_infra_matrix() -> list[str]:
+    """平台运维角色矩阵的可判定性检查（与 :func:`validate_matrix` 同口径）。
+
+    独立成函数而不是复用 ``validate_matrix``：后者绑定 ``DOMAIN_GRANTS`` 与
+    ``DOMAINS``（域 == schema），对没有自有 schema 的角色求值会变成永真式。
+    但检查项必须一致——空 write_path、DELETE/TRUNCATE、重复声明、列清单乱序，
+    在两类角色上是同一批失效模式，不能因为「这是运维表」就放宽。
+
+    这里额外禁止 ``DELETE``：运维审计表与投递状态列都不允许物理删除，
+    一旦有人给它加上 DELETE，审计就从「append-only 事实」退化成「可被清理的日志」。
+    """
+    problems: list[str] = []
+    if set(INFRA_ROLE_GRANTS) != set(INFRA_ROLES):
+        problems.append(
+            f"运维角色矩阵 {sorted(INFRA_ROLE_GRANTS)} 与 INFRA_ROLES 不一致"
+        )
+    for infra in INFRA_ROLES:
+        seen: set[tuple[str, str, tuple[str, ...] | None]] = set()
+        for grant in INFRA_ROLE_GRANTS[infra]:
+            key = (grant.schema, grant.table, grant.columns)
+            if key in seen:
+                problems.append(f"{infra}: {grant.qualified()} 重复声明")
+            seen.add(key)
+            unknown = grant.privileges - ALL_TABLE_PRIVILEGES
+            if unknown:
+                problems.append(
+                    f"{infra}: {grant.qualified()} 含未知权限 {sorted(unknown)}"
+                )
+            unusable = grant.privileges - _USABLE_PRIVILEGES
+            if unusable:
+                problems.append(
+                    f"{infra}: {grant.qualified()} 声明了应用用不到的权限 "
+                    f"{sorted(unusable)}"
+                )
+            if "DELETE" in grant.privileges:
+                problems.append(
+                    f"{infra}: {grant.qualified()} 声明了 DELETE"
+                    "（运维角色不得物理删除投递事实或审计行）"
+                )
+            if not grant.privileges:
+                problems.append(f"{infra}: {grant.qualified()} 没有任何权限")
+            if grant.source not in {"orm", "migration", "infra", "cross_domain"}:
+                problems.append(
+                    f"{infra}: {grant.qualified()} 的 source={grant.source!r} 非法"
+                )
+            if not grant.write_path.strip():
+                problems.append(
+                    f"{infra}: {grant.qualified()} 未给出真实写入路径"
+                    "（说不出谁在写，就不该有写权限）"
+                )
+            if grant.columns is not None:
+                if not grant.columns:
+                    problems.append(f"{infra}: {grant.qualified()} 列级授权但没有列清单")
+                if list(grant.columns) != sorted(set(grant.columns)):
+                    problems.append(
+                        f"{infra}: {grant.qualified()} 的列清单未按字典序去重"
+                    )
+                if len(grant.privileges) > 1:
+                    problems.append(
+                        f"{infra}: {grant.qualified()} 列级授权声明了多项权限 "
+                        f"{sorted(grant.privileges)}"
+                    )
+    return problems
+
+
 __all__ = [
     "ALL_TABLE_PRIVILEGES",
     "ASSET_SERVICE",
     "BUDGET_QUOTA",
     "DOMAINS",
     "DOMAIN_GRANTS",
+    "INFRA_ROLES",
+    "INFRA_ROLE_GRANTS",
+    "OUTBOX_OPS",
     "PRODUCTION_PLANNING",
     "PROJECT_PLANNING",
     "QC_GOVERNANCE",
@@ -783,7 +957,9 @@ __all__ = [
     "declared_column_privileges",
     "declared_privileges",
     "declared_tables",
+    "infra_converge_statements",
     "legacy_r16_grant_statements",
     "legacy_statements",
+    "validate_infra_matrix",
     "validate_matrix",
 ]

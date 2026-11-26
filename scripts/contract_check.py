@@ -28,6 +28,10 @@
     allowed_states 与转移边、枚举注册表、Schema 的 status.enum、status 字段分类台账、
     别名/跨域标记层、已实现对象的 Domain Enum 与数据库 CHECK 全部逐值对齐。
     （旧版只比对象名不比状态集，于是三处状态集合可以各自漂移而全绿。）
+13. `[V-BLOCKED]` 阻塞清单（contracts/phase0/verification_blocks.yaml）：
+    状态取值合法、计数一致、引用的文档真实存在、解除项必须指到真实台账修订且
+    证据文档里能查到该修订 id。判据实现在 scripts/verification_blocks.py，
+    与 CLI `--check` 同源——清单不能有一套「脚本认为对」和一套「闸门认为对」。
 
 设计要点（不屎山代码）：
 - 状态值与转移边一律结构化（allowed_states / transitions / guards.transition）；
@@ -367,6 +371,9 @@ def check_action_openapi_consistency() -> bool:
 # 2. 每个 ACTIVE action 必须落在 implemented 或 not_implemented（缺口必须留痕）；
 # 3. not_implemented 必须写原因，且不得与 implemented 重叠；
 # 4. 运行时多出来的端点必须登记（新端点不能悄悄绕过契约）。
+# 5. implemented 允许 mechanism: in_process —— 真的实现了但没有 HTTP 入口的动作
+#    （如 relay 内直调服务的自动入队）。它必须写明 module 与 reason，且不得
+#    同时声明 route；否则「已实现」与「未实现」二选一都会逼出假声明。
 LEDGER_PATH = CONTRACTS / "runtime" / "action_implementations.yaml"
 # 系统端点不是业务 action，不参与契约覆盖（探针与指标不属 Action Registry）。
 # 必须写成 "METHOD /path" 与运行时端点集合同构，否则会被误判为未登记端点。
@@ -424,6 +431,38 @@ def check_runtime_contract_coverage() -> bool:
     ok = True
 
     for key, entry in implemented.items():
+        mechanism = str(entry.get("mechanism", "http"))
+        if mechanism == "in_process":
+            # 为什么允许「已实现但没有 HTTP 端点」：台账原先只认 route，于是
+            # 「真的实现了、但没有对外 HTTP 入口」的动作无处可放，只能二选一地
+            # 说谎——记进 implemented 就得编一个 route，记进 not_implemented
+            # 就得说它没实现。自动 QC 入队正是这个形态：GENERATION_SUCCEEDED
+            # 由 relay 消费后直调 QCTaskService，根本不经过 HTTP。
+            # 允许 in_process 的前提是**信息不减少**：必须写清实现在哪、为什么
+            # 没有 HTTP 面，且不得同时声明 route（否则又回到「声明与事实不符」）。
+            if str(entry.get("route", "")).strip():
+                print(
+                    f"[FAIL] {key} 声明 in_process，却同时登记 route="
+                    f"{entry.get('route')!r}（二者互斥）"
+                )
+                ok = False
+            if not str(entry.get("module", "")).strip():
+                print(f"[FAIL] {key} 声明 in_process，必须写明实现所在模块")
+                ok = False
+            if not str(entry.get("reason", "")).strip():
+                print(f"[FAIL] {key} 声明 in_process，必须说明为何没有 HTTP 端点")
+                ok = False
+            if key not in active:
+                print(f"[FAIL] {key} 不是 ACTIVE action，不应出现在 implemented")
+                ok = False
+            continue
+        if mechanism != "http":
+            print(
+                f"[FAIL] {key} 的 mechanism={mechanism!r} 不合法"
+                "（只支持 http / in_process）"
+            )
+            ok = False
+            continue
         route = str(entry.get("route", ""))
         if route not in runtime:
             print(f"[FAIL] {key} 声明已实现，但运行时没有端点 {route!r}")
@@ -454,7 +493,9 @@ def check_runtime_contract_coverage() -> bool:
         print(f"[FAIL] 台账登记了非 ACTIVE 的 action: {sorted(stale)}")
         ok = False
 
-    registered = {str(v.get("route", "")) for v in implemented.values()} | _NON_ACTION_PATHS
+    registered = {
+        str(v.get("route", "")) for v in implemented.values() if v.get("route")
+    } | _NON_ACTION_PATHS
     # 同一动作的第二个入口（如「选择」动作下的撤销治理边）：台账用 `extra_routes`
     # 显式列出，否则运行时端点会因为只比对主 route 而被判成「未登记」——那会逼着
     # 实现方为同一条准入凭据另造一个动作键，恰好是状态机边所有权要消除的形态。
@@ -466,9 +507,16 @@ def check_runtime_contract_coverage() -> bool:
         ok = False
 
     if ok:
+        in_process = sum(
+            1
+            for v in implemented.values()
+            if str(v.get("mechanism", "http")) == "in_process"
+        )
         print(
             f"[PASS] 运行时 ↔ 契约覆盖：ACTIVE {len(active)} 个"
-            f"（已实现 {len(implemented)} / 登记未实现 {len(not_implemented)}）"
+            f"（HTTP 已实现 {len(implemented) - in_process}"
+            f" / 进程内实现 {in_process}"
+            f" / 登记未实现 {len(not_implemented)}）"
         )
     return ok
 
@@ -1500,6 +1548,13 @@ def check_implemented_permission_wiring() -> bool:
         if not module_path.exists():
             print(f"[FAIL] {key} 台账登记的模块不存在: {module_rel}")
             ok = False
+            continue
+        if str(entry.get("mechanism", "http")) == "in_process":
+            # 没有 HTTP 端点 ⇒ 没有 require_role 可挂，强行要求只会逼出假依赖。
+            # 这类动作的触发面是 outbox 事件：由业务域同事务写入，只能由 relay
+            # 角色（仅有 outbox 的 SELECT/UPDATE，无业务写权限）消费。也就是说
+            # 「谁能触发它」由数据库权限决定，不由路由依赖决定——比 require_role
+            # 更硬，因为它绕不过去。模块存在性仍在上一步被校验。
             continue
         source = module_path.read_text(encoding="utf-8")
         # 两种授权依赖都算「接上了」，且 require_resource_role 是更强的那个：
@@ -3876,6 +3931,33 @@ def check_phase_map_against_baseline() -> bool:
         )
     return ok
 
+
+# --------------------------------------------------------------------------- #
+# [V-BLOCKED] 阻塞清单（单一事实源）
+# --------------------------------------------------------------------------- #
+def check_verification_blocks() -> bool:
+    """阻塞清单自身的判据（与 CLI ``scripts/verification_blocks.py --check`` 同源）。
+
+    为什么闸门要管一份「文档清单」：它的价值全在「能被信任」。一份引用了不存在
+    文档、或声称已解除却指不到裁决的清单，读起来和真的没有区别——两者都是几行
+    YAML。判据放在同一个模块里，保证脚本与闸门不会各有一套口径。
+    """
+    from scripts.verification_blocks import check_registry, load_registry
+
+    problems = check_registry(load_registry())
+    if problems:
+        for problem in problems:
+            print(f"[FAIL] 阻塞清单：{problem}")
+        return False
+    registry = load_registry()
+    counts = registry["counts"]
+    print(
+        f"[PASS] 阻塞清单：{counts['total']} 条"
+        f"（blocked {counts['blocked']} / lifted {counts['lifted']}）"
+    )
+    return True
+
+
 def main() -> int:
     ok = True
     yaml_files = list(CONTRACTS.rglob("*.yaml")) + list(CONTRACTS.rglob("*.yml"))
@@ -3911,6 +3993,7 @@ def main() -> int:
         ok &= check_event_catalog()
         ok &= check_security_boundary()
         ok &= check_proposal_status()
+        ok &= check_verification_blocks()
     except ValueError as exc:
         # 契约文件缺失/为空/非映射时，load_yaml_mapping 统一抛 ValueError；
         # 这是脚本级致命错误（契约损坏无法继续校验），在此统一兜底报红。

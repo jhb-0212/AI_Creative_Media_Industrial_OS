@@ -37,6 +37,7 @@ from packages.shared.database import (  # noqa: E402
     build_relay_database_url,
     create_asset_service_engine,
     create_budget_quota_engine,
+    create_outbox_ops_engine,
     create_production_planning_engine,
     create_project_planning_engine,
     create_qc_governance_engine,
@@ -242,6 +243,11 @@ async def db_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     app.state.production_planning_sessionmaker = create_sessionmaker(production_engine)
     app.state.budget_quota_sessionmaker = create_sessionmaker(budget_engine)
     app.state.qc_governance_sessionmaker = create_sessionmaker(qc_engine)
+    # D6-9 运维重放池：路由注入的是 outbox_ops_sessionmaker，缺它会在第一个
+    # 重放请求上变成 AttributeError（装配缺失伪装成 500）。
+    ops_engine = create_outbox_ops_engine()
+    app.state.outbox_ops_engine = ops_engine
+    app.state.outbox_ops_sessionmaker = create_sessionmaker(ops_engine)
     # 向后兼容别名：/readyz 与既有代码读 app.state.sessionmaker 时，落到
     # project_planning 域会话工厂（与生产 lifespan 的别名语义一致）。
     app.state.engine = project_engine
@@ -255,6 +261,7 @@ async def db_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
             production_engine,
             budget_engine,
             qc_engine,
+            ops_engine,
         ):
             await engine.dispose()
 

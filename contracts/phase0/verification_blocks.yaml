@@ -1,0 +1,309 @@
+# [V-BLOCKED] 阻塞事项清单（机器可查的单一事实源）
+#
+# 为什么要有这个文件
+# ----------------
+# 「解除一条 [V-BLOCKED]」此前要在 4 处手改指针：台账条目、复核记录、对账记录、
+# PR 描述。改漏一处不会报错，只会让下一个人读到旧状态；而「还有哪些阻塞在挡
+# 什么」这个问题，此前唯一的答案是 grep 五份审计文档再靠人脑合并。合并的成本
+# 不高，合错的可能性很高——尤其当历史条目按 append-only 纪律冻结不改时，
+# 同一事项在文档里同时存在「当时阻塞」与「后来解除」两种原文。
+#
+# 本文件回答且只回答一个问题：**此刻哪些 [V-BLOCKED] 仍然成立，依据分别是什么。**
+#
+# 边界（刻意不收什么）
+# ----------------
+# 1. 只收审计记录里明确标注 `[V-BLOCKED]` 的事项。复核记录 §5 的五项差额
+#    （audit_ref 无非空校验 / artifact_manifests 非 append-only / 状态机条目
+#    PENDING_PHASE1_REVIEW / CI 往返深度 / 偶发 ACL 红灯）是**挂账**不是
+#    [V-BLOCKED]，留在 docs/audits/2026-11-25-p2-release-review.md §5，不收进来：
+#    把它们混进来会让「阻塞」这个词同时指两件事，清单就失去判据价值。
+# 2. 不复制文档正文。`gap` 只写「现在缺什么」，论证与证据留在原文，靠
+#    `evidence` 指路。复制正文等于制造第二份会漂移的叙述。
+# 3. 不代替裁决。`status: BLOCKED` 的意思是「还在等一个决定」，不是
+#    「本文件的作者认为应该怎么做」。
+#
+# 状态语义：LIFTED 不是一个状态，是一对（`lifted_scope` + `remaining_gate`）
+# ----------------------------------------------------------------------
+# 2026-11-25 的教训：TC-1~TC-5 的裁决 2026-11-23 就签了，清单却仍记「等 Owner
+# 裁定其一」，于是「还有 7 条阻塞」这个当前状态错了两天。根因不是忘了改状态，
+# 而是**清单把「决策阻塞」与「执行门槛」压在同一条 gap 里**——一旦拆不开，
+# 解除时要么不敢改，要么一改就变成「整件事都放行了」，两种错都很贵。
+#
+# 所以 LIFTED 必须说清解除到哪一层：
+#   * `lifted_scope: ALL`       —— 该阻塞所缺的东西全部补齐（如 P2：追认 + 技术复核）。
+#   * `lifted_scope: DECISION`  —— 决策层已解除，执行层仍受限，必须带 `remaining_gate`。
+# 判据强制这两者的搭配：DECISION 缺 remaining_gate 报红（解除会被读成放行）；
+# ALL 带 remaining_gate 也报红（那就不是全解除，状态在自相矛盾）。
+#
+# `remaining_gate` 是**索引不是权威**：`source` 指向权威条款（如 ADR-R44 §4 的
+# 「执行约束」栏）。清单不复制裁决正文——复制出来的第二份叙述必然漂移。
+#
+# 校验（scripts/verification_blocks.py --check，已接入 contract_check）
+# ----------------------------------------------------------------
+# * id 唯一；status ∈ {BLOCKED, LIFTED}；计数字段与实际条目一致；
+# * `raised_by` / `evidence` / `lift_evidence` 指向的文件必须存在；
+# * `lifted_by` 必须是 contract_amendments.yaml 里真实存在的修订 id，
+#   且 `lift_evidence` 文档里必须提到这个 id —— 两处指针互为凭据，
+#   只写其中一处会得出「已解除但找不到裁决」或「有裁决但没记录」；
+# * LIFTED 必须有 lifted_at 与 lifted_scope；BLOCKED 不得带任何 lifted_* /
+#   remaining_gate 字段（状态含糊即报红）；
+# * `reference_baseline`（可选）：凡在 title/gap 里写「引用 N 处」的条目，必须给出
+#   `as_of_commit` + `command` + `matched_lines` + `files`。理由是这类计数随审计
+#   增长单调上升（记录这件事本身也会让它 +1），裸数字必然漂移成一个假断言。
+version: 1
+registry_version: '2026-11-25'
+counts:
+  total: 8
+  blocked: 0
+  lifted: 8
+blocks:
+  - id: 'V-BLOCK-ORIGINAL-FREEZE-RESOLUTION'
+    title: '原始冻结决议原件缺失（多处引用、原件 0 份）'
+    status: 'LIFTED'
+    raised_by: 'docs/audits/2026-11-22-phase0-independent-review.md'
+    raised_at: '2026-11-22'
+    evidence:
+      - 'docs/audits/2026-11-22-phase0-independent-review.md'
+      - 'docs/audits/2026-11-25-tc-decision-block-reconciliation.md'
+      - 'docs/audits/2026-11-25-freeze-resolution-origin-investigation.md'
+    reference_baseline:
+      as_of_commit: '57bcc46'
+      command: 'git grep -c "AFS-P0-FREEZE-2026-11-13-01" 57bcc46'
+      matched_lines: 20
+      files: 7
+    gap: >-
+      决议 AFS-P0-FREEZE-2026-11-13-01 被当作最高权威反复引用，但仓库内没有任何
+      同名原件；至今仍是「引用多于实体」。技术整改无法填补这个缺口——哈希一致只
+      证明文件没被改，不证明人已批准。
+      2026-11-25 调查（见 evidence 第 3 项）在仓库父目录找到原件与两份配套件，证物链
+      自洽、与仓库契约状态吻合；当日 Owner 选择路径 A（入仓并登记冻结面），原件已逐字节
+      入仓为 docs/baseline/Phase0-冻结评审决议.md（21327 字节 / sha256 05eb0c99…），
+      并登记于 frozen_inventory.yaml 的 attachments 段，由 freeze_manifest 逐次复核。
+      **解除的是「原件不在工程证据链里」，不是「当初冻结的那一版仍可复核」**：决议自称
+      封存的基线为 468816 字节 / sha256 66ec66d8…，该文件在本机与 git 全历史中均不存在，
+      故「2026-11-13 冻结哈希」这条链无法重算。这条限制不随解除消失。
+      标题此前写「引用 17 处」，那个数在当时的口径下没错（git grep、只数 tracked
+      文件、排除写该句的文档自身，在 cd2a7ec 上 19-2=17 可精确复现），但没有写下
+      前提，于是后续被读成「17 是当前值」并与其他口径（20 / 23 / 25）互相矛盾。
+      口径与逐文件分解见对账记录 §6；本条目改为登记 as_of_commit + 命令，不再用
+      裸数字当断言。
+    unblocks_when: >-
+      已满足（路径 A）：Owner 于 2026-11-25 选择「入仓并登记冻结面」，原件已入仓
+      docs/baseline/Phase0-冻结评审决议.md 并登记进 phase0_manifest 的冻结附件段；
+      另一条路径（以项目外存档为权威）未被采用。
+    decision_owner: 'Owner'
+    lifted_at: '2026-11-25'
+    lifted_by: 'V205-P0-FREEZE-RESOLUTION-REGISTER'
+    lift_evidence: 'docs/audits/2026-11-25-freeze-resolution-origin-investigation.md'
+    lifted_scope: 'ALL'
+
+  - id: 'V-BLOCK-R42-IMPLEMENTATION-AUTH'
+    title: 'R42 实施是否获单独授权 / S1 事实源口径待 Owner 认可'
+    status: 'LIFTED'
+    raised_by: 'docs/audits/2026-11-23-r42-implementation-reconciliation.md'
+    raised_at: '2026-11-23'
+    evidence:
+      - 'docs/audits/2026-11-23-r42-implementation-reconciliation.md'
+      - 'docs/audits/2026-11-24-r42-authorization-reconciliation.md'
+      - 'docs/audits/2026-11-25-r42-s1-authorization-ack.md'
+      - 'docs/adr/ADR-R44-technology-and-infrastructure-baseline.md'
+      - 'docs/architecture/technology-decision-matrix.md'
+    gap: >-
+      2026-11-24 对账记录已给出结论（授权存在、缺的是一页汇总，本文即汇总）并建议
+      S1 口径，但 Owner 只做了「有条件认可」，条件满足后未再明确认可该口径；
+      2026-11-25 的 P2 解除在 §14.2 明确声明**不覆盖**本项。
+      这个「缺一句话」的状态已于 2026-11-25 解除：Owner 明确认可 S1 口径并落纸
+      （台账 V205-R42-S1-AUTHORIZATION-ACK，记录见 evidence 第 3 项）。
+      解除的是「等一句明确认可」，不是「R42 整体放行」——表外实施仍须逐项授权，
+      见 remaining_gate。
+      一条不应被解除抹掉的反证（保留在此，供后人判断解除的边界）：ADR-R44 §9.1
+      「签署范围」原文写着「**不在本次范围**：R42 实施授权口径（BOOT-01 登记的
+      BLOCKED 项，仍待 Owner 单独裁决）」，决策矩阵签署信息同句——2026-11-23 的
+      七项技术裁决**明确排除**了本项，TC 的解除当时不构成任何证据。
+    unblocks_when: >-
+      已满足：Owner 于 2026-11-25 明确认可（ADR-R42 正文保持历史原文不动；实施状态以
+      2026-11-23 实施对账 + 2026-11-24 授权对账为事实源；只确认三层记录口径，不追认
+      未列事项、不新增技术或业务授权、不预授权未来变更），原话逐字存于
+      docs/audits/2026-11-25-r42-s1-authorization-ack.md §1，并落纸为台账修订。
+    decision_owner: 'Owner'
+    lifted_at: '2026-11-25'
+    lifted_by: 'V205-R42-S1-AUTHORIZATION-ACK'
+    lift_evidence: 'docs/audits/2026-11-25-r42-s1-authorization-ack.md'
+    lifted_scope: 'DECISION'
+    remaining_gate:
+      summary: >-
+        认可的是记录口径，不是授权扩容：授权范围就是 2026-11-24 记录 §9.2 的逐项表，
+        表外实施仍须逐项追认；PR-G-2 / PR-G-3 的追认范围仍以 V205-R42-P2-RATIFY 为准；
+        新变更不因本条获得预授权；P4 方向不可反（已合并 ≠ 已获批）。
+      source: 'docs/audits/2026-11-24-r42-authorization-reconciliation.md'
+
+  - id: 'V-BLOCK-TC-1'
+    title: 'TC-1 技术选型：Temporal 作为持久化执行核心'
+    status: 'LIFTED'
+    raised_by: 'docs/audits/2026-11-23-blueprint-vs-repo-reconciliation.md'
+    raised_at: '2026-11-23'
+    evidence:
+      - 'docs/audits/2026-11-23-blueprint-vs-repo-reconciliation.md'
+      - 'docs/adr/ADR-R44-technology-and-infrastructure-baseline.md'
+      - 'docs/architecture/technology-decision-matrix.md'
+    gap: >-
+      方案要求 Temporal 承载生成流程，仓库内无 Temporal 服务/workflow，R42 已用
+      Outbox Saga + Worker + Relay 实现异步长流程与补偿。双持久化执行引擎会让
+      「长流程状态」出现两个权威源。
+      2026-11-23 已裁决 (b)，决策阻塞消失；解除的是「等谁定方向」，不是执行门槛，
+      见 remaining_gate。
+    unblocks_when: >-
+      已满足：Owner 于 2026-11-23 裁决 **(b) 仅新流程引入 Temporal，R42 不迁**
+      （ADR-R44 §4 TC-1，提交 b6ab0aa）。
+    decision_owner: 'Owner'
+    lifted_at: '2026-11-23'
+    lifted_by: 'V205-R44-TC-DECISION-BLOCK-LIFT'
+    lift_evidence: 'docs/audits/2026-11-25-tc-decision-block-reconciliation.md'
+    lifted_scope: 'DECISION'
+    remaining_gate:
+      summary: >-
+        不得迁移 R42 的业务事务/回执/幂等/补偿权威；若将来要做 (c) 全面迁移，须另走
+        R42 正式修订 + 冻结重签。现状未变：无 Temporal 服务、无 workflow 代码，
+        temporalio 仅为 SDK 依赖；PoC 未启动（NOT RUN）。
+      source: 'docs/adr/ADR-R44-technology-and-infrastructure-baseline.md'
+
+  - id: 'V-BLOCK-TC-2'
+    title: 'TC-2 技术选型：PostgreSQL 18.x'
+    status: 'LIFTED'
+    raised_by: 'docs/audits/2026-11-23-blueprint-vs-repo-reconciliation.md'
+    raised_at: '2026-11-23'
+    evidence:
+      - 'docs/audits/2026-11-23-blueprint-vs-repo-reconciliation.md'
+      - 'docs/adr/ADR-R44-technology-and-infrastructure-baseline.md'
+      - 'docs/architecture/technology-decision-matrix.md'
+    gap: >-
+      方案要求从现有版本评估升级到 18.x；当前为 postgres:16，迁移链/RLS/分区均在
+      16 上验证。升级涉及 RLS、分区、复合外键全链复验。
+      2026-11-23 已裁决 (b)，决策阻塞消失；解除的是「等谁定方向」，不是切换许可，
+      见 remaining_gate。
+    unblocks_when: >-
+      已满足：Owner 于 2026-11-23 裁决 **(b) 先做 PG18.7 全链 PoC，验证前继续 PG16**
+      （ADR-R44 §4 TC-2，提交 b6ab0aa）。
+    decision_owner: 'Owner'
+    lifted_at: '2026-11-23'
+    lifted_by: 'V205-R44-TC-DECISION-BLOCK-LIFT'
+    lift_evidence: 'docs/audits/2026-11-25-tc-decision-block-reconciliation.md'
+    lifted_scope: 'DECISION'
+    remaining_gate:
+      summary: >-
+        PoC 必须在隔离库执行、禁挂 PG16 旧数据目录；切换须 TECH-01 五项全过 +
+        独立 ADR 修订 + 冻结重签。现状未变：生产与全链验证仍在 PostgreSQL 16，
+        TECH-01 PoC 未启动（NOT RUN）。
+      source: 'docs/adr/ADR-R44-technology-and-infrastructure-baseline.md'
+
+  - id: 'V-BLOCK-TC-3'
+    title: 'TC-3 技术选型：Valkey'
+    status: 'LIFTED'
+    raised_by: 'docs/audits/2026-11-23-blueprint-vs-repo-reconciliation.md'
+    raised_at: '2026-11-23'
+    evidence:
+      - 'docs/audits/2026-11-23-blueprint-vs-repo-reconciliation.md'
+      - 'docs/adr/ADR-R44-technology-and-infrastructure-baseline.md'
+      - 'docs/architecture/technology-decision-matrix.md'
+    gap: >-
+      方案把 Valkey 列为优先候选；当前为 redis:7 + redis-py + fail-open 熔断
+      runbook，缓存故障语义（fail-open）已被限流设计依赖，替换须协议兼容/TTL/Lua/
+      锁/恢复/故障注入全套证据。
+      2026-11-23 已裁决 (b)，决策阻塞消失；解除的是「等谁定方向」，不是替换许可，
+      见 remaining_gate。
+    unblocks_when: >-
+      已满足：Owner 于 2026-11-23 裁决 **(b) 独立 Valkey PoC（9.1.4 基准 / 9.2.0
+      单独测试），保留 redis-py，不切生产默认**（ADR-R44 §4 TC-3，提交 b6ab0aa）。
+    decision_owner: 'Owner'
+    lifted_at: '2026-11-23'
+    lifted_by: 'V205-R44-TC-DECISION-BLOCK-LIFT'
+    lift_evidence: 'docs/audits/2026-11-25-tc-decision-block-reconciliation.md'
+    lifted_scope: 'DECISION'
+    remaining_gate:
+      summary: >-
+        先固化 redis:7 的实际版本与 Digest；禁止同时更换服务端/客户端/限流算法；
+        PoC 不得改 Compose 默认。现状未变：生产默认仍是 Redis 7，TECH-02 PoC
+        未启动（NOT RUN）。
+      source: 'docs/adr/ADR-R44-technology-and-infrastructure-baseline.md'
+
+  - id: 'V-BLOCK-TC-4'
+    title: 'TC-4 技术选型：S3 兼容对象存储'
+    status: 'LIFTED'
+    raised_by: 'docs/audits/2026-11-23-blueprint-vs-repo-reconciliation.md'
+    raised_at: '2026-11-23'
+    evidence:
+      - 'docs/audits/2026-11-23-blueprint-vs-repo-reconciliation.md'
+      - 'docs/adr/ADR-R44-technology-and-infrastructure-baseline.md'
+      - 'docs/architecture/technology-decision-matrix.md'
+    gap: >-
+      方案要求 S3 兼容对象存储负责媒体产物；当前为本地 FS + local:// 内容寻址，
+      无 S3/MinIO/SeaweedFS。定位器契约已绑定 local://，换 S3 须改
+      storage_locator 契约并重签冻结。
+      2026-11-23 已裁决 (a)，决策阻塞消失；解除的是「等谁定方向」，不是接入许可，
+      见 remaining_gate。
+    unblocks_when: >-
+      已满足：Owner 于 2026-11-23 裁决 **(a) 通过现有 Storage Port 增量接入 S3，
+      先做 S3/SeaweedFS 对比 PoC**（ADR-R44 §4 TC-4，提交 b6ab0aa）。
+    decision_owner: 'Owner'
+    lifted_at: '2026-11-23'
+    lifted_by: 'V205-R44-TC-DECISION-BLOCK-LIFT'
+    lift_evidence: 'docs/audits/2026-11-25-tc-decision-block-reconciliation.md'
+    lifted_scope: 'DECISION'
+    remaining_gate:
+      summary: >-
+        必须复用 ObjectStoragePort、不新增第二套 Storage API、不加 delete；
+        Generation 入口对非 local 保持 fail-closed，禁止失败回落 LocalFS；
+        切换须 TECH-04 七项全过 + 冻结重签。现状未变：仍为本地 FS + local://，
+        TECH-04 PoC 未启动（NOT RUN）。
+      source: 'docs/adr/ADR-R44-technology-and-infrastructure-baseline.md'
+
+  - id: 'V-BLOCK-TC-5'
+    title: 'TC-5 技术选型：services/shot_planning 独立域'
+    status: 'LIFTED'
+    raised_by: 'docs/audits/2026-11-23-blueprint-vs-repo-reconciliation.md'
+    raised_at: '2026-11-23'
+    evidence:
+      - 'docs/audits/2026-11-23-blueprint-vs-repo-reconciliation.md'
+      - 'docs/adr/ADR-R44-technology-and-infrastructure-baseline.md'
+      - 'docs/architecture/technology-decision-matrix.md'
+    gap: >-
+      方案给出独立目录 services/shot_planning；Shot 现属 services/project_planning，
+      归属走 Scene→Episode→Project（ADR-R16~19 已定）。目录形态与既有 ADR 不一致，
+      方案自身亦声明「不机械搬迁」。
+      2026-11-23 已裁决 (a)，决策阻塞消失；解除的是「等谁定方向」，不是搬迁许可，
+      见 remaining_gate。
+    unblocks_when: >-
+      已满足：Owner 于 2026-11-23 裁决 **(a) 独立领域与 Schema，归属仍走
+      Scene→Episode→Project**（ADR-R44 §4 TC-5，提交 b6ab0aa）。
+    decision_owner: 'Owner'
+    lifted_at: '2026-11-23'
+    lifted_by: 'V205-R44-TC-DECISION-BLOCK-LIFT'
+    lift_evidence: 'docs/audits/2026-11-25-tc-decision-block-reconciliation.md'
+    lifted_scope: 'DECISION'
+    remaining_gate:
+      summary: >-
+        必须先有 SHOT-01 归属裁决/迁移/无双写方案，不得直接搬代码；无双写且真实 PG
+        数据对账通过才切换。现状未变：Shot 仍属 services/project_planning，
+        SHOT-01 待立项（NOT RUN）。
+      source: 'docs/adr/ADR-R44-technology-and-infrastructure-baseline.md'
+
+  - id: 'V-BLOCK-P2-MEDIA-TYPE-ABANDONED'
+    title: 'P2：PR-G-2 media_type 事实化 / PR-G-3 ABANDONED 终态'
+    status: 'LIFTED'
+    raised_by: 'docs/audits/2026-11-24-r42-authorization-reconciliation.md'
+    raised_at: '2026-11-24'
+    evidence:
+      - 'docs/audits/2026-11-24-r42-authorization-reconciliation.md'
+      - 'docs/audits/2026-11-25-p2-release-review.md'
+    gap: >-
+      曾缺两件事：Owner 对两项既有实施的追认（2026-11-25 已追认），以及技术复核
+      （同期执行，查出 `ck_artifact_manifests_status` 缺 ABANDONED 并修复）。两者
+      都已落纸，本条保留 gap 是为了让「为什么曾经阻塞」可读，不是仍在等决定。
+    unblocks_when: >-
+      已满足：追认（V205-R42-P2-RATIFY）+ 复核八项判据通过 + Owner 裁决解除
+      （V205-R42-P2-BLOCK-LIFT）。
+    decision_owner: 'Owner'
+    lifted_at: '2026-11-25'
+    lifted_by: 'V205-R42-P2-BLOCK-LIFT'
+    lift_evidence: 'docs/audits/2026-11-25-p2-release-review.md'
+    lifted_scope: 'ALL'

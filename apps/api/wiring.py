@@ -21,15 +21,24 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from services.asset_service.repository.qc_report_lookup import build_report_lookup
+from services.production_planning.repository.generation_facts_lookup import (
+    build_generation_facts_lookup,
+)
 
 # ``app.state`` 上的键。使用点因不得依赖 apps（分层规则 R1）只能写字面量，
 # 故由测试断言两边一致。
 QC_REPORT_LOOKUP_FACTORY = "qc_report_lookup_factory"
+GENERATION_FACTS_LOOKUP_FACTORY = "generation_facts_lookup_factory"
 
 
 def register_cross_domain_ports(app: FastAPI) -> None:
     """把跨域端口挂到应用装配面。未来新增端口在此逐条登记。"""
     setattr(app.state, QC_REPORT_LOOKUP_FACTORY, build_report_lookup)
+    setattr(app.state, GENERATION_FACTS_LOOKUP_FACTORY, build_generation_facts_lookup)
 
 
-__all__ = ["QC_REPORT_LOOKUP_FACTORY", "register_cross_domain_ports"]
+__all__ = [
+    "GENERATION_FACTS_LOOKUP_FACTORY",
+    "QC_REPORT_LOOKUP_FACTORY",
+    "register_cross_domain_ports",
+]

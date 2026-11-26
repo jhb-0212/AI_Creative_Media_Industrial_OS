@@ -37,6 +37,33 @@ def relay_role_name() -> str:
     return get_settings().postgres_relay_user
 
 
+# 平台运维 → 配置字段。与 ``_DOMAIN_ROLE_FIELDS`` 分开的理由不是分类癖：
+# ``domain_role_names()`` 是「全部**业务域**角色」的口径（迁移、授权矩阵、
+# ACL 对账都按它取），把运维角色混进去会让「业务域角色」这个集合同时表示
+# 两种东西——它没有自有 schema，`business_tables()` 对它返回空集，
+# 于是「本域每张表都必须声明」这条判据对它变成永真式。
+_INFRA_ROLE_FIELDS: dict[str, str] = {
+    "outbox_ops": "postgres_outbox_ops_user",
+}
+
+
+def infra_role(infra: str) -> str:
+    """平台运维角色名（未知键直接报错，不返回空串）。"""
+    try:
+        field = _INFRA_ROLE_FIELDS[infra]
+    except KeyError:
+        raise LookupError(
+            f"未知运维角色 {infra!r}；已知：{sorted(_INFRA_ROLE_FIELDS)}"
+        ) from None
+    value: str = getattr(get_settings(), field)
+    return value
+
+
+def infra_roles() -> dict[str, str]:
+    """``运维键 -> 角色名`` 全量映射（授权矩阵与断言按它取用）。"""
+    return {infra: infra_role(infra) for infra in _INFRA_ROLE_FIELDS}
+
+
 # 业务域 → 配置字段。键就是 schema 名（DATA-1：一域一角色一 schema）。
 # 这张表存在的理由：调用方按**域**取角色（``domain_role("asset_service")``），
 # 而不是靠 ``domain_role_names()`` 的元组下标——下标用法一旦有人调整顺序，
@@ -89,5 +116,7 @@ __all__ = [
     "domain_role",
     "domain_role_names",
     "domain_roles",
+    "infra_role",
+    "infra_roles",
     "relay_role_name",
 ]

@@ -1486,7 +1486,7 @@ def _unfrozen_converge_calls(rel_paths: list[str]) -> list[str]:
                 if isinstance(func, ast.Attribute)
                 else getattr(func, "id", "")
             )
-            if name != "converge_statements":
+            if name not in ("converge_statements", "infra_converge_statements"):
                 continue
             if not any(kw.arg == "tables" for kw in node.keywords):
                 found.append(f"{rel_path}:{node.lineno}")
@@ -1556,6 +1556,7 @@ def evaluate_least_privilege(
     rendered: list[str],
     grant_forbidden_literals: dict[str, list[str]],
     unfrozen_converge_calls: list[str],
+    infra_converge: dict[str, list[str]] | None = None,
 ) -> list[str]:
     """判定「域角色的授权面 == 矩阵声明」（纯函数，供负向用例喂构造数据）。
 
@@ -1615,10 +1616,22 @@ def evaluate_least_privilege(
     expected_set = {
         statement.strip()
         for statement in (
-            statement for domain in sorted(converge) for statement in converge[domain]
+            statement
+            for domain in sorted(converge)
+            for statement in converge[domain]
         )
         if _is_authorization_statement(statement)
     }
+    # 平台运维角色的授权（outbox_ops_role 等）也必须由矩阵收敛：它们不走
+    # DOMAINS，但同样是「声明 → 迁移执行」，不能因为不是业务域就退回手写 GRANT。
+    # 不并进来会出现诡异局面——迁移按矩阵执行运维角色的授权，却被判成
+    # 「迁移多执行 N 条」。
+    for infra in sorted(infra_converge or {}):
+        expected_set |= {
+            statement.strip()
+            for statement in infra_converge[infra]
+            if _is_authorization_statement(statement)
+        }
     if rendered_set != expected_set:
         missing = sorted(expected_set - rendered_set)
         unexpected = sorted(rendered_set - expected_set)
@@ -1674,12 +1687,15 @@ def data_role_grants_least_privilege() -> AssertionResult:
     """
     from packages.shared.db_grants import (
         DOMAINS,
+        INFRA_ROLES,
         business_tables,
         converge_statements,
         declared_privileges,
+        infra_converge_statements,
+        validate_infra_matrix,
         validate_matrix,
     )
-    from packages.shared.db_roles import domain_role
+    from packages.shared.db_roles import domain_role, infra_role
     from services.asset_service.repository import orm as asset_orm
     from services.budget_quota.repository import orm as budget_orm
     from services.production_planning.repository import orm as production_orm
@@ -1699,7 +1715,7 @@ def data_role_grants_least_privilege() -> AssertionResult:
     scan_paths = [converge_migration, *later_migrations]
 
     problems = evaluate_least_privilege(
-        matrix_problems=validate_matrix(),
+        matrix_problems=validate_matrix() + validate_infra_matrix(),
         business={domain: business_tables(domain) for domain in DOMAINS},
         orm_tables={
             domain: frozenset(by_schema.get(domain, set())) for domain in DOMAINS
@@ -1707,6 +1723,12 @@ def data_role_grants_least_privilege() -> AssertionResult:
         converge={
             domain: converge_statements(domain_role(domain), domain)
             for domain in DOMAINS
+        },
+        # 运维角色的授权同样只能经矩阵收敛（D6-9 的 outbox_ops_role）。它没有
+        # 自有 schema，不能进 DOMAINS——但「不是业务域」不等于「可以手写 GRANT」。
+        infra_converge={
+            infra: infra_converge_statements(infra_role(infra), infra)
+            for infra in INFRA_ROLES
         },
         # 回放**全部**授权迁移并取并集：迁移是时间胶囊，新表由新迁移授权，
         # 只看收敛那一次会在「矩阵加表」后误报（评审 F1）。
@@ -1742,6 +1764,12 @@ _DEFAULT_ROLE_NAMES = frozenset(
         "outbox_relay_role",
         "project_planning_role",
         "asset_service_role",
+        # R16 三域拆分与 D6-9 运维角色同在「按配置解析」这条判据之下：
+        # 少了它们，扫描集合就只覆盖早期两个域角色，新角色写死字面量不会被拦。
+        "production_planning_role",
+        "budget_quota_role",
+        "qc_governance_role",
+        "outbox_ops_role",
     }
 )
 

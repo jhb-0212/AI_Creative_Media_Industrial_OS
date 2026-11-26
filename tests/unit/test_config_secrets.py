@@ -15,14 +15,19 @@ import pytest
 from packages.shared.config import Settings
 
 # 各进程角色在生产环境下各自「必需」的密钥清单（与
-# Settings._PRODUCTION_REQUIRED_SECRETS_BY_PROCESS 对齐）。这是 F05 根治的
+# Settings._PRODUCTION_REQUIRED_SECRETS_BY_PROCESS 逐项对齐）。这是 F05 根治的
 # 断言目标：密钥需求随进程角色收紧，而非全局一刀切。
 # DATA-1（按域拆角色）后，api 进程需两个业务域角色的密码，不再需要单一
-# app_role 的 app_password。
+# app_role 的 app_password；R16 三域拆分后 api 以五个域角色 + 一个运维角色连接，
+# 六个口令均须显式提供（D6-9 加入 outbox_ops）。
 _REQUIRED_BY_PROCESS = {
     "api": [
         "POSTGRES_PROJECT_PLANNING_PASSWORD",
         "POSTGRES_ASSET_SERVICE_PASSWORD",
+        "POSTGRES_PRODUCTION_PLANNING_PASSWORD",
+        "POSTGRES_BUDGET_QUOTA_PASSWORD",
+        "POSTGRES_QC_GOVERNANCE_PASSWORD",
+        "POSTGRES_OUTBOX_OPS_PASSWORD",
         "IDENTITY_PUBLIC_KEY_PEM",
     ],
     "relay": ["POSTGRES_RELAY_PASSWORD"],
@@ -41,6 +46,10 @@ _ALL_ENV_VARS = {
     "POSTGRES_RELAY_PASSWORD": "prod-relay-pass",
     "POSTGRES_PROJECT_PLANNING_PASSWORD": "prod-project-planning-pass",
     "POSTGRES_ASSET_SERVICE_PASSWORD": "prod-asset-service-pass",
+    "POSTGRES_PRODUCTION_PLANNING_PASSWORD": "prod-production-planning-pass",
+    "POSTGRES_BUDGET_QUOTA_PASSWORD": "prod-budget-quota-pass",
+    "POSTGRES_QC_GOVERNANCE_PASSWORD": "prod-qc-governance-pass",
+    "POSTGRES_OUTBOX_OPS_PASSWORD": "prod-outbox-ops-pass",
     "IDENTITY_PRIVATE_KEY_PEM": "-----BEGIN PRIVATE KEY-----prod-----END PRIVATE KEY-----",
     "IDENTITY_PUBLIC_KEY_PEM": "-----BEGIN PUBLIC KEY-----prod-----END PUBLIC KEY-----",
     "S3_ACCESS_KEY_ID": "AKIAEXAMPLE",
@@ -121,6 +130,9 @@ def test_production_missing_secret_rejected_per_process(
         ("relay", "IDENTITY_PRIVATE_KEY_PEM"),
         ("relay", "IDENTITY_PUBLIC_KEY_PEM"),
         ("relay", "POSTGRES_APP_PASSWORD"),
+        # 运维连接池只属于 API 进程：relay 与运维 CLI 都不该被它牵制。
+        ("relay", "POSTGRES_OUTBOX_OPS_PASSWORD"),
+        ("outbox_maintenance", "POSTGRES_OUTBOX_OPS_PASSWORD"),
         # 运维 CLI 只用 postgres 超级用户，不要求应用/relay/身份密钥。
         ("outbox_maintenance", "POSTGRES_APP_PASSWORD"),
         ("outbox_maintenance", "POSTGRES_RELAY_PASSWORD"),
@@ -209,6 +221,22 @@ def test_production_rejects_dev_default_domain_passwords(
     with pytest.raises(ValueError) as exc_info:
         _make_settings(process_role="api")
     assert "asset_service_dev_password" in str(exc_info.value)
+
+
+def test_production_rejects_dev_default_outbox_ops_password(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """api 进程显式使用运维角色开发默认口令 → 拒绝启动（D6-9）。
+
+    运维角色能修改事件投递状态（清死信标记、交回正常 claim），是比业务域角色
+    更敏感的凭证：若生产沿用仓库里的开发默认口令，任何拿到源码的人都能重放死信。
+    因此它和业务域口令同口径 fail-closed。
+    """
+    _set_env(monkeypatch, _prod_env())
+    monkeypatch.setenv("POSTGRES_OUTBOX_OPS_PASSWORD", "outbox_ops_dev_password")
+    with pytest.raises(ValueError) as exc_info:
+        _make_settings(process_role="api")
+    assert "outbox_ops_dev_password" in str(exc_info.value)
 
 
 def test_production_rejects_dev_default_relay_password(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -319,6 +347,7 @@ def test_migration_guard_rejects_dev_default_domain_passwords(
         ("postgres_project_planning_password", "POSTGRES_PROJECT_PLANNING_PASSWORD", "project_planning_dev_password"),
         ("postgres_asset_service_password", "POSTGRES_ASSET_SERVICE_PASSWORD", "asset_service_dev_password"),
         ("postgres_app_password", "POSTGRES_APP_PASSWORD", "app_dev_password"),
+        ("postgres_outbox_ops_password", "POSTGRES_OUTBOX_OPS_PASSWORD", "outbox_ops_dev_password"),
     ):
         _set_env(monkeypatch, _prod_env())
         monkeypatch.setenv(env_name, default)
@@ -381,9 +410,11 @@ def test_distinct_domain_role_names_accepted() -> None:
                 settings.postgres_asset_service_user,
                 settings.postgres_relay_user,
                 settings.postgres_app_user,
+                # 运维角色与任何域角色同名 = 域角色获得改投递状态的能力。
+                settings.postgres_outbox_ops_user,
             }
         )
-        == 4
+        == 5
     )
 
 

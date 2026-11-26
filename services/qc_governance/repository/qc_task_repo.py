@@ -10,9 +10,11 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
+from packages.shared.port_errors import translate_write_error
 from packages.shared.versioning import _orm_update_values, conditional_update
 from services.project_planning.domain.enums import QCTaskStatus
 from services.qc_governance.domain.qc_task import QCTask
@@ -84,8 +86,30 @@ class SqlAlchemyQCTaskRepository:
         self._session = session
 
     async def add(self, task: QCTask) -> QCTask:
-        self._session.add(_to_orm(task))
-        await self._session.flush()
+        """写入待检项；唯一冲突翻译成 ``DuplicateEntityError``（服务层据此判幂等）。
+
+        为什么不能裸 ``flush``
+        ---------------------
+        ``uq_qc_governance_qc_tasks_generation_task`` 是「同一生成任务至多一个
+        有效 QC 任务」的**库层事实**。但裸 flush 抛出的是 ``IntegrityError``：
+        它同时覆盖唯一冲突（23505）、外键/CHECK（23xxx）与 RLS 拒绝写（42501），
+        调用方拿到它只能报 500。后果不是「不够优雅」，而是两个真实故障：
+
+        * relay 侧：并发重复投递撞唯一键 → 500 → 按失败重试 → 一路进死信，
+          而事实上入队早已成功（``enqueue_idempotently`` 想收敛的正是这个场景，
+          它只看得到 ``DomainError``，看不到裸的驱动异常）；
+        * 人工恢复侧：本来「已经入队了」应回 409，却变成服务故障。
+
+        SAVEPOINT + 端口契约翻译把「哪一类写失败」变成契约事实，与资产域
+        QC 报告仓储（``sqlalchemy_qc_repo``）同一模式：用方只认识
+        ``DuplicateEntityError`` / ``ReferentialIntegrityError``，不认识 SQLAlchemy。
+        """
+        try:
+            async with self._session.begin_nested():
+                self._session.add(_to_orm(task))
+                await self._session.flush()
+        except (IntegrityError, ProgrammingError) as exc:
+            translate_write_error(exc, entity_id=task.entity_id)
         return task
 
     async def save(self, task: QCTask, expected_version: int) -> QCTask:

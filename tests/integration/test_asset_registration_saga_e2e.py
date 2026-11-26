@@ -211,6 +211,7 @@ async def test_full_saga_commits_and_replays_idempotently(
             worker_id="worker-e2e",
             locator=_LOCATOR,
             sha256=_DIGEST,
+            media_type="image/png",
             attempt_id=attempt_id,
         )
         await session.commit()

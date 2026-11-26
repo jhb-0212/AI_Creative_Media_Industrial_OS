@@ -34,7 +34,9 @@ from pathlib import Path
 from adapters.storage.ports import (
     StorageIntegrityError,
     StorageLocatorError,
+    StorageObjectMissingError,
     StorageSizeLimitError,
+    StorageUnavailableError,
     StoredObject,
 )
 from packages.shared.storage_locator import (
@@ -170,7 +172,16 @@ class LocalFsObjectStorage:
         try:
             info = target.lstat()
         except FileNotFoundError as exc:
-            raise StorageIntegrityError(f"定位符对应的内容不存在：{locator}") from exc
+            # 「确定不存在」与「存在但损坏」是两种事实，恢复流程据此做不同决定
+            # （前者可放弃并重生成，后者放弃并记不可复用）。用专用子类表达。
+            raise StorageObjectMissingError(
+                f"定位符对应的内容不存在：{locator}"
+            ) from exc
+        except OSError as exc:
+            # 权限/IO 错误：无法判定对象是否存在，绝不能当成「不存在」。
+            raise StorageUnavailableError(
+                f"读取 {locator} 失败（存储后端不可用）：{exc}"
+            ) from exc
         if not os.path.isfile(target) or os.path.islink(target):
             # 内容寻址目录下的文件只由本进程创建；符号链接意味着根目录被外部改动，
             # 此时「读到什么」不由我们决定，必须拒绝而不是顺着链接读出去。
@@ -179,7 +190,12 @@ class LocalFsObjectStorage:
             raise StorageSizeLimitError(
                 f"已存内容 {info.st_size} 字节超出上限 {self._max_bytes}：{locator}"
             )
-        data = target.read_bytes()
+        try:
+            data = target.read_bytes()
+        except OSError as exc:
+            raise StorageUnavailableError(
+                f"读取 {locator} 失败（存储后端不可用）：{exc}"
+            ) from exc
         digest = hashlib.sha256(data).hexdigest()
         parsed, problem = parse_locator(locator)
         assert parsed is not None, problem  # 调用前已校验

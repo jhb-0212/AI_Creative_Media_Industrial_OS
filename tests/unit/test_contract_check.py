@@ -183,13 +183,15 @@ def test_missing_resource_schemas_all_exempted_is_empty() -> None:
 
 
 def test_check_resource_schemas_passes_on_current_contract() -> None:
-    """当前台账（12 个已实现 + 1 条豁免）应通过。
+    """当前台账（48 个已实现 + 2 条豁免）应通过。
 
-    豁免只剩 ScriptLock：Project / Episode / ScriptRevision 已进 object_schemas，
-    旧豁免属于「冗余豁免」，闸门现在会直接报红（审查 N4）。
+    豁免只剩 ScriptLock 与 OutboxEvent：Project / Episode / ScriptRevision 已进
+    object_schemas，旧豁免属于「冗余豁免」，闸门现在会直接报红（审查 N4）。
+    OutboxEvent 是运维基础设施类型（事件总线），正文无字段口径，按 D6-9 登记豁免
+    而不是凭空造一份 schema。
     """
     assert cc.check_implemented_resource_schemas() is True
-    assert set(cc._schema_exemptions()) == {"ScriptLock"}
+    assert set(cc._schema_exemptions()) == {"ScriptLock", "OutboxEvent"}
 
 
 def test_check_resource_schemas_fails_for_redundant_exemption(
