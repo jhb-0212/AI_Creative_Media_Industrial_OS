@@ -111,11 +111,79 @@ async def test_claim_and_second_claim_rejected() -> None:
     assert claimed.status is QCTaskStatus.RUNNING
     assert claimed.lease_owner == "qc-1"
     assert claimed.attempt_count == 1
+    # 领取成立一份新租约：代次必须从 0 前移到 1，否则调用方拿不到 fencing 凭据。
+    assert claimed.lease_generation == 1
+    assert outbox.events[-1]["payload"]["lease_generation"] == 1
     assert outbox.events[-1]["event_type"] == "QC_TASK_STARTED"
 
     with pytest.raises(DomainError):
         await service.claim(task_id=task.entity_id, worker_id="qc-2", lease_seconds=120)
     assert repo.snapshot()[task.entity_id].lease_owner == "qc-1"
+
+
+async def test_release_then_reclaim_advances_generation_but_heartbeat_does_not() -> None:
+    """代次的三条规则：回收前移、重领前移、心跳不动。
+
+    这三条必须一起测。只测「领取代次 +1」的话，「心跳也 +1」这种错误实现仍然
+    会让心跳用例通过（它压根没断言心跳后的值），而 Worker 手里的代次会在第二次
+    心跳后就失效——现象是「判定总是被拒」，根因却不在判定。
+    """
+    service, repo, _outbox = _service()
+    task = await _enqueued(service)
+    await service.claim(task_id=task.entity_id, worker_id="qc-1", lease_seconds=60)
+    assert task.lease_generation == 1
+
+    renewed = await service.renew(
+        task_id=task.entity_id,
+        worker_id="qc-1",
+        expected_lease_generation=1,
+        lease_seconds=300,
+    )
+    assert renewed.lease_generation == 1, "心跳不得推进代次"
+
+    repo.snapshot()[task.entity_id].lease_expires_at = datetime.now(UTC) - timedelta(
+        seconds=5
+    )
+    await service.release_expired(task_id=task.entity_id)
+    assert task.lease_generation == 2, "回收即撤销租约，代次必须前移"
+
+    await service.claim(task_id=task.entity_id, worker_id="qc-2", lease_seconds=60)
+    assert task.lease_generation == 3
+
+
+async def test_stale_generation_is_rejected_for_renew_and_finish() -> None:
+    """旧代次的续租与判定必须被拒——这是 fencing 的核心断言。
+
+    场景就是真实事故形态：Worker 崩溃 → 租约过期 → 另一个 Worker 重领。
+    崩溃的那个进程还活着，它手里有两样东西：worker_id（可能相同，容器重调度）
+    和旧代次。只比对 owner 时它会通过；只有代次能把它挡住。
+    """
+    service, repo, _outbox = _service()
+    task = await _enqueued(service)
+    await service.claim(task_id=task.entity_id, worker_id="qc-1", lease_seconds=60)
+    repo.snapshot()[task.entity_id].lease_expires_at = datetime.now(UTC) - timedelta(
+        seconds=5
+    )
+    await service.release_expired(task_id=task.entity_id)
+    await service.claim(task_id=task.entity_id, worker_id="qc-1", lease_seconds=60)
+    assert task.lease_generation == 3
+
+    with pytest.raises(DomainError, match="租约代次已过期"):
+        await service.renew(
+            task_id=task.entity_id,
+            worker_id="qc-1",
+            expected_lease_generation=1,
+            lease_seconds=120,
+        )
+    with pytest.raises(DomainError, match="租约代次已过期"):
+        await service.finish(
+            task_id=task.entity_id,
+            worker_id="qc-1",
+            expected_lease_generation=1,
+            result="PASSED",
+            qc_report_id="report-1",
+        )
+    assert task.status is QCTaskStatus.RUNNING
 
 
 async def test_renew_requires_owner() -> None:
@@ -125,10 +193,10 @@ async def test_renew_requires_owner() -> None:
     before = task.lease_expires_at
 
     with pytest.raises(DomainError):
-        await service.renew(task_id=task.entity_id, worker_id="qc-2", lease_seconds=60)
+        await service.renew(task_id=task.entity_id, worker_id="qc-2", expected_lease_generation=task.lease_generation, lease_seconds=60)
 
     renewed = await service.renew(
-        task_id=task.entity_id, worker_id="qc-1", lease_seconds=300
+        task_id=task.entity_id, worker_id="qc-1", expected_lease_generation=task.lease_generation, lease_seconds=300
     )
     assert renewed.lease_expires_at > before
     assert outbox.events[-1]["event_type"] == "QC_TASK_LEASE_RENEWED"
@@ -143,6 +211,7 @@ async def test_finish_requires_owner_and_report() -> None:
         await service.finish(
             task_id=task.entity_id,
             worker_id="qc-2",
+            expected_lease_generation=task.lease_generation,
             result="PASSED",
             qc_report_id="report-1",
         )
@@ -151,6 +220,7 @@ async def test_finish_requires_owner_and_report() -> None:
         await service.finish(
             task_id=task.entity_id,
             worker_id="qc-1",
+            expected_lease_generation=task.lease_generation,
             result="PASSED",
             qc_report_id="",
         )
@@ -158,6 +228,7 @@ async def test_finish_requires_owner_and_report() -> None:
     done = await service.finish(
         task_id=task.entity_id,
         worker_id="qc-1",
+        expected_lease_generation=task.lease_generation,
         result="PASSED",
         qc_report_id="report-1",
         evidence_refs=["asset-1"],
@@ -175,6 +246,7 @@ async def test_rejected_path_emits_rejected_event() -> None:
     rejected = await service.finish(
         task_id=task.entity_id,
         worker_id="qc-1",
+        expected_lease_generation=task.lease_generation,
         result="REJECTED",
         qc_report_id="report-2",
     )
@@ -210,6 +282,7 @@ async def test_finish_rejects_unknown_report_id() -> None:
         await service.finish(
             task_id=task.entity_id,
             worker_id="qc-1",
+            expected_lease_generation=task.lease_generation,
             result="PASSED",
             qc_report_id="forged-report",
         )
@@ -227,6 +300,7 @@ async def test_finish_rejects_report_of_other_asset_version() -> None:
         await service.finish(
             task_id=task.entity_id,
             worker_id="qc-1",
+            expected_lease_generation=task.lease_generation,
             result="PASSED",
             qc_report_id="report-1",
         )
@@ -243,6 +317,7 @@ async def test_finish_rejects_report_of_other_tenant() -> None:
         await service.finish(
             task_id=task.entity_id,
             worker_id="qc-1",
+            expected_lease_generation=task.lease_generation,
             result="PASSED",
             qc_report_id="report-1",
         )
@@ -262,6 +337,7 @@ async def test_finish_without_verifier_fails_closed() -> None:
         await service.finish(
             task_id=task.entity_id,
             worker_id="qc-1",
+            expected_lease_generation=task.lease_generation,
             result="PASSED",
             qc_report_id="report-1",
         )

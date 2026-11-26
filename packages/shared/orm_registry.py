@@ -29,6 +29,9 @@ _ORM_MODULES: tuple[str, ...] = (
     "services.production_planning.repository.orm",
     "services.project_planning.repository.orm",
     "services.qc_governance.repository.orm",
+    # 调度投影（qc_maintenance schema）：派生自 qc_tasks，但独立成表，
+    # 不进 orm.py 是为了让「投影不是业务表」这条边界在文件层面可见。
+    "services.qc_governance.repository.projection_orm",
 )
 
 

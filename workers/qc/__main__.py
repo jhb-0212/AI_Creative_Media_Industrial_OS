@@ -39,6 +39,9 @@ from services.project_planning.repository.sqlalchemy_outbox_writer import (
     SqlAlchemyOutboxWriter,
 )
 from services.qc_governance.repository.qc_task_repo import SqlAlchemyQCTaskRepository
+from services.qc_governance.repository.task_projection_repo import (
+    SqlAlchemyTaskProjectionRepository,
+)
 from services.qc_governance.service.qc_task_service import QCTaskService
 from workers.qc.asset_inspector import AssetIntegrityInspector
 from workers.qc.worker import QCExecutor, QCInspection, QCWorker
@@ -85,6 +88,7 @@ def _make_scope(sessionmaker: Any, report_lookup: Any | None = None) -> Any:
                     repository,
                     SqlAlchemyOutboxWriter(session),
                     report_lookup=report_lookup,
+                    projection=SqlAlchemyTaskProjectionRepository(session),
                 ),
                 repository=repository,
                 session=session,

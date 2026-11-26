@@ -115,11 +115,12 @@ class QCWorker:
             await unit.commit()
             return claimed
 
-    async def _renew(self, task_id: str) -> None:
+    async def _renew(self, task_id: str, lease_generation: int) -> None:
         async with self._scope() as unit:
             await unit.service.renew(
                 task_id=task_id,
                 worker_id=self.worker_id,
+                expected_lease_generation=lease_generation,
                 lease_seconds=self.lease_seconds,
             )
             await unit.commit()
@@ -130,6 +131,7 @@ class QCWorker:
                 await unit.service.finish(
                     task_id=task.entity_id,
                     worker_id=self.worker_id,
+                    expected_lease_generation=task.lease_generation,
                     result=inspection.result,
                     qc_report_id=inspection.qc_report_id,
                     evidence_refs=inspection.evidence_refs,
@@ -150,7 +152,8 @@ class QCWorker:
                 if work in done:
                     return work.result()
                 try:
-                    await self._renew(task.entity_id)
+                    # 代次随领取一起缓存：心跳证明的是「我是这一代」，不是「我是这任务」。
+                    await self._renew(task.entity_id, task.lease_generation)
                 except DomainError as exc:
                     raise QcLeaseLostError(
                         f"renew denied for {task.entity_id}: {exc}"

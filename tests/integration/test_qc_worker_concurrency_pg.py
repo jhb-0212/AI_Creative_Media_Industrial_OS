@@ -105,7 +105,8 @@ async def _read_row(admin_sessionmaker, task_id: str) -> Any:
         return (
             await session.execute(
                 text(
-                    "SELECT status, lease_owner, lease_expires_at, attempt_count "
+                    "SELECT status, lease_owner, lease_expires_at, attempt_count, "
+                    "lease_generation "
                     "FROM qc_governance.qc_tasks WHERE entity_id = :id"
                 ),
                 {"id": task_id},
@@ -304,7 +305,8 @@ async def test_expired_lease_blocks_old_worker_renew_and_finish(
     suffix = uuid.uuid4().hex[:10]
     project_id = await _seed_project(admin_sessionmaker, tenant=tenant, suffix=suffix)
     task_id = await _enqueue(tenant=tenant, project_id=project_id, suffix=suffix)
-    await _claim(task_id, tenant=tenant, worker_id="qc-A", lease=60)
+    claimed = await _claim(task_id, tenant=tenant, worker_id="qc-A", lease=60)
+    stale_generation = claimed.lease_generation
 
     async with admin_sessionmaker() as session:
         await session.execute(
@@ -322,7 +324,12 @@ async def test_expired_lease_blocks_old_worker_renew_and_finish(
             SqlAlchemyQCTaskRepository(session), SqlAlchemyOutboxWriter(session)
         )
         with pytest.raises(DomainError):
-            await service.renew(task_id=task_id, worker_id="qc-A", lease_seconds=60)
+            await service.renew(
+                task_id=task_id,
+                worker_id="qc-A",
+                expected_lease_generation=stale_generation,
+                lease_seconds=60,
+            )
         await session.rollback()
 
     async with _qc_sm()() as session:
@@ -335,6 +342,7 @@ async def test_expired_lease_blocks_old_worker_renew_and_finish(
             await service.finish(
                 task_id=task_id,
                 worker_id="qc-A",
+                expected_lease_generation=stale_generation,
                 result="PASSED",
                 qc_report_id="report-late",
             )
@@ -406,7 +414,8 @@ async def test_late_finish_after_reclaim_rejected(admin_sessionmaker) -> None:
     suffix = uuid.uuid4().hex[:10]
     project_id = await _seed_project(admin_sessionmaker, tenant=tenant, suffix=suffix)
     task_id = await _enqueue(tenant=tenant, project_id=project_id, suffix=suffix)
-    await _claim(task_id, tenant=tenant, worker_id="qc-A", lease=60)
+    claimed_a = await _claim(task_id, tenant=tenant, worker_id="qc-A", lease=60)
+    stale_generation = claimed_a.lease_generation
 
     async with admin_sessionmaker() as session:
         await session.execute(
@@ -435,6 +444,7 @@ async def test_late_finish_after_reclaim_rejected(admin_sessionmaker) -> None:
             await service.finish(
                 task_id=task_id,
                 worker_id="qc-A",
+                expected_lease_generation=stale_generation,
                 result="PASSED",
                 qc_report_id="report-late",
             )

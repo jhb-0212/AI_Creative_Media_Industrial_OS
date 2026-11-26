@@ -2173,6 +2173,19 @@ _TRANSITION_ENTRY_WHITELIST: dict[tuple[str, str], str] = {
 # 断言必须覆盖两种，否则「方法名」被覆盖而「状态被改写」没被覆盖（评审 T1）。
 STATUS_ATTR = "status"
 
+# 租约字段：状态之外的第二组「写错就静默失去 fencing」的列。
+#
+# 为什么它们必须进同一道闸门
+# --------------------------
+# 只保护 ``status`` 是不够的：一个 Worker 只要能在领域方法之外改写
+# ``lease_owner`` / ``lease_expires_at`` / ``lease_generation``，就能把「我不再
+# 持有租约」改写成「我还持有」，而且事实行、事件、投影全都不会报错。三个字段
+# 分别守不同的东西：owner 是身份、expires 是有效期、generation 是代次；
+# 缺任一个都能拼出一条能通过校验的假租约。
+LEASE_ATTRS: frozenset[str] = frozenset(
+    {"lease_owner", "lease_expires_at", "lease_generation"}
+)
+
 # 领域层「改状态」的唯一方法名。新增一个方法名不该让断言失效——所以真正的
 # 兜底是下面的落库规则：改状态想生效就必须落库，落库点只有审计入口。
 _STATUS_MUTATORS = frozenset({"transition_to"})
@@ -2220,6 +2233,7 @@ def evaluate_transition_entries(root: Path) -> list[str]:
     """
     calls_outside: list[str] = []
     assigns_outside: list[str] = []
+    lease_assigns_outside: list[str] = []
     saves_outside: list[str] = []
     scanned = 0
     for root_name in ("services", "packages", "apps"):
@@ -2238,6 +2252,10 @@ def evaluate_transition_entries(root: Path) -> list[str]:
                         if not isinstance(func, ast.Attribute):
                             if _is_self_status_setattr(sub):
                                 assigns_outside.append(f"{rel}::{node.name}（setattr）")
+                            if _is_setattr_of_lease(sub):
+                                lease_assigns_outside.append(
+                                    f"{rel}::{node.name}（setattr）"
+                                )
                             continue
                         if in_domain or audited_entry:
                             continue
@@ -2251,6 +2269,13 @@ def evaluate_transition_entries(root: Path) -> list[str]:
                             if isinstance(sub, ast.Assign)
                             else [sub.target]
                         )
+                        # 租约字段：只允许在 ``/domain/`` 内改写（聚合自己的租约
+                        # 方法）。服务层、仓储、Worker、路由任何一处直接赋值都
+                        # 意味着「这条写入没经过 fencing 判定」。
+                        if not in_domain and any(
+                            _is_attr_of(t, LEASE_ATTRS) for t in targets
+                        ):
+                            lease_assigns_outside.append(f"{rel}::{node.name}")
                         if not any(_is_self_status_attr(t) for t in targets):
                             continue
                         if node.name != "transition_to" or not in_domain:
@@ -2265,6 +2290,12 @@ def evaluate_transition_entries(root: Path) -> list[str]:
         problems.append(
             "在领域 transition_to 之外直接改写 self.status（事实行会静默缺失）："
             + "、".join(sorted(set(assigns_outside)))
+        )
+    if lease_assigns_outside:
+        problems.append(
+            "在 /domain/ 之外直接改写租约字段（lease_owner / lease_expires_at / "
+            "lease_generation 必须只由领域方法维护，否则 fencing 判定被旁路）："
+            + "、".join(sorted(set(lease_assigns_outside)))
         )
     if saves_outside:
         problems.append(
@@ -2285,6 +2316,27 @@ def _is_self_status_attr(node: ast.expr) -> bool:
         and node.attr == STATUS_ATTR
         and isinstance(node.value, ast.Name)
         and node.value.id == "self"
+    )
+
+
+def _is_attr_of(node: ast.expr, names: frozenset[str]) -> bool:
+    """``<任意对象>.<names 之一>``：租约字段可能挂在 ``self``、``task``、``row``。"""
+    return isinstance(node, ast.Attribute) and node.attr in names
+
+
+def _is_setattr_of_lease(call: ast.Call) -> bool:
+    """``setattr(任意对象, "lease_*", ...)``。
+
+    只看第二个实参（属性名字面量）：第一个实参是**谁**都可以（``task``、
+    ``row``、``self``），它甚至可以是普通名字而不是属性访问——按对象形态
+    过滤会让 ``setattr(task, ...)`` 这种最常见的写法整条漏掉。
+    """
+    return (
+        isinstance(call.func, ast.Name)
+        and call.func.id == "setattr"
+        and len(call.args) >= 2
+        and isinstance(call.args[1], ast.Constant)
+        and call.args[1].value in LEASE_ATTRS
     )
 
 

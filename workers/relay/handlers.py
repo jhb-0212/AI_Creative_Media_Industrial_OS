@@ -48,6 +48,9 @@ from services.project_planning.repository.sqlalchemy_outbox_writer import (
 )
 from services.qc_governance.domain.qc_task import EnqueueOrigin
 from services.qc_governance.repository.qc_task_repo import SqlAlchemyQCTaskRepository
+from services.qc_governance.repository.task_projection_repo import (
+    SqlAlchemyTaskProjectionRepository,
+)
 from services.qc_governance.service.qc_task_service import QCTaskService
 from workers.relay.asset_registration import build_asset_registration_handlers
 from workers.relay.consumer import EventHandler, OutboxEvent
@@ -146,6 +149,7 @@ def make_sql_enqueue(qc_sessionmaker: Any) -> EnqueueFn:
             service = QCTaskService(
                 SqlAlchemyQCTaskRepository(session),
                 SqlAlchemyOutboxWriter(session),
+                projection=SqlAlchemyTaskProjectionRepository(session),
             )
             created = await enqueue_idempotently(service, request)
             # 幂等跳过时也提交：本事务没有新写入，提交只是释放连接与行锁。

@@ -56,6 +56,9 @@ from services.project_planning.repository.sqlalchemy_outbox_writer import (
     SqlAlchemyOutboxWriter,
 )
 from services.qc_governance.repository.qc_task_repo import SqlAlchemyQCTaskRepository
+from services.qc_governance.repository.task_projection_repo import (
+    SqlAlchemyTaskProjectionRepository,
+)
 from services.qc_governance.service.qc_task_service import QCTaskService
 
 router = APIRouter(prefix="/qc-tasks", tags=["qc-task"])
@@ -74,6 +77,8 @@ def _service(session: AsyncSession) -> QCTaskService:
     return QCTaskService(
         SqlAlchemyQCTaskRepository(session),
         SqlAlchemyOutboxWriter(session),
+        # 投影必须与源任务同一 Session：分开 session 就等于异步双写。
+        projection=SqlAlchemyTaskProjectionRepository(session),
     )
 
 
@@ -134,6 +139,9 @@ class LeaseRenewRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    # 必填，不设默认：默认 0 会让旧客户端「看起来还能用」，实际每次都撞 fencing，
+    # 而错误信息会指向「租约丢失」——真相是它从未携带代次。
+    lease_generation: int = Field(..., ge=0)
     lease_seconds: int = Field(300, ge=_LEASE_MIN_SECONDS, le=_LEASE_MAX_SECONDS)
 
 
@@ -145,6 +153,7 @@ class FinishRequest(BaseModel):
     result: Literal["PASSED", "REJECTED"]
     qc_report_id: str = Field(..., min_length=1, max_length=64)
     evidence_refs: list[str] = Field(default_factory=list)
+    lease_generation: int = Field(..., ge=0)
 
 
 @router.post("", status_code=201)
@@ -234,6 +243,7 @@ async def renew_qc_lease(
     task = await service.renew(
         task_id=entity_id,
         worker_id=principal.subject_id,
+        expected_lease_generation=body.lease_generation,
         lease_seconds=body.lease_seconds,
     )
     await uow.commit()
@@ -275,10 +285,12 @@ async def finish_qc_task(
         SqlAlchemyQCTaskRepository(uow.session),
         SqlAlchemyOutboxWriter(uow.session),
         report_lookup=report_lookup,
+        projection=SqlAlchemyTaskProjectionRepository(uow.session),
     )
     task = await service.finish(
         task_id=entity_id,
         worker_id=principal.subject_id,
+        expected_lease_generation=body.lease_generation,
         result=body.result,
         qc_report_id=body.qc_report_id,
         evidence_refs=body.evidence_refs,

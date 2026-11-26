@@ -474,6 +474,22 @@ DOMAIN_GRANTS[QC_GOVERNANCE] = (
         "无 DELETE：队列记录是「这份产物检过没有」的证据，不能物理删除。",
     ),
     _projects_readonly("质检治理"),
+    # 调度投影（``qc_maintenance.task_projection``，迁移 ``a8b9c0d1e2f3``）。
+    # 它由质检域在同事务里写，因此授权挂在 ``qc_governance_role`` 上；但它
+    # **不**计入 ``business_tables``（那是「本域自有 schema 的表」），所以这里
+    # 用显式 qualified 名声明。写入路径必须写清，否则「谁能写投影」重新变成
+    # 没人回答的问题。
+    _grant(
+        "qc_maintenance",
+        "task_projection",
+        "SELECT INSERT UPDATE DELETE",
+        "SELECT：调度候选读取（queued/running 两类查询）与对账比对；"
+        "INSERT：任务入队时落首行投影；UPDATE：领取/续租/租约回收/进度变化时"
+        "同事务覆盖（带 entity_version 单调条件，旧快照不得覆盖新快照）；"
+        "DELETE：任务进入终态（PASSED/REJECTED）时删除该行——投影只表达"
+        "「活动任务」，留一行终态会让调度看到永不运行的候选。"
+        "DELETE 在此只针对**派生数据**，不是业务事实：错删可由 qc_tasks 重建。",
+    ),
     *_platform_grants(label="质检治理"),
 )
 

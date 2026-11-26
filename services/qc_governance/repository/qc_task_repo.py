@@ -42,6 +42,7 @@ def _to_orm(task: QCTask) -> QCTaskModel:
         quality_profile_version=task.quality_profile_version,
         lease_owner=task.lease_owner,
         lease_expires_at=task.lease_expires_at,
+        lease_generation=task.lease_generation,
         attempt_count=task.attempt_count,
         qc_report_id=task.qc_report_id,
     )
@@ -74,6 +75,7 @@ def _to_domain(model: QCTaskModel) -> QCTask:
         status=status,
         lease_owner=model.lease_owner,
         lease_expires_at=model.lease_expires_at,
+        lease_generation=model.lease_generation,
         attempt_count=model.attempt_count,
         qc_report_id=model.qc_report_id,
     )
@@ -125,6 +127,26 @@ class SqlAlchemyQCTaskRepository:
     async def get_by_id(self, entity_id: str) -> QCTask | None:
         result = await self._session.execute(
             select(QCTaskModel).where(QCTaskModel.entity_id == entity_id)
+        )
+        model = result.scalar_one_or_none()
+        return _to_domain(model) if model is not None else None
+
+    async def get_by_id_for_update(self, entity_id: str) -> QCTask | None:
+        """领取专用读取：行锁 + ``SKIP LOCKED`` 语义的**单行**版本。
+
+        为什么按 id 领取也要锁：条件更新（``entity_version`` CAS）只保证「不会写
+        覆盖别人的写」，不保证「两个 Worker 不会同时判断自己可以领取」。两个请求
+        同时读到 QUEUED、都通过内存判定、再各自 CAS，只有一个能成功——但失败方
+        已经把租约写进内存对象，且会向调用方返回一个「看起来失败了」的结果。
+        行锁把这段判定串行化，让「读→判→写」在同一条任务上不可能交错。
+
+        用 ``SKIP LOCKED`` 而不是 ``NOWAIT``：竞争时直接跳过，让调用方看到「这条
+        已被别人占用」，而不是把等待时间变成请求延迟。
+        """
+        result = await self._session.execute(
+            select(QCTaskModel)
+            .where(QCTaskModel.entity_id == entity_id)
+            .with_for_update(skip_locked=True)
         )
         model = result.scalar_one_or_none()
         return _to_domain(model) if model is not None else None

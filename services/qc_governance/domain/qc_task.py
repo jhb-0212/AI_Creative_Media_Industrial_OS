@@ -90,6 +90,14 @@ class QCTask(Entity):
     status: QCTaskStatus = QCTaskStatus.QUEUED
     lease_owner: str = ""
     lease_expires_at: datetime | None = None
+    # 租约代次：**单调递增**的 fencing token，与 attempt_count / entity_version 语义不同。
+    #   attempt_count  = 这条任务被领取过几次（重试计数，可读性用途）
+    #   entity_version = 实体版本（乐观锁）
+    #   lease_generation = 当前有效租约的代号；每次「新租约成立」递增，心跳不递增。
+    # 为什么必须有独立代次：仅比对 owner + 过期时间挡不住「同一 worker_id 重新领取后，
+    # 旧进程用旧租约回写」——owner 相同、时间也未过期（新租约刚建），旧写入会被放行。
+    # 代次让「旧租约」在数值上就与新租约不同，旧进程无法凭自己手里的旧值通过校验。
+    lease_generation: int = 0
     attempt_count: int = 0
     qc_report_id: str = ""
 
@@ -121,6 +129,10 @@ class QCTask(Entity):
                     ErrorRegistry.VALIDATION_ERROR,
                     detail=f"{name} 长度超过上限 {max_len}",
                 )
+        if self.lease_generation < 0:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR, detail="lease_generation 不能为负"
+            )
 
     def transition_to(
         self,
@@ -139,7 +151,22 @@ class QCTask(Entity):
 
     # ---- 租约（QC.TASK.PROCESS）------------------------------------------- #
 
-    def require_lease_owner(self, worker_id: str, now: datetime | None = None) -> None:
+    def require_lease_owner(
+        self,
+        worker_id: str,
+        expected_lease_generation: int,
+        now: datetime | None = None,
+    ) -> None:
+        """校验「调用方就是当前租约持有人」，且持有的是**这一代**租约。
+
+        为什么 ``expected_lease_generation`` 必须显式传、不能有默认值
+        ---------------------------------------------------------
+        默认值会让旧调用方静默退化成「只比对 owner」的旧 fencing：同一个 worker_id
+        被重新领取后（worker 进程重启、容器重调度），旧进程手里的过时结论仍然能通过
+        owner 校验——它的租约「看起来」还有效，因为新租约刚建、时间没到。代次是唯一
+        能把这两次持有区分开的字段，缺了就等于没有 fencing。因此这里刻意不提供
+        ``None`` 的兼容分支。
+        """
         if self.status is not QCTaskStatus.RUNNING:
             raise DomainError(
                 ErrorRegistry.STATE_TRANSITION_DENIED,
@@ -156,6 +183,15 @@ class QCTask(Entity):
             raise DomainError(
                 ErrorRegistry.STATE_TRANSITION_DENIED,
                 detail="租约为 RUNNING 却缺少到期时间，无法判定是否仍有效",
+            )
+        if expected_lease_generation != self.lease_generation:
+            raise DomainError(
+                ErrorRegistry.STATE_TRANSITION_DENIED,
+                detail=(
+                    "租约代次已过期：调用方持有 generation="
+                    f"{expected_lease_generation}，当前为 {self.lease_generation}。"
+                    "旧租约的写入必须被拒绝，防止已失去租约的 Worker 回写结论"
+                ),
             )
         moment = now or datetime.now(UTC)
         if moment >= self.lease_expires_at:
@@ -178,16 +214,22 @@ class QCTask(Entity):
         self.transition_to(QCTaskStatus.RUNNING, audit_ref, QC_TASK_PROCESS_ACTION)
         self.lease_owner = worker_id
         self.lease_expires_at = lease_expires_at
+        # 成立一份**新**租约：代次前移。attempt_count 只说明「领过几次」，不承担
+        # fencing 职责——两者不可互相替代（代次还包含回收与换手）。
+        self.lease_generation += 1
         self.attempt_count += 1
         return self
 
     def renew(
         self,
         worker_id: str,
+        expected_lease_generation: int,
         lease_expires_at: datetime,
         audit_ref: str,
     ) -> QCTask:
-        self.require_lease_owner(worker_id)
+        # 心跳只延长到期时间，**不**推进代次：否则每次心跳都会让 Worker 手里的
+        # 值失效，续租与判定就无法在同一份租约内完成。
+        self.require_lease_owner(worker_id, expected_lease_generation)
         if lease_expires_at <= (self.lease_expires_at or lease_expires_at):
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR, detail="新租约到期时间必须晚于当前到期时间"
@@ -199,12 +241,13 @@ class QCTask(Entity):
     def finish(
         self,
         worker_id: str,
+        expected_lease_generation: int,
         target: QCTaskStatus,
         qc_report_id: str,
         audit_ref: str,
     ) -> QCTask:
         """RUNNING → PASSED / REJECTED：判定必须挂报告，空报告等于没有证据。"""
-        self.require_lease_owner(worker_id)
+        self.require_lease_owner(worker_id, expected_lease_generation)
         if target not in (QCTaskStatus.PASSED, QCTaskStatus.REJECTED):
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,
@@ -231,6 +274,8 @@ class QCTask(Entity):
         self.transition_to(QCTaskStatus.QUEUED, audit_ref, QC_TASK_PROCESS_ACTION)
         self.lease_owner = ""
         self.lease_expires_at = None
+        # 回收也是一次「租约终结」：代次前移，旧 Worker 手里的 generation 立即失效。
+        self.lease_generation += 1
         return self
 
     def to_dict(self) -> dict[str, Any]:
@@ -251,6 +296,7 @@ class QCTask(Entity):
                     else None
                 ),
                 "attempt_count": self.attempt_count,
+                "lease_generation": self.lease_generation,
                 "qc_report_id": self.qc_report_id,
             }
         )

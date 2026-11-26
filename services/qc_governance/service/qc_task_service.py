@@ -57,10 +57,19 @@ class QCTaskService:
         outbox_writer: Any,
         *,
         report_lookup: ReportLookup | None = None,
+        projection: Any | None = None,
     ) -> None:
         self._repository = repository
         self._outbox_writer = outbox_writer
         self._report_lookup = report_lookup
+        # 调度投影与源任务**同一事务**维护（见 task_projection_repo 的说明）。
+        # 允许缺省是为了让纯领域单测不必装配数据库；生产装配必须提供——
+        # 缺省时投影不会更新，由装配层测试（test_qc_projection_wiring）拦住。
+        self._projection = projection
+
+    async def _sync_projection(self, task: QCTask) -> None:
+        if self._projection is not None:
+            await self._projection.sync(task)
 
     async def enqueue(
         self,
@@ -131,6 +140,8 @@ class QCTaskService:
                 "reason": origin.reason,
             },
         )
+        # 入队即进入调度候选集：投影与源任务同一事务，不留「源有了、投影还没」的窗口。
+        await self._sync_projection(task)
         return task
 
     async def recover(
@@ -198,6 +209,19 @@ class QCTaskService:
             raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"QC 任务不存在: {task_id}")
         return cast(QCTask, task)
 
+    async def _load_for_claim(self, task_id: str) -> QCTask:
+        """领取专用读取：行锁串行化「读→判→写」，避免两个 Worker 同时通过判定。"""
+        loader = getattr(self._repository, "get_by_id_for_update", None)
+        task = (
+            await loader(task_id) if loader is not None else await self._load(task_id)
+        )
+        if task is None:
+            raise DomainError(
+                ErrorRegistry.STATE_TRANSITION_DENIED,
+                detail=f"QC 任务 {task_id} 正在被其他 Worker 领取，请稍后重试",
+            )
+        return cast(QCTask, task)
+
     async def claim(
         self,
         *,
@@ -205,8 +229,9 @@ class QCTaskService:
         worker_id: str,
         lease_seconds: int,
     ) -> QCTask:
-        task = await self._load(task_id)
+        task = await self._load_for_claim(task_id)
         expires = _now() + timedelta(seconds=lease_seconds)
+        next_generation = task.lease_generation + 1
         await advance_status(
             task,
             QCTaskStatus.RUNNING,
@@ -220,6 +245,7 @@ class QCTaskService:
                 "worker_id": worker_id,
                 "lease_expires_at": expires.isoformat(),
                 "attempt_count": task.attempt_count + 1,
+                "lease_generation": next_generation,
             },
             resource_type="QCTask",
             owner_action=QC_TASK_PROCESS_ACTION,
@@ -230,6 +256,8 @@ class QCTaskService:
                 worker_id, expires, audit_ref
             ),
         )
+        # 领取成功必须返回新代次：调用方没有它就无法在心跳/判定时证明「我是这一代」。
+        await self._sync_projection(task)
         return task
 
     async def renew(
@@ -237,15 +265,18 @@ class QCTaskService:
         *,
         task_id: str,
         worker_id: str,
+        expected_lease_generation: int,
         lease_seconds: int,
     ) -> QCTask:
         task = await self._load(task_id)
-        task.require_lease_owner(worker_id)
+        # 代次是必填：心跳不是「我还是这个任务的 Worker」，而是「我还是**这一代**
+        # 的 Worker」。租约过期后别人重领，代次已变，迟到的旧心跳必须被拒绝。
+        task.require_lease_owner(worker_id, expected_lease_generation)
         expires = _now() + timedelta(seconds=lease_seconds)
         await save_versioned_entity(
             task,
             mutation=lambda audit_ref, action: task.renew(
-                worker_id, expires, audit_ref
+                worker_id, expected_lease_generation, expires, audit_ref
             ),
             audit_ref=f"qc-lease-renew:{uuid4()}",
             repository=self._repository,
@@ -259,10 +290,13 @@ class QCTaskService:
                 "worker_id": worker_id,
                 "lease_expires_at": expires.isoformat(),
                 "attempt_count": task.attempt_count,
+                # 心跳不递增代次：它只是把同一代租约的时间往前推。
+                "lease_generation": task.lease_generation,
             },
             owner_action=QC_TASK_PROCESS_ACTION,
             conflict_detail="QC 租约续期并发冲突，请重试",
         )
+        await self._sync_projection(task)
         return task
 
     async def finish(
@@ -270,12 +304,13 @@ class QCTaskService:
         *,
         task_id: str,
         worker_id: str,
+        expected_lease_generation: int,
         result: Literal["PASSED", "REJECTED"],
         qc_report_id: str,
         evidence_refs: list[str] | None = None,
     ) -> QCTask:
         task = await self._load(task_id)
-        task.require_lease_owner(worker_id)
+        task.require_lease_owner(worker_id, expected_lease_generation)
         target = QCTaskStatus(result)
         await self._assert_report_backs_task(task, qc_report_id)
         payload = {
@@ -284,6 +319,7 @@ class QCTaskService:
             "qc_report_id": qc_report_id,
             "evidence_refs": list(evidence_refs or []),
             "attempt_count": task.attempt_count,
+            "lease_generation": task.lease_generation,
         }
         # 两个分支各写字面量：事件契约靠源码字面量双向核对。
         if target is QCTaskStatus.PASSED:
@@ -300,7 +336,7 @@ class QCTaskService:
                 owner_action=QC_TASK_PROCESS_ACTION,
                 conflict_detail="QC 判定并发冲突，请重试",
                 domain_operation=lambda audit_ref, action: task.finish(
-                    worker_id, target, qc_report_id, audit_ref
+                    worker_id, expected_lease_generation, target, qc_report_id, audit_ref
                 ),
             )
         else:
@@ -317,9 +353,11 @@ class QCTaskService:
                 owner_action=QC_TASK_PROCESS_ACTION,
                 conflict_detail="QC 判定并发冲突，请重试",
                 domain_operation=lambda audit_ref, action: task.finish(
-                    worker_id, target, qc_report_id, audit_ref
+                    worker_id, expected_lease_generation, target, qc_report_id, audit_ref
                 ),
             )
+        # 终态删除投影行：留一行 PASSED 的投影会让调度看到一条永不运行的候选。
+        await self._sync_projection(task)
         return task
 
     async def _assert_report_backs_task(self, task: QCTask, qc_report_id: str) -> None:
@@ -380,6 +418,8 @@ class QCTaskService:
                 "qc_task_id": task.qc_task_id,
                 "worker_id": task.lease_owner,
                 "attempt_count": task.attempt_count,
+                # 回收即撤销租约：递增代次，让被回收的 Worker 之后所有写入都失效。
+                "lease_generation": task.lease_generation + 1,
             },
             resource_type="QCTask",
             owner_action=QC_TASK_PROCESS_ACTION,
@@ -388,6 +428,7 @@ class QCTaskService:
                 _now(), audit_ref
             ),
         )
+        await self._sync_projection(task)
         return task
 
 

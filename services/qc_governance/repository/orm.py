@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import CheckConstraint, DateTime, Index, Integer, String
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, Index, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -93,6 +93,11 @@ class QCTaskModel(Base, EntityMixin):
             unique=True,
         ),
         status_check((s.value for s in QCTaskStatus), table="qc_tasks"),
+        # 代次非负：领域层已拒绝负数，但绕过领域层的写（迁移/运维脚本）也要被库拦。
+        CheckConstraint(
+            "lease_generation >= 0",
+            name="ck_qc_governance_qc_tasks_lease_generation_non_negative",
+        ),
         {"schema": SCHEMA_NAME},
     )
 
@@ -107,6 +112,11 @@ class QCTaskModel(Base, EntityMixin):
     )
     lease_expires_at: Mapped[Any | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    # 租约代次（fencing token）：与 entity_version / attempt_count 语义不同，
+    # 见 domain/qc_task.py 的字段注释。库层非负约束在迁移里（防绕过领域层写负数）。
+    lease_generation: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
     )
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     qc_report_id: Mapped[str] = mapped_column(
