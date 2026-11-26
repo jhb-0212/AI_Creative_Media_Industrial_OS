@@ -343,3 +343,97 @@ async def test_finish_without_verifier_fails_closed() -> None:
         )
 
     assert task.status is QCTaskStatus.RUNNING
+
+
+def _counter(name: str, **labels: str) -> float:
+    """读 Prometheus 计数的当前值（未出现过的样本按 0 处理）。"""
+    from prometheus_client import REGISTRY
+
+    return REGISTRY.get_sample_value(name, labels or None) or 0.0
+
+
+async def test_reclaim_and_stale_writes_are_counted() -> None:
+    """三个计数的口径本身要被盯住：它们一旦算错，监控会给出反向结论。
+
+    这不是「指标存在性」测试，而是口径测试：
+    * 回收成功 +1（回收失败不算，否则重试噪声变成 Worker 死亡率）；
+    * 迟到代次被拒 +1（按 operation 分开，renew 与 finish 各算各的）；
+    * 正常领取/心跳不产生任何 fencing 拒绝（否则计数永远在涨，无法定性）。
+    """
+    service, repo, _outbox = _service()
+    # 计数器是**进程级**的：别的用例已经把值推高过，所以只能比增量。
+    renew_base = _counter("qc_fencing_rejected_total", operation="renew")
+    finish_base = _counter("qc_fencing_rejected_total", operation="finish")
+    lease_base = _counter("qc_lease_expired_total")
+
+    task = await _enqueued(service)
+    await service.claim(task_id=task.entity_id, worker_id="qc-1", lease_seconds=60)
+    await service.renew(
+        task_id=task.entity_id,
+        worker_id="qc-1",
+        expected_lease_generation=task.lease_generation,
+        lease_seconds=60,
+    )
+    assert _counter("qc_fencing_rejected_total", operation="renew") == renew_base, (
+        "正常心跳不得计入 fencing 拒绝"
+    )
+
+    repo.snapshot()[task.entity_id].lease_expires_at = datetime.now(UTC) - timedelta(
+        seconds=5
+    )
+    await service.release_expired(task_id=task.entity_id)
+    assert _counter("qc_lease_expired_total") == lease_base + 1, (
+        "回收成功必须 +1（这就是「Worker 悄悄死掉」的规模）"
+    )
+
+    stale = task.lease_generation - 1
+    with pytest.raises(DomainError):
+        await service.renew(
+            task_id=task.entity_id,
+            worker_id="qc-1",
+            expected_lease_generation=stale,
+            lease_seconds=60,
+        )
+    with pytest.raises(DomainError):
+        await service.finish(
+            task_id=task.entity_id,
+            worker_id="qc-1",
+            expected_lease_generation=stale,
+            result="PASSED",
+            qc_report_id="report-1",
+        )
+    assert _counter("qc_fencing_rejected_total", operation="renew") == renew_base + 1
+    assert _counter("qc_fencing_rejected_total", operation="finish") == finish_base + 1
+
+
+async def test_finish_is_single_use_within_one_generation() -> None:
+    """同一代租约只能提交一次结论。
+
+    这是「外部副作用幂等」在应用层的那一半：重复提交同一个结论（Worker 重试、
+    网络超时后补发）必须被状态机挡住，而不是靠下游报告系统去重。挡在这里，
+    「一份报告被记成两次判定」在物理上就不可能发生。
+    """
+    service, _repo, outbox = _service()
+    task = await _enqueued(service)
+    await service.claim(task_id=task.entity_id, worker_id="qc-1", lease_seconds=120)
+
+    await service.finish(
+        task_id=task.entity_id,
+        worker_id="qc-1",
+        expected_lease_generation=task.lease_generation,
+        result="PASSED",
+        qc_report_id="report-1",
+    )
+    events_before = len(outbox.events)
+
+    with pytest.raises(DomainError):
+        await service.finish(
+            task_id=task.entity_id,
+            worker_id="qc-1",
+            expected_lease_generation=task.lease_generation,
+            result="PASSED",
+            qc_report_id="report-1",
+        )
+    assert len(outbox.events) == events_before, (
+        "被拒的重复提交不得产生第二条终态事件"
+    )

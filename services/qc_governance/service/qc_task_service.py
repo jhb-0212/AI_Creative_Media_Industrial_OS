@@ -31,6 +31,11 @@ from uuid import UUID, uuid4
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.evidence_ports import ReportLookup
 from packages.shared.generation_ports import GenerationFacts
+from packages.shared.metrics import (
+    QC_CLAIM_CONFLICT_TOTAL,
+    QC_FENCING_REJECTED_TOTAL,
+    QC_LEASE_EXPIRED_TOTAL,
+)
 from packages.shared.port_errors import DuplicateEntityError
 from services.project_planning.domain.enums import (
     GenerationTaskStatus,
@@ -216,6 +221,9 @@ class QCTaskService:
             await loader(task_id) if loader is not None else await self._load(task_id)
         )
         if task is None:
+            # 行锁没拿到 = 同一任务在同一瞬间被另一个 Worker 领走了。这不是
+            # 错误路径的噪声，而是「Worker 并发度相对待办过密」的量化证据。
+            QC_CLAIM_CONFLICT_TOTAL.inc()
             raise DomainError(
                 ErrorRegistry.STATE_TRANSITION_DENIED,
                 detail=f"QC 任务 {task_id} 正在被其他 Worker 领取，请稍后重试",
@@ -232,30 +240,36 @@ class QCTaskService:
         task = await self._load_for_claim(task_id)
         expires = _now() + timedelta(seconds=lease_seconds)
         next_generation = task.lease_generation + 1
-        await advance_status(
-            task,
-            QCTaskStatus.RUNNING,
-            repository=self._repository,
-            outbox_writer=self._outbox_writer,
-            aggregate_type="QCTask",
-            event_type="QC_TASK_STARTED",
-            tenant_id=task.tenant_id,
-            payload={
-                "qc_task_id": task.qc_task_id,
-                "worker_id": worker_id,
-                "lease_expires_at": expires.isoformat(),
-                "attempt_count": task.attempt_count + 1,
-                "lease_generation": next_generation,
-            },
-            resource_type="QCTask",
-            owner_action=QC_TASK_PROCESS_ACTION,
-            conflict_detail="QC 任务已被其他 Worker 领取，请勿重复领取",
-            actor_field="worker_id",
-            actor=worker_id,
-            domain_operation=lambda audit_ref, action: task.claim(
-                worker_id, expires, audit_ref
-            ),
-        )
+        try:
+            await advance_status(
+                task,
+                QCTaskStatus.RUNNING,
+                repository=self._repository,
+                outbox_writer=self._outbox_writer,
+                aggregate_type="QCTask",
+                event_type="QC_TASK_STARTED",
+                tenant_id=task.tenant_id,
+                payload={
+                    "qc_task_id": task.qc_task_id,
+                    "worker_id": worker_id,
+                    "lease_expires_at": expires.isoformat(),
+                    "attempt_count": task.attempt_count + 1,
+                    "lease_generation": next_generation,
+                },
+                resource_type="QCTask",
+                owner_action=QC_TASK_PROCESS_ACTION,
+                conflict_detail="QC 任务已被其他 Worker 领取，请勿重复领取",
+                actor_field="worker_id",
+                actor=worker_id,
+                domain_operation=lambda audit_ref, action: task.claim(
+                    worker_id, expires, audit_ref
+                ),
+            )
+        except DomainError:
+            # 领取在这里失败只有两类：CAS 版本冲突（另一 Worker 刚提交）或任务
+            # 已不在 QUEUED（被别人领走/刚被回收）。两者都是「领取并发冲突」。
+            QC_CLAIM_CONFLICT_TOTAL.inc()
+            raise
         # 领取成功必须返回新代次：调用方没有它就无法在心跳/判定时证明「我是这一代」。
         await self._sync_projection(task)
         return task
@@ -271,7 +285,13 @@ class QCTaskService:
         task = await self._load(task_id)
         # 代次是必填：心跳不是「我还是这个任务的 Worker」，而是「我还是**这一代**
         # 的 Worker」。租约过期后别人重领，代次已变，迟到的旧心跳必须被拒绝。
-        task.require_lease_owner(worker_id, expected_lease_generation)
+        try:
+            task.require_lease_owner(worker_id, expected_lease_generation)
+        except DomainError:
+            # 代次/持有者不符：旧 Worker 还活着、还在写。这个计数是「fencing 真的
+            # 挡住了东西」的证据，不能只在日志里。
+            QC_FENCING_REJECTED_TOTAL.labels(operation="renew").inc()
+            raise
         expires = _now() + timedelta(seconds=lease_seconds)
         await save_versioned_entity(
             task,
@@ -310,7 +330,11 @@ class QCTaskService:
         evidence_refs: list[str] | None = None,
     ) -> QCTask:
         task = await self._load(task_id)
-        task.require_lease_owner(worker_id, expected_lease_generation)
+        try:
+            task.require_lease_owner(worker_id, expected_lease_generation)
+        except DomainError:
+            QC_FENCING_REJECTED_TOTAL.labels(operation="finish").inc()
+            raise
         target = QCTaskStatus(result)
         await self._assert_report_backs_task(task, qc_report_id)
         payload = {
@@ -428,6 +452,9 @@ class QCTaskService:
                 _now(), audit_ref
             ),
         )
+        # 回收成功才计数：这个指标回答「有多少租约真的死掉了」，而不是「有人试过
+        # 回收多少次」。失败（并发冲突）不算，否则会把重试噪声记成 Worker 死亡率。
+        QC_LEASE_EXPIRED_TOTAL.inc()
         await self._sync_projection(task)
         return task
 

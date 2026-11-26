@@ -16,6 +16,7 @@ import uuid
 from collections.abc import AsyncIterator
 
 import pytest
+from prometheus_client import REGISTRY
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -178,7 +179,13 @@ async def test_older_snapshot_cannot_overwrite_newer_projection(
         # 再用一个更旧的快照覆盖：必须被 ``entity_version`` 条件挡住。
         stale = await SqlAlchemyQCTaskRepository(session).get_by_id(task_id)
         assert stale is not None
+        mismatch_base = REGISTRY.get_sample_value("qc_projection_mismatch_total") or 0.0
         await repo.sync(stale)
+        # 被条件挡回（rowcount=0）就是「投影领先源表」的实时证据，必须计数：
+        # 只靠下一次对账发现，意味着这段时间调度看的是过期的派生数据。
+        assert (REGISTRY.get_sample_value("qc_projection_mismatch_total") or 0.0) == (
+            mismatch_base + 1
+        ), "版本条件挡回时必须计入 qc_projection_mismatch_total"
         current = await _projection_row_in(session, task_id)
         assert current is not None
         assert current.entity_version == task.entity_version, "旧快照覆盖了新投影版本"

@@ -23,6 +23,7 @@ from sqlalchemy import delete, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from packages.shared.metrics import QC_PROJECTION_MISMATCH_TOTAL
 from services.project_planning.domain.enums import QCTaskStatus
 from services.qc_governance.domain.qc_task import QCTask
 from services.qc_governance.repository.projection_orm import TaskProjectionModel
@@ -84,7 +85,17 @@ class SqlAlchemyTaskProjectionRepository:
             where=TaskProjectionModel.entity_version
             <= statement.excluded.entity_version,
         )
-        await self._session.execute(statement)
+        result = await self._session.execute(statement)
+        # ``ON CONFLICT ... WHERE`` 条件不成立时不会有任何行被更新（rowcount=0）：
+        # 投影的版本高于源任务。这不该静默发生——它意味着有人在源任务之外改了
+        # 状态，或某条写入路径漏了同步。计数让它在 /metrics 上立刻可见，而不是
+        # 等到下一次对账才发现「派生数据已经领先事实源」。
+        # ``rowcount`` 只存在于 DML 的 CursorResult 上，而 SQLAlchemy 把
+        # ``execute`` 的返回类型标注为泛型 ``Result``；用 getattr 取运行时值，
+        # 避免为了一句计数把整个语句退回 Core 的另一种执行形式。
+        affected = int(getattr(result, "rowcount", 0) or 0)
+        if affected == 0:
+            QC_PROJECTION_MISMATCH_TOTAL.inc()
 
     async def retire(self, task_id: str) -> None:
         """删除投影行（任务进入终态，或需要重建）。"""
