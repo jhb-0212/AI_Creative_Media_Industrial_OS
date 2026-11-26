@@ -25,10 +25,10 @@ PASSED → 投影清除」，但它的任务是由服务层 ``enqueue`` 直接�
 - 负向：持有租约但拿**别的资产**的报告终结 → 被拒，任务留在 RUNNING，
   投影仍在（证明核验不是「有 id 就放行」）。
 
-已知缺口（本轮首次被证伪，待裁决，不在本用例里掩盖）
+已知缺口（本轮首次被证伪，已加**入口守卫**，待完整打通）
 --------------------------------------------------------
-本用例走的是**租户内项目**（``organization_id`` 为空），可以端到端跑通。
-带组织的项目跑不通，原因链是纯数据面的：
+本文件的两条正向/负向用例走的是**租户内项目**（``organization_id`` 为空），
+可以端到端跑通。带组织的项目跑不通，原因链是纯数据面的：
 
 1. ``project_planning.projects`` 的 RLS 除租户外还要求
    ``organization_id = current_setting('app.current_organization_id')``；
@@ -37,11 +37,15 @@ PASSED → 投影清除」，但它的任务是由服务层 ``enqueue`` 直接�
 4. 而 Worker 进程没有 Principal，``workers/qc/__main__.py`` 的
    ``_make_report_lookup`` 只能注入租户，注不进组织。
 
-结果：**组织内项目的报告在 Worker 侧一律「不存在」**，终结被 fail-closed
-拒绝（安全上正确，功能上不可用）。修它需要一次真实设计裁决（把组织作为
-任务事实携带 / 由资产域提供受控读取 / 或明确声明 Worker 只服务租户级项目），
-三种做法都动契约或权限面，不能靠测试改口径吞掉。本文件因此只钉当前**已
-支持**的那条路径，把缺口留成显式记录而不是绿色假象。
+结果曾经是：组织内项目的任务**能入队，然后永远领不完**——检测器读不到资产
+（``InspectionBlockedError``，不是假 REJECTED），核验读不到报告
+（fail-closed），租约反复过期回队，任务在队列里打转。
+
+现在的处置是**入口守卫**：``POST /qc-tasks`` 只要请求带组织声明就直接
+409 ``PHASE_NOT_ENABLED``，并说明成因。代价是「带组织声明的租户级项目也会
+被拒」（过度拒绝），换来的是「注定失败的任务绝不进队列」。见本文件第三条
+用例。完整打通需要组织随事实链路传递（任务列 + 生成事实端口 + 事件载荷 +
+Worker 作用域），那是一次带契约修订的独立批次，不在测试里改口径吞掉。
 """
 
 from __future__ import annotations
@@ -330,6 +334,101 @@ async def test_http_recovery_task_is_picked_up_and_finished_with_real_report(
         assert await _projection_count(admin_sessionmaker, task_id) == 0, (
             "终态任务必须离开调度投影；留着它调度会永远看到「有待检」"
         )
+
+
+async def test_org_scoped_recovery_is_refused_before_it_enters_the_queue(
+    admin_sessionmaker
+) -> None:
+    """组织级请求必须在入口被拒：宁可 409，也不让注定失败的任务进队列。
+
+    这条不是「顺手测个 4xx」。没有它，缺口的表现是「任务能入队、Worker 反复
+    领取反复失败、永远不终结」——那是一类最贵的故障：监控上看队列非空、
+    Worker 上全是日志、但没有任何终态可交接。守卫把故障前移到请求方。
+
+    同时断言**没有副产物**：拒绝路径不得留下 qc_tasks 行或投影行。
+    """
+    org = uuid.uuid4()
+    async with admin_sessionmaker() as session:
+        await session.execute(
+            text(
+                """
+                INSERT INTO project_planning.organizations
+                    (organization_id, tenant_id, name, created_at, created_by, updated_at)
+                VALUES (:org, :tid, :name, now(), 'tester', now())
+                """
+            ),
+            {"org": org, "tid": _TENANT, "name": f"e2e-org-{org.hex[:6]}"},
+        )
+        await session.commit()
+
+    def _org_actor(subject_id: str, roles: list[str]) -> AsyncClient:
+        token = make_test_token(
+            subject_id=subject_id,
+            roles=roles,
+            tenant_id=_TENANT,
+            organization_id=org,
+        )
+        return AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    async with (
+        _org_actor("producer_org", ["制片"]) as producer,
+        _org_actor("asset_worker_org", ["Worker"]) as asset_worker,
+        _org_actor("recover_org", ["运维恢复操作者"]) as recover,
+    ):
+        resp = await producer.post(
+            "/projects",
+            json={
+                "project_name": f"org_{uuid.uuid4().hex[:8]}",
+                "project_tier": "B",
+                "organization_id": str(org),
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        project_id = resp.json()["entity_id"]
+        asset_id = await _create_asset(asset_worker, project_id)
+        generation_task_id = await _seed_generation_task(
+            admin_sessionmaker, project_id=project_id, asset_version_id=asset_id
+        )
+
+        refused = await recover.post(
+            "/qc-tasks",
+            json={
+                "generation_task_id": generation_task_id,
+                "project_id": project_id,
+                "reason": "组织级项目恢复尝试",
+            },
+        )
+        assert refused.status_code == 409, refused.text
+        body = refused.json()
+        assert body["error_code"] == "PHASE_NOT_ENABLED", refused.text
+        assert "组织" in body["message"], "拒绝理由必须指向组织上下文缺失，而不是泛化拒绝"
+
+        async with admin_sessionmaker() as session:
+            tasks = int(
+                await session.scalar(
+                    text(
+                        "SELECT count(*) FROM qc_governance.qc_tasks "
+                        "WHERE generation_task_id = :g"
+                    ),
+                    {"g": generation_task_id},
+                )
+            )
+            projections = int(
+                await session.scalar(
+                    text(
+                        "SELECT count(*) FROM qc_maintenance.task_projection p "
+                        "JOIN qc_governance.qc_tasks t ON t.entity_id = p.task_id "
+                        "WHERE t.generation_task_id = :g"
+                    ),
+                    {"g": generation_task_id},
+                )
+            )
+        assert tasks == 0, "被入口拒绝的请求不得留下待检任务"
+        assert projections == 0, "被入口拒绝的请求不得留下调度投影"
 
 
 async def test_foreign_asset_report_is_refused_and_task_stays_running(

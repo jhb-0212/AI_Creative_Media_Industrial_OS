@@ -176,6 +176,29 @@ async def recover_qc_task(
     ``production_planning`` 本就零授权），用写连接会让「其实只读」这个事实
     无法在数据库层被验证。
     """
+    # 组织级项目必须先被挡住，而不是进队列后无声失败。
+    #
+    # 成因链是纯数据面的：``project_planning.projects`` 的 RLS 除租户外还要求
+    # ``organization_id = app.current_organization_id``；``asset_versions`` 经
+    # ``EXISTS(projects)``、``qc_reports`` 再经 ``EXISTS(asset_versions)`` 传递
+    # 该约束。而 QC Worker 没有 Principal，注入不了组织→组织级项目的产物读回
+    # 与报告核验一律 fail-closed：任务会被反复领取、反复失败，看得见日志、
+    # 却永远不终结。
+    #
+    # 在入口拒绝的代价是「带组织声明的租户级项目也会被拒」（过度拒绝），换来
+    # 的是「绝不把注定失败的任务放进队列」。真正打通需要组织随事实链路传递
+    # （QC 任务列 + 生成事实端口 + 事件载荷 + Worker 作用域），那是一次带契约
+    # 修订的独立批次，不在这里硬凑。
+    if principal.organization_id is not None:
+        raise DomainError(
+            ErrorRegistry.PHASE_NOT_ENABLED,
+            detail=(
+                "组织级 QC 尚未打通：QC Worker 进程没有组织上下文，"
+                "产物读回与报告核验都会 fail-closed。"
+                f"当前请求带组织声明 {principal.organization_id}，拒绝入队——"
+                "否则任务会进队列后反复领取失败、永不终结"
+            ),
+        )
     if facts_factory is None:
         raise DomainError(
             ErrorRegistry.INTERNAL_ERROR,
