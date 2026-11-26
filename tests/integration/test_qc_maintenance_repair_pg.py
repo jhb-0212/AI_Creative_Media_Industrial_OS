@@ -33,7 +33,7 @@ from packages.shared.database import (
     create_qc_maintenance_engine,
     create_sessionmaker,
 )
-from packages.shared.db_roles import maintenance_role
+from packages.shared.db_roles import domain_role, maintenance_role
 from packages.shared.outbox_writer import SqlAlchemyOutboxWriter
 from services.qc_governance.domain.qc_task import EnqueueOrigin
 from services.qc_governance.maintenance.command_client import MaintenanceCommandClient
@@ -47,7 +47,8 @@ from tests.integration.maintenance_seed import create_work_order
 from tests.integration.planning_seed import seed_project
 
 _LOGIN = maintenance_role("login")
-_WORKER = maintenance_role("worker")
+# Worker 的运行身份（域角色）；qc_worker 壳身份已退役（迁移 f2b3c4d5e6a7）。
+_WORKER = domain_role("qc_governance")
 _OWNER = maintenance_role("owner")
 _PUBLIC = "PUBLIC"
 

@@ -118,8 +118,10 @@ class Settings(BaseSettings):
     #   owner     —— 维护对象的属主，只持有对象、不登录、不 BYPASSRLS；
     #   operator  —— 维护权限组，只作为成员关系的目标，不登录；
     #   login     —— 人的维护身份，唯一可登录的维护角色，operator 的成员；
-    #   qc_worker —— 常规质检 Worker 身份，**刻意不是** operator 成员：
-    #               Worker 能执行维护命令，等于把「自动流水线」变成「任意修数人」。
+    #   qc_worker —— 常规质检 Worker 的**历史**壳身份，已于 2026-11-27 退役
+    #               （迁移 f2b3c4d5e6a7）。它本来就不是 operator 成员，
+    #               也从未被任何进程连接；Worker 实际连的是 qc_governance 域池。
+    #               配置键保留只为回放 e6a7b8c9d0e1（clean install 仍会读它）。
     # 之所以要 4 个而不是 2 个：权限组的成员关系是可审计事实（谁属于 operator），
     # 而「谁能登录」是可连接事实——合到一个角色上，这两件事就再也分不开。
     postgres_qc_maintenance_owner_user: str = "qc_maintenance_owner"

@@ -1032,8 +1032,11 @@ def maintenance_identity_statements() -> list[str]:
     比对；写在迁移里就变成第二份事实源，且下一次有人往迁移补一句 GRANT 时
     闸门再也拦不住。
 
-    只给 ``operator`` / ``login``：``qc_worker`` 是常规质检 Worker，它在维护
-    schema 里没有任何可达路径——这条边界靠授权面表达，而不是靠调用方自觉。
+    只给 ``operator`` / ``login``：常规质检 Worker 在维护 schema 里没有任何可达
+    路径——这条边界靠授权面表达，而不是靠调用方自觉。Worker 的运行身份是
+    ``qc_governance_role``（域角色），专用壳角色 ``qc_worker`` 已于 2026-11-27
+    退役（迁移 ``f2b3c4d5e6a7``）；本函数的 ``REVOKE … FROM worker`` 仍保留，
+    因为它是历史迁移 ``e6a7b8c9d0e1`` 的执行内容，迁移是时间胶囊。
     """
     from packages.shared.db_roles import maintenance_role
 

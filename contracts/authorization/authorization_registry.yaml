@@ -114,11 +114,12 @@ roles:
       login: true
       attributes: [NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE]
       owner_membership: { mode: group_member, group: qc_maintenance_operator, admin: false }
-    qc_worker:
-      name: qc_worker
-      login: true
-      attributes: [NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE]
-      owner_membership: none
+    # qc_worker 已于 2026-11-27 退役（迁移 f2b3c4d5e6a7，集群级 DROP），不再登记。
+    # 退役理由：它不是任何进程的连接身份——QC Worker 连的是 qc_governance 域池
+    # （qc_governance_role / asset_service_role），零 DSN、零依赖、零成员关系。
+    # 「Worker 不能维护」的判据因此改打在 qc_governance_role 上（见
+    # tests/integration/test_qc_maintenance_identities_pg.py）。配置键
+    # postgres_qc_worker_* 保留：历史迁移 e6a7b8c9d0e1 在 clean install 上仍要读它。
     # afs_audit / afs_data_repair 已于 2026-11-26 在集群级退役（DROP ROLE），
     # 因此不再登记：本表只承载「存在的角色」，已消失的身份留在提交历史与
     # scripts/retire_legacy_roles.py 的取证输出里。
@@ -385,10 +386,6 @@ debt:
     what: "未来 outbox 分区无策略"
     reason: "分区按月动态创建，静态文件无法枚举；FORCE RLS 下无策略 = 零行（fail-closed，但功能不可用）"
     unblocks_when: "partition_guard 从本文件的 outbox 策略派生新分区策略（单事实源），而非在矩阵里再列一遍"
-  - id: AUTHZ-5
-    what: "维护四角色已建立但尚未接入运行时连接（qc_worker 无非超级用户业务授权；维护工单表与维护命令未实现）"
-    reason: "WP-03 只关闭「身份与授权面」：角色属性、成员关系、PUBLIC EXECUTE、会话身份守卫。把 qc_worker 接成质检域运行角色要改连接池与授权矩阵，属于独立工作包"
-    unblocks_when: "qc_worker 接入质检域连接池并完成真实角色集成验收后，删除本条"
   - id: AUTHZ-7
     what: "迁移执行身份仍是超级用户（CI 与本地统一为 postgres）"
     reason: "PG16 实测：非超级用户 + CREATEROLE 在第一条角色收敛语句（ALTER ROLE app_role）即 permission denied——PG16 取消了对既有角色的隐式 ADMIN。要让 afs_migrator 顶替，必须给它对全部运行时角色的 ADMIN，等于把「超级用户」换成「可自授任意角色」，权限面没有变小"

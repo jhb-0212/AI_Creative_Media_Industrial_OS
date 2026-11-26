@@ -5,7 +5,8 @@
 1. **授权链**：工单只能以 REQUESTED 出生，必须显式批准；未批准/类型不对的调用
    被拒，并且**拒绝也落审计账本**（否则越权尝试在 SQL 审计视图里不存在）。
 2. **租户边界**：逐租户对账只看工单授权的那个租户，别的租户即便同样不一致也不计入。
-3. **权限面**：维护 login 直接写 ``qc_tasks`` 被库拒绝；``qc_worker`` 连命令都调不了；
+3. **权限面**：维护 login 直接写 ``qc_tasks`` 被库拒绝；Worker 的运行身份
+   （``qc_governance_role``，``qc_worker`` 已退役）连命令都调不了；
    owner 对源表只有 SELECT（没有 UPDATE/DELETE/TRUNCATE）；PUBLIC 无 EXECUTE。
 4. **白名单**：内部取数函数不对外授予 EXECUTE，只有 SECDEF 命令能经 owner 调用。
 """
@@ -26,7 +27,7 @@ from packages.shared.database import (
     create_qc_governance_engine,
     create_sessionmaker,
 )
-from packages.shared.db_roles import maintenance_role
+from packages.shared.db_roles import domain_role, maintenance_role
 from packages.shared.outbox_writer import SqlAlchemyOutboxWriter
 from services.qc_governance.domain.qc_task import EnqueueOrigin
 from services.qc_governance.repository.qc_task_repo import SqlAlchemyQCTaskRepository
@@ -42,7 +43,8 @@ from tests.integration.maintenance_seed import (
 from tests.integration.planning_seed import seed_project
 
 _LOGIN = maintenance_role("login")
-_WORKER = maintenance_role("worker")
+# Worker 的运行身份（域角色），不是已退役的 qc_worker 壳身份。
+_WORKER = domain_role("qc_governance")
 _OWNER = maintenance_role("owner")
 _OPERATOR = maintenance_role("operator")
 

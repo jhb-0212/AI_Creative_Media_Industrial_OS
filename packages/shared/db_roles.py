@@ -72,6 +72,9 @@ _MAINTENANCE_ROLE_FIELDS: dict[str, str] = {
     "owner": "postgres_qc_maintenance_owner_user",
     "operator": "postgres_qc_maintenance_operator_user",
     "login": "postgres_qc_maintenance_login_user",
+    # ``worker`` 是历史键：角色本身已退役（迁移 f2b3c4d5e6a7），但迁移
+    # e6a7b8c9d0e1 在 clean install 上仍要按它找到角色名并创建/删除。
+    # 保留键是为了让「历史可回放」，不代表这个身份还活着。
     "worker": "postgres_qc_worker_user",
 }
 

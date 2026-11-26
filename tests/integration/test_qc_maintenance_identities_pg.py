@@ -1,19 +1,24 @@
-"""维护身份四角色的授权形状验收（真实 PostgreSQL）。
+"""维护身份的授权形状验收（真实 PostgreSQL）。
 
 WP-03 的结论不是「写了一个守卫函数」，而是「维护权限只能被一种身份取得」。
 因此这里核对的都是**数据库里的既成事实**，不是代码里的意图：
 
-1. 四角色都不可提权（NOSUPERUSER / NOBYPASSRLS / NOCREATEDB / NOCREATEROLE），
-   且只有 ``login`` / ``worker`` 可登录——「账号存在」不等于「能维护」；
-2. ``login`` ∈ ``operator``，``worker`` ∉ ``operator``：常规质检 Worker 不能因为
-   「同在质检域」就继承维护权；
-3. 守卫函数只授予 ``operator`` / ``login``，``worker`` 执行即被库拒绝；
+1. 维护三身份（owner / operator / login）都不可提权
+   （NOSUPERUSER / NOBYPASSRLS / NOCREATEDB / NOCREATEROLE），且只有 ``login``
+   可登录——「账号存在」不等于「能维护」；
+2. ``login`` ∈ ``operator``，而 **Worker 的运行身份**（``qc_governance_role``）
+   ∉ ``operator``：常规质检 Worker 不能因为「同在质检域」就继承维护权。
+   这一条原本打在 ``qc_worker`` 这个专用壳角色上；它已退役（迁移
+   ``f2b3c4d5e6a7``），判据改为打在 Worker 真连库用的域角色上——验一个没人
+   连接的角色，边界等于没验；
+3. 守卫函数只授予 ``operator`` / ``login``，Worker 的运行身份执行即被库拒绝；
 4. 守卫认 ``session_user`` 而非 ``current_user``：``login`` 登录后调用通过，
    一旦 ``SET ROLE operator`` 立刻被拒（否则任何有成员关系的连接都能用
    ``SET ROLE`` 伪造「我在维护身份下」）；
 5. 维护对象属主是 ``qc_maintenance_owner``（不可登录），策略仍是 FORCE RLS；
 6. SECURITY DEFINER 函数 ``audit.assert_signature_event_exists()`` 对 PUBLIC 的
-   EXECUTE 已收回（PG 默认 ACL 是 PUBLIC EXECUTE，不显式撤就等于公开）。
+   EXECUTE 已收回（PG 默认 ACL 是 PUBLIC EXECUTE，不显式撤就等于公开）；
+7. ``qc_worker`` 本身不得复活：它不是任何进程的连接身份，重建需走治理流程。
 """
 
 from __future__ import annotations
@@ -26,13 +31,18 @@ from sqlalchemy.pool import NullPool
 
 from packages.shared.config import get_settings
 from packages.shared.database import build_migration_url
-from packages.shared.db_roles import maintenance_role
+from packages.shared.db_roles import domain_role, maintenance_role
 
 _GUARD = "qc_maintenance.assert_session_identity()"
 _SIGNATURE_FN = "audit.assert_signature_event_exists()"
 _IDENT = "insufficient_privilege"
 
-_ROLE_KEYS = ("owner", "operator", "login", "worker")
+_ROLE_KEYS = ("owner", "operator", "login")
+
+# Worker 实际连库用的身份（``workers/qc/__main__.py`` 装配的 qc_governance 域池）。
+# 退役 qc_worker 之后，「Worker 不能维护」的判据必须打在**真身份**上：验一个
+# 不存在、也没人连接的角色，结论再漂亮也证明不了任何边界。
+_RUNTIME = domain_role("qc_governance")
 
 
 def _role(key: str) -> str:
@@ -88,9 +98,13 @@ async def test_roles_cannot_escalate_and_only_login_identities_can_connect(
                 {"names": [_role(k) for k in _ROLE_KEYS]},
             )
         ).all()
+        retired_exists = await session.scalar(
+            text("SELECT 1 FROM pg_roles WHERE rolname = :r"),
+            {"r": maintenance_role("worker")},
+        )
 
     by_name = {r.rolname: r for r in rows}
-    assert set(by_name) == {_role(k) for k in _ROLE_KEYS}, "四角色必须都存在"
+    assert set(by_name) == {_role(k) for k in _ROLE_KEYS}, "维护三身份必须都存在"
 
     for name, row in by_name.items():
         assert not row.rolsuper, f"{name} 不许是超级用户"
@@ -101,10 +115,15 @@ async def test_roles_cannot_escalate_and_only_login_identities_can_connect(
     assert not by_name[_role("owner")].rolcanlogin, "属主身份不可登录"
     assert not by_name[_role("operator")].rolcanlogin, "权限组不可登录"
     assert by_name[_role("login")].rolcanlogin, "维护登录身份必须可登录"
-    assert by_name[_role("worker")].rolcanlogin, "质检 Worker 必须可登录"
+    assert retired_exists is None, (
+        "qc_worker 已退役（迁移 f2b3c4d5e6a7）：它不是任何进程的连接身份，"
+        "Worker 用的是 qc_governance_role"
+    )
 
 
-async def test_login_is_operator_member_but_worker_is_not(admin_sessionmaker) -> None:
+async def test_login_is_operator_member_but_worker_runtime_is_not(
+    admin_sessionmaker,
+) -> None:
     async with admin_sessionmaker() as session:
         rows = (
             await session.execute(
@@ -120,7 +139,7 @@ async def test_login_is_operator_member_but_worker_is_not(admin_sessionmaker) ->
                 ),
                 {
                     "groups": [_role("operator")],
-                    "members": [_role("login"), _role("worker")],
+                    "members": [_role("login"), _RUNTIME],
                 },
             )
         ).all()
@@ -128,15 +147,14 @@ async def test_login_is_operator_member_but_worker_is_not(admin_sessionmaker) ->
     memberships = {r.member_name: r for r in rows}
     assert _role("login") in memberships, "维护登录身份必须是 operator 成员"
     assert not memberships[_role("login")].admin_option, "成员不得携带 ADMIN OPTION"
-    assert _role("worker") not in memberships, (
-        "质检 Worker 不得是维护权限组成员——否则自动流水线就是任意修数入口"
+    assert _RUNTIME not in memberships, (
+        "Worker 的运行身份不得是维护权限组成员——否则自动流水线就是任意修数入口"
     )
 
 
-async def test_worker_has_no_execute_on_guard(admin_sessionmaker) -> None:
+async def test_worker_runtime_has_no_execute_on_guard(admin_sessionmaker) -> None:
     operator = _role("operator")
     login = _role("login")
-    worker = _role("worker")
     async with admin_sessionmaker() as session:
         grants = {
             role: await _scalar(
@@ -145,20 +163,33 @@ async def test_worker_has_no_execute_on_guard(admin_sessionmaker) -> None:
                 role=role,
                 fn=_GUARD,
             )
-            for role in (operator, login, worker)
+            for role in (operator, login, _RUNTIME)
         }
         public_execute = await _has_public_execute(session, _GUARD)
-        worker_schema_usage = await _scalar(
-            session,
-            "SELECT has_schema_privilege(:role, 'qc_maintenance', 'USAGE')",
-            role=worker,
-        )
+        # 域角色对维护 schema 有 USAGE（历史上按域收敛授过），USAGE 只代表
+        # 「能进 schema」，不代表「能调用函数」。真正的边界在 EXECUTE 上：
+        # 守卫已从 PUBLIC 收回、只授 operator/login，所以这里逐个命令核 EXECUTE。
+        command_grants = {
+            fn: await _scalar(
+                session,
+                "SELECT has_function_privilege(:role, :fn, 'EXECUTE')",
+                role=_RUNTIME,
+                fn=fn,
+            )
+            for fn in (
+                "qc_maintenance.enumerate_due_tasks()",
+                "qc_maintenance.detect_projection_anomalies()",
+                "qc_maintenance.reconcile_tenant_tasks(text)",
+                "qc_maintenance.repair_tenant_task(text, text, text)",
+            )
+        }
 
     assert grants[operator] is True, "权限组必须能执行维护守卫"
     assert grants[login] is True, "登录身份必须能执行维护守卫"
-    assert grants[worker] is False, "质检 Worker 必须无法执行维护守卫"
+    assert grants[_RUNTIME] is False, "Worker 的运行身份必须无法执行维护守卫"
     assert public_execute is False, "维护守卫不得对 PUBLIC 开放"
-    assert worker_schema_usage is False, "质检 Worker 不得持有维护 schema 的 USAGE"
+    forbidden = sorted(fn for fn, allowed in command_grants.items() if allowed)
+    assert not forbidden, f"Worker 的运行身份不得执行维护命令：{forbidden}"
 
 
 async def test_guard_binds_to_session_user_not_current_user() -> None:
@@ -191,12 +222,18 @@ async def test_guard_binds_to_session_user_not_current_user() -> None:
         await engine.dispose()
 
 
-async def test_worker_is_rejected_by_database_not_by_application() -> None:
-    worker = _role("worker")
+async def test_worker_runtime_is_rejected_by_database_not_by_application() -> None:
+    """Worker 的运行身份调守卫必须被**库**拒绝，而不是被应用层判断拦下。
+
+    用 ``SET SESSION AUTHORIZATION`` 而不是 ``SET ROLE``：要验的是「以 Worker
+    身份连库时能做什么」，不是「超级用户切角色后的权限」——后者的失败恒为
+    「超级用户被绕」而非真实结论。
+    """
+    runtime = _RUNTIME
     engine = create_async_engine(build_migration_url(), poolclass=NullPool)
     try:
         async with engine.connect() as conn:
-            await conn.execute(text(f'SET SESSION AUTHORIZATION "{worker}"'))
+            await conn.execute(text(f'SET SESSION AUTHORIZATION "{runtime}"'))
             with pytest.raises(DBAPIError) as excinfo:
                 await conn.execute(text(f"SELECT {_GUARD}"))
             assert "permission denied" in str(excinfo.value), (
@@ -249,7 +286,13 @@ async def test_secdef_signature_function_no_longer_public(admin_sessionmaker) ->
         )
 
 
-def test_settings_expose_all_four_identities() -> None:
+def test_settings_expose_maintenance_identities_and_retired_worker_key() -> None:
+    """三个在线身份必须有配置；``postgres_qc_worker_user`` 保留给历史回放。
+
+    退役只删了集群里的角色，没有删配置键：迁移 ``e6a7b8c9d0e1`` 在 clean install
+    上创建它、``f2b3c4d5e6a7`` 再删掉，回放仍要读这个键（含口令）。删键会让
+    全新库的 ``alembic upgrade head`` 直接 KeyError——历史是不可改的事实。
+    """
     settings = get_settings()
     assert settings.postgres_qc_maintenance_owner_user
     assert settings.postgres_qc_maintenance_operator_user
