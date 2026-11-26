@@ -206,6 +206,26 @@ def build_qc_governance_database_url(settings: Settings | None = None) -> str:
     )
 
 
+def build_qc_maintenance_login_database_url(settings: Settings | None = None) -> str:
+    """构造维护登录身份 DSN（角色 ``qc_maintenance_login``，经 operator 成员继承）。
+
+    维护命令只能由这个登录身份调用：它不属于任何业务域角色，也没有 ``qc_tasks``
+    的写权限。把它单独成池而不是复用业务域引擎，是为了让「这池连接能做什么」
+    在代码里一眼可见——混进业务池等于让每个业务请求都带上维护能力。
+    """
+    cfg = _settings_or_default(settings)
+    return _build_url(
+        cfg.postgres_qc_maintenance_login_user,
+        cfg.postgres_qc_maintenance_login_password.get_secret_value(),
+        cfg,
+    )
+
+
+def create_qc_maintenance_engine(settings: Settings | None = None) -> AsyncEngine:
+    """维护命令专用引擎（独立连接池、独立身份）。"""
+    return _make_engine(build_qc_maintenance_login_database_url(settings))
+
+
 def _make_engine(url: str) -> AsyncEngine:
     """按给定 DSN 创建异步引擎（连接池参数为高并发预留）。"""
     return create_async_engine(

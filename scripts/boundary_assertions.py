@@ -1165,34 +1165,36 @@ def evaluate_org_rls(
         tenant_scope_predicate,
     )
 
-    def _policy_statement(schema: str, table: str) -> str | None:
-        """取某张表上策略的**最终**形态（后写覆盖先写，DROP 视为没有）。
+    def _table_policies(schema: str, table: str) -> dict[str, str]:
+        """取某张表上**全部**存活策略（按策略名）。
 
-        为什么必须是最终形态而不是第一条：``8f2a1b3c4d5e`` 先建租户单维策略，
-        ``e9f0a1b2c3d4`` 再升级为「租户 + 组织」并 DROP→CREATE。取第一条会把
-        已经升级过的表报成「缺组织谓词」——判据问的必须是「数据库最后是什么样」，
-        否则每加一次策略修订都要回来改判据。
+        旧实现只保留「最后一条 CREATE POLICY」，把「文件顺序」当成了数据库终态：
+        PostgreSQL 的多条 permissive 策略是 **OR**，restrictive 是 **AND**，
+        创建顺序不决定授权语义。于是给同一张表再加一条「仅 owner 可读」策略，
+        就会让闸门把隔离策略整个忘掉——那不是策略坏了，是判据算错了。
 
-        匹配键是 ``ON <schema>.<table>``（DDL 里的定位点）而不是 ``.<table>``：
-        子表的 EXISTS 子句里也写着 ``project_planning.projects``，只按表名找会把
-        子表的策略当成 projects 的。
+        现在按策略名建集合：``CREATE`` 加入、``DROP POLICY <name>`` 只移除同名，
+        顺序置换不影响结果。匹配键是 ``ON <schema>.<table>``（DDL 定位点）并且
+        要求后接空白或结束，否则 ``scenes_archive`` 会被当成 ``scenes``。
         """
         marker = f" ON {schema}.{table}"
-        final: str | None = None
+        live: dict[str, str] = {}
         for statement in statements:
             index = statement.find(marker)
             if index < 0:
                 continue
-            # 定位点后面必须紧跟空白或语句结束，否则 ``scenes_archive`` 会被
-            # 当成 ``scenes``（前缀命中的老问题）。
             trailing = statement[index + len(marker) : index + len(marker) + 1]
             if trailing not in ("", " "):
                 continue
             if statement.startswith("CREATE POLICY "):
-                final = statement
+                name = _policy_name(statement)
+                if name:
+                    live[name] = statement
             elif statement.startswith("DROP POLICY "):
-                final = None
-        return final
+                name = _policy_name(statement, drop=True)
+                if name:
+                    live.pop(name, None)
+        return live
 
     problems: list[str] = []
 
@@ -1215,12 +1217,23 @@ def evaluate_org_rls(
             )
 
     for schema, table, form, correlations in _ORG_RLS_TABLES:
-        policy = _policy_statement(schema, table)
+        policies = _table_policies(schema, table)
+        isolation_name = f"tenant_isolation_{table}"
+        policy = policies.get(isolation_name)
         if policy is None:
-            problems.append(f"{schema}.{table} 缺少策略")
+            problems.append(
+                f"{schema}.{table} 缺少策略 {isolation_name}"
+                f"（现有策略：{sorted(policies) or '无'}）"
+            )
             continue
-        if f"tenant_isolation_{table}" not in policy:
-            problems.append(f"{schema}.{table} 策略名不是 tenant_isolation_{table}")
+        # 隔离策略必须对所有连接生效：只 TO 某个业务角色时，别的角色看这张表
+        # 就是零策略——而零策略在 FORCE 下意味着「完全不可见」，看起来像权限
+        # 收紧，实际是其它入口的功能崩塌。
+        if "PUBLIC" not in _policy_grantees(policy):
+            problems.append(
+                f"{schema}.{table} 的隔离策略只对 {sorted(_policy_grantees(policy))} "
+                "生效（应包含 PUBLIC）"
+            )
         if tenant_scope_predicate() not in policy:
             problems.append(f"{schema}.{table} 策略缺租户谓词")
         if form == "column":
@@ -1256,6 +1269,18 @@ def evaluate_org_rls(
                         f"{schema}.{table} 的父项目存在性未与自身行关联，缺 {missing}"
                         "（未关联的 EXISTS 会把全部他组织子行放行）"
                     )
+
+        # 同一张表上的其它策略也要看：permissive 策略之间是 OR，一条
+        # 「TO PUBLIC … USING (true)」就能把隔离策略整体旁路——只检查隔离策略
+        # 本身的判据对这种形态是盲的。
+        for other_name, other in sorted(policies.items()):
+            if other_name == isolation_name:
+                continue
+            if _is_permissive_everything(other):
+                problems.append(
+                    f"{schema}.{table} 存在对 PUBLIC 完全放行的策略 {other_name}"
+                    "（permissive 策略是 OR 关系，会旁路隔离策略）"
+                )
 
     forced = {
         statement.removeprefix("ALTER TABLE ")
@@ -1315,6 +1340,51 @@ def find_self_injected_scope_paths(
 
 
 _POLICY_MARKERS: tuple[str, ...] = ("CREATE POLICY", "FORCE ROW LEVEL SECURITY")
+
+_POLICY_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_POLICY_TO_CLAUSE = re.compile(
+    r"\bTO\s+([A-Za-z0-9_\"', ]+?)(?=\s+(?:USING|WITH\s+CHECK|AS|FOR)\b|\s*;|\s*$)"
+)
+
+
+def _policy_name(statement: str, *, drop: bool = False) -> str | None:
+    """从 ``CREATE POLICY`` / ``DROP POLICY`` 语句里取策略名。
+
+    只接受裸标识符：解析不出名字时返回 None，调用方会把它当成「没有这条策略」，
+    报红方向是安全的一侧（少一条策略 ≠ 多一条放行）。
+    """
+    prefix = "DROP POLICY " if drop else "CREATE POLICY "
+    if not statement.startswith(prefix):
+        return None
+    rest = statement[len(prefix) :]
+    for optional in ("IF EXISTS ", "IF NOT EXISTS "):
+        if rest.startswith(optional):
+            rest = rest[len(optional) :]
+    token = rest.split(" ", 1)[0].strip().strip('"')
+    return token if _POLICY_IDENT.fullmatch(token) else None
+
+
+def _policy_grantees(statement: str) -> frozenset[str]:
+    """策略的适用角色。没有 ``TO`` 子句时 PostgreSQL 默认是 PUBLIC。"""
+    match = _POLICY_TO_CLAUSE.search(statement)
+    if match is None:
+        return frozenset({"PUBLIC"})
+    roles = {
+        role.strip().strip('"').upper()
+        for role in match.group(1).split(",")
+        if role.strip()
+    }
+    return frozenset(roles or {"PUBLIC"})
+
+
+def _is_permissive_everything(statement: str) -> bool:
+    """``TO PUBLIC ... USING (true)``：一条策略就把整张表放开。"""
+    if "RESTRICTIVE" in statement:
+        return False
+    if "PUBLIC" not in _policy_grantees(statement):
+        return False
+    normalized = re.sub(r"\s+", " ", statement)
+    return "USING (true)" in normalized or "USING (TRUE)" in normalized
 
 
 def _policy_statements() -> list[str]:

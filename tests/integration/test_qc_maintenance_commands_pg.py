@@ -35,30 +35,16 @@ from services.qc_governance.repository.task_projection_repo import (
 )
 from services.qc_governance.service.qc_task_service import QCTaskService
 from tests.conftest import set_test_scope
+from tests.integration.maintenance_seed import (
+    WORK_ORDER_INSERT_SQL,
+    create_work_order,
+)
 from tests.integration.planning_seed import seed_project
 
 _LOGIN = maintenance_role("login")
 _WORKER = maintenance_role("worker")
 _OWNER = maintenance_role("owner")
 _OPERATOR = maintenance_role("operator")
-
-_INSERT_WO = """
-INSERT INTO qc_maintenance.maintenance_work_orders
-    (entity_id, entity_type, schema_version, entity_version, status,
-     owner_module, tenant_id, created_at, created_by, updated_at, audit_ref,
-     kind, idempotency_key, requested_by, approved_by, approved_at,
-     target_task_id, result_summary, failure_reason)
-VALUES (:entity_id,'MaintenanceWorkOrder',1,1,'REQUESTED','qc_maintenance',
-        :tenant_id, now(),'tester',now(),NULL,
-        :kind, :idem, 'tester', NULL, NULL, NULL, NULL, NULL)
-"""
-
-_APPROVE = """
-UPDATE qc_maintenance.maintenance_work_orders
-   SET status = 'APPROVED', approved_by = 'approver', approved_at = now(),
-       entity_version = entity_version + 1, updated_at = now()
- WHERE entity_id = :entity_id
-"""
 
 
 @pytest.fixture(scope="module")
@@ -94,40 +80,16 @@ async def _seed_task(sm, *, tenant, project_id: str, suffix: str) -> str:
         return task.entity_id
 
 
-async def _create_work_order(
-    session: AsyncSession,
-    *,
-    tenant,
-    kind: str = "RECONCILE",
-    idem: str | None = None,
-    approve: bool = True,
-) -> str:
-    entity_id = str(uuid.uuid4())
-    await session.execute(
-        text(_INSERT_WO),
-        {
-            "entity_id": entity_id,
-            "tenant_id": tenant,
-            "kind": kind,
-            "idem": idem or f"idem-{entity_id}",
-        },
-    )
-    if approve:
-        await session.execute(text(_APPROVE), {"entity_id": entity_id})
-    await session.commit()
-    return entity_id
-
-
-async def _record_denial(work_order_id: str, reason: str) -> None:
+async def _record_denial(work_order_id: str, reason: str, attempt_id: str) -> None:
     engine = create_async_engine(build_migration_url(), poolclass=NullPool)
     try:
         async with engine.begin() as conn:
             await conn.execute(text(f'SET SESSION AUTHORIZATION "{_LOGIN}"'))
             await conn.execute(
                 text(
-                    "SELECT qc_maintenance.record_maintenance_denial(:wo, :reason)"
+                    "SELECT qc_maintenance.record_maintenance_denial(:wo, :reason, :attempt)"
                 ),
-                {"wo": work_order_id, "reason": reason},
+                {"wo": work_order_id, "reason": reason, "attempt": attempt_id},
             )
     finally:
         await engine.dispose()
@@ -172,7 +134,7 @@ async def test_work_order_must_be_created_requested_and_approved_in_order(
         entity_id = str(uuid.uuid4())
         with pytest.raises(Exception, match="必须以 REQUESTED 创建"):
             await session.execute(
-                text(_INSERT_WO.replace("'REQUESTED'", "'APPROVED'")),
+                text(WORK_ORDER_INSERT_SQL.replace("'REQUESTED'", "'APPROVED'")),
                 {
                     "entity_id": entity_id,
                     "tenant_id": uuid.uuid4(),
@@ -183,7 +145,7 @@ async def test_work_order_must_be_created_requested_and_approved_in_order(
         await session.rollback()
 
         tenant = uuid.uuid4()
-        wo = await _create_work_order(session, tenant=tenant, approve=False)
+        wo = await create_work_order(session, tenant=tenant, approve=False)
         with pytest.raises(Exception, match="非法的工单状态跳转"):
             await session.execute(
                 text(
@@ -199,7 +161,7 @@ async def test_idempotency_key_prevents_duplicate_intent(admin_sessionmaker) -> 
     """同一幂等键只能落一行：重试/重放不得产生第二张工单。"""
     async with admin_sessionmaker() as session:
         tenant = uuid.uuid4()
-        first = await _create_work_order(
+        first = await create_work_order(
             session, tenant=tenant, approve=False, idem=f"dup-{uuid.uuid4()}"
         )
         idem = (
@@ -213,7 +175,7 @@ async def test_idempotency_key_prevents_duplicate_intent(admin_sessionmaker) -> 
         ).scalar_one()
         with pytest.raises(Exception, match="uq_maintenance_work_order_idem"):
             await session.execute(
-                text(_INSERT_WO),
+                text(WORK_ORDER_INSERT_SQL),
                 {
                     "entity_id": str(uuid.uuid4()),
                     "tenant_id": tenant,
@@ -230,8 +192,8 @@ async def test_reconcile_requires_approved_work_order_of_right_kind(
     """未批准 / 类型不符都必须被拒，并且拒绝要留账。"""
     async with admin_sessionmaker() as session:
         tenant = uuid.uuid4()
-        pending = await _create_work_order(session, tenant=tenant, approve=False)
-        detect_kind = await _create_work_order(
+        pending = await create_work_order(session, tenant=tenant, approve=False)
+        detect_kind = await create_work_order(
             session, tenant=tenant, kind="DETECT", approve=True
         )
 
@@ -239,13 +201,14 @@ async def test_reconcile_requires_approved_work_order_of_right_kind(
         with pytest.raises(exc.DBAPIError):
             await _call_commands("reconcile_tenant_tasks", (wo,))
         # 拒绝由库负责（异常），账本由调用方补记——这是契约的一部分。
-        await _record_denial(wo, reason)
+        await _record_denial(wo, reason, f"attempt-{uuid.uuid4().hex}")
 
     async with admin_sessionmaker() as session:
         outcomes = (
             await session.execute(
                 text(
-                    "SELECT work_order_id, outcome, detail->>'reason' AS reason "
+                    "SELECT work_order_id, outcome, detail->>'reason' AS reason, "
+                    "detail->>'actor' AS actor "
                     "FROM qc_maintenance.maintenance_action_log "
                     "WHERE work_order_id = ANY(:ids) ORDER BY id"
                 ),
@@ -256,6 +219,65 @@ async def test_reconcile_requires_approved_work_order_of_right_kind(
         ("DENIED", "not_approved"),
         ("DENIED", "kind_mismatch"),
     ], "拒绝必须进审计账本，且原因可区分"
+    assert {row.actor for row in outcomes} == {_LOGIN}, (
+        "记录主体必须来自 session_user，不能是调用方传入的 actor"
+    )
+
+
+async def test_denial_attempt_is_idempotent_and_requires_key(
+    admin_sessionmaker,
+) -> None:
+    """同一 attempt_id 重试只留一行；没有 attempt_id 一律拒绝。"""
+    async with admin_sessionmaker() as session:
+        tenant = uuid.uuid4()
+        wo = await create_work_order(session, tenant=tenant, approve=False)
+
+    attempt = f"retry-{uuid.uuid4().hex}"
+    await _record_denial(wo, "not_approved", attempt)
+    await _record_denial(wo, "not_approved", attempt)
+
+    async with admin_sessionmaker() as session:
+        count = await session.scalar(
+            text(
+                "SELECT count(*) FROM qc_maintenance.maintenance_action_log "
+                "WHERE attempt_id = :attempt"
+            ),
+            {"attempt": attempt},
+        )
+        assert count == 1, "重试补记必须是幂等的，否则账本把一次拒绝记成多次"
+
+        with pytest.raises(exc.DBAPIError, match="attempt_id"):
+            await session.execute(
+                text(
+                    "SELECT qc_maintenance.record_maintenance_denial(:wo, :reason, :attempt)"
+                ),
+                {"wo": wo, "reason": "not_approved", "attempt": "  "},
+            )
+        await session.rollback()
+
+
+async def test_qc_tasks_catalog_keeps_both_policies(admin_sessionmaker) -> None:
+    """真库终态核验：隔离策略仍在且仍对 PUBLIC 生效，owner 读策略是独立一条。
+
+    闸门只回放迁移文本，看不到数据库实际状态；这一条直接查 ``pg_policies``，
+    证明「多一条角色策略」没有把隔离策略挤掉。
+    """
+    async with admin_sessionmaker() as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT policyname, cmd, permissive, roles FROM pg_policies "
+                    "WHERE schemaname = 'qc_governance' AND tablename = 'qc_tasks' "
+                    "ORDER BY policyname"
+                )
+            )
+        ).all()
+    names = {row.policyname for row in rows}
+    assert "tenant_isolation_qc_tasks" in names
+    assert "maintenance_owner_read_qc_tasks" in names
+    isolation = next(row for row in rows if row.policyname == "tenant_isolation_qc_tasks")
+    assert isolation.permissive == "PERMISSIVE"
+    assert isolation.cmd == "ALL"
 
 
 async def test_reconcile_is_scoped_to_the_work_order_tenant(
@@ -284,8 +306,8 @@ async def test_reconcile_is_scoped_to_the_work_order_tenant(
             await session.commit()
 
     async with admin_sessionmaker() as session:
-        wo_a = await _create_work_order(session, tenant=tenant_a)
-        wo_b = await _create_work_order(session, tenant=tenant_b)
+        wo_a = await create_work_order(session, tenant=tenant_a)
+        wo_b = await create_work_order(session, tenant=tenant_b)
 
     counts_a = dict(await _call_commands("reconcile_tenant_tasks", (wo_a,)))
     counts_b = dict(await _call_commands("reconcile_tenant_tasks", (wo_b,)))

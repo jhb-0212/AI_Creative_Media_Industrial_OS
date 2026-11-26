@@ -148,6 +148,9 @@ def _create_tables() -> None:
         sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
         sa.Column("work_order_id", sa.String(64), nullable=True),
         sa.Column("tenant_id", sa.Uuid(), nullable=True),
+        # 尝试键：补记拒绝是「失败事务回滚后另开事务」，重试是常态。
+        # 没有它，一次崩溃后的重试就会把同一次拒绝记成两行。
+        sa.Column("attempt_id", sa.String(64), nullable=True),
         sa.Column("action", sa.String(64), nullable=False),
         sa.Column("outcome", sa.String(16), nullable=False),
         sa.Column("detail", JSONB, nullable=False),
@@ -156,6 +159,7 @@ def _create_tables() -> None:
             "outcome IN ('SUCCEEDED','FAILED','DENIED')",
             name="ck_maintenance_action_outcome",
         ),
+        sa.UniqueConstraint("attempt_id", name="uq_maintenance_action_attempt"),
         schema=_MAINT,
     )
     op.create_index(
@@ -248,22 +252,12 @@ def _enable_rls() -> None:
     # 源表与投影：只给 owner 一条**读**策略。没有 BYPASSRLS——放宽的是「谁能读」，
     # 不是「读的时候不看策略」；写权限本阶段完全没有。
     #
-    # 为什么要在建完这条策略后再原样重建一次 tenant_isolation：组织边界闸门对每张
-    # 业务表只取**最后一条** CREATE POLICY，判断「策略名 / 租户谓词 / 父项目存在性」。
-    # 本条策略若排在最后，闸门会把 qc_tasks 的终态看成 owner 读策略而报红。重建一次
-    # 既有策略（文本与原迁移逐字相同）让终态仍是 tenant_isolation_qc_tasks——不是为了
-    # 通过闸门，而是「最后一条就是数据库真实终态」这个判据本身是对的。
+    # 这里**不需要**再重建一次 tenant_isolation_qc_tasks：闸门已改为按「策略集合
+    # 里是否存在 tenant_isolation_<表>」判定，多一条角色限定的读策略不再影响结论。
+    # 早先那版重建是把迁移实现和判据缺陷绑在了一起，已删除。
     op.execute(
         f"CREATE POLICY maintenance_owner_read_qc_tasks ON {_QC}.qc_tasks "
-        f"TO {_owner()} USING (true)"
-    )
-    op.execute(f"DROP POLICY IF EXISTS tenant_isolation_qc_tasks ON {_QC}.qc_tasks")
-    op.execute(
-        f"CREATE POLICY tenant_isolation_qc_tasks ON {_QC}.qc_tasks "
-        f"USING ({tenant_scope_predicate()} AND "
-        f"EXISTS (SELECT 1 FROM project_planning.projects p "
-        f"WHERE p.entity_id = {_QC}.qc_tasks.project_id "
-        f"AND p.tenant_id = {_QC}.qc_tasks.tenant_id))"
+        f"FOR SELECT TO {_owner()} USING (true)"
     )
     op.execute(
         f"CREATE POLICY maintenance_owner_read_task_projection ON "
@@ -462,7 +456,7 @@ def _create_commands() -> None:
     op.execute(
         f"""
         CREATE FUNCTION {_MAINT}.record_maintenance_denial(
-            p_work_order_id text, p_reason text)
+            p_work_order_id text, p_reason text, p_attempt_id text)
         RETURNS void
         LANGUAGE plpgsql
         SECURITY DEFINER
@@ -473,10 +467,18 @@ def _create_commands() -> None:
         BEGIN
             PERFORM {_MAINT}.assert_session_member();
 
+            -- 尝试键必填：它既是幂等键，也是「同一次拒绝只能留一行」的依据。
+            -- 允许空值会让重试变成静默的重复记账，账本再也无法按次数聚合。
+            IF p_attempt_id IS NULL OR btrim(p_attempt_id) = '' THEN
+                RAISE EXCEPTION '补记拒绝必须携带 attempt_id'
+                    USING ERRCODE = 'invalid_parameter_value';
+            END IF;
+
             -- 原因走白名单而不是自由文本：账本要可聚合，不能变成谁都能写内容的
             -- 日志表；未知原因一律记成 'other'，避免把错误口径灌进审计视图。
             IF p_reason NOT IN ('work_order_not_found', 'kind_mismatch',
-                               'not_approved', 'session_mismatch') THEN
+                               'not_approved', 'session_mismatch',
+                               'permission_denied') THEN
                 p_reason := 'other';
             END IF;
 
@@ -484,10 +486,17 @@ def _create_commands() -> None:
               FROM {_MAINT}.{_WO} o
              WHERE o.entity_id = p_work_order_id;
 
+            -- 记录主体取 session_user，不接受调用方传入的 actor：SECDEF 里
+            -- current_user 恒为 owner，只有 session_user 是可信的登录身份。
             INSERT INTO {_MAINT}.{_LOG}
-                (work_order_id, tenant_id, action, outcome, detail, created_at)
-            VALUES (p_work_order_id, v_tenant, 'reconcile_tenant_tasks', 'DENIED',
-                    jsonb_build_object('reason', p_reason), now());
+                (work_order_id, tenant_id, attempt_id, action, outcome, detail,
+                 created_at)
+            VALUES (p_work_order_id, v_tenant, p_attempt_id,
+                    'reconcile_tenant_tasks', 'DENIED',
+                    jsonb_build_object('reason', p_reason,
+                                       'actor', session_user),
+                    now())
+            ON CONFLICT ON CONSTRAINT uq_maintenance_action_attempt DO NOTHING;
         END;
         $$
         """

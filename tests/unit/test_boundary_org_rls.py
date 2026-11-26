@@ -170,6 +170,61 @@ def test_later_policy_upgrade_replaces_earlier_one() -> None:
     assert _evaluate(statements) == []
 
 
+def _owner_read_policy(schema: str, table: str) -> str:
+    """角色限定的额外策略：真实链里 qc_tasks 就多这一条（仅 owner 可读）。"""
+    return (
+        f"CREATE POLICY maintenance_owner_read_{table} ON {schema}.{table} "
+        "TO qc_maintenance_owner FOR SELECT USING (true)"
+    )
+
+
+def test_extra_role_policy_does_not_hide_isolation() -> None:
+    """同一张表上加一条「仅 owner 可读」策略 → 隔离策略仍然成立。
+
+    旧判据只取**最后一条** CREATE POLICY，于是这条读策略会把
+    ``tenant_isolation_qc_tasks`` 顶掉，闸门报「策略名不对 / 缺租户谓词」。
+    PostgreSQL 里 permissive 策略是 OR，多一条读策略不改变隔离策略对其它角色
+    的约束——判据算错了，而不是策略坏了。
+    """
+    statements = [
+        *_good_statements(),
+        _owner_read_policy("qc_governance", "qc_tasks"),
+    ]
+    assert _evaluate(statements) == []
+
+
+def test_policy_order_permutation_keeps_verdict() -> None:
+    """策略顺序置换成「额外策略在前、隔离策略在后」→ 结论不变。
+
+    创建顺序不是授权语义的一部分；判据必须对顺序免疫，否则每次修订策略顺序
+    都会让闸门翻红，而真正的隔离缺陷反而被噪音淹没。
+    """
+    good = _good_statements()
+    isolation = [
+        s for s in good
+        if s.startswith("CREATE POLICY ") and " ON qc_governance.qc_tasks " in s
+    ]
+    rest = [s for s in good if s not in isolation]
+    statements = [
+        _owner_read_policy("qc_governance", "qc_tasks"),
+        *isolation,
+        *rest,
+    ]
+    assert _evaluate(statements) == []
+
+
+def test_public_permissive_everything_is_reported() -> None:
+    """一条 TO PUBLIC … USING (true) 就把整张表放开：permissive 是 OR，必须报红。"""
+    statements = [
+        *_good_statements(),
+        "CREATE POLICY debug_read_all ON project_planning.episodes USING (true)",
+    ]
+    problems = _evaluate(statements)
+    assert any(
+        "对 PUBLIC 完全放行的策略 debug_read_all" in p for p in problems
+    ), problems
+
+
 def test_dropped_policy_is_treated_as_missing() -> None:
     """先建后删 → 终态没有策略，必须报红（后写覆盖先写，两个方向都要成立）。"""
     statements = [

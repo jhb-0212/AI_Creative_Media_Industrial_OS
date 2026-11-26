@@ -103,6 +103,7 @@ class MaintenanceActionLogModel(Base):
             "outcome IN ('SUCCEEDED','FAILED','DENIED')",
             name="ck_maintenance_action_outcome",
         ),
+        UniqueConstraint("attempt_id", name="uq_maintenance_action_attempt"),
         Index("ix_maintenance_action_log_work_order", "work_order_id"),
         Index("ix_maintenance_action_log_tenant", "tenant_id", "created_at"),
         {"schema": SCHEMA_NAME},
@@ -111,6 +112,7 @@ class MaintenanceActionLogModel(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     work_order_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     tenant_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    attempt_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     outcome: Mapped[str] = mapped_column(String(16), nullable=False)
     detail: Mapped[dict[str, Any]] = mapped_column(
