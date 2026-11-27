@@ -32,6 +32,7 @@ from collections.abc import Sequence
 
 from alembic import op
 
+from packages.shared.migration_identity import assert_role_present
 from packages.shared.partition_guard import RELAY_UPDATE_COLUMNS
 
 # revision identifiers, used by Alembic.
@@ -84,28 +85,14 @@ def _relay_password() -> str:
 
 
 def upgrade() -> None:
-    """创建 outbox_relay_role 并授予 outbox 最小权限（进程边界隔离）。"""
-    password = _relay_password()
+    """断言 relay 角色存在（由 bootstrap 创建）并授予 outbox 最小权限。"""
     relay_role = _relay_role()
 
-    # 1. 创建 relay 专用角色：LOGIN、非超级用户、NOBYPASSRLS（不绕过 RLS）。
-    #    已存在时同步口令**并重置属性**（Codex P1）：只改密码会保留存量角色
-    #    可能带有的 SUPERUSER/BYPASSRLS 等危险属性，角色隔离形同虚设。
-    op.execute(
-        f"""
-        DO $$
-        BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{relay_role}') THEN
-                CREATE ROLE {relay_role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
-                    NOBYPASSRLS PASSWORD '{password}';
-            ELSE
-                ALTER ROLE {relay_role} WITH LOGIN NOSUPERUSER NOCREATEDB
-                    NOCREATEROLE NOBYPASSRLS PASSWORD '{password}';
-            END IF;
-        END
-        $$
-        """
-    )
+    # 1. 角色归 bootstrap：本迁移只断言存在，不建角色、不改属性、不读口令。
+    #    原写法「IF NOT EXISTS CREATE ROLE ... ELSE ALTER ROLE」有两个问题：
+    #    一是把角色属性变成迁移的第二份事实源；二是 downgrade 被迫删角色
+    #    （集群级对象，真实多库集群删不掉，降级链直接断，见 P4 根因分析）。
+    assert_role_present(relay_role, op=op)
 
     # 2. 授权 outbox schema USAGE（仅此一个 schema，不授任何业务 schema）。
     op.execute(f"GRANT USAGE ON SCHEMA {OUTBOX_SCHEMA} TO {relay_role}")
@@ -136,11 +123,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """回滚：回收权限 + 删除 relay 角色。
+    """回滚：只撤销本迁移授出的授权，**不删除 relay 角色**（WP-02）。
 
-    顺序不能反：PG 拒绝删除仍持有对象权限/依赖的角色（"role cannot be
-    dropped because some objects depend on it"）。先 REVOKE 全部授权，
-    再 DROP ROLE，保证 ``upgrade → downgrade → upgrade`` 可往返。
+    角色是集群级对象，`outbox_relay_role` 在真实集群上被 9 个库共 222 条授权
+    依赖（见 P4 根因分析）。迁移只撤得掉自己这一份，原来的 ``DROP ROLE``
+    因此在任何多库集群上都会失败，并把整条降级链拖死。
     """
     relay_role = _relay_role()
     op.execute(
@@ -153,10 +140,8 @@ def downgrade() -> None:
     op.execute(
         f"REVOKE ALL ON {OUTBOX_SCHEMA}.outbox_events FROM {relay_role}"
     )
-    # 默认权限也属于该角色，未撤销会让 DROP ROLE 失败。
     op.execute(
         f"ALTER DEFAULT PRIVILEGES IN SCHEMA {OUTBOX_SCHEMA} "
         f"REVOKE ALL ON TABLES FROM {relay_role}"
     )
     op.execute(f"REVOKE USAGE ON SCHEMA {OUTBOX_SCHEMA} FROM {relay_role}")
-    op.execute(f"DROP ROLE IF EXISTS {relay_role}")

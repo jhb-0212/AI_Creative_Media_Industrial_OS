@@ -128,3 +128,11 @@ def downgrade() -> None:
     for partition in _outbox_partitions():
         for statement in unprotect_partition_statements(partition):
             op.execute(statement)
+
+    # WP-04/#14：父 revision 的 outbox 默认权限是 arw（无 DELETE）。
+    # ``_restore_default_grants`` 沿用旧口径写成了 arwd，等于降级态多给出
+    # DELETE；按父态精确收回，不接受"补回了一条 GRANT"就当成功。
+    op.execute(
+        f"ALTER DEFAULT PRIVILEGES IN SCHEMA outbox "
+        f"REVOKE DELETE ON TABLES FROM {app_role_name()}"
+    )

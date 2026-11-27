@@ -69,6 +69,10 @@ from sqlalchemy.dialects import postgresql
 
 from packages.shared.db_grants import PROJECT_PLANNING, converge_statements
 from packages.shared.db_roles import domain_role
+from packages.shared.migration_constraints import (
+    drop_marked_constraint,
+    mark_created_constraint,
+)
 from packages.shared.rls import tenant_scope_predicate
 from packages.shared.status_constraint import status_check
 from services.project_planning.domain.enums import (
@@ -173,6 +177,13 @@ def _ensure_episodes_entity_unique() -> None:
         "episodes",
         ["project_id", "entity_id"],
         schema=_SCHEMA,
+    )
+    # WP-04：给"本 revision 创建"的约束留来源标记，降级只删带标记的约束，
+    # 不误删更早 revision 已存在的同名约束（见 migration_constraints 模块说明）。
+    op.execute(
+        mark_created_constraint(
+            "episodes", "uq_episodes_entity_project", _SCHEMA, revision
+        )
     )
 
 
@@ -494,7 +505,15 @@ def downgrade() -> None:
     )
     op.drop_table("rework_tasks", schema=_SCHEMA)
 
-    # 刻意不删除 uq_episodes_entity_project：升级时若该键已存在（治理链残留），
-    # a13b0 是复用而非创建，降级没有所有权删除它；干净库上虽由本迁移创建，
-    # 但 EpisodeModel 本就声明了同名唯一键，保留它是合法目标状态。删除会让
-    # 「降级到 c1a2」反而丢失一个领域模型声明的约束，属反向破坏。
+    # WP-04/#35：父 revision 上没有 uq_episodes_entity_project（P→D 实测残留）。
+    # 依赖它的复合外键已随 scenes / shots / shot_revisions 删除，故放在最后：
+    # 只删带本 revision 来源标记的约束——更早 revision 真正存在的同名约束保留。
+    op.execute(
+        drop_marked_constraint(
+            "episodes",
+            "uq_episodes_entity_project",
+            _SCHEMA,
+            revision,
+            ("project_id", "entity_id"),
+        )
+    )

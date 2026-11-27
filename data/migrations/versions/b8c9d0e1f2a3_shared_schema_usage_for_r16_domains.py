@@ -116,15 +116,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """撤销本迁移**新增**的那部分，即三个被修复域在共享 schema 上的 USAGE。
+    """本迁移在父 revision 上**没有净新增授权**，降级不应撤销任何 USAGE。
 
-    刻意不撤本域 schema 的 USAGE：那不是本迁移授的（各域自己的迁移早已授予），
-    撤销它会把「能访问自己的表」也一起关掉。同理也不动 project_planning /
-    asset_service——它们的共享 schema USAGE 来自 ``8f3b2c1d4e5a``，升级时只是
-    重复授予的幂等语句，没有净变化可回滚。
+    父态快照（P）显示：``audit`` / ``auth`` / ``outbox`` /
+    ``project_planning`` / ``public`` 五个 schema 上本来就有六个域角色的
+    USAGE（``8f3b2c1d4e5a`` 一次授全）。本迁移只是"幂等重复授予"，
+    GRANT 的净效果为零；旧实现按"本迁移授了三条"去 REVOKE，等于把父态
+    已有的授权一起撤掉——降级态反而比父态少了 3 个角色 × 5 个 schema
+    （WP-04/#47）。回滚语义应是"不做任何权限变更"。
     """
-    for domain in _REPAIRED_DOMAINS:
-        role = domain_role(domain)
-        for schema in _frozen_schemas(domain):
-            if schema != domain:
-                op.execute(f"REVOKE USAGE ON SCHEMA {schema} FROM {role}")

@@ -132,5 +132,7 @@ def downgrade() -> None:
     op.drop_constraint(
         PROJECT_TENANT_UNIQUE, "projects", schema=PROJECT_SCHEMA, type_="unique"
     )
-    # schema USAGE 不回收：project_planning_role / 其他域可能同样依赖它，
-    # 回收是权限矩阵层面的决策，不属于本迁移的回滚语义。
+    # WP-04/#29：父 revision 的 project_planning schema 只有
+    # postgres + project_planning_role 的 USAGE。升级给 asset_service_role
+    # 新授的 USAGE 必须收回，否则 D 比 P 多一条跨域访问。
+    op.execute(f"REVOKE USAGE ON SCHEMA {PROJECT_SCHEMA} FROM {role}")

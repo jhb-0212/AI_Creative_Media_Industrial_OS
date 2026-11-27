@@ -1,0 +1,52 @@
+{
+  "record": "WP-D / D2 最终全量门禁执行记录",
+  "date": "2026-11-27",
+  "head_sha": "c4b9a52415258060f4310c24a245234b8b852511",
+  "worktree": "C:/Users/EDY/Desktop/AI制作工作台/AI_Creative_Media_Industrial_OS-d02",
+  "branch": "feat/d02-and-retirement",
+  "database": {
+    "id": "afs_wp04_d2",
+    "host": "127.0.0.1:15444",
+    "role": "postgres",
+    "alembic_head": "f2b3c4d5e6a7",
+    "prepared_by": "alembic upgrade head from empty database"
+  },
+  "python": "C:/Users/EDY/Desktop/AI制作工作台/AI_Creative_Media_Industrial_OS/.venv/Scripts/python.exe",
+  "environment": {
+    "PYTHONPATH": "worktree root",
+    "POSTGRES_HOST": "127.0.0.1",
+    "POSTGRES_PORT": "15444",
+    "POSTGRES_DB": "afs_wp04_d2"
+  },
+  "gates": [
+    {"order": 1, "command": "python scripts/reversibility_matrix.py --check", "exit": 0, "time": "17:35:17", "db_dependent": false,
+     "result": "revisions=40 asymmetric=28 no_restore_proven=28 restore_required=0 intentional_one_way=0 unproven_blocking=0 unclassified=0 ignored=0",
+     "evidence": "docs/audits/2026-11-27-wp04-reversibility-matrix.json"},
+    {"order": 2, "command": "python scripts/identity_registry.py --check", "exit": 0, "time": "17:35:18", "db_dependent": true,
+     "result": "clean=true declared=20 retired=1 problems=[]", "evidence": "stdout（本记录）"},
+    {"order": 3, "command": "python scripts/dump_identity_surface.py --check-baseline", "exit": 0, "time": "17:35:18", "db_dependent": true,
+     "result": "与基线差异 0 条", "evidence": "data/migrations/identity_surface_baseline.json"},
+    {"order": 4, "command": "python scripts/audit_identity_ddl.py --check", "exit": 0, "time": "17:35:19", "db_dependent": true,
+     "result": "身份 DDL 未超出基线（只减不增）", "evidence": "data/migrations/identity_ddl_baseline.json"},
+    {"order": 5, "command": "python -m alembic check", "exit": 0, "time": "17:35:19", "db_dependent": true,
+     "result": "No new upgrade operations detected.", "evidence": "stdout（本记录）"},
+    {"order": 6, "command": "python -m pytest tests -p no:warnings", "exit": 0, "time": "17:35:28", "db_dependent": true,
+     "result": "2034 passed, 1 skipped in 107.33s",
+     "skip_reason": "tests/unit/test_storage_locator.py:72 组合前缀恰好与真实前缀相同，非错位用例",
+     "evidence": "%TEMP%/wp04_d2_pytest.log"},
+    {"order": 7, "command": "python -m ruff check .", "exit": 0, "time": "17:35:29", "db_dependent": false,
+     "result": "All checks passed!", "evidence": "stdout（本记录）"},
+    {"order": 8, "command": "python -m mypy packages", "exit": 0, "time": "17:35:29", "db_dependent": false,
+     "result": "Success: no issues found in 60 source files", "evidence": "stdout（本记录）"},
+    {"order": 9, "command": "python scripts/contract_check.py", "exit": 0, "time": "17:35:30", "db_dependent": false,
+     "result": "[PASS] 契约一致性校验通过", "evidence": "stdout（本记录）"},
+    {"order": 10, "command": "python scripts/architecture_check.py", "exit": 0, "time": "17:35:36", "db_dependent": false,
+     "result": "[PASS] R1–R5 全 0 违规（平台能力 2 项豁免，既有规则）", "evidence": "stdout（本记录）"}
+  ],
+  "summary": {"total": 10, "passed": 10, "failed": 0, "skipped_tests": 1},
+  "boundaries": [
+    "本记录仅证明 D2 门禁在 afs_wp04_d2 上通过，不代表集群级授权已清零",
+    "未提交、未推送、未合并、未部署",
+    "测试库为一次性库，用后删除"
+  ]
+}

@@ -230,31 +230,45 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """回滚：恢复 app_role 越界权限，删除两个业务域角色。
+    """回滚：恢复 app_role 越界权限，撤销两个业务域角色的授权（**不删角色**）。
 
-    可逆性口径（审查 P2-02）：
+    可逆性口径（审查 P2-02 + WP-02 裁决 F3）：
     - 先**恢复** app_role 的权限（回到拆角色前的授权面）；
-    - 再逐个业务域角色 **REVOKE 全部授权 + 撤销默认权限**，最后才 DROP ROLE。
-      PG 拒绝删除仍持有对象权限/默认权限的角色；不先撤销就 DROP，降级会失败，
-      ``upgrade → downgrade → upgrade`` 无法往返。
+    - 再逐个业务域角色 **REVOKE 全部授权 + 撤销默认权限**；
+    - **不执行 DROP ROLE**：角色是集群级对象，迁移只拥有"自己这条链上的对象与
+      授权"，不拥有基础角色的删除权（`role_specs.py` 是身份生命周期唯一事实源）。
+      原实现删除角色会在共享集群里失败，且让本库迁移结果受其他库状态影响。
+
+    降级后的目标态是"角色存在、在本迁移管理的授权范围内零授权"，
+    不是"整个集群零授权"——跨库依赖既不在本迁移的可撤销范围，也不得被擅自清理。
     """
     project_role, asset_role, app_role = _roles()
 
-    # 恢复 app_role 对 project_planning / asset_service / auth / revision 的权限。
-    for schema in ("project_planning", "asset_service"):
+    # 恢复 app_role 的权限：必须**逐条**还原父态的实际授权面，不能按
+    # "ALL TABLES IN SCHEMA" 一把授。
+    # 父态（7a8b9c0d1e2f）逐表实测（has_table_privilege，非 relacl 猜测）：
+    #   asset_service.asset_versions : INSERT, SELECT, UPDATE
+    #   asset_service.qc_reports     : INSERT, SELECT
+    #   project_planning.episodes / projects / script_revisions : DELETE, INSERT, SELECT, UPDATE
+    #   auth.revoked_tokens          : SELECT
+    #   public.alembic_version       : SELECT
+    #   序列：无；organization 表：无 app_role 授权
+    # 旧实现给两 schema 的"所有表"授 SELECT/INSERT/UPDATE/DELETE，D 会比 P
+    # 多出 app_role 在 organizations、asset 其他表的写权限——这是降级态越权。
+    for schema in ("project_planning", "asset_service", AUTH_SCHEMA):
         op.execute(f"GRANT USAGE ON SCHEMA {schema} TO {app_role}")
-        op.execute(
-            f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "
-            f"{schema} TO {app_role}"
-        )
-        op.execute(f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO {app_role}")
-    op.execute(f'GRANT USAGE ON SCHEMA "{AUTH_SCHEMA}" TO {app_role}')
-    op.execute(
-        f'GRANT SELECT ON TABLE "{AUTH_SCHEMA}"."{AUTH_TABLE}" TO {app_role}'
-    )
-    op.execute(f"GRANT SELECT ON {ALEMBIC_VERSION} TO {app_role}")
+    for table, privileges in (
+        ("asset_service.asset_versions", "INSERT, SELECT, UPDATE"),
+        ("asset_service.qc_reports", "INSERT, SELECT"),
+        ("project_planning.episodes", "DELETE, INSERT, SELECT, UPDATE"),
+        ("project_planning.projects", "DELETE, INSERT, SELECT, UPDATE"),
+        ("project_planning.script_revisions", "DELETE, INSERT, SELECT, UPDATE"),
+        (f"{AUTH_SCHEMA}.{AUTH_TABLE}", "SELECT"),
+        (ALEMBIC_VERSION, "SELECT"),
+    ):
+        op.execute(f"GRANT {privileges} ON TABLE {table} TO {app_role}")
 
-    # 删除两个业务域角色：先撤销全部授权与默认权限，再 DROP。
+    # 撤销两个业务域角色在本迁移授权范围内的全部授权与默认权限。
     for role, schema in (
         (project_role, "project_planning"),
         (asset_role, "asset_service"),
@@ -270,7 +284,23 @@ def downgrade() -> None:
             f"REVOKE ALL ON SEQUENCES FROM {role}"
         )
         op.execute(f"REVOKE USAGE ON SCHEMA {schema} FROM {role}")
-    # 共享基础设施与就绪探针的授权也要撤（否则 DROP ROLE 仍会因依赖失败）。
+    # WP-04 D-08 归因补充：upgrade 是"schema × 角色"全量授予，降级必须按同一张
+    # 授权面对称撤销，而不是按"角色↔自家 schema"配对——交叉默认权限与 public
+    # schema 的授权正是旧实现漏掉、导致本库残留依赖的三条。
+    for role, cross_schema in (
+        (project_role, "asset_service"),
+        (asset_role, "project_planning"),
+    ):
+        op.execute(
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {cross_schema} "
+            f"REVOKE ALL ON TABLES FROM {role}"
+        )
+        op.execute(
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {cross_schema} "
+            f"REVOKE ALL ON SEQUENCES FROM {role}"
+        )
+        op.execute(f"REVOKE USAGE ON SCHEMA public FROM {role}")
+    # 共享基础设施与就绪探针的授权也要撤（本库范围内必须收干净）。
     for role in (project_role, asset_role):
         op.execute(f"REVOKE ALL ON {OUTBOX_SCHEMA}.outbox_events FROM {role}")
         op.execute(
@@ -282,4 +312,3 @@ def downgrade() -> None:
         )
         op.execute(f'REVOKE USAGE ON SCHEMA "{AUTH_SCHEMA}" FROM {role}')
         op.execute(f"REVOKE SELECT ON {ALEMBIC_VERSION} FROM {role}")
-        op.execute(f"DROP ROLE IF EXISTS {role}")

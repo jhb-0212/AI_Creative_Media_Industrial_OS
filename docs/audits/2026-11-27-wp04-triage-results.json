@@ -1,0 +1,232 @@
+[
+  {
+    "revision": "a13b0c1d2e3f",
+    "parent": "c1a2b3d4e5f6",
+    "status": "ok",
+    "verdict": "restore_required",
+    "diff": {
+      "rels": [
+        "+i project_planning.uq_episodes_entity_project"
+      ]
+    }
+  },
+  {
+    "revision": "c3d4e5f6a7b8",
+    "parent": "b1c2d3e4f5a6",
+    "status": "ok",
+    "verdict": "restore_required",
+    "diff": {
+      "rels": [
+        "+i project_planning.uq_shot_revisions_entity_project"
+      ]
+    }
+  },
+  {
+    "revision": "d7e8f9a0b1c2",
+    "parent": "c3d4e5f6a7b8",
+    "status": "ok",
+    "verdict": "no_restore_proven",
+    "diff": {}
+  },
+  {
+    "revision": "e8f9a0b1c2d3",
+    "parent": "d7e8f9a0b1c2",
+    "status": "ok",
+    "verdict": "no_restore_proven",
+    "diff": {}
+  },
+  {
+    "revision": "f1a2b3c4d5e6",
+    "parent": "e6f7a8b9c0d1",
+    "status": "ok",
+    "verdict": "no_restore_proven",
+    "diff": {}
+  },
+  {
+    "revision": "e1f2a3b4c5d6",
+    "parent": "d0e1f2a3b4c5",
+    "status": "ok",
+    "verdict": "no_restore_proven",
+    "diff": {}
+  },
+  {
+    "revision": "e4f5a6b7c8d9",
+    "parent": "f1a2b3c4d5e7",
+    "status": "ok",
+    "verdict": "no_restore_proven",
+    "diff": {}
+  },
+  {
+    "revision": "c5d6e7f8a9b0",
+    "parent": "a7b8c9d0e1f2",
+    "status": "ok",
+    "verdict": "no_restore_proven",
+    "diff": {}
+  },
+  {
+    "revision": "a8b9c0d1e2f3",
+    "parent": "f9b0c1d2e3f4",
+    "status": "ok",
+    "verdict": "no_restore_proven",
+    "diff": {}
+  },
+  {
+    "revision": "f6a7b8c9d1e2",
+    "parent": "e5f6a7b8c9d0",
+    "status": "ok",
+    "verdict": "no_restore_proven",
+    "diff": {}
+  },
+  {
+    "revision": "c1d2e3f4a5b6",
+    "parent": "b8c9d1e2f3a4",
+    "status": "ok",
+    "verdict": "no_restore_proven",
+    "diff": {}
+  },
+  {
+    "revision": "b7c8d9e0f1a2",
+    "parent": "c1d2e3f4a5b6",
+    "status": "ok",
+    "verdict": "restore_required",
+    "diff": {
+      "acl": [
+        "+public.alembic_version",
+        "~DEFACL outbox:r:postgres: {app_role=arw/postgres} -> {app_role=arwd/postgres}"
+      ]
+    }
+  },
+  {
+    "revision": "b5c6d7e8f9a0",
+    "parent": "a4b5c6d7e8f9",
+    "status": "ok",
+    "verdict": "no_restore_proven",
+    "diff": {}
+  },
+  {
+    "revision": "c6d7e8f9a0b1",
+    "parent": "b5c6d7e8f9a0",
+    "status": "ok",
+    "verdict": "restore_required",
+    "diff": {
+      "acl": [
+        "+NS auth"
+      ]
+    }
+  },
+  {
+    "revision": "a1b2c3d4e5f6",
+    "parent": "c6d7e8f9a0b1",
+    "status": "ok",
+    "verdict": "no_restore_proven",
+    "diff": {}
+  },
+  {
+    "revision": "b3c4d5e6f7a8",
+    "parent": "d2e3f4a5b6c7",
+    "status": "ok",
+    "verdict": "restore_required",
+    "diff": {
+      "acl": [
+        "~NS project_planning: {postgres=UC/postgres,project_planning_role=U/postgres} -> {postgres=UC/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres}"
+      ]
+    }
+  },
+  {
+    "revision": "e0f1a2b3c4d5",
+    "parent": "e9f0a1b2c3d4",
+    "status": "ok",
+    "verdict": "no_restore_proven",
+    "diff": {}
+  },
+  {
+    "revision": "b8c9d0e1f2a3",
+    "parent": "c4d5e6f7a8b9",
+    "status": "ok",
+    "verdict": "restore_required",
+    "diff": {
+      "acl": [
+        "~NS audit: {postgres=UC/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres,production_planning_role=U/postgres,budget_quota_role=U/postgres,qc_governance_role=U/postgres} -> {postgres=UC/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres}",
+        "~NS auth: {postgres=UC/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres,production_planning_role=U/postgres,budget_quota_role=U/postgres,qc_governance_role=U/postgres} -> {postgres=UC/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres}",
+        "~NS outbox: {postgres=UC/postgres,app_role=U/postgres,outbox_relay_role=U/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres,production_planning_role=U/postgres,budget_quota_role=U/postgres,qc_governance_role=U/postgres} -> {postgres=UC/postgres,app_role=U/postgres,outbox_relay_role=U/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres}",
+        "~NS project_planning: {postgres=UC/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres,production_planning_role=U/postgres,budget_quota_role=U/postgres,qc_governance_role=U/postgres} -> {postgres=UC/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres}",
+        "~NS public: {pg_database_owner=UC/pg_database_owner,=U/pg_database_owner,project_planning_role=U/pg_database_owner,asset_service_role=U/pg_database_owner,production_planning_role=U/pg_database_owner,budget_quota_role=U/pg_database_owner,qc_governance_role=U/pg_database_owner} -> {pg_database_owner=UC/pg_database_owner,=U/pg_database_owner,project_planning_role=U/pg_database_owner,asset_service_role=U/pg_database_owner}"
+      ]
+    }
+  },
+  {
+    "revision": "e6a7b8c9d0e1",
+    "parent": "a8b9c0d1e2f3",
+    "status": "ok",
+    "verdict": "restore_required",
+    "diff": {
+      "acl": [
+        "+PROC audit.assert_signature_event_exists() owner=postgres secdef=true",
+        "~NS qc_maintenance: {postgres=UC/postgres,qc_governance_role=U/postgres} -> {postgres=UC/postgres,qc_governance_role=U/postgres,qc_maintenance_operator=U/postgres,qc_maintenance_login=U/postgres}"
+      ]
+    }
+  },
+  {
+    "revision": "a5b6c7d8e9f0",
+    "parent": "b4c5d6e7f8a9",
+    "status": "ok",
+    "verdict": "restore_required",
+    "diff": {
+      "acl": [
+        "+DEFACL qc_maintenance:f:qc_maintenance_owner",
+        "+PROC qc_maintenance.enforce_work_order_transition() owner=qc_maintenance_owner secdef=false"
+      ]
+    }
+  },
+  {
+    "revision": "c1a2b3d4e5f6",
+    "parent": "e0f1a2b3c4d5",
+    "status": "ok",
+    "verdict": "restore_required",
+    "diff": {
+      "acl": [
+        "+DEFACL budget_quota:S:postgres",
+        "+DEFACL budget_quota:r:postgres",
+        "+DEFACL production_planning:S:postgres",
+        "+DEFACL production_planning:r:postgres",
+        "+DEFACL qc_governance:S:postgres",
+        "+DEFACL qc_governance:r:postgres",
+        "~DEFACL asset_service:S:postgres: {asset_service_role=rU/postgres} -> {project_planning_role=rU/postgres,asset_service_role=rU/postgres,production_planning_role=rU/postgres,budget_quota_role=rU/postgres,qc_governance_role=rU/postgres}",
+        "~DEFACL asset_service:r:postgres: {asset_service_role=arwd/postgres} -> {project_planning_role=arwd/postgres,asset_service_role=arwd/postgres,production_planning_role=arwd/postgres,budget_quota_role=arwd/postgres,qc_governance_role=arwd/postgres}",
+        "~DEFACL project_planning:S:postgres: {project_planning_role=rU/postgres} -> {project_planning_role=rU/postgres,asset_service_role=rU/postgres,production_planning_role=rU/postgres,budget_quota_role=rU/postgres,qc_governance_role=rU/postgres}",
+        "~DEFACL project_planning:r:postgres: {project_planning_role=arwd/postgres} -> {project_planning_role=arwd/postgres,asset_service_role=arwd/postgres,production_planning_role=arwd/postgres,budget_quota_role=arwd/postgres,qc_governance_role=arwd/postgres}",
+        "~NS audit: {postgres=UC/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres} -> {postgres=UC/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres,production_planning_role=U/postgres,budget_quota_role=U/postgres,qc_governance_role=U/postgres}",
+        "~NS auth: {postgres=UC/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres} -> {postgres=UC/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres,production_planning_role=U/postgres,budget_quota_role=U/postgres,qc_governance_role=U/postgres}",
+        "~NS outbox: {postgres=UC/postgres,app_role=U/postgres,outbox_relay_role=U/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres} -> {postgres=UC/postgres,app_role=U/postgres,outbox_relay_role=U/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres,production_planning_role=U/postgres,budget_quota_role=U/postgres,qc_governance_role=U/postgres}",
+        "~NS project_planning: {postgres=UC/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres} -> {postgres=UC/postgres,project_planning_role=U/postgres,asset_service_role=U/postgres,production_planning_role=U/postgres,budget_quota_role=U/postgres,qc_governance_role=U/postgres}",
+        "~NS public: {pg_database_owner=UC/pg_database_owner,=U/pg_database_owner} -> {pg_database_owner=UC/pg_database_owner,=U/pg_database_owner,project_planning_role=U/pg_database_owner,asset_service_role=U/pg_database_owner,production_planning_role=U/pg_database_owner,budget_quota_role=U/pg_database_owner,qc_governance_role=U/pg_database_owner}",
+        "~audit.status_transitions: {postgres=arwdDxt/postgres,project_planning_role=ar/postgres,asset_service_role=ar/postgres} -> {postgres=arwdDxt/postgres,project_planning_role=ar/postgres,asset_service_role=ar/postgres,production_planning_role=ar/postgres,budget_quota_role=ar/postgres,qc_governance_role=ar/postgres}",
+        "~auth.revoked_tokens: {postgres=arwdDxt/postgres,project_planning_role=r/postgres,asset_service_role=r/postgres} -> {postgres=arwdDxt/postgres,project_planning_role=r/postgres,asset_service_role=r/postgres,production_planning_role=r/postgres,budget_quota_role=r/postgres,qc_governance_role=r/postgres}",
+        "~outbox.outbox_events: {postgres=arwdDxt/postgres,app_role=r/postgres,outbox_relay_role=r/postgres,project_planning_role=ar/postgres,asset_service_role=ar/postgres} -> {postgres=arwdDxt/postgres,app_role=r/postgres,outbox_relay_role=r/postgres,project_planning_role=ar/postgres,asset_service_role=ar/postgres,production_planning_role=ar/postgres,budget_quota_role=ar/postgres,qc_governance_role=ar/postgres}",
+        "~public.alembic_version: {postgres=arwdDxt/postgres,project_planning_role=r/postgres,asset_service_role=r/postgres} -> {postgres=arwdDxt/postgres,project_planning_role=r/postgres,asset_service_role=r/postgres,production_planning_role=r/postgres,budget_quota_role=r/postgres,qc_governance_role=r/postgres}"
+      ]
+    }
+  },
+  {
+    "revision": "a0b1c2d3e4f5",
+    "parent": "f9a0b1c2d3e4",
+    "status": "ok",
+    "verdict": "restore_required",
+    "diff": {
+      "acl": [
+        "+NS budget_quota",
+        "+NS production_planning",
+        "+NS qc_governance",
+        "+project_planning.budget_ledger",
+        "+project_planning.gate_decisions",
+        "+project_planning.generation_tasks",
+        "+project_planning.production_routes",
+        "+project_planning.shot_budget_requests"
+      ],
+      "rels": [
+        "-i project_planning.ix_project_planning_gate_decisions_gate_key",
+        "+i project_planning.ix_project_planning_gate_decisions_project_id_gate_key"
+      ]
+    }
+  }
+]

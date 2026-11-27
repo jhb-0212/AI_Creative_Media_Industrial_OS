@@ -138,8 +138,55 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """回到「业务 schema 全量 DML + 全量默认权限」的旧状态（仅用于本地回退）。"""
+    """回到「业务 schema 全量 DML + 全量默认权限」的旧状态（仅用于本地回退）。
+
+    冻结范围必须与 upgrade 一致（``tables=_GRANTED_AT_THIS_REVISION``）：本迁移
+    从未给更晚建的表授权，降级也不能去 ``REVOKE`` 它们——那会撞上"表已经不存在"。
+    """
     for domain in DOMAINS:
         role = domain_role(domain)
-        for statement in legacy_statements(role, domain):
+        for statement in legacy_statements(role, domain, tables=_GRANTED_AT_THIS_REVISION):
             op.execute(statement)
+
+    # WP-04/#34：升级按其矩阵给三个新域角色授了**共享 schema**（audit / auth /
+    # outbox / public / project_planning）的 USAGE；父态快照里这些 schema 只有
+    # asset_service_role 与 project_planning_role。降级若不收回，D 就比 P 多
+    # 3 个角色 × 5 个 schema 的跨域访问面。这里只撤"升级授出、父态不存在"的那部分。
+    for domain in ("production_planning", "budget_quota", "qc_governance"):
+        role = domain_role(domain)
+        for schema in ("audit", "auth", "outbox", "public", "project_planning"):
+            op.execute(f"REVOKE USAGE ON SCHEMA {schema} FROM {role}")
+
+    # ``public`` schema 上父态只有 PUBLIC / pg_database_owner 的 USAGE：两个既有
+    # 域角色的 USAGE 也是升级为引用 ``alembic_version`` 之类对象才授出的，同属
+    # 降级态越权，需要收回。
+    for domain in ("asset_service", "project_planning"):
+        op.execute(f"REVOKE USAGE ON SCHEMA public FROM {domain_role(domain)}")
+
+    # 同理，升级给三个新域角色授的**共享表**读写/只读权限，父态里不存在
+    # （父态这四张表只授给 asset_service_role / project_planning_role / app_role）。
+    # ``legacy_statements`` 跳过共享 schema 是对的——但不能因此把它们留在 D 上。
+    for domain in ("production_planning", "budget_quota", "qc_governance"):
+        role = domain_role(domain)
+        for qualified in (
+            "audit.status_transitions",
+            "auth.revoked_tokens",
+            "outbox.outbox_events",
+            "public.alembic_version",
+        ):
+            op.execute(f"REVOKE ALL ON {qualified} FROM {role}")
+
+    # 三个新域的默认权限条目是升级里 ``ALTER DEFAULT PRIVILEGES ... REVOKE ALL``
+    # 留下的"相对内置默认的差异行"（父态没有任何条目）。降级把它们改回内置默认
+    # 即可让 ``pg_default_acl`` 行消失——实测 REVOKE 会删除该行，GRANT 反而会
+    # 新建一行（见 WP-04/#62 探针）。
+    for domain in ("production_planning", "budget_quota", "qc_governance"):
+        role = domain_role(domain)
+        op.execute(
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {domain} "
+            f"REVOKE ALL ON TABLES FROM {role}"
+        )
+        op.execute(
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {domain} "
+            f"REVOKE ALL ON SEQUENCES FROM {role}"
+        )

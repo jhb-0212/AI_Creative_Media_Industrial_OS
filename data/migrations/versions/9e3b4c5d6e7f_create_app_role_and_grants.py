@@ -28,6 +28,7 @@ from collections.abc import Sequence
 from alembic import op
 
 from packages.shared.db_roles import app_role_name
+from packages.shared.migration_identity import assert_role_present
 
 # revision identifiers, used by Alembic.
 revision: str = "9e3b4c5d6e7f"
@@ -66,27 +67,11 @@ def _app_password() -> str:
 
 
 def upgrade() -> None:
-    """创建应用角色并授权（最小权限，NOBYPASSRLS 使 RLS 生效）。"""
-    password = _app_password()
-
-    # 1. 创建应用角色：LOGIN、非超级用户、NOBYPASSRLS（不绕过 RLS）。
-    #    已存在时同步口令**并重置属性**（与 relay/域角色迁移同一守卫）：
-    #    只改密码会保留存量角色可能带有的 SUPERUSER/BYPASSRLS 等危险属性。
-    op.execute(
-        f"""
-        DO $$
-        BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{app_role_name()}') THEN
-                CREATE ROLE {app_role_name()} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
-                    NOBYPASSRLS PASSWORD '{password}';
-            ELSE
-                ALTER ROLE {app_role_name()} WITH LOGIN NOSUPERUSER NOCREATEDB
-                    NOCREATEROLE NOBYPASSRLS PASSWORD '{password}';
-            END IF;
-        END
-        $$
-        """
-    )
+    """断言应用角色存在（由 bootstrap 创建）并授予最小权限（NOBYPASSRLS 使 RLS 生效）。"""
+    # 1. 角色归 bootstrap：只断言存在，不建角色、不改属性、不读口令（WP-02）。
+    #    原写法把角色属性与口令变成迁移的第二份事实源，并迫使 downgrade 删角色；
+    #    `app_role` 是 9 个库共 36 条授权的落点，删它等于废掉所有库的连接配置。
+    assert_role_present(app_role_name(), op=op)
 
     # 2. 授权 schema USAGE + 表/序列权限（最小权限）。
     for schema in _SCHEMAS:
@@ -107,9 +92,13 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """回滚：回收权限 + 删除应用角色。"""
+    """回滚：只撤销本迁移授出的授权，**不删除应用角色**（WP-02）。
+
+    `app_role` 是集群级身份，真实集群上 9 个库共 36 条授权依赖它；迁移撤得掉
+    自己授的那份，撤不掉其它迁移与其它库的。原 ``DROP ROLE`` 因此必然失败，
+    且一旦在"单库"环境侥幸成功，就会连带废掉其它库的连接配置。
+    """
     for schema in _SCHEMAS:
         op.execute(f"REVOKE ALL ON ALL TABLES IN SCHEMA {schema} FROM {app_role_name()}")
         op.execute(f"REVOKE ALL ON ALL SEQUENCES IN SCHEMA {schema} FROM {app_role_name()}")
         op.execute(f"REVOKE USAGE ON SCHEMA {schema} FROM {app_role_name()}")
-    op.execute(f"DROP ROLE IF EXISTS {app_role_name()}")

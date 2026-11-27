@@ -549,6 +549,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # WP-04 覆盖率核验：upgrade 给维护 owner 授了 qc_governance 的 USAGE 与
+    # qc_tasks 的 SELECT（SECURITY DEFINER 命令要能读源表），父态没有这两条。
+    # 旧降级只删策略/函数/表，未撤这两条 → D 比 P 多出两处授权。
+    op.execute(f"REVOKE SELECT ON TABLE {_QC}.qc_tasks FROM {_owner()}")
+    op.execute(f"REVOKE USAGE ON SCHEMA {_QC} FROM {_owner()}")
     op.execute(f"DROP POLICY IF EXISTS maintenance_owner_read_task_projection "
                f"ON {_MAINT}.task_projection")
     op.execute(f"DROP POLICY IF EXISTS maintenance_owner_read_qc_tasks "

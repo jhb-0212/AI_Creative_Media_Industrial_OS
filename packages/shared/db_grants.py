@@ -757,13 +757,23 @@ def infra_converge_statements(
     )
 
 
-def legacy_statements(role: str, domain: str) -> list[str]:
+def legacy_statements(
+    role: str, domain: str, *, tables: frozenset[str] | set[str] | None = None
+) -> list[str]:
     """``converge_statements`` 的逆：回到「全量 DML + 全量默认权限」的旧状态。
 
     仅用于 ``downgrade()``。旧状态不等同于「矩阵的补集」：它是
     ``8f3b2c1d4e5a`` 的 ``GRANT ... ON ALL TABLES`` 加 ``_revoke_append_only_overreach``
     之后的具体结果——按表写出来，而不是用一个 ``ALL TABLES`` 回滚（那会把
     append-only 的收紧一并抹掉，正是本迁移要根治的形态）。
+
+    ``tables`` 是**迁移自己的冻结范围**：历史迁移只能回滚它真正改过的表。
+    不传（``None``）会按当前矩阵全量生成——这正是 `head → 7a8b9c0d1e2f`
+    在 ``c1a2b3d4e5f6`` 处失败的原因：该迁移 upgrade 时只授了 10 张表（
+    ``_GRANTED_AT_THIS_REVISION``），降级却按**今天的矩阵**去 ``REVOKE``
+    ``project_planning.scenes``（那是更晚的 ``a13b0c1d2e3f`` 才建的表，
+    在该降级点已被删掉）→ ``relation "project_planning.scenes" does not exist``。
+    冻结范围一传，历史迁移就只回滚自己那次 upgrade 动过的表。
     """
     append_only_tables = {
         (ASSET_SERVICE, "qc_reports"),
@@ -771,6 +781,10 @@ def legacy_statements(role: str, domain: str) -> list[str]:
     }
     statements: list[str] = []
     for grant in DOMAIN_GRANTS[domain]:
+        if tables is not None and grant.table not in tables:
+            # 不在本迁移冻结范围：可能尚未创建（更晚的迁移建的），也可能属于
+            # 别的迁移的授权面。回滚它不是"恢复旧状态"，而是替别人删东西。
+            continue
         if grant.schema not in DOMAINS:
             # 共享表（audit / outbox / auth / public）**不归本迁移管**（评审 F3）。
             # 本迁移从未改过它们的历史口径，所以「升级前是什么」就是矩阵此刻声明
@@ -796,15 +810,18 @@ def legacy_statements(role: str, domain: str) -> list[str]:
         qualified = grant.qualified()
         statements.append(f"REVOKE ALL ON {qualified} FROM {role}")
         statements.append(grant.grant_statement(role, frozenset(privileges)))
-    statements.extend(
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
+    # WP-04/#34：默认权限只恢复**本域自己的 schema**。旧实现在此对 ``DOMAINS``
+    # 全量循环，等于给每个域角色在别人的 schema 里也建一份「新表自动全量 DML」
+    # ——父态快照证明那些条目从未存在（asset_service 只有 asset_service_role
+    # 一条、project_planning 只有 project_planning_role 一条）。降级态据此多出
+    # 5 个角色 × 2 类对象 × 2 个 schema 的默认授权，属越权恢复。
+    statements.append(
+        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {domain} "
         f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {role}"
-        for schema in DOMAINS
     )
-    statements.extend(
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
+    statements.append(
+        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {domain} "
         f"GRANT USAGE, SELECT ON SEQUENCES TO {role}"
-        for schema in DOMAINS
     )
     return statements
 
@@ -1179,13 +1196,21 @@ def maintenance_function_public_reclaim_statements() -> list[str]:
 
 
 def maintenance_function_public_reclaim_restore_statements() -> list[str]:
-    """``downgrade`` 用：把上一条收回的 ``PUBLIC`` 执行权放回原状。"""
+    """``downgrade`` 用：把 ``PUBLIC`` 执行权放回原状。
+
+    注意这里用的是 ``REVOKE`` 而不是 ``GRANT``：``ALTER DEFAULT PRIVILEGES``
+    写的是一行"相对内置默认的差异"。升级那句 REVOKE 在 PG 16 上并不留下
+    ``pg_default_acl`` 条目；降级若改写成 GRANT，PG 会**新建**
+    ``{=X/owner}`` 这一行——父态快照里没有它（WP-04/#62）。实测（探针库
+    ``afs_t62probe``）：对同一目标再执行一次 REVOKE，行即消失，而"没有行"
+    本身就等于"内置默认 PUBLIC EXECUTE"，语义回到父态。
+    """
     from packages.shared.db_roles import maintenance_role
 
     owner = maintenance_role("owner")
     return [
         f"ALTER DEFAULT PRIVILEGES FOR ROLE {owner} "
-        f"IN SCHEMA {MAINTENANCE_SCHEMA} GRANT EXECUTE ON FUNCTIONS TO PUBLIC",
+        f"IN SCHEMA {MAINTENANCE_SCHEMA} REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC",
         f"GRANT EXECUTE ON FUNCTION {MAINTENANCE_TRANSITION_TRIGGER} TO PUBLIC",
     ]
 

@@ -178,6 +178,11 @@ def upgrade() -> None:
 def downgrade() -> None:
     for statement in maintenance_identity_restore_statements():
         op.execute(statement)
+    # WP-04/#59：父 revision 的 qc_maintenance schema 只有属主权限，
+    # 没有任何维护角色 USAGE。升级给 operator / login 授的 schema USAGE
+    # 不是"角色成员关系"能覆盖的，必须单独收回，否则 D 比 P 多两条授权。
+    for key in ("operator", "login"):
+        op.execute(f"REVOKE USAGE ON SCHEMA {MAINTENANCE_SCHEMA} FROM {_role(key)}")
     op.execute(f"ALTER TABLE {MAINTENANCE_SCHEMA}.task_projection OWNER TO CURRENT_USER")
     op.execute(f"ALTER SCHEMA {MAINTENANCE_SCHEMA} OWNER TO CURRENT_USER")
     op.execute(f"DROP FUNCTION IF EXISTS {MAINTENANCE_SCHEMA}.{_GUARD_NAME}()")

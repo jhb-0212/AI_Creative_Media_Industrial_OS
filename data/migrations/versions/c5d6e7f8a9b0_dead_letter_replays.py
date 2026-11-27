@@ -56,6 +56,7 @@ from packages.shared.config import (
 )
 from packages.shared.db_grants import OUTBOX_OPS, infra_converge_statements
 from packages.shared.db_roles import infra_role
+from packages.shared.migration_identity import assert_role_present
 from packages.shared.partition_guard import (
     ops_partition_grant_do_block,
     ops_partition_revoke_do_block,
@@ -91,29 +92,14 @@ def _ops_password() -> str:
     return password.replace("'", "''")
 
 
-def _create_role() -> None:
-    """创建运维角色（已存在时同步口令并重置属性）。
+def _assert_role() -> None:
+    """断言运维角色已由 bootstrap 创建（WP-02）。
 
-    重置属性不是洁癖：只改口令会保留存量角色可能带有的 SUPERUSER / BYPASSRLS，
-    角色隔离在那个环境里形同虚设（``7a8b9c0d1e2f`` 的同一教训）。
+    本迁移不再 ``CREATE ROLE``：角色属性与口令的唯一声明处是
+    ``role_specs.py``（bootstrap 执行）。这里既不改属性也不读口令——迁移读一遍
+    口令等于让"口令来源"多一个执行点，且其中一个还是历史文件。
     """
-    role = infra_role(OUTBOX_OPS)
-    password = _ops_password()
-    op.execute(
-        f"""
-        DO $$
-        BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}') THEN
-                CREATE ROLE {role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
-                    NOBYPASSRLS PASSWORD '{password}';
-            ELSE
-                ALTER ROLE {role} WITH LOGIN NOSUPERUSER NOCREATEDB
-                    NOCREATEROLE NOBYPASSRLS PASSWORD '{password}';
-            END IF;
-        END
-        $$
-        """
-    )
+    assert_role_present(infra_role(OUTBOX_OPS), op=op)
 
 
 def _create_table() -> None:
@@ -190,7 +176,7 @@ def _enable_rls() -> None:
 
 
 def upgrade() -> None:
-    _create_role()
+    _assert_role()
     _create_table()
     _append_only()
     _enable_rls()
@@ -203,10 +189,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """回滚：先摘权限再删角色，保证 upgrade → downgrade → upgrade 可往返。
+    """回滚：只撤销本迁移授出的授权，**不删除角色**（WP-02）。
 
-    PG 拒绝删除仍持有对象权限的角色；顺序反了会停在
-    "role cannot be dropped because some objects depend on it"。
+    角色是集群级对象，`outbox_ops_role` 在真实集群上被 7 个库共 108 条授权依赖
+    （本迁移的死信表只是其中一份）。迁移只撤得掉自己这一份，剩下的 90% 它既
+    看不见也无权撤销——原来的 ``DROP ROLE`` 因此必然失败，整条降级链在真实多库
+    集群上根本走不过去（实测见 P4 根因分析）。角色生命周期归 bootstrap。
 
     分区上的授权必须单独撤销：升级侧逐个分区 GRANT，而分区 ACL 是独立于
     父表的条目——``REVOKE ALL ON outbox.outbox_events`` 不会连带撤销
@@ -217,7 +205,6 @@ def downgrade() -> None:
     op.execute(
         f"REVOKE ALL ON {_SCHEMA}.{_TABLE} FROM {role}"
     )
-    # 必须早于 DROP ROLE，且不能靠父表的 REVOKE 代替。
     op.execute(ops_partition_revoke_do_block())
     op.execute(
         f"REVOKE ALL ON {_SCHEMA}.outbox_events FROM {role}"
@@ -248,4 +235,3 @@ def downgrade() -> None:
         schema=_SCHEMA,
     )
     op.drop_table(_TABLE, schema=_SCHEMA)
-    op.execute(f"DROP ROLE IF EXISTS {role}")

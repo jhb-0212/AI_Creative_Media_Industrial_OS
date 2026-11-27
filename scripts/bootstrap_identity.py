@@ -35,7 +35,13 @@ from packages.shared.identity_bootstrap import (
     missing_objects,
     roles_phase,
 )
-from packages.shared.role_specs import LiveRole, diff_role_attributes, role_specs
+from packages.shared.role_specs import (
+    LiveRole,
+    diff_role_attributes,
+    retired_role_names,
+    role_specs,
+    spec_problems,
+)
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -132,6 +138,25 @@ async def _run(args: argparse.Namespace) -> int:
             return EXIT_OK if not problems else EXIT_FAILED
 
         if args.roles or args.all:
+            # 退役身份只能由受控降级入口恢复，bootstrap 永不创建：
+            # `RETIRED_ROLES` 与 `role_specs()` 一旦重叠，就是有人把退役身份
+            # 放回了"当前目标态"，此时建角色等于让退役失效——直接阻塞。
+            overlap = sorted(
+                spec.name for spec in role_specs() if spec.name in retired_role_names()
+            )
+            if overlap:
+                print(
+                    "[BLOCKED] 退役身份出现在当前目标态：\n  " + "\n  ".join(overlap),
+                    file=sys.stderr,
+                )
+                return EXIT_BLOCKED
+            problems = spec_problems()
+            if problems:
+                print(
+                    "[BLOCKED] 声明自检未通过：\n  " + "\n  ".join(problems),
+                    file=sys.stderr,
+                )
+                return EXIT_BLOCKED
             code = await _apply(roles_phase(settings), conn)
             if code != EXIT_OK:
                 return code

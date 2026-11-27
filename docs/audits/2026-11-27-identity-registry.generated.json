@@ -1,0 +1,426 @@
+{
+  "source": "packages/shared/role_specs.py",
+  "generated": true,
+  "warning": "生成物，不得作为第二事实源回灌",
+  "roles": [
+    {
+      "name": "app_role",
+      "role_type": "LOGIN",
+      "lifecycle_owner": "bootstrap",
+      "lifecycle_state": "active",
+      "login": true,
+      "superuser": false,
+      "createdb": false,
+      "createrole": false,
+      "bypassrls": false,
+      "inherit": true,
+      "member_of": [],
+      "database_domains": [],
+      "deletion_policy": "bootstrap_retire_only",
+      "adr_refs": [],
+      "migration_refs": [
+        "9e3b4c5d6e7f"
+      ],
+      "purpose": "遗留单应用角色（outbox/auth 只读），保留给测试与工具"
+    },
+    {
+      "name": "outbox_relay_role",
+      "role_type": "LOGIN",
+      "lifecycle_owner": "bootstrap",
+      "lifecycle_state": "active",
+      "login": true,
+      "superuser": false,
+      "createdb": false,
+      "createrole": false,
+      "bypassrls": false,
+      "inherit": true,
+      "member_of": [],
+      "database_domains": [],
+      "deletion_policy": "bootstrap_retire_only",
+      "adr_refs": [],
+      "migration_refs": [
+        "7a8b9c0d1e2f"
+      ],
+      "purpose": "Outbox Relay：只消费 outbox 并回写投递元数据列"
+    },
+    {
+      "name": "outbox_ops_role",
+      "role_type": "LOGIN",
+      "lifecycle_owner": "bootstrap",
+      "lifecycle_state": "active",
+      "login": true,
+      "superuser": false,
+      "createdb": false,
+      "createrole": false,
+      "bypassrls": false,
+      "inherit": true,
+      "member_of": [],
+      "database_domains": [],
+      "deletion_policy": "bootstrap_retire_only",
+      "adr_refs": [],
+      "migration_refs": [
+        "c5d6e7f8a9b0"
+      ],
+      "purpose": "运维角色 outbox_ops：死信重放与投递事实清理"
+    },
+    {
+      "name": "qc_maintenance_owner",
+      "role_type": "NOLOGIN",
+      "lifecycle_owner": "bootstrap",
+      "lifecycle_state": "active",
+      "login": false,
+      "superuser": false,
+      "createdb": false,
+      "createrole": false,
+      "bypassrls": false,
+      "inherit": true,
+      "member_of": [],
+      "database_domains": [],
+      "deletion_policy": "bootstrap_retire_only",
+      "adr_refs": [],
+      "migration_refs": [
+        "e6a7b8c9d0e1"
+      ],
+      "purpose": "维护身份 owner（WP-03 四角色模型）"
+    },
+    {
+      "name": "qc_maintenance_operator",
+      "role_type": "NOLOGIN",
+      "lifecycle_owner": "bootstrap",
+      "lifecycle_state": "active",
+      "login": false,
+      "superuser": false,
+      "createdb": false,
+      "createrole": false,
+      "bypassrls": false,
+      "inherit": true,
+      "member_of": [],
+      "database_domains": [],
+      "deletion_policy": "bootstrap_retire_only",
+      "adr_refs": [],
+      "migration_refs": [
+        "e6a7b8c9d0e1"
+      ],
+      "purpose": "维护身份 operator（WP-03 四角色模型）"
+    },
+    {
+      "name": "qc_maintenance_login",
+      "role_type": "LOGIN",
+      "lifecycle_owner": "bootstrap",
+      "lifecycle_state": "active",
+      "login": true,
+      "superuser": false,
+      "createdb": false,
+      "createrole": false,
+      "bypassrls": false,
+      "inherit": true,
+      "member_of": [
+        "qc_maintenance_operator"
+      ],
+      "database_domains": [],
+      "deletion_policy": "bootstrap_retire_only",
+      "adr_refs": [],
+      "migration_refs": [
+        "e6a7b8c9d0e1"
+      ],
+      "purpose": "维护身份 login（WP-03 四角色模型）"
+    },
+    {
+      "name": "qc_scheduler",
+      "role_type": "LOGIN",
+      "lifecycle_owner": "bootstrap",
+      "lifecycle_state": "active",
+      "login": true,
+      "superuser": false,
+      "createdb": false,
+      "createrole": false,
+      "bypassrls": false,
+      "inherit": true,
+      "member_of": [],
+      "database_domains": [],
+      "deletion_policy": "bootstrap_retire_only",
+      "adr_refs": [],
+      "migration_refs": [
+        "a5b6c7d8e9f0"
+      ],
+      "purpose": "调度发现身份：只允许调用零参发现函数"
+    },
+    {
+      "name": "project_planning_role",
+      "role_type": "LOGIN",
+      "lifecycle_owner": "bootstrap",
+      "lifecycle_state": "active",
+      "login": true,
+      "superuser": false,
+      "createdb": false,
+      "createrole": false,
+      "bypassrls": false,
+      "inherit": true,
+      "member_of": [],
+      "database_domains": [
+        "project_planning"
+      ],
+      "deletion_policy": "bootstrap_retire_only",
+      "adr_refs": [],
+      "migration_refs": [
+        "8f3b2c1d4e5a"
+      ],
+      "purpose": "遗留业务域角色（R16 拆分前的一域一角色）"
+    },
+    {
+      "name": "asset_service_role",
+      "role_type": "LOGIN",
+      "lifecycle_owner": "bootstrap",
+      "lifecycle_state": "active",
+      "login": true,
+      "superuser": false,
+      "createdb": false,
+      "createrole": false,
+      "bypassrls": false,
+      "inherit": true,
+      "member_of": [],
+      "database_domains": [
+        "asset_service"
+      ],
+      "deletion_policy": "bootstrap_retire_only",
+      "adr_refs": [],
+      "migration_refs": [
+        "8f3b2c1d4e5a"
+      ],
+      "purpose": "遗留业务域角色（R16 拆分前的一域一角色）"
+    },
+    {
+      "name": "production_planning_role",
+      "role_type": "LOGIN",
+      "lifecycle_owner": "bootstrap",
+      "lifecycle_state": "active",
+      "login": true,
+      "superuser": false,
+      "createdb": false,
+      "createrole": false,
+      "bypassrls": false,
+      "inherit": true,
+      "member_of": [],
+      "database_domains": [
+        "production_planning"
+      ],
+      "deletion_policy": "bootstrap_retire_only",
+      "adr_refs": [],
+      "migration_refs": [
+        "e0f1a2b3c4d5",
+        "a0b1c2d3e4f5"
+      ],
+      "purpose": "遗留业务域角色（R16 拆分前的一域一角色）"
+    },
+    {
+      "name": "budget_quota_role",
+      "role_type": "LOGIN",
+      "lifecycle_owner": "bootstrap",
+      "lifecycle_state": "active",
+      "login": true,
+      "superuser": false,
+      "createdb": false,
+      "createrole": false,
+      "bypassrls": false,
+      "inherit": true,
+      "member_of": [],
+      "database_domains": [
+        "budget_quota"
+      ],
+      "deletion_policy": "bootstrap_retire_only",
+      "adr_refs": [],
+      "migration_refs": [
+        "e0f1a2b3c4d5",
+        "a0b1c2d3e4f5"
+      ],
+      "purpose": "遗留业务域角色（R16 拆分前的一域一角色）"
+    },
+    {
+      "name": "qc_governance_role",
+      "role_type": "LOGIN",
+      "lifecycle_owner": "bootstrap",
+      "lifecycle_state": "active",
+      "login": true,
+      "superuser": false,
+      "createdb": false,
+      "createrole": false,
+      "bypassrls": false,
+      "inherit": true,
+      "member_of": [],
+      "database_domains": [
+        "qc_governance"
+      ],
+      "deletion_policy": "bootstrap_retire_only",
+      "adr_refs": [],
+      "migration_refs": [
+        "e0f1a2b3c4d5",
+        "a0b1c2d3e4f5"
+      ],
+      "purpose": "遗留业务域角色（R16 拆分前的一域一角色）"
+    },
+    {
+      "name": "svc_project_planning",
+      "role_type": "NOLOGIN",
+      "lifecycle_owner": "bootstrap",
+      "lifecycle_state": "active",
+      "login": false,
+      "superuser": false,
+      "createdb": false,
+      "createrole": false,
+      "bypassrls": false,
+      "inherit": true,
+      "member_of": [],
+      "database_domains": [],
+      "deletion_policy": "bootstrap_retire_only",
+      "adr_refs": [],
+      "migration_refs": [],
+      "purpose": "域 project_planning 的运行时角色（R16 占位，零授权未启用）"
+    },
+    {
+      "name": "svc_shot_planning",
+      "role_type": "NOLOGIN",
+      "lifecycle_owner": "bootstrap",
+      "lifecycle_state": "active",
+      "login": false,
+      "superuser": false,
+      "createdb": false,
+      "createrole": false,
+      "bypassrls": false,
+      "inherit": true,
+      "member_of": [],
+      "database_domains": [],
+      "deletion_policy": "bootstrap_retire_only",
+      "adr_refs": [],
+      "migration_refs": [],
+      "purpose": "域 shot_planning 的运行时角色（R16 占位，零授权未启用）"
+    },
+    {
+      "name": "svc_generation_execution",
+      "role_type": "NOLOGIN",
+      "lifecycle_owner": "bootstrap",
+      "lifecycle_state": "active",
+      "login": false,
+      "superuser": false,
+      "createdb": false,
+      "createrole": false,
+      "bypassrls": false,
+      "inherit": true,
+      "member_of": [],
+      "database_domains": [],
+      "deletion_policy": "bootstrap_retire_only",
+      "adr_refs": [],
+      "migration_refs": [],
+      "purpose": "域 generation_execution 的运行时角色（R16 占位，零授权未启用）"
+    },
+    {
+      "name": "svc_asset",
+      "role_type": "NOLOGIN",
+      "lifecycle_owner": "bootstrap",
+      "lifecycle_state": "active",
+      "login": false,
+      "superuser": false,
+      "createdb": false,
+      "createrole": false,
+      "bypassrls": false,
+      "inherit": true,
+      "member_of": [],
+      "database_domains": [],
+      "deletion_policy": "bootstrap_retire_only",
+      "adr_refs": [],
+      "migration_refs": [],
+      "purpose": "域 asset_service 的运行时角色（R16 占位，零授权未启用）"
+    },
+    {
+      "name": "svc_qc_governance",
+      "role_type": "NOLOGIN",
+      "lifecycle_owner": "bootstrap",
+      "lifecycle_state": "active",
+      "login": false,
+      "superuser": false,
+      "createdb": false,
+      "createrole": false,
+      "bypassrls": false,
+      "inherit": true,
+      "member_of": [],
+      "database_domains": [],
+      "deletion_policy": "bootstrap_retire_only",
+      "adr_refs": [],
+      "migration_refs": [],
+      "purpose": "域 qc_governance 的运行时角色（R16 占位，零授权未启用）"
+    },
+    {
+      "name": "svc_workflow",
+      "role_type": "NOLOGIN",
+      "lifecycle_owner": "bootstrap",
+      "lifecycle_state": "active",
+      "login": false,
+      "superuser": false,
+      "createdb": false,
+      "createrole": false,
+      "bypassrls": false,
+      "inherit": true,
+      "member_of": [],
+      "database_domains": [],
+      "deletion_policy": "bootstrap_retire_only",
+      "adr_refs": [],
+      "migration_refs": [],
+      "purpose": "域 workflow 的运行时角色（R16 占位，零授权未启用）"
+    },
+    {
+      "name": "svc_outbox_relay",
+      "role_type": "NOLOGIN",
+      "lifecycle_owner": "bootstrap",
+      "lifecycle_state": "active",
+      "login": false,
+      "superuser": false,
+      "createdb": false,
+      "createrole": false,
+      "bypassrls": false,
+      "inherit": true,
+      "member_of": [],
+      "database_domains": [],
+      "deletion_policy": "bootstrap_retire_only",
+      "adr_refs": [],
+      "migration_refs": [],
+      "purpose": "域 outbox_relay 的运行时角色（R16 占位，零授权未启用）"
+    },
+    {
+      "name": "svc_identity",
+      "role_type": "NOLOGIN",
+      "lifecycle_owner": "bootstrap",
+      "lifecycle_state": "active",
+      "login": false,
+      "superuser": false,
+      "createdb": false,
+      "createrole": false,
+      "bypassrls": false,
+      "inherit": true,
+      "member_of": [],
+      "database_domains": [],
+      "deletion_policy": "bootstrap_retire_only",
+      "adr_refs": [],
+      "migration_refs": [],
+      "purpose": "域 identity 的运行时角色（R16 占位，零授权未启用）"
+    }
+  ],
+  "retired": [
+    {
+      "name": "qc_worker",
+      "retired_at_revision": "f2b3c4d5e6a7",
+      "retirement_reason": "qc_worker 是空壳登录身份：仓库内没有任何 DSN/池/进程入口使用它，集群里零依赖、零成员关系；Worker 真正连库用的是 QC 治理域角色（见 db_grants 的域映射）。给它补授权只会造出无人负责却可登录的权限面（AUTHZ-5 复核结论）。",
+      "historical_attributes": {
+        "login": true,
+        "superuser": false,
+        "createdb": false,
+        "createrole": false,
+        "bypassrls": false,
+        "inherit": true,
+        "member_of": [],
+        "database_domains": [],
+        "password_setting": "postgres_qc_worker_password"
+      },
+      "downgrade_restore_policy": "restore_on_downgrade",
+      "credential_source": "settings.postgres_qc_worker_password"
+    }
+  ]
+}

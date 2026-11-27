@@ -27,24 +27,24 @@
 「退役了」这句话变成假话，而迁移报告仍是绿的。存在依赖时错误信息给出条数，
 由部署方按 ``scripts/retire_legacy_roles.py`` 的口径先清引用。
 
-downgrade 重建登录身份（同 ``e6a7b8c9d0e1`` 的口令来源），并补回
-``REVOKE operator FROM worker``：回退要回到「上一版可登录的空壳」，而不是
-留下一个不存在的角色。
+downgrade 重建登录身份时不再手写属性与口令：改由
+``migration_identity.restore_retired_role`` 按 `role_specs.RETIRED_ROLES`
+的 `historical_attributes` 恢复，并要求受控入口显式确认
+（``AUTHORIZE_RETIRED_ROLE_RESTORE=f2b3c4d5e6a7``）；凭据缺失或未授权即失败关闭
+（WP-03 方案 A 的降级恢复契约）。
 """
 
 from __future__ import annotations
 
 from alembic import op
 
-from packages.shared.config import get_settings
 from packages.shared.db_roles import maintenance_role
+from packages.shared.migration_identity import restore_retired_role
 
 revision: str = "f2b3c4d5e6a7"
 down_revision: str | None = "b6c7d8e9f0a1"
 branch_labels: str | None = None
 depends_on: str | None = None
-
-_NO_ESCALATION = "NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS"
 
 
 def _worker() -> str:
@@ -83,23 +83,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    settings = get_settings()
-    role = _worker()
-    password = settings.postgres_qc_worker_password.get_secret_value()
-    password_sql = " PASSWORD '" + password.replace("'", "''") + "'"
-    op.execute(
-        f"""
-        DO $$
-        BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}') THEN
-                CREATE ROLE {role} LOGIN {_NO_ESCALATION}{password_sql};
-            ELSE
-                ALTER ROLE {role} WITH LOGIN {_NO_ESCALATION}{password_sql};
-            END IF;
-        END $$;
-        """
-    )
-    # 回退后的空壳仍不得是维护权限组成员（这条边界不能因为回退而消失）。
-    op.execute(
-        f"REVOKE {maintenance_role('operator')} FROM {role}"
-    )
+    # 属性、成员关系、口令字段名全部来自 ``role_specs.RETIRED_ROLES`` 的历史定义；
+    # 未授权（``AUTHORIZE_RETIRED_ROLE_RESTORE=<revision>``）或凭据缺失时失败关闭。
+    # 恢复自带 ``RAISE WARNING``：重建集群级登录身份不允许只留一条日志。
+    restore_retired_role(_worker(), op=op)

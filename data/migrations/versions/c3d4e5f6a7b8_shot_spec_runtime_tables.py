@@ -55,6 +55,10 @@ from sqlalchemy.dialects import postgresql
 
 from packages.shared.db_grants import PROJECT_PLANNING, converge_statements
 from packages.shared.db_roles import domain_role
+from packages.shared.migration_constraints import (
+    drop_marked_constraint,
+    mark_created_constraint,
+)
 from packages.shared.rls import tenant_scope_predicate
 from packages.shared.status_constraint import status_check
 from services.project_planning.domain.enums import ShotSpecStatus
@@ -145,6 +149,9 @@ def _ensure_revision_unique_target() -> None:
         return
     op.create_unique_constraint(
         _REVISION_UQ, "shot_revisions", ["project_id", "entity_id"], schema=_SCHEMA
+    )
+    op.execute(
+        mark_created_constraint("shot_revisions", _REVISION_UQ, _SCHEMA, revision)
     )
 
 
@@ -282,6 +289,16 @@ def _drop_table() -> None:
     # 表删掉之后函数才无引用者。顺序反了 PG 会以「被 CHECK 依赖」拒绝。
     op.execute(f"DROP FUNCTION IF EXISTS {_SCHEMA}.{_CUT_POINTS_FN}(integer[])")
 
-    # 刻意不删除 uq_shot_revisions_entity_project：ShotRevisionModel 本就声明了
-    # 它，删除会让降级后的库与领域模型不一致；而且它本身是正确的领域约束
-    # （「修订的同项目身份」），删了属反向破坏。
+    # WP-04/#37：父 revision 上没有 uq_shot_revisions_entity_project（P→D 实测残留）。
+    # 引用它的外键已随 shot_specs 等表删除，故放在最后；只删带本 revision 来源
+    # 标记的约束，更早 revision 真正存在的同名约束保留。
+    op.execute(
+        drop_marked_constraint(
+            "shot_revisions",
+            _REVISION_UQ,
+            _SCHEMA,
+            revision,
+            ("project_id", "entity_id"),
+        )
+    )
+

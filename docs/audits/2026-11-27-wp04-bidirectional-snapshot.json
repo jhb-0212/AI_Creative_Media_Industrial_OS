@@ -1,0 +1,204 @@
+{
+  "method": "P(parent) -> alembic upgrade -> alembic downgrade -> D(downgrade)，规范化 ACL（aclexplode+acldefault）、pg_toast OID 抖动剔除",
+  "run_at": "2026-11-27",
+  "scope": "矩阵中全部 asymmetric revision（28 条）",
+  "results": [
+    {
+      "revision": "8f3b2c1d4e5a",
+      "parent": "7a8b9c0d1e2f",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "docs/audits/2026-11-27-wp04-f3-p41-verification.md §8；docs/audits/2026-11-27-wp04-n24-triage.json",
+      "note": "Owner 2026-11-27 同意解除技术阻断；范围=本库/本 migration 管理面；cluster_wide_zero_authorization_verified 保持 false"
+    },
+    {
+      "revision": "a0b1c2d3e4f5",
+      "parent": "f9a0b1c2d3e4",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "docs/audits/2026-11-27-wp04-f3-p41-verification.md §7（索引名按 schema 区分后复跑）"
+    },
+    {
+      "revision": "a13b0c1d2e3f",
+      "parent": "c1a2b3d4e5f6",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "docs/audits/2026-11-27-wp04-fix-round.json"
+    },
+    {
+      "revision": "a1b2c3d4e5f6",
+      "parent": "c6d7e8f9a0b1",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "%TEMP%\\wp04_triage_cov.log (afs_t05_cov)"
+    },
+    {
+      "revision": "a5b6c7d8e9f0",
+      "parent": "b4c5d6e7f8a9",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "docs/audits/2026-11-27-wp04-fix-round.json"
+    },
+    {
+      "revision": "a8b9c0d1e2f3",
+      "parent": "f9b0c1d2e3f4",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "%TEMP%\\wp04_triage_cov.log (afs_t15_cov)"
+    },
+    {
+      "revision": "b3c4d5e6f7a8",
+      "parent": "d2e3f4a5b6c7",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "docs/audits/2026-11-27-wp04-fix-round.json"
+    },
+    {
+      "revision": "b4c5d6e7f8a9",
+      "parent": "f8c9d0e1a2b3",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "%TEMP%\\wp04_triage_cov.log (afs_t17_cov)"
+    },
+    {
+      "revision": "b5c6d7e8f9a0",
+      "parent": "a4b5c6d7e8f9",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "%TEMP%\\wp04_triage_cov.log (afs_t04_cov)"
+    },
+    {
+      "revision": "b7c8d9e0f1a2",
+      "parent": "c1d2e3f4a5b6",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "docs/audits/2026-11-27-wp04-fix-round.json"
+    },
+    {
+      "revision": "b8c9d0e1f2a3",
+      "parent": "c4d5e6f7a8b9",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "docs/audits/2026-11-27-wp04-fix-round.json"
+    },
+    {
+      "revision": "c1a2b3d4e5f6",
+      "parent": "e0f1a2b3c4d5",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "docs/audits/2026-11-27-wp04-fix-round.json"
+    },
+    {
+      "revision": "c1d2e3f4a5b6",
+      "parent": "b8c9d1e2f3a4",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "%TEMP%\\wp04_triage_cov.log (afs_t03_cov)"
+    },
+    {
+      "revision": "c3d4e5f6a7b8",
+      "parent": "b1c2d3e4f5a6",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "docs/audits/2026-11-27-wp04-fix-round.json"
+    },
+    {
+      "revision": "c5d6e7f8a9b0",
+      "parent": "a7b8c9d0e1f2",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "%TEMP%\\wp04_triage_cov.log (afs_t14_cov)"
+    },
+    {
+      "revision": "c6d7e8f9a0b1",
+      "parent": "b5c6d7e8f9a0",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "docs/audits/2026-11-27-wp04-fix-round.json"
+    },
+    {
+      "revision": "d7e8f9a0b1c2",
+      "parent": "c3d4e5f6a7b8",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "%TEMP%\\wp04_triage_cov.log (afs_t08_cov)"
+    },
+    {
+      "revision": "d8e9f0a1b2c3",
+      "parent": "c7d8e9f0a1b2",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "%TEMP%\\wp04_triage_cov.log (afs_t06_cov)"
+    },
+    {
+      "revision": "e0f1a2b3c4d5",
+      "parent": "e9f0a1b2c3d4",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "%TEMP%\\wp04_triage_cov.log (afs_t07_cov)"
+    },
+    {
+      "revision": "e1f2a3b4c5d6",
+      "parent": "d0e1f2a3b4c5",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "%TEMP%\\wp04_triage_cov.log (afs_t12_cov)"
+    },
+    {
+      "revision": "e4f5a6b7c8d9",
+      "parent": "f1a2b3c4d5e7",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "%TEMP%\\wp04_triage_cov.log (afs_t13_cov)"
+    },
+    {
+      "revision": "e5f6a7b8c9d0",
+      "parent": "d4e5f6a7b8c9",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "%TEMP%\\wp04_triage_cov.log (afs_t01_cov)"
+    },
+    {
+      "revision": "e6a7b8c9d0e1",
+      "parent": "a8b9c0d1e2f3",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "docs/audits/2026-11-27-wp04-fix-round.json"
+    },
+    {
+      "revision": "e8f9a0b1c2d3",
+      "parent": "d7e8f9a0b1c2",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "%TEMP%\\wp04_triage_cov.log (afs_t09_cov)"
+    },
+    {
+      "revision": "f1a2b3c4d5e6",
+      "parent": "e6f7a8b9c0d1",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "%TEMP%\\wp04_triage_cov.log (afs_t11_cov)"
+    },
+    {
+      "revision": "f6a7b8c9d1e2",
+      "parent": "e5f6a7b8c9d0",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "%TEMP%\\wp04_triage_cov.log (afs_t02_cov)"
+    },
+    {
+      "revision": "f8c9d0e1a2b3",
+      "parent": "e6a7b8c9d0e1",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "%TEMP%\\wp04_triage_cov.log (afs_t01_cov2, 修复后复跑)"
+    },
+    {
+      "revision": "f9a0b1c2d3e4",
+      "parent": "e8f9a0b1c2d3",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "evidence": "%TEMP%\\wp04_triage_cov.log (afs_t10_cov)"
+    }
+  ]
+}
