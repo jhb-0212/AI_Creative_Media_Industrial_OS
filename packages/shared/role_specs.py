@@ -139,17 +139,23 @@ def role_specs() -> tuple[RoleSpec, ...]:
                 purpose="遗留业务域角色（R16 拆分前的一域一角色）",
             )
         )
-    # R16 之后的「当前物理角色」在注册表里（``runtime_role``），不在 db_roles：
-    # 它们与 ``legacy_role`` 并存，两个集合在集群里都真实存在且都可登录。
-    # 声明必须覆盖两者，否则闸门只盯住一半身份面。
+    # R16 之后的「当前物理角色」在注册表里（``runtime_role``），不在 db_roles。
+    # 它们与 ``legacy_role`` 并存，但**当前是占位**：注册表自述「8 个 svc_* 表权限
+    # 全零」，仓库里没有任何代码/配置用它们连接，也没有任何迁移创建它们（集群里
+    # 那 8 个是手工产物）；Settings 上更没有对应的口令字段。
+    #
+    # 因此声明为 NOLOGIN：一个「零授权 + 无人使用 + 无口令来源」的登录壳身份，
+    # 与已退役的 qc_worker 是同一类风险面（账号存在但没人负责）。R16 真正启用时，
+    # 改这一处声明（login=True + 补配置字段）再由 bootstrap 收敛即可——声明是
+    # 目标态，bootstrap 负责把集群拉过去，而不是反过来。
     registry = load_registry(_REGISTRY_PATH)
     for registry_domain in registry.domains:
         specs.append(
             RoleSpec(
                 name=registry_domain.runtime_role,
-                login=True,
+                login=False,
                 password_setting=None,
-                purpose=f"域 {registry_domain.id} 的运行时角色（R16）",
+                purpose=f"域 {registry_domain.id} 的运行时角色（R16 占位，零授权未启用）",
             )
         )
         if registry_domain.legacy_role:
