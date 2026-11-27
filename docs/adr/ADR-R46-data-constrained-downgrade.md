@@ -1,10 +1,10 @@
 # ADR-R46：数据约束型降级（Data-constrained downgrade）
 
 ADR-R46
-Status: DECIDED
-Decision: ACCEPTED
+Status: PENDING
+Decision: PENDING_OWNER_SIGNATURE
 Owner: Project Owner
-Signed: 2026-11-27（Project Owner 于本日确认签署）
+Signed: （未签署；2026-11-27 的签署标记因缺少独立 Owner 签署证据而撤销）
 Scope:
   - Identity lifecycle ownership
   - Migration authorization boundary
@@ -12,7 +12,7 @@ Scope:
   - Bidirectional reversibility
   - Cluster-wide proof boundary
 
-- 状态：**已决定（DECIDED）/ 已接受（ACCEPTED）**，2026-11-27 由 Project Owner 签署
+- 状态：**技术审查已定稿，待项目 Owner 签署（PENDING）**；此前文件中的 `DECIDED / Signed` 标记因无独立签署记录，按 D4 裁决撤销
 - 日期：2026-11-27
 - 关联：ADR-R28（迁移谱系）、ADR-R40（统一授权模型）、WP-04（降级可逆性矩阵）
 - 影响面：`data/migrations/` 全部 65 个 revision 的降级路径、`scripts/reversibility_matrix.py`、CI 中的迁移往返验证
@@ -62,12 +62,12 @@ Scope:
 
 守卫必须是**迁移内的 SQL 检查 + 明确的失败语义**，或者由迁移调用的共享 helper（同一份实现，便于加测试），不能是外部脚本。
 
-## 4. 清单契约（ADR 通过后生成）
+## 4. 清单契约（生成物 + 人工复核；当前版本见 `docs/audits/2026-11-27-identity-migration-inventory.json`）
 
 每条 revision 至少包含：
 
 - `revision` / `down_revision` / 简述；
-- 升级动作、降级动作（语句级，来自 `2026-11-27-identity-migration-inventory.json`）；
+- 升级动作、降级动作（语句级，来自 inventory 的 `rows`）；
 - 影响的表 / 索引 / 约束 / 记录 / 状态；
 - 数据前置条件（可为空）；
 - 条件检查方式（具体 SQL 或 helper 名）；
@@ -77,6 +77,8 @@ Scope:
 - 对应测试证据（测试文件 + 场景名）。
 
 清单是**生成物 + 人工复核结论**的组合：生成物提供语句事实，类别与"是否允许自动降级"必须有人签字。
+
+清单来源与边界：inventory 由当前 HEAD 的迁移源码重新生成，元数据记录 `head_sha`、`generated_at`、生成工具与扫描范围；语句由静态展开得到，展开失败的语句记入 `expansion_failures` 并标 `UNPROVEN`，不得视为完整覆盖。生成后执行敏感信息扫描，明文口令、连接凭据与可复用密钥一律擦除后才允许归档。
 
 ## 5. 测试要求（每类都要有）
 
@@ -95,8 +97,8 @@ Scope:
 
 - 需要新增：迁移级 `assert_data_precondition(...)` helper（与 `migration_identity` 同层，显式传 `op` 以便门禁回放）、清单 schema、矩阵脚本读取清单。
 - 需要修改：`e1f2a3b4c5d6` 等已有守卫从"隐式 VALIDATE 失败"改为"显式守卫 + 明确错误信息"（不改变语义，只让失败可读、可测试）。
-- **不做**：通用迁移框架、运行时自动修复、按"有数据"整体拒绝降级、用 `IF EXISTS` 掩盖、把守卫放在 `VALIDATE` 之后。
-- 本轮边界：ADR 与清单先落地；实现与全链验证在下一批，且仍在隔离库，不触碰正式环境。
+- **不做**：通用迁移框架、运行时自动修复、按“有数据”整体拒绝降级、用 `IF EXISTS` 掩盖、把守卫放在 `VALIDATE` 之后。
+- 本轮边界：实现与隔离库全链验证**已完成**（WP-A #41、WP-B 单轮、WP-C 连续三轮）；正式环境迁移、提交发布与部署**不在本 ADR 范围**，且尚未执行。
 
 ## 7. 被否决的替代方案
 
@@ -110,6 +112,8 @@ Scope:
 
 ## 8. 待裁决点
 
+截至 2026-11-27，以下三项仍为**开放**（尚无 Owner 裁决记录），不得与已定稿的附录 A 混读：
+
 1. 清单类别由谁签字（迁移作者 / 数据库负责人）——建议数据库负责人。
 2. `manual`（需人工确认）与 `guarded`（自动检查）在 CI 中的区分：建议 `guarded` 必须进 CI 往返矩阵，`manual` 只做"拒绝自动降级"断言。
 3. `e1f2a3b4c5d6` 现有守卫的错误信息是否保留原文（现为"在途任务状态不满足降级要求"）。
@@ -118,7 +122,7 @@ Scope:
 
 ## 附录 A：身份生命周期、迁移授权边界与双向可逆性验收（2026-11-27 技术审查意见）
 
-状态：**已由项目 Owner 于 2026-11-27 正式签署（DECIDED / ACCEPTED）**。本附录与正文一并构成 ADR-R46 的裁决内容。
+状态：**技术审查已定稿，待项目 Owner 签署（PENDING）**；无独立 Owner 签署记录，本附录不构成签署事实。本附录与正文一并构成 ADR-R46 的裁决内容。
 
 ### A.1 身份事实源
 
@@ -131,11 +135,15 @@ Scope:
 ### A.2 Migration 职责边界
 
 1. Migration 管理自身创建的数据库对象及自身授予的权限。
-2. Migration 不负责删除基础角色。
-3. Migration 不得通过宽泛授权恢复父态权限。
-4. Downgrade 必须按父态实际权限逐对象、逐角色恢复。
-5. 无法证明归属或安全性的授权操作必须 fail-closed。
-6. 不得把其他数据库的授权或依赖误判为当前数据库可清理对象。
+2. Migration 不得任意创建、删除或重建基础角色。
+3. **唯一例外**：经 `role_specs.py` 声明、具有明确退役契约的历史角色退役迁移，可以执行 `DROP ROLE`。
+4. 退役操作必须先检查集群级角色依赖（`pg_shdepend` 等）；存在依赖时拒绝执行，不得强制删除；事务内失败即整体回滚。
+5. 退役迁移的 downgrade 恢复必须经过显式授权与可信凭据验证（见 A.3），不得隐式复活。
+6. 例外必须逐角色登记在 `RETIRED_ROLES`，不得推广为普通 migration 的通用权限。
+7. 不得通过宽泛授权恢复父态权限；Downgrade 必须按父态实际权限逐对象、逐角色恢复。
+8. 无法证明归属或安全性的授权操作必须 fail-closed。
+9. 不得把其他数据库的授权或依赖误判为当前数据库可清理对象。
+10. `f2b3c4d5e6a7` 的 `pg_shdepend` 检查只证明该迁移检查了角色依赖，**不证明**所有生产集群都不存在该角色依赖；不得扩大其证明范围。
 
 ### A.3 退役身份恢复
 
@@ -143,17 +151,22 @@ Scope:
 2. 历史 downgrade 确需恢复时，必须使用可信凭据来源。
 3. 缺少凭据或显式授权时必须拒绝并回滚（`AUTHORIZE_RETIRED_ROLE_RESTORE`）。
 4. 恢复必须保留历史定义，不得生成声明集之外的身份。
-5. 恢复行为必须可审计。
+5. 恢复行为必须留下审计痕迹。**当前实现**为同一事务内 `RAISE WARNING`，写入 PostgreSQL 服务器日志；这属于服务器日志级痕迹，**不是**独立的持久化应用审计记录。
+6. **尚未证明**：服务器日志一定被集中采集、长期保留、具备不可抵赖性。
+7. **尚未实现**：独立持久化审计表或旁路审计机制；该事项为独立后续设计议题，不在本 ADR 裁决内。
 
 ### A.4 双向可逆性验收
 
-1. 所有身份 DDL 迁移纳入双向可逆性矩阵。
-2. `P → upgrade → downgrade → D` 真实数据库快照是父态一致性的依据。
-3. `no_restore_proven` 必须有差异为零的快照证据。
+1. 所有身份 DDL 迁移纳入双向可逆性矩阵；矩阵与快照必须基于**当前源码重新生成的 inventory**，旧 inventory 不得作为分类依据。
+2. 真实执行产生三类不同材料，不得混用：
+   - **原始 P/D 快照**：在隔离库中 `P → upgrade → downgrade → D` 后导出的规范化前数据，本轮**未随仓库归档**；
+   - **规范化差异结果**：`docs/audits/2026-11-27-wp04-bidirectional-snapshot.json` 中的 `diff`，当前 28 条均为 `{}`；
+   - **审计归档材料**：本文档与证据索引，只证明“比较结果为空”，不替代原始快照。
+3. `no_restore_proven` 必须以规范化差异为空为证据；原始快照缺失属于归档边界，不是“已归档全部快照”。
 4. `restore_required`、`unproven_blocking` 不得靠文档或基线更新解除。
-5. `intentional_one_way` 必须有安全契约与 Owner 裁决。
+5. `intentional_one_way` 必须有安全契约与 Owner 裁决（当前 0 条）。
 6. 排除规则逐项登记，未知规则不得自动生效。
-7. 分类、快照覆盖率与真实执行结果必须相互一致。
+7. 分类、快照覆盖率与真实执行结果必须相互一致；覆盖率声明必须给出 revision 清单与来源文件。
 
 ### A.5 集群级证明边界
 

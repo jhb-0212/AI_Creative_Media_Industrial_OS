@@ -1,29 +1,55 @@
 {
   "chain_length": 65,
-  "head": "f2b3c4d5e6a7",
+  "head": "a427449bc59b",
   "source": "docs/audits/2026-11-27-identity-migration-inventory.json",
   "rule": "集合比对：对象+范围+角色+权限集+grant option；数量相等不算等价",
-  "revisions_with_identity_ops": 40,
-  "asymmetric_revisions": 28,
+  "revisions_with_identity_ops": 41,
+  "asymmetric_revisions": 25,
   "classified": {
-    "no_restore_proven": 28,
+    "no_restore_proven": 27,
     "restore_required": 0,
     "intentional_one_way": 0,
     "unproven_blocking": 0
   },
-  "unclassified_revisions": [],
+  "unclassified_revisions": [
+    "9e3b4c5d6e7f"
+  ],
   "restore_defects": [],
   "blocking_revisions": [],
   "matrix": [
     {
+      "revision": "8d8d59a91012",
+      "chain_index": 0,
+      "upgrade": {},
+      "downgrade": {},
+      "upgrade_actions": 0,
+      "downgrade_actions": 0,
+      "verdict": "symmetric",
+      "classification": null,
+      "reason": null,
+      "evidence": null,
+      "findings": [],
+      "notes": []
+    },
+    {
+      "revision": "7c8d9e0f1a2b",
+      "chain_index": 5,
+      "upgrade": {},
+      "downgrade": {},
+      "upgrade_actions": 0,
+      "downgrade_actions": 0,
+      "verdict": "symmetric",
+      "classification": null,
+      "reason": null,
+      "evidence": null,
+      "findings": [],
+      "notes": []
+    },
+    {
       "revision": "8f2a1b3c4d5e",
       "chain_index": 6,
-      "upgrade": {
-        "policy": 3
-      },
-      "downgrade": {
-        "policy": 3
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 3,
       "downgrade_actions": 0,
       "verdict": "symmetric",
@@ -40,45 +66,32 @@
     {
       "revision": "9e3b4c5d6e7f",
       "chain_index": 7,
-      "upgrade": {
-        "alter_role": 1,
-        "create_role": 1,
-        "default_privs": 4,
-        "grant": 10
-      },
-      "downgrade": {
-        "drop_role": 1,
-        "revoke": 6
-      },
-      "upgrade_actions": 11,
-      "downgrade_actions": 7,
-      "verdict": "symmetric",
+      "upgrade": {},
+      "downgrade": {},
+      "upgrade_actions": 10,
+      "downgrade_actions": 6,
+      "verdict": "asymmetric",
       "classification": null,
       "reason": null,
       "evidence": null,
-      "findings": [],
+      "findings": [
+        "missing revoke — upgrade grant default:tables project_planning role=app_role（privs=DELETE|INSERT|SELECT|UPDATE）",
+        "missing revoke — upgrade grant default:sequences project_planning role=app_role（privs=SELECT|USAGE）",
+        "missing revoke — upgrade grant default:tables outbox role=app_role（privs=DELETE|INSERT|SELECT|UPDATE）",
+        "missing revoke — upgrade grant default:sequences outbox role=app_role（privs=SELECT|USAGE）"
+      ],
       "notes": [
-        "角色在降级中被删除，授权随之消失 — grant schema project_planning role=app_role privs=USAGE",
-        "角色在降级中被删除，授权随之消失 — grant all_tables project_planning role=app_role privs=DELETE|INSERT|SELECT|UPDATE",
-        "角色在降级中被删除，授权随之消失 — grant all_sequences project_planning role=app_role privs=SELECT|USAGE",
-        "角色在降级中被删除，授权随之消失 — grant schema outbox role=app_role privs=USAGE",
-        "角色在降级中被删除，授权随之消失 — grant all_tables outbox role=app_role privs=DELETE|INSERT|SELECT|UPDATE",
-        "角色在降级中被删除，授权随之消失 — grant all_sequences outbox role=app_role privs=SELECT|USAGE",
-        "角色在降级中被删除，授权随之消失 — grant default:tables project_planning role=app_role privs=DELETE|INSERT|SELECT|UPDATE",
-        "角色在降级中被删除，授权随之消失 — grant default:sequences project_planning role=app_role privs=SELECT|USAGE",
-        "角色在降级中被删除，授权随之消失 — grant default:tables outbox role=app_role privs=DELETE|INSERT|SELECT|UPDATE",
-        "角色在降级中被删除，授权随之消失 — grant default:sequences outbox role=app_role privs=SELECT|USAGE"
+        "unmatched revoke — downgrade revoke all_tables project_planning role=app_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke all_sequences project_planning role=app_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke all_tables outbox role=app_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke all_sequences outbox role=app_role privs=ALL（对象可能随 DDL 消失）"
       ]
     },
     {
       "revision": "b2c3d4e5f6a7",
       "chain_index": 8,
-      "upgrade": {
-        "policy": 1
-      },
-      "downgrade": {
-        "policy": 1
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 1,
       "downgrade_actions": 0,
       "verdict": "symmetric",
@@ -93,14 +106,8 @@
     {
       "revision": "d4e5f6a7b8c9",
       "chain_index": 9,
-      "upgrade": {
-        "default_privs": 1,
-        "revoke": 2
-      },
-      "downgrade": {
-        "default_privs": 1,
-        "grant": 2
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 2,
       "downgrade_actions": 2,
       "verdict": "symmetric",
@@ -113,10 +120,7 @@
     {
       "revision": "e5f6a7b8c9d0",
       "chain_index": 10,
-      "upgrade": {
-        "grant": 1,
-        "revoke": 1
-      },
+      "upgrade": {},
       "downgrade": {},
       "upgrade_actions": 2,
       "downgrade_actions": 0,
@@ -134,11 +138,7 @@
       "revision": "f6a7b8c9d1e2",
       "chain_index": 11,
       "upgrade": {},
-      "downgrade": {
-        "grant": 1,
-        "policy": 1,
-        "revoke": 1
-      },
+      "downgrade": {},
       "upgrade_actions": 0,
       "downgrade_actions": 3,
       "verdict": "asymmetric",
@@ -155,15 +155,8 @@
     {
       "revision": "c1d2e3f4a5b6",
       "chain_index": 13,
-      "upgrade": {
-        "default_privs": 1,
-        "grant": 3,
-        "policy": 2
-      },
-      "downgrade": {
-        "policy": 2,
-        "revoke": 2
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 5,
       "downgrade_actions": 2,
       "verdict": "asymmetric",
@@ -180,43 +173,10 @@
       ]
     },
     {
-      "revision": "b7c8d9e0f1a2",
-      "chain_index": 14,
-      "upgrade": {
-        "default_privs": 6,
-        "grant": 1,
-        "revoke": 8
-      },
-      "downgrade": {
-        "default_privs": 5,
-        "grant": 7,
-        "revoke": 1
-      },
-      "upgrade_actions": 9,
-      "downgrade_actions": 8,
-      "verdict": "asymmetric",
-      "classification": "no_restore_proven",
-      "reason": "已修复（WP-04 整改轮）：降级多给 public.alembic_version ACL，并把 outbox 默认权限从 arw 扩到 arwd（越权恢复）",
-      "evidence": "docs/audits/2026-11-27-wp04-fix-round.json",
-      "findings": [
-        "RISK:missing restore — upgrade revoke default:tables project_planning role=app_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:sequences project_planning role=app_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables outbox role=app_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:sequences outbox role=app_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables asset_service role=app_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:sequences asset_service role=app_role（privs=ALL）"
-      ],
-      "notes": []
-    },
-    {
       "revision": "b5c6d7e8f9a0",
       "chain_index": 19,
-      "upgrade": {
-        "revoke": 1
-      },
-      "downgrade": {
-        "grant": 1
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 1,
       "downgrade_actions": 1,
       "verdict": "asymmetric",
@@ -231,18 +191,15 @@
     {
       "revision": "c6d7e8f9a0b1",
       "chain_index": 20,
-      "upgrade": {
-        "grant": 2
-      },
+      "upgrade": {},
       "downgrade": {},
       "upgrade_actions": 2,
-      "downgrade_actions": 0,
+      "downgrade_actions": 1,
       "verdict": "asymmetric",
       "classification": "no_restore_proven",
       "reason": "已修复（WP-04 整改轮）：降级后 auth schema 出现 ACL（父态无），多授 USAGE",
       "evidence": "docs/audits/2026-11-27-wp04-fix-round.json",
       "findings": [
-        "missing revoke — upgrade grant schema auth role=app_role（privs=USAGE）",
         "missing revoke — upgrade grant table auth.revoked_tokens role=app_role（privs=SELECT）"
       ],
       "notes": []
@@ -250,14 +207,8 @@
     {
       "revision": "a1b2c3d4e5f6",
       "chain_index": 21,
-      "upgrade": {
-        "grant": 1,
-        "revoke": 1
-      },
-      "downgrade": {
-        "grant": 1,
-        "revoke": 1
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 2,
       "downgrade_actions": 2,
       "verdict": "asymmetric",
@@ -276,46 +227,28 @@
     {
       "revision": "7a8b9c0d1e2f",
       "chain_index": 23,
-      "upgrade": {
-        "alter_role": 1,
-        "create_role": 1,
-        "grant": 5
-      },
-      "downgrade": {
-        "default_privs": 1,
-        "drop_role": 1,
-        "revoke": 5
-      },
-      "upgrade_actions": 6,
-      "downgrade_actions": 6,
+      "upgrade": {},
+      "downgrade": {},
+      "upgrade_actions": 5,
+      "downgrade_actions": 5,
       "verdict": "symmetric",
       "classification": null,
       "reason": null,
       "evidence": null,
       "findings": [],
       "notes": [
-        "角色在降级中被删除，授权随之消失 — grant schema outbox role=outbox_relay_role privs=USAGE",
-        "角色在降级中被删除，授权随之消失 — grant object outbox.outbox_events role=outbox_relay_role privs=SELECT",
-        "角色在降级中被删除，授权随之消失 — grant object outbox.outbox_events role=outbox_relay_role privs=UPDATE",
-        "角色在降级中被删除，授权随之消失 — grant all_sequences outbox role=outbox_relay_role privs=USAGE",
-        "角色在降级中被删除，授权随之消失 — grant function outbox.list_active_tenants() role=outbox_relay_role privs=EXECUTE"
+        "unmatched revoke — downgrade revoke all_sequences outbox role=outbox_relay_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke object outbox.outbox_events role=outbox_relay_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke default:tables outbox role=outbox_relay_role privs=ALL（对象可能随 DDL 消失）"
       ]
     },
     {
       "revision": "8f3b2c1d4e5a",
       "chain_index": 24,
-      "upgrade": {
-        "default_privs": 4,
-        "grant": 22,
-        "revoke": 11
-      },
-      "downgrade": {
-        "default_privs": 4,
-        "grant": 9,
-        "revoke": 22
-      },
-      "upgrade_actions": 33,
-      "downgrade_actions": 31,
+      "upgrade": {},
+      "downgrade": {},
+      "upgrade_actions": 35,
+      "downgrade_actions": 38,
       "verdict": "asymmetric",
       "classification": "no_restore_proven",
       "reason": "F3：升级不再 DROP ROLE；降级按父态逐表还原 app_role 授权，并对称撤销本migration 授出的 schema/TABLE/SEQUENCE/默认权限（含交叉默认权限与 public USAGE）。P→upgrade→downgrade→D 快照 0 差异；两域角色降级后仍存在，B 库授权快照不变。范围仅限本库/本 migration 管理面，cluster_wide_zero_authorization_verified 保持 false",
@@ -327,7 +260,11 @@
         "RISK:missing restore — upgrade revoke all_sequences asset_service role=app_role（privs=ALL）",
         "RISK:missing restore — upgrade revoke all_tables project_planning role=app_role（privs=ALL）",
         "RISK:missing restore — upgrade revoke all_sequences project_planning role=app_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke table auth.revoked_tokens role=app_role（privs=ALL）"
+        "RISK:missing restore — upgrade revoke table auth.revoked_tokens role=app_role（privs=ALL）",
+        "RISK:missing restore — upgrade revoke object public.alembic_version role=app_role（privs=SELECT）",
+        "RISK:extra grant — downgrade grant table public.alembic_version role=app_role（privs=SELECT（权限扩大））",
+        "RISK:升级创建角色 asset_service_role，降级不删除（身份泄漏）（privs=）",
+        "RISK:升级创建角色 project_planning_role，降级不删除（身份泄漏）（privs=）"
       ],
       "notes": [
         "unmatched revoke — downgrade revoke all_tables project_planning role=project_planning_role privs=ALL（对象可能随 DDL 消失）",
@@ -338,6 +275,12 @@
         "unmatched revoke — downgrade revoke all_sequences asset_service role=asset_service_role privs=ALL（对象可能随 DDL 消失）",
         "unmatched revoke — downgrade revoke default:tables asset_service role=asset_service_role privs=ALL（对象可能随 DDL 消失）",
         "unmatched revoke — downgrade revoke default:sequences asset_service role=asset_service_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke default:tables asset_service role=project_planning_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke default:sequences asset_service role=project_planning_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke schema public role=project_planning_role privs=USAGE（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke default:tables project_planning role=asset_service_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke default:sequences project_planning role=asset_service_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke schema public role=asset_service_role privs=USAGE（对象可能随 DDL 消失）",
         "unmatched revoke — downgrade revoke object outbox.outbox_events role=project_planning_role privs=ALL（对象可能随 DDL 消失）",
         "unmatched revoke — downgrade revoke all_sequences outbox role=project_planning_role privs=ALL（对象可能随 DDL 消失）",
         "unmatched revoke — downgrade revoke table auth.revoked_tokens role=project_planning_role privs=ALL（对象可能随 DDL 消失）",
@@ -349,14 +292,8 @@
     {
       "revision": "ae8724980e0b",
       "chain_index": 25,
-      "upgrade": {
-        "default_privs": 3,
-        "grant": 3
-      },
-      "downgrade": {
-        "default_privs": 3,
-        "revoke": 3
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 0,
       "downgrade_actions": 0,
       "verdict": "symmetric",
@@ -369,16 +306,8 @@
     {
       "revision": "b9e1c2d3f4a5",
       "chain_index": 26,
-      "upgrade": {
-        "default_privs": 1,
-        "grant": 1,
-        "revoke": 2
-      },
-      "downgrade": {
-        "default_privs": 1,
-        "grant": 2,
-        "revoke": 1
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 2,
       "downgrade_actions": 2,
       "verdict": "symmetric",
@@ -391,14 +320,8 @@
     {
       "revision": "c1f2e3d4a5b6",
       "chain_index": 27,
-      "upgrade": {
-        "default_privs": 1,
-        "revoke": 2
-      },
-      "downgrade": {
-        "default_privs": 1,
-        "grant": 2
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 2,
       "downgrade_actions": 2,
       "verdict": "symmetric",
@@ -411,12 +334,8 @@
     {
       "revision": "d2e3f4a5b6c7",
       "chain_index": 28,
-      "upgrade": {
-        "policy": 1
-      },
-      "downgrade": {
-        "policy": 1
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 1,
       "downgrade_actions": 0,
       "verdict": "symmetric",
@@ -431,35 +350,26 @@
     {
       "revision": "b3c4d5e6f7a8",
       "chain_index": 29,
-      "upgrade": {
-        "grant": 2
-      },
-      "downgrade": {
-        "revoke": 1
-      },
-      "upgrade_actions": 2,
-      "downgrade_actions": 1,
-      "verdict": "asymmetric",
+      "upgrade": {},
+      "downgrade": {},
+      "upgrade_actions": 0,
+      "downgrade_actions": 2,
+      "verdict": "symmetric",
       "classification": "no_restore_proven",
       "reason": "已修复（WP-04 整改轮）：降级给 project_planning schema 多授 asset_service_role USAGE（父态无）",
       "evidence": "docs/audits/2026-11-27-wp04-fix-round.json",
-      "findings": [
-        "missing revoke — upgrade grant schema project_planning role=asset_service_role（privs=USAGE）"
-      ],
-      "notes": []
+      "findings": [],
+      "notes": [
+        "unmatched revoke — downgrade revoke object project_planning.projects role=asset_service_role privs=ORGANIZATION_ID)|SELECT (ENTITY_ID|TENANT_ID（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke schema project_planning role=asset_service_role privs=USAGE（对象可能随 DDL 消失）"
+      ]
     },
     {
       "revision": "d8e9f0a1b2c3",
       "chain_index": 31,
-      "upgrade": {
-        "grant": 2,
-        "policy": 1,
-        "revoke": 2
-      },
-      "downgrade": {
-        "policy": 1
-      },
-      "upgrade_actions": 8,
+      "upgrade": {},
+      "downgrade": {},
+      "upgrade_actions": 5,
       "downgrade_actions": 0,
       "verdict": "asymmetric",
       "classification": "no_restore_proven",
@@ -467,11 +377,8 @@
       "evidence": "docs/audits/2026-11-27-wp04-s1-s3-and-d08-evidence.md §1",
       "findings": [
         "missing revoke — upgrade grant schema audit role=project_planning_role（privs=USAGE）",
-        "missing revoke — upgrade grant schema audit role=asset_service_role（privs=USAGE）",
         "missing revoke — upgrade grant object audit.status_transitions role=project_planning_role（privs=INSERT|SELECT）",
-        "missing revoke — upgrade grant object audit.status_transitions role=asset_service_role（privs=INSERT|SELECT）",
         "RISK:missing restore — upgrade revoke object audit.status_transitions role=project_planning_role（privs=DELETE|TRUNCATE|UPDATE）",
-        "RISK:missing restore — upgrade revoke object audit.status_transitions role=asset_service_role（privs=DELETE|TRUNCATE|UPDATE）",
         "RISK:missing restore — upgrade revoke object audit.status_transitions role=public（privs=ALL）"
       ],
       "notes": [
@@ -481,12 +388,8 @@
     {
       "revision": "e9f0a1b2c3d4",
       "chain_index": 32,
-      "upgrade": {
-        "policy": 12
-      },
-      "downgrade": {
-        "policy": 12
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 6,
       "downgrade_actions": 6,
       "verdict": "symmetric",
@@ -506,10 +409,7 @@
     {
       "revision": "e0f1a2b3c4d5",
       "chain_index": 33,
-      "upgrade": {
-        "alter_role": 3,
-        "create_role": 3
-      },
+      "upgrade": {},
       "downgrade": {},
       "upgrade_actions": 3,
       "downgrade_actions": 0,
@@ -527,187 +427,117 @@
     {
       "revision": "c1a2b3d4e5f6",
       "chain_index": 34,
-      "upgrade": {
-        "default_privs": 75,
-        "grant": 56,
-        "revoke": 135
-      },
-      "downgrade": {
-        "default_privs": 50,
-        "grant": 75,
-        "revoke": 25
-      },
-      "upgrade_actions": 191,
-      "downgrade_actions": 100,
+      "upgrade": {},
+      "downgrade": {},
+      "upgrade_actions": 0,
+      "downgrade_actions": 65,
       "verdict": "asymmetric",
       "classification": "no_restore_proven",
       "reason": "已修复（WP-04 整改轮）：降级后 3 个新 schema 默认权限与 asset_service 默认权限被扩到多角色（19 组差异）",
       "evidence": "docs/audits/2026-11-27-wp04-fix-round.json",
       "findings": [
-        "missing revoke — upgrade grant schema audit role=project_planning_role（privs=USAGE）",
-        "missing revoke — upgrade grant schema auth role=project_planning_role（privs=USAGE）",
-        "missing revoke — upgrade grant schema outbox role=project_planning_role（privs=USAGE）",
-        "missing revoke — upgrade grant schema project_planning role=project_planning_role（privs=USAGE）",
-        "missing revoke — upgrade grant schema public role=project_planning_role（privs=USAGE）",
-        "RISK:missing restore — upgrade revoke default:tables project_planning role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables asset_service role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables production_planning role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables budget_quota role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables qc_governance role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:sequences project_planning role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:sequences asset_service role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:sequences production_planning role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:sequences budget_quota role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:sequences qc_governance role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables project_planning role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables asset_service role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables production_planning role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables budget_quota role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables qc_governance role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke object project_planning.projects role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke object project_planning.projects role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke object project_planning.episodes role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke object project_planning.episodes role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke object project_planning.script_revisions role=public（privs=ALL）",
-        "... 另有 131 条同类差异（详见矩阵 JSON 明细）"
+        "RISK:extra grant — downgrade grant object project_planning.projects role=project_planning_role（privs=DELETE|INSERT|SELECT|UPDATE（权限扩大））",
+        "RISK:extra grant — downgrade grant object project_planning.episodes role=project_planning_role（privs=DELETE|INSERT|SELECT|UPDATE（权限扩大））",
+        "RISK:extra grant — downgrade grant object project_planning.script_revisions role=project_planning_role（privs=DELETE|INSERT|SELECT|UPDATE（权限扩大））",
+        "RISK:extra grant — downgrade grant object project_planning.organizations role=project_planning_role（privs=DELETE|INSERT|SELECT|UPDATE（权限扩大））",
+        "RISK:extra grant — downgrade grant default:tables project_planning role=project_planning_role（privs=DELETE|INSERT|SELECT|UPDATE（权限扩大））",
+        "RISK:extra grant — downgrade grant default:sequences project_planning role=project_planning_role（privs=SELECT|USAGE（权限扩大））",
+        "RISK:extra grant — downgrade grant object asset_service.asset_versions role=asset_service_role（privs=INSERT|SELECT|UPDATE（权限扩大））",
+        "RISK:extra grant — downgrade grant object project_planning.projects role=asset_service_role（privs=ORGANIZATION_ID|SELECT (ENTITY_ID|TENANT_ID)（权限扩大））",
+        "RISK:extra grant — downgrade grant object asset_service.qc_reports role=asset_service_role（privs=INSERT|SELECT（权限扩大））",
+        "RISK:extra grant — downgrade grant default:tables asset_service role=asset_service_role（privs=DELETE|INSERT|SELECT|UPDATE（权限扩大））",
+        "RISK:extra grant — downgrade grant default:sequences asset_service role=asset_service_role（privs=SELECT|USAGE（权限扩大））",
+        "RISK:extra grant — downgrade grant object project_planning.projects role=production_planning_role（privs=ORGANIZATION_ID|SELECT (ENTITY_ID|TENANT_ID)（权限扩大））",
+        "RISK:extra grant — downgrade grant default:tables production_planning role=production_planning_role（privs=DELETE|INSERT|SELECT|UPDATE（权限扩大））",
+        "RISK:extra grant — downgrade grant default:sequences production_planning role=production_planning_role（privs=SELECT|USAGE（权限扩大））",
+        "RISK:extra grant — downgrade grant object project_planning.projects role=budget_quota_role（privs=ORGANIZATION_ID|SELECT (ENTITY_ID|TENANT_ID)（权限扩大））",
+        "RISK:extra grant — downgrade grant default:tables budget_quota role=budget_quota_role（privs=DELETE|INSERT|SELECT|UPDATE（权限扩大））",
+        "RISK:extra grant — downgrade grant default:sequences budget_quota role=budget_quota_role（privs=SELECT|USAGE（权限扩大））",
+        "RISK:extra grant — downgrade grant object project_planning.projects role=qc_governance_role（privs=ORGANIZATION_ID|SELECT (ENTITY_ID|TENANT_ID)（权限扩大））",
+        "RISK:extra grant — downgrade grant default:tables qc_governance role=qc_governance_role（privs=DELETE|INSERT|SELECT|UPDATE（权限扩大））",
+        "RISK:extra grant — downgrade grant default:sequences qc_governance role=qc_governance_role（privs=SELECT|USAGE（权限扩大））"
       ],
       "notes": [
         "unmatched revoke — downgrade revoke object project_planning.projects role=project_planning_role privs=ALL（对象可能随 DDL 消失）",
         "unmatched revoke — downgrade revoke object project_planning.episodes role=project_planning_role privs=ALL（对象可能随 DDL 消失）",
-        "unmatched revoke — downgrade revoke object project_planning.scenes role=project_planning_role privs=ALL（对象可能随 DDL 消失）",
         "unmatched revoke — downgrade revoke object project_planning.script_revisions role=project_planning_role privs=ALL（对象可能随 DDL 消失）",
         "unmatched revoke — downgrade revoke object project_planning.organizations role=project_planning_role privs=ALL（对象可能随 DDL 消失）",
-        "unmatched revoke — downgrade revoke object project_planning.shots role=project_planning_role privs=ALL（对象可能随 DDL 消失）",
-        "unmatched revoke — downgrade revoke object project_planning.shot_revisions role=project_planning_role privs=ALL（对象可能随 DDL 消失）",
-        "unmatched revoke — downgrade revoke object project_planning.shot_breakdown_drafts role=project_planning_role privs=ALL（对象可能随 DDL 消失）",
-        "unmatched revoke — downgrade revoke object project_planning.rework_tasks role=project_planning_role privs=ALL（对象可能随 DDL 消失）",
-        "unmatched revoke — downgrade revoke object project_planning.shot_specs role=project_planning_role privs=ALL（对象可能随 DDL 消失）",
-        "unmatched revoke — downgrade revoke object project_planning.constraint_packs role=project_planning_role privs=ALL（对象可能随 DDL 消失）",
-        "unmatched revoke — downgrade revoke object asset_service.asset_registration_receipts role=asset_service_role privs=ALL（对象可能随 DDL 消失）",
         "unmatched revoke — downgrade revoke object asset_service.asset_versions role=asset_service_role privs=ALL（对象可能随 DDL 消失）",
         "unmatched revoke — downgrade revoke object project_planning.projects role=asset_service_role privs=ALL（对象可能随 DDL 消失）",
         "unmatched revoke — downgrade revoke object asset_service.qc_reports role=asset_service_role privs=ALL（对象可能随 DDL 消失）",
-        "unmatched revoke — downgrade revoke object production_planning.artifact_manifests role=production_planning_role privs=ALL（对象可能随 DDL 消失）",
-        "unmatched revoke — downgrade revoke object production_planning.production_routes role=production_planning_role privs=ALL（对象可能随 DDL 消失）",
-        "unmatched revoke — downgrade revoke object production_planning.generation_tasks role=production_planning_role privs=ALL（对象可能随 DDL 消失）",
         "unmatched revoke — downgrade revoke object project_planning.projects role=production_planning_role privs=ALL（对象可能随 DDL 消失）",
-        "unmatched revoke — downgrade revoke object budget_quota.shot_budget_requests role=budget_quota_role privs=ALL（对象可能随 DDL 消失）",
-        "unmatched revoke — downgrade revoke object budget_quota.budget_ledger role=budget_quota_role privs=ALL（对象可能随 DDL 消失）",
         "unmatched revoke — downgrade revoke object project_planning.projects role=budget_quota_role privs=ALL（对象可能随 DDL 消失）",
-        "unmatched revoke — downgrade revoke object qc_governance.gate_decisions role=qc_governance_role privs=ALL（对象可能随 DDL 消失）",
-        "unmatched revoke — downgrade revoke object qc_governance.qc_tasks role=qc_governance_role privs=ALL（对象可能随 DDL 消失）",
-        "unmatched revoke — downgrade revoke object project_planning.projects role=qc_governance_role privs=ALL（对象可能随 DDL 消失）"
+        "unmatched revoke — downgrade revoke object project_planning.projects role=qc_governance_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke schema audit role=production_planning_role privs=USAGE（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke schema auth role=production_planning_role privs=USAGE（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke schema outbox role=production_planning_role privs=USAGE（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke schema public role=production_planning_role privs=USAGE（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke schema project_planning role=production_planning_role privs=USAGE（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke schema audit role=budget_quota_role privs=USAGE（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke schema auth role=budget_quota_role privs=USAGE（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke schema outbox role=budget_quota_role privs=USAGE（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke schema public role=budget_quota_role privs=USAGE（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke schema project_planning role=budget_quota_role privs=USAGE（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke schema audit role=qc_governance_role privs=USAGE（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke schema auth role=qc_governance_role privs=USAGE（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke schema outbox role=qc_governance_role privs=USAGE（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke schema public role=qc_governance_role privs=USAGE（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke schema project_planning role=qc_governance_role privs=USAGE（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke schema public role=asset_service_role privs=USAGE（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke schema public role=project_planning_role privs=USAGE（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke object audit.status_transitions role=production_planning_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke object auth.revoked_tokens role=production_planning_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke object outbox.outbox_events role=production_planning_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke object public.alembic_version role=production_planning_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke object audit.status_transitions role=budget_quota_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke object auth.revoked_tokens role=budget_quota_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke object outbox.outbox_events role=budget_quota_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke object public.alembic_version role=budget_quota_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke object audit.status_transitions role=qc_governance_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke object auth.revoked_tokens role=qc_governance_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke object outbox.outbox_events role=qc_governance_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke object public.alembic_version role=qc_governance_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke default:tables production_planning role=production_planning_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke default:sequences production_planning role=production_planning_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke default:tables budget_quota role=budget_quota_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke default:sequences budget_quota role=budget_quota_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke default:tables qc_governance role=qc_governance_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke default:sequences qc_governance role=qc_governance_role privs=ALL（对象可能随 DDL 消失）"
       ]
     },
     {
       "revision": "a13b0c1d2e3f",
       "chain_index": 35,
-      "upgrade": {
-        "default_privs": 15,
-        "grant": 6,
-        "policy": 5,
-        "revoke": 25
-      },
-      "downgrade": {
-        "policy": 5
-      },
-      "upgrade_actions": 36,
+      "upgrade": {},
+      "downgrade": {},
+      "upgrade_actions": 0,
       "downgrade_actions": 0,
-      "verdict": "asymmetric",
+      "verdict": "symmetric",
       "classification": "no_restore_proven",
       "reason": "已修复（WP-04 整改轮）：降级后残留 upgrade 创建的唯一索引 uq_episodes_entity_project",
       "evidence": "docs/audits/2026-11-27-wp04-fix-round.json",
-      "findings": [
-        "missing revoke — upgrade grant schema project_planning role=project_planning_role（privs=USAGE）",
-        "RISK:missing restore — upgrade revoke default:tables project_planning role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables asset_service role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables production_planning role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables budget_quota role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables qc_governance role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:sequences project_planning role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:sequences asset_service role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:sequences production_planning role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:sequences budget_quota role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:sequences qc_governance role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables project_planning role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables asset_service role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables production_planning role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables budget_quota role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables qc_governance role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke object project_planning.scenes role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke object project_planning.scenes role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke object project_planning.shots role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke object project_planning.shots role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke object project_planning.shot_revisions role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke object project_planning.shot_revisions role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke object project_planning.shot_breakdown_drafts role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke object project_planning.shot_breakdown_drafts role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke object project_planning.rework_tasks role=public（privs=ALL）",
-        "... 另有 6 条同类差异（详见矩阵 JSON 明细）"
-      ],
-      "notes": [
-        "policy 未显式 drop — project_planning.rework_tasks:tenant_isolation_rework_tasks（可能随表删除，需人工确认）",
-        "policy 未显式 drop — project_planning.scenes:tenant_isolation_scenes（可能随表删除，需人工确认）",
-        "policy 未显式 drop — project_planning.shot_breakdown_drafts:tenant_isolation_shot_breakdown_drafts（可能随表删除，需人工确认）",
-        "policy 未显式 drop — project_planning.shot_revisions:tenant_isolation_shot_revisions（可能随表删除，需人工确认）",
-        "policy 未显式 drop — project_planning.shots:tenant_isolation_shots（可能随表删除，需人工确认）"
-      ]
+      "findings": [],
+      "notes": []
     },
     {
       "revision": "c3d4e5f6a7b8",
       "chain_index": 37,
-      "upgrade": {
-        "default_privs": 15,
-        "grant": 2,
-        "policy": 1,
-        "revoke": 17
-      },
-      "downgrade": {
-        "policy": 1
-      },
-      "upgrade_actions": 20,
+      "upgrade": {},
+      "downgrade": {},
+      "upgrade_actions": 0,
       "downgrade_actions": 0,
-      "verdict": "asymmetric",
+      "verdict": "symmetric",
       "classification": "no_restore_proven",
       "reason": "已修复（WP-04 整改轮）：降级后残留唯一索引 uq_shot_revisions_entity_project",
       "evidence": "docs/audits/2026-11-27-wp04-fix-round.json",
-      "findings": [
-        "missing revoke — upgrade grant schema project_planning role=project_planning_role（privs=USAGE）",
-        "RISK:missing restore — upgrade revoke default:tables project_planning role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables asset_service role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables production_planning role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables budget_quota role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables qc_governance role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:sequences project_planning role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:sequences asset_service role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:sequences production_planning role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:sequences budget_quota role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:sequences qc_governance role=project_planning_role（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables project_planning role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables asset_service role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables production_planning role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables budget_quota role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke default:tables qc_governance role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke object project_planning.shot_specs role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke object project_planning.shot_specs role=project_planning_role（privs=ALL）",
-        "missing revoke — upgrade grant object project_planning.shot_specs role=project_planning_role（privs=INSERT|SELECT|UPDATE）"
-      ],
-      "notes": [
-        "policy 未显式 drop — project_planning.shot_specs:tenant_isolation_shot_specs（可能随表删除，需人工确认）"
-      ]
+      "findings": [],
+      "notes": []
     },
     {
       "revision": "d7e8f9a0b1c2",
       "chain_index": 38,
-      "upgrade": {
-        "default_privs": 15,
-        "grant": 2,
-        "policy": 1,
-        "revoke": 17
-      },
-      "downgrade": {
-        "policy": 1
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 20,
       "downgrade_actions": 0,
       "verdict": "asymmetric",
@@ -742,14 +572,8 @@
     {
       "revision": "e8f9a0b1c2d3",
       "chain_index": 39,
-      "upgrade": {
-        "default_privs": 15,
-        "policy": 4,
-        "revoke": 15
-      },
-      "downgrade": {
-        "policy": 4
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 19,
       "downgrade_actions": 0,
       "verdict": "asymmetric",
@@ -783,14 +607,8 @@
     {
       "revision": "f9a0b1c2d3e4",
       "chain_index": 40,
-      "upgrade": {
-        "default_privs": 15,
-        "policy": 1,
-        "revoke": 15
-      },
-      "downgrade": {
-        "policy": 1
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 16,
       "downgrade_actions": 0,
       "verdict": "asymmetric",
@@ -821,20 +639,10 @@
     {
       "revision": "a0b1c2d3e4f5",
       "chain_index": 41,
-      "upgrade": {
-        "alter_role": 3,
-        "create_role": 3,
-        "default_privs": 45,
-        "grant": 38,
-        "policy": 10,
-        "revoke": 85
-      },
-      "downgrade": {
-        "grant": 5,
-        "policy": 10
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 131,
-      "downgrade_actions": 10,
+      "downgrade_actions": 8,
       "verdict": "asymmetric",
       "classification": "no_restore_proven",
       "reason": "已修复（WP-04 整改轮）：降级后 gate_decisions 表 ACL 出现（父态无）且父态 ix_..._gate_key 索引消失（结构损失）",
@@ -843,7 +651,6 @@
         "missing revoke — upgrade grant schema audit role=production_planning_role（privs=USAGE）",
         "missing revoke — upgrade grant schema auth role=production_planning_role（privs=USAGE）",
         "missing revoke — upgrade grant schema outbox role=production_planning_role（privs=USAGE）",
-        "missing revoke — upgrade grant schema production_planning role=production_planning_role（privs=USAGE）",
         "missing revoke — upgrade grant schema project_planning role=production_planning_role（privs=USAGE）",
         "missing revoke — upgrade grant schema public role=production_planning_role（privs=USAGE）",
         "RISK:missing restore — upgrade revoke default:tables project_planning role=production_planning_role（privs=ALL）",
@@ -865,7 +672,8 @@
         "RISK:missing restore — upgrade revoke object production_planning.production_routes role=production_planning_role（privs=ALL）",
         "RISK:missing restore — upgrade revoke object production_planning.generation_tasks role=public（privs=ALL）",
         "RISK:missing restore — upgrade revoke object production_planning.generation_tasks role=production_planning_role（privs=ALL）",
-        "... 另有 86 条同类差异（详见矩阵 JSON 明细）"
+        "RISK:missing restore — upgrade revoke object project_planning.projects role=public（privs=ALL）",
+        "... 另有 78 条同类差异（详见矩阵 JSON 明细）"
       ],
       "notes": [
         "policy 未显式 drop — budget_quota.budget_ledger:tenant_isolation_budget_ledger（可能随表删除，需人工确认）",
@@ -878,15 +686,8 @@
     {
       "revision": "f1a2b3c4d5e6",
       "chain_index": 44,
-      "upgrade": {
-        "default_privs": 15,
-        "grant": 2,
-        "policy": 1,
-        "revoke": 17
-      },
-      "downgrade": {
-        "policy": 1
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 20,
       "downgrade_actions": 0,
       "verdict": "asymmetric",
@@ -921,14 +722,10 @@
     {
       "revision": "b8c9d0e1f2a3",
       "chain_index": 47,
-      "upgrade": {
-        "grant": 29
-      },
-      "downgrade": {
-        "revoke": 15
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 29,
-      "downgrade_actions": 15,
+      "downgrade_actions": 0,
       "verdict": "asymmetric",
       "classification": "no_restore_proven",
       "reason": "已修复（WP-04 整改轮）：降级后 5 个 schema 的 USAGE 多给 3 个角色（父态仅部分持有）",
@@ -945,24 +742,29 @@
         "missing revoke — upgrade grant schema outbox role=asset_service_role（privs=USAGE）",
         "missing revoke — upgrade grant schema project_planning role=asset_service_role（privs=USAGE）",
         "missing revoke — upgrade grant schema public role=asset_service_role（privs=USAGE）",
+        "missing revoke — upgrade grant schema audit role=production_planning_role（privs=USAGE）",
+        "missing revoke — upgrade grant schema auth role=production_planning_role（privs=USAGE）",
+        "missing revoke — upgrade grant schema outbox role=production_planning_role（privs=USAGE）",
         "missing revoke — upgrade grant schema production_planning role=production_planning_role（privs=USAGE）",
+        "missing revoke — upgrade grant schema project_planning role=production_planning_role（privs=USAGE）",
+        "missing revoke — upgrade grant schema public role=production_planning_role（privs=USAGE）",
+        "missing revoke — upgrade grant schema audit role=budget_quota_role（privs=USAGE）",
+        "missing revoke — upgrade grant schema auth role=budget_quota_role（privs=USAGE）",
         "missing revoke — upgrade grant schema budget_quota role=budget_quota_role（privs=USAGE）",
-        "missing revoke — upgrade grant schema qc_governance role=qc_governance_role（privs=USAGE）"
+        "missing revoke — upgrade grant schema outbox role=budget_quota_role（privs=USAGE）",
+        "missing revoke — upgrade grant schema project_planning role=budget_quota_role（privs=USAGE）",
+        "missing revoke — upgrade grant schema public role=budget_quota_role（privs=USAGE）",
+        "missing revoke — upgrade grant schema audit role=qc_governance_role（privs=USAGE）",
+        "missing revoke — upgrade grant schema auth role=qc_governance_role（privs=USAGE）",
+        "... 另有 4 条同类差异（详见矩阵 JSON 明细）"
       ],
       "notes": []
     },
     {
       "revision": "e1f2a3b4c5d6",
       "chain_index": 50,
-      "upgrade": {
-        "default_privs": 30,
-        "grant": 8,
-        "policy": 2,
-        "revoke": 42
-      },
-      "downgrade": {
-        "policy": 2
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 52,
       "downgrade_actions": 0,
       "verdict": "asymmetric",
@@ -1014,15 +816,8 @@
     {
       "revision": "e4f5a6b7c8d9",
       "chain_index": 52,
-      "upgrade": {
-        "default_privs": 75,
-        "grant": 10,
-        "policy": 1,
-        "revoke": 85
-      },
-      "downgrade": {
-        "policy": 1
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 96,
       "downgrade_actions": 0,
       "verdict": "asymmetric",
@@ -1064,55 +859,36 @@
     {
       "revision": "c5d6e7f8a9b0",
       "chain_index": 54,
-      "upgrade": {
-        "alter_role": 1,
-        "create_role": 1,
-        "default_privs": 3,
-        "grant": 5,
-        "policy": 1,
-        "revoke": 7
-      },
-      "downgrade": {
-        "default_privs": 2,
-        "drop_role": 1,
-        "policy": 1,
-        "revoke": 6
-      },
-      "upgrade_actions": 13,
-      "downgrade_actions": 6,
+      "upgrade": {},
+      "downgrade": {},
+      "upgrade_actions": 12,
+      "downgrade_actions": 5,
       "verdict": "asymmetric",
       "classification": "no_restore_proven",
       "reason": "隔离库实测 P==D 0 差异（角色退役点的撤权为 no-op）",
       "evidence": "docs/audits/2026-11-27-wp04-triage-results.json",
       "findings": [
+        "RISK:missing restore — upgrade revoke default:tables outbox role=outbox_ops_role（privs=ALL）",
+        "RISK:missing restore — upgrade revoke default:sequences outbox role=outbox_ops_role（privs=ALL）",
         "RISK:missing restore — upgrade revoke default:tables outbox role=public（privs=ALL）",
         "RISK:missing restore — upgrade revoke object outbox.outbox_events role=public（privs=ALL）",
-        "RISK:missing restore — upgrade revoke object outbox.dead_letter_replays role=public（privs=ALL）"
+        "RISK:missing restore — upgrade revoke object outbox.outbox_events role=outbox_ops_role（privs=ALL）",
+        "RISK:missing restore — upgrade revoke object outbox.dead_letter_replays role=public（privs=ALL）",
+        "RISK:missing restore — upgrade revoke object outbox.dead_letter_replays role=outbox_ops_role（privs=ALL）"
       ],
       "notes": [
-        "角色在降级中被删除，授权随之消失 — grant schema outbox role=outbox_ops_role privs=USAGE",
-        "角色在降级中被删除，授权随之消失 — revoke default:tables outbox role=outbox_ops_role privs=ALL",
-        "角色在降级中被删除，授权随之消失 — revoke default:sequences outbox role=outbox_ops_role privs=ALL",
-        "角色在降级中被删除，授权随之消失 — revoke object outbox.outbox_events role=outbox_ops_role privs=ALL",
-        "角色在降级中被删除，授权随之消失 — revoke object outbox.dead_letter_replays role=outbox_ops_role privs=ALL",
-        "角色在降级中被删除，授权随之消失 — grant object outbox.outbox_events role=outbox_ops_role privs=SELECT",
-        "角色在降级中被删除，授权随之消失 — grant object outbox.outbox_events role=outbox_ops_role privs=UPDATE",
-        "角色在降级中被删除，授权随之消失 — grant object outbox.dead_letter_replays role=outbox_ops_role privs=INSERT|SELECT",
+        "unmatched revoke — downgrade revoke object outbox.dead_letter_replays role=outbox_ops_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke object outbox.outbox_events role=outbox_ops_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke default:tables outbox role=outbox_ops_role privs=ALL（对象可能随 DDL 消失）",
+        "unmatched revoke — downgrade revoke default:sequences outbox role=outbox_ops_role privs=ALL（对象可能随 DDL 消失）",
         "policy 未显式 drop — outbox.dead_letter_replays:tenant_isolation_dead_letter_replays（可能随表删除，需人工确认）"
       ]
     },
     {
       "revision": "a8b9c0d1e2f3",
       "chain_index": 58,
-      "upgrade": {
-        "default_privs": 15,
-        "grant": 2,
-        "policy": 1,
-        "revoke": 17
-      },
-      "downgrade": {
-        "policy": 1
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 20,
       "downgrade_actions": 0,
       "verdict": "asymmetric",
@@ -1147,27 +923,15 @@
     {
       "revision": "e6a7b8c9d0e1",
       "chain_index": 59,
-      "upgrade": {
-        "alter_role": 4,
-        "create_role": 4,
-        "grant": 5,
-        "grant_membership": 1,
-        "revoke": 3,
-        "revoke_membership": 1,
-        "set_role": 1
-      },
-      "downgrade": {
-        "grant": 1
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 10,
-      "downgrade_actions": 1,
+      "downgrade_actions": 3,
       "verdict": "asymmetric",
       "classification": "no_restore_proven",
       "reason": "已修复（WP-04 整改轮）：降级后 qc_maintenance schema 多出 operator/login USAGE，函数 assert_signature_event_exists 的 ACL 残留",
       "evidence": "docs/audits/2026-11-27-wp04-fix-round.json",
       "findings": [
-        "missing revoke — upgrade grant schema qc_maintenance role=qc_maintenance_operator（privs=USAGE）",
-        "missing revoke — upgrade grant schema qc_maintenance role=qc_maintenance_login（privs=USAGE）",
         "RISK:missing restore — upgrade revoke function qc_maintenance.assert_session_identity() role=public（privs=ALL）",
         "missing revoke — upgrade grant function qc_maintenance.assert_session_identity() role=qc_maintenance_operator（privs=EXECUTE）",
         "missing revoke — upgrade grant function qc_maintenance.assert_session_identity() role=qc_maintenance_login（privs=EXECUTE）",
@@ -1182,23 +946,15 @@
     {
       "revision": "f8c9d0e1a2b3",
       "chain_index": 60,
-      "upgrade": {
-        "grant": 12,
-        "policy": 6,
-        "revoke": 6
-      },
-      "downgrade": {
-        "policy": 4
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 24,
-      "downgrade_actions": 0,
+      "downgrade_actions": 2,
       "verdict": "asymmetric",
       "classification": "no_restore_proven",
       "reason": "对象与本 revision 同批创建，撤 PUBLIC 撤的是 PG 建函数自动带的默认权限；另补齐维护 owner 对 qc_governance 的 USAGE 与 qc_tasks 的 SELECT 的降级撤权（完整 ACL 快照下曾报 restore_required）",
       "evidence": "docs/audits/2026-11-27-wp04-f3-p41-verification.md §3",
       "findings": [
-        "missing revoke — upgrade grant schema qc_governance role=qc_maintenance_owner（privs=USAGE）",
-        "missing revoke — upgrade grant table qc_governance.qc_tasks role=qc_maintenance_owner（privs=SELECT）",
         "RISK:missing restore — upgrade revoke function qc_maintenance._projection_anomalies(uuid) role=public（privs=ALL）",
         "RISK:missing restore — upgrade revoke function qc_maintenance.assert_session_member() role=public（privs=ALL）",
         "missing revoke — upgrade grant function qc_maintenance.assert_session_member() role=qc_maintenance_operator（privs=EXECUTE）",
@@ -1228,13 +984,8 @@
     {
       "revision": "b4c5d6e7f8a9",
       "chain_index": 61,
-      "upgrade": {
-        "grant": 3,
-        "revoke": 1
-      },
-      "downgrade": {
-        "revoke": 1
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 4,
       "downgrade_actions": 1,
       "verdict": "asymmetric",
@@ -1251,18 +1002,8 @@
     {
       "revision": "a5b6c7d8e9f0",
       "chain_index": 62,
-      "upgrade": {
-        "alter_role": 1,
-        "create_role": 1,
-        "default_privs": 1,
-        "grant": 3,
-        "revoke": 8
-      },
-      "downgrade": {
-        "default_privs": 1,
-        "grant": 2,
-        "revoke": 2
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 11,
       "downgrade_actions": 3,
       "verdict": "asymmetric",
@@ -1285,12 +1026,8 @@
     {
       "revision": "b6c7d8e9f0a1",
       "chain_index": 63,
-      "upgrade": {
-        "policy": 4
-      },
-      "downgrade": {
-        "policy": 4
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 2,
       "downgrade_actions": 2,
       "verdict": "symmetric",
@@ -1306,15 +1043,8 @@
     {
       "revision": "f2b3c4d5e6a7",
       "chain_index": 64,
-      "upgrade": {
-        "drop_role": 1
-      },
-      "downgrade": {
-        "alter_role": 1,
-        "create_role": 1,
-        "revoke": 1,
-        "revoke_membership": 1
-      },
+      "upgrade": {},
+      "downgrade": {},
       "upgrade_actions": 0,
       "downgrade_actions": 1,
       "verdict": "symmetric",
@@ -1370,7 +1100,10 @@
       "pg_toast_oid": "pg_toast / pg_toast_<oid> 的 OID 抖动：TOAST 表在表重建/重写时由 PG 内部重新分配，名称里的 OID 不承载身份语义，且其 ACL 不参与业务授权。由 test_snapshot_ignore_rules_are_narrow 限定为只匹配 pg_toast 前缀。",
       "acl_item_order": "同一对象 ACL 的条目顺序：规范化快照按 role=PRIV[,role=PRIV] 排序后比较，原文本顺序不是语义；只允许该字段级别的差异。"
     },
-    "blocks": [],
+    "blocks": [
+      "9e3b4c5d6e7f: 源码集合比对未分类",
+      "b7c8d9e0f1a2: 快照中的 revision 不在迁移链内（数据源漂移）"
+    ],
     "source": "docs/audits/2026-11-27-wp04-bidirectional-snapshot.json"
   }
 }
