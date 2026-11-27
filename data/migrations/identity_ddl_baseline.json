@@ -1,0 +1,15 @@
+{
+  "converge_statements": 12,
+  "default_privs": 24,
+  "grant": 54,
+  "infra_converge_statements": 1,
+  "maintenance_identity_statements": 1,
+  "maintenance_membership_statements": 1,
+  "owner": 9,
+  "policy": 47,
+  "revoke": 61,
+  "role_alter": 9,
+  "role_create": 9,
+  "scheduler_statements": 1,
+  "schema": 9
+}
