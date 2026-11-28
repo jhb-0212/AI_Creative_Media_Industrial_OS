@@ -663,7 +663,7 @@ def main() -> int:
     ap.add_argument("--port", type=int, default=15444)
     ap.add_argument("--user", default="postgres")
     ap.add_argument(
-        "--password", default=os.environ.get("POSTGRES_PASSWORD", "replay_super_pw")
+        "--password", default=os.environ.get("POSTGRES_PASSWORD", "<ROTATED-2026-11-28>")
     )
     ap.add_argument("--selftest", action="store_true", help="证明判定可 FAIL")
     return asyncio.run(main_async(ap.parse_args()))

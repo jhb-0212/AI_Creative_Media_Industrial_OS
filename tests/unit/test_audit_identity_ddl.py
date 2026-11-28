@@ -75,6 +75,42 @@ def test_policy_statements_are_counted_separately() -> None:
     assert counts["grant"] == 0
 
 
+def test_role_drop_is_counted_separately() -> None:
+    """销毁角色必须单独计数：缺这一类时基线对最危险的身份动作失明（D4-10）。"""
+    counts = classify_sql("DROP ROLE qc_worker;")
+    assert counts["role_drop"] == 1
+    assert counts["role_create"] == 0
+
+
+def test_dynamic_drop_role_inside_execute_format_is_counted() -> None:
+    """``EXECUTE format('DROP ROLE %I', 'qc_worker')`` 是历史上真实的写法。
+
+    alembic 的 ``as_sql`` 渲染会把 ``%I`` 变成 ``%%I``，两种形态都必须数到。
+    """
+    for sql in (
+        "EXECUTE format('DROP ROLE %I', 'qc_worker');",
+        "EXECUTE format('DROP ROLE %%I', 'qc_worker');",
+    ):
+        counts = classify_sql(sql)
+        assert counts["role_drop"] == 1, sql
+
+
+def test_drop_role_inside_conditional_do_block_is_counted() -> None:
+    """条件分支里的 DROP ROLE 也不能漏（f2b3 的历史写法就是 DO + pg_shdepend 守卫）。"""
+    counts = classify_sql(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'qc_worker') THEN
+                RETURN;
+            END IF;
+            EXECUTE format('DROP ROLE %I', 'qc_worker');
+        END $$;
+        """
+    )
+    assert counts["role_drop"] == 1
+
+
 def test_grant_inside_policy_body_is_not_double_counted_as_statement() -> None:
     """策略表达式里不会出现 GRANT；出现时也只算策略，不该污染授权计数。"""
     counts = classify_sql(

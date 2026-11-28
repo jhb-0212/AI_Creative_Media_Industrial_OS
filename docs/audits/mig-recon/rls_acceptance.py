@@ -76,7 +76,7 @@ async def main() -> int:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=15444)
     ap.add_argument("--user", default="postgres")
-    ap.add_argument("--password", default="replay_super_pw")
+    ap.add_argument("--password", default="<ROTATED-2026-11-28>")
     ap.add_argument("--db", default="ai_film_industrial")
     args = ap.parse_args()
 

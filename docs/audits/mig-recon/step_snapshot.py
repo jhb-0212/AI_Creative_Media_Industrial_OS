@@ -69,7 +69,7 @@ def read_chain(worktree: Path) -> list[str]:
 
 
 def q(port: str, sql: str, database: str = "ai_film_industrial") -> list[list[str]]:
-    env = dict(os.environ, PGPASSWORD="replay_super_pw")
+    env = dict(os.environ, PGPASSWORD="<ROTATED-2026-11-28>")
     out = subprocess.run(
         [PSQL, "-h", "localhost", "-p", port, "-U", "postgres", "-X", "-A", "-F", "|",
          "-t", "-d", database, "-c", sql],
@@ -144,7 +144,7 @@ def main() -> None:
         os.environ,
         POSTGRES_HOST="localhost", POSTGRES_PORT=port,
         POSTGRES_DB="ai_film_industrial", POSTGRES_USER="postgres",
-        POSTGRES_PASSWORD="replay_super_pw",
+        POSTGRES_PASSWORD="<ROTATED-2026-11-28>",
         POSTGRES_APP_PASSWORD="replay_app_pw",
         POSTGRES_RELAY_PASSWORD="replay_relay_pw",
         POSTGRES_PROJECT_PLANNING_PASSWORD="replay_pp_pw",

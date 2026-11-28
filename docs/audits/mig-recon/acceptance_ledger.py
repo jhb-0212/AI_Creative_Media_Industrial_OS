@@ -538,7 +538,7 @@ def render_md(
 
 async def run(db: str, port: int, host: str = "localhost", write: bool = True) -> dict:
     conn = await asyncpg.connect(
-        host=host, port=port, user="postgres", password="replay_super_pw", database=db
+        host=host, port=port, user="postgres", password="<ROTATED-2026-11-28>", database=db
     )
     try:
         rows = await collect(conn)
@@ -654,7 +654,7 @@ async def _recreate(db: str, template: str, port: int) -> str:
     """
     admin = await asyncpg.connect(
         host="localhost", port=port, user="postgres",
-        password="replay_super_pw", database="postgres",
+        password="<ROTATED-2026-11-28>", database="postgres",
     )
     try:
         await lab.fresh_clone(admin, db, template)
@@ -663,7 +663,7 @@ async def _recreate(db: str, template: str, port: int) -> str:
 
     conn = await asyncpg.connect(
         host="localhost", port=port, user="postgres",
-        password="replay_super_pw", database=db,
+        password="<ROTATED-2026-11-28>", database=db,
     )
     try:
         purge, _order, checks = await lab.prepare_pre_activation_baseline(conn, PENDING)
@@ -677,7 +677,7 @@ async def _recreate(db: str, template: str, port: int) -> str:
 async def _drop(db: str, port: int) -> None:
     conn = await asyncpg.connect(
         host="localhost", port=port, user="postgres",
-        password="replay_super_pw", database="postgres",
+        password="<ROTATED-2026-11-28>", database="postgres",
     )
     try:
         await conn.execute(f'DROP DATABASE IF EXISTS "{db}"')
@@ -757,7 +757,7 @@ async def selftest(port: int, template: str) -> int:
             await _recreate(db, template, port)
             conn = await asyncpg.connect(
                 host="localhost", port=port, user="postgres",
-                password="replay_super_pw", database=db,
+                password="<ROTATED-2026-11-28>", database=db,
             )
             try:
                 mode = sc["dirty_mode"]
@@ -982,7 +982,7 @@ async def apply_validate(db: str, port: int, host: str) -> list[tuple[str, str, 
     """
     conn = await asyncpg.connect(
         host=host, port=port, user="postgres",
-        password="replay_super_pw", database=db,
+        password="<ROTATED-2026-11-28>", database=db,
     )
     out: list[tuple[str, str, str]] = []
     try:

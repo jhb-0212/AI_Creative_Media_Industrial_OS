@@ -32,7 +32,6 @@ from collections.abc import Sequence
 
 from alembic import op
 
-from packages.shared.config import get_settings
 from packages.shared.db_grants import (
     MAINTENANCE_SCHEMA,
     discovery_guard_statements,
@@ -42,6 +41,7 @@ from packages.shared.db_grants import (
     scheduler_statements,
 )
 from packages.shared.db_roles import maintenance_role, scheduler_role
+from packages.shared.migration_identity import assert_role_present
 
 revision: str = "a5b6c7d8e9f0"
 down_revision: str | Sequence[str] | None = "b4c5d6e7f8a9"
@@ -130,27 +130,19 @@ def _create_discovery_guard() -> None:
     )
 
 
-def _create_scheduler_role() -> None:
-    """幂等建/改 Scheduler 登录角色（属性漂移要靠每次收敛拉回）。"""
-    role = scheduler_role()
-    password = get_settings().postgres_qc_scheduler_password.get_secret_value()
-    password_sql = " PASSWORD '" + password.replace("'", "''") + "'"
-    op.execute(
-        f"""
-        DO $$
-        BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}') THEN
-                CREATE ROLE {role} LOGIN {_NO_ESCALATION}{password_sql};
-            ELSE
-                ALTER ROLE {role} WITH LOGIN {_NO_ESCALATION}{password_sql};
-            END IF;
-        END $$;
-        """
-    )
+def _assert_scheduler_role() -> None:
+    """断言 Scheduler 登录角色已由 bootstrap 创建（角色归身份治理，不归迁移）。
+
+    D4 裁决（Owner 2026-11-28）：基础角色的创建、属性与凭据由 Bootstrap Identity
+    统一负责；迁移只断言存在、管理自己的对象与授权。原实现每次 upgrade 都
+    ``CREATE/ALTER ROLE`` + 写口令，使迁移成为第二份身份事实源，也让降级必须
+    删角色才能对称——而角色是集群级对象，删不掉就整链失败。
+    """
+    assert_role_present(scheduler_role(), op=op)
 
 
 def upgrade() -> None:
-    _create_scheduler_role()
+    _assert_scheduler_role()
     _create_discovery_guard()
     op.execute(_ENUMERATE_WITH_DISCOVERY)
     for statement in discovery_guard_statements():

@@ -99,6 +99,20 @@ def downgrade() -> None:
     且一旦在"单库"环境侥幸成功，就会连带废掉其它库的连接配置。
     """
     for schema in _SCHEMAS:
+        # 默认权限必须显式撤：``REVOKE ALL ON ALL TABLES`` 只作用于**当前已存在**
+        # 的表的 relacl，撤不掉 pg_default_acl 里那条"以后新建的表自动可读写"的
+        # 规则。漏掉它，降级后 app_role 对该 schema 后续创建的一切表仍然自动持有
+        # SELECT/INSERT/UPDATE/DELETE——这是权限泄漏，不是形态差异。
+        # （实测：升级建出 2 个 schema × 2 类默认权限，旧降级在 D 态全部残留；
+        #   补齐这两条 REVOKE 后 P==D，0 差异。）
+        op.execute(
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
+            f"REVOKE ALL ON TABLES FROM {app_role_name()}"
+        )
+        op.execute(
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
+            f"REVOKE ALL ON SEQUENCES FROM {app_role_name()}"
+        )
         op.execute(f"REVOKE ALL ON ALL TABLES IN SCHEMA {schema} FROM {app_role_name()}")
         op.execute(f"REVOKE ALL ON ALL SEQUENCES IN SCHEMA {schema} FROM {app_role_name()}")
         op.execute(f"REVOKE USAGE ON SCHEMA {schema} FROM {app_role_name()}")

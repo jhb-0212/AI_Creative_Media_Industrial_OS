@@ -14,3 +14,9 @@ docs/baseline/*.md -text
 
 # 十一类冻结产物：哈希写入 phase0_manifest.md
 contracts/** -text
+
+# ⑩ ADR 主索引：也在十一类冻结产物里，但不在 contracts/ 下。
+# 漏掉这一行时，core.autocrlf=true 的 Windows 检出会把 adr_index.yaml 转成 CRLF
+# （33,011 B → 33,877 B），冻结闸门按字节比对就报 `⑩ 内容已变更但清单未重签`；
+# 同一份提交在 Linux CI（LF）却是绿的——平台相关假红，最后会被当噪声忽略。
+docs/adr/adr_index.yaml -text

@@ -1027,17 +1027,31 @@ MAINTENANCE_COMMAND_FUNCTIONS: tuple[str, ...] = (
 def maintenance_membership_statements() -> list[str]:
     """维护身份的成员关系（同样只有矩阵能声明）。
 
-    两句都做成**无条件**语句而不是 ``DO $$ IF EXISTS … $$`` 包裹：PG 里重复
+    第一句做成**无条件**语句而不是 ``DO $$ IF EXISTS … $$`` 包裹：PG 里重复
     ``GRANT <组> TO <成员>`` 是幂等的，对非成员 ``REVOKE`` 也只发一条 warning，
     所以「重复执行」不需要条件分支；而条件分支会把语句变成一段 plpgsql，
     闸门就无法按「逐条授权语句」比对，只能退化成模糊匹配。
+
+    第二句是例外：``worker`` 角色（``qc_worker``）已于 ``f2b3c4d5e6a7`` 退役，
+    bootstrap 不再创建它；而 ``REVOKE <组> FROM <不存在的角色>`` 在 PG 里是
+    **报错**（不是 warning），fresh install 会把 e6a7 直接堵死。因此这一句必须
+    带 SQL 侧存在性守卫：角色仍在（存量集群）就照旧收回，已不在则退化为 no-op。
+    守卫留在 SQL 而不是 Python 分支——盘点/闸门按「逐条语句」回放迁移，Python
+    分支会让 ``as_sql`` 展开与真实执行分叉，矩阵就再也比对不上。
     """
     from packages.shared.db_roles import maintenance_role
 
     operator = maintenance_role("operator")
+    worker = maintenance_role("worker")
+    worker_literal = worker.replace("'", "''")
     return [
         f"GRANT {operator} TO {maintenance_role('login')}",
-        f"REVOKE {operator} FROM {maintenance_role('worker')}",
+        f"""DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{worker_literal}') THEN
+                REVOKE {operator} FROM {worker};
+            END IF;
+        END $$""",
     ]
 
 

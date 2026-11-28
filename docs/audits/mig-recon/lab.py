@@ -31,7 +31,7 @@ import asyncpg
 DEFAULT_HOST = "localhost"
 DEFAULT_PORT = 15444
 DEFAULT_USER = "postgres"
-DEFAULT_PASSWORD = "replay_super_pw"
+DEFAULT_PASSWORD = "<ROTATED-2026-11-28>"
 DEFAULT_TEMPLATE = "ai_film_industrial"
 
 

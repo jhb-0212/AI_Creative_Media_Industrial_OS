@@ -130,13 +130,32 @@ def test_created_role_without_drop_is_identity_leak() -> None:
     assert any("身份泄漏" in item for item in payload["matrix"][0]["findings"])
 
 
-def test_declared_retired_role_is_not_flagged() -> None:
-    """qc_worker 已在 RETIRED_ROLES 登记，其重建走受控恢复，不算不对称。"""
+def test_declared_retired_role_rebuild_is_a_risk_under_a() -> None:
+    """A 方案后：降级在迁移里重建退役身份 = 以迁移伪造恢复，必须记 RISK。
+
+    （旧口径「已登记退役即不判不对称」在 f2b3 选 A 后失效：退役与恢复都归身份治理。）
+    """
     payload = rm.build_matrix(
         _inventory([_row("r1", "downgrade", "CREATE ROLE qc_worker", "create_role")])
     )
-    assert payload["matrix"][0]["verdict"] == "symmetric"
-    assert any("已登记退役" in item for item in payload["matrix"][0]["notes"])
+    assert payload["matrix"][0]["verdict"] != "symmetric"
+    assert any("重建退役身份" in item for item in payload["matrix"][0]["findings"])
+
+
+def test_dynamic_drop_role_with_percent_escape_is_detected() -> None:
+    """``EXECUTE format('DROP ROLE %%I', 'qc_worker')`` 也必须被认成销毁集群角色。
+
+    alembic 的 ``as_sql`` 渲染会把 ``%I`` 变成 ``%%I``；只认单百分号会让这种
+    写法从盘点里整条消失（D4-10 实测）。
+    """
+    row = _row(
+        "r1",
+        "upgrade",
+        "EXECUTE format('DROP ROLE %%I', 'qc_worker')",
+        "drop_role",
+    )
+    payload = rm.build_matrix(_inventory([row]))
+    assert any("销毁集群级角色" in item for item in payload["matrix"][0]["findings"])
 
 
 def test_unclassified_asymmetry_blocks_gate() -> None:
@@ -241,6 +260,19 @@ def test_snapshot_revision_outside_chain_blocks() -> None:
     snap = {"results": [_entry("ghost", "no_restore_proven")]}
     out = rm.evaluate_snapshot(snap, _payload(_matrix_row("r1", "no_restore_proven")))
     assert any("不在迁移链内" in b for b in out["blocks"])
+
+
+def test_snapshot_zero_identity_revision_in_chain_is_not_applicable() -> None:
+    """链内但零身份动作的 revision（A 方案后的 f2b3）不能判成数据源漂移。
+
+    它实测过、却没有身份面可比较；把它当漂移会让「正确整改」把闸门弄红。
+    """
+    snap = {"results": [_entry("r1", "no_restore_proven"), _entry("f2b3c4d5e6a7", "no_restore_proven")]}
+    payload = _payload(_matrix_row("r1", "no_restore_proven"))
+    payload["chain_coverage"] = {"r1": "STATIC_COMPLETE", "f2b3c4d5e6a7": "STATIC_COMPLETE"}
+    out = rm.evaluate_snapshot(snap, payload)
+    assert out["blocks"] == []
+    assert out["not_applicable"] == ["f2b3c4d5e6a7"]
 
 
 def test_snapshot_ignore_rules_are_narrow() -> None:

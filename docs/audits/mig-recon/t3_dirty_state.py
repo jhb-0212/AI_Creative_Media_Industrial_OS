@@ -43,7 +43,7 @@ import asyncpg
 HOST = "localhost"
 PORT = 15444  # step-feat：分支链已重放到 head
 MAIN_PORT = 15443  # step-main：主支链 head，用于可空性对照
-SUPER_PW = "replay_super_pw"
+SUPER_PW = "<ROTATED-2026-11-28>"
 LAB = "t3_lab"
 TEMPLATE = "ai_film_industrial"
 MAIN_DB = "ai_film_industrial"

@@ -1,4 +1,4 @@
-"""退役 ``qc_worker``：它是空壳登录身份，Worker 真正连库用的是 ``qc_governance_role``。
+"""退役 ``qc_worker`` 的**登记边界**：本迁移不再执行任何身份生命周期操作。
 
 为什么退役（不是「补授权」）
 --------------------------
@@ -21,17 +21,32 @@
 ``qc_governance_role`` 不是 operator 成员、没有守卫 EXECUTE——比对一个不存在的
 角色更难被绕过：以前只要 Worker 换一个身份连库就失真了。
 
-集群级 DROP 的守卫
-------------------
-``DROP ROLE`` 是集群操作。这里有依赖就**显式失败**而不是静默跳过：跳过会让
-「退役了」这句话变成假话，而迁移报告仍是绿的。存在依赖时错误信息给出条数，
-由部署方按 ``scripts/retire_legacy_roles.py`` 的口径先清引用。
+职责迁出（D4 裁决，Owner 2026-11-28）
+-----------------------------------
+原实现把退役写成 ``upgrade`` 里的集群级角色销毁（依赖检查 + ``EXECUTE format``
+动态执行），``downgrade`` 里再用 ``restore_retired_role`` 重建。
+裁决否决了这种「迁移兼当身份管理器」的做法：
 
-downgrade 重建登录身份时不再手写属性与口令：改由
-``migration_identity.restore_retired_role`` 按 `role_specs.RETIRED_ROLES`
-的 `historical_attributes` 恢复，并要求受控入口显式确认
-（``AUTHORIZE_RETIRED_ROLE_RESTORE=f2b3c4d5e6a7``）；凭据缺失或未授权即失败关闭
-（WP-03 方案 A 的降级恢复契约）。
+* 角色销毁的作用域是**集群**，不是本库——迁移一旦执行，就改动了本迁移对象之外
+  的共享状态；矩阵也就永远只能在「删成功」与「整链失败」之间二选一；
+* 退役/恢复的判据（依赖清查、成员关系、对象所有权、默认权限、凭据）属于
+  **身份生命周期**，不属于结构迁移。
+
+因此本 revision 现在只做两件事：**登记退役边界**（``role_specs.RETIRED_ROLES``
+的 ``retired_at_revision`` 指向这里），以及**只读地提示**集群现状。真实退役由
+``scripts/retire_legacy_roles.py --retired`` 执行：先全集群零引用才允许
+``DROP ROLE``，有依赖就原样退出，必要时保留身份并限制登录等待处置。
+
+两种状态必须分开：``RETIRED`` 只表示「已登记、普通 Bootstrap 不再创建」；
+``RETIREMENT_EXECUTED`` 表示「真实集群中的退役操作已执行并通过验证」。前者是
+声明事实，后者是执行事实，本迁移只负责前者。
+
+``downgrade`` 刻意什么都不做：不为「回到父态」重新创建集群级登录身份。父态
+是否仍有这个角色取决于历史部署，恢复它等于在降级路径里静默重建一个已退役身份。
+
+Revision ID: f2b3c4d5e6a7
+Revises: b6c7d8e9f0a1
+Create Date: 2026-11-27
 """
 
 from __future__ import annotations
@@ -39,7 +54,7 @@ from __future__ import annotations
 from alembic import op
 
 from packages.shared.db_roles import maintenance_role
-from packages.shared.migration_identity import restore_retired_role
+from packages.shared.role_specs import retired_roles_by_name
 
 revision: str = "f2b3c4d5e6a7"
 down_revision: str | None = "b6c7d8e9f0a1"
@@ -52,38 +67,29 @@ def _worker() -> str:
 
 
 def upgrade() -> None:
+    """登记退役边界；不建、不改、不删任何角色（退役归身份治理）。"""
     role = _worker()
-    # 依赖检查放在同一条 DO 块里，与 DROP 同事务：先看有没有引用，有就带条数
-    # 报错；没有才删。分两步做（先查再删）在两语句之间给人留了插空子的窗口。
+    contract = retired_roles_by_name().get(role)
+    if contract is None:  # 声明与迁移边界脱节时失败关闭，不给「悄悄不退役」留口子
+        raise RuntimeError(
+            f'role "{role}" 不在 RETIRED_ROLES：退役边界缺少声明来源，拒绝继续'
+        )
+    role_literal = role.replace("'", "''")
     op.execute(
         f"""
         DO $$
-        DECLARE
-            dependency_count integer;
         BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}') THEN
-                RETURN;
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role_literal}') THEN
+                RAISE NOTICE '退役身份 % 仍存在于本集群：集群级销毁由身份治理执行 '
+                    '（scripts/retire_legacy_roles.py --retired），迁移不销毁角色',
+                    '{role_literal}';
             END IF;
-            SELECT count(*) INTO dependency_count
-              FROM pg_shdepend d
-              JOIN pg_roles r ON r.oid = d.refobjid
-             WHERE d.refclassid = 'pg_authid'::regclass
-               AND r.rolname = '{role}';
-            IF dependency_count > 0 THEN
-                RAISE EXCEPTION
-                    '角色 % 仍有 % 条集群级依赖，拒绝 DROP：先按 '
-                    'scripts/retire_legacy_roles.py 的口径清理引用',
-                    '{role}', dependency_count
-                    USING ERRCODE = 'dependent_objects_still_exist';
-            END IF;
-            EXECUTE format('DROP ROLE %I', '{role}');
         END $$;
         """
     )
 
 
 def downgrade() -> None:
-    # 属性、成员关系、口令字段名全部来自 ``role_specs.RETIRED_ROLES`` 的历史定义；
-    # 未授权（``AUTHORIZE_RETIRED_ROLE_RESTORE=<revision>``）或凭据缺失时失败关闭。
-    # 恢复自带 ``RAISE WARNING``：重建集群级登录身份不允许只留一条日志。
-    restore_retired_role(_worker(), op=op)
+    # 什么都不做：不重建已退役的集群级登录身份，也不撤销不属本迁移的授权。
+    # 父态是否仍有该角色取决于历史部署；「恢复」只能走受控的身份治理流程。
+    return None

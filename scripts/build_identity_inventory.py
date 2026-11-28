@@ -1,4 +1,4 @@
-"""从当前迁移源码重建身份迁移语句清单（inventory）。
+﻿"""从当前迁移源码重建身份迁移语句清单（inventory）。
 
 背景：2026-11-27 修复前生成的旧清单把 #24 的降级宽授、已被移除的
 ``CREATE/ALTER ROLE`` 语句都留在了归档里，且含明文开发口令。旧清单已移入
@@ -28,10 +28,11 @@ import ast
 import importlib.util
 import io
 import json
+import os
 import re
 import subprocess
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -110,7 +111,7 @@ def _offline_statements(module: Any, direction: str) -> tuple[list[str] | None, 
         )
         with Operations.context(ctx):
             getattr(module, direction)()
-    except Exception as exc:  # noqa: BLE001 - 需要记录任意失败原因
+    except Exception as exc:  # 需要记录任意失败原因
         return None, f"{type(exc).__name__}: {exc}"[:160]
     return _split_statements(buf.getvalue()), None
 
@@ -176,13 +177,22 @@ def _chain(files: dict[str, tuple[str | None, Path]]) -> list[str]:
 
 
 def _modified_files() -> set[str]:
-    out = subprocess.run(
-        ["git", "diff", "--name-only", _BASE_COMMIT, "--", "data/migrations/versions"],
-        cwd=_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
+    """自基线提交以来改过的迁移文件。
+
+    证据树（``git archive`` 导出目录）不是 git 仓库，此时无法判定"改过哪些"，
+    返回空集并在归档里记 note——宁可整链重新 offline 展开（更保守），
+    也不要因为拿不到 git 就沿用旧语句、把修复前的清单带进新证据。
+    """
+    try:
+        out = subprocess.run(
+            ["git", "diff", "--name-only", _BASE_COMMIT, "--", "data/migrations/versions"],
+            cwd=_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return set()
     return {Path(line).name for line in out.splitlines() if line.strip()}
 
 
@@ -199,9 +209,14 @@ def build(base_inventory: Path) -> dict[str, Any]:
     base = json.loads(base_inventory.read_text(encoding="utf-8"))
     base_rows = base.get("rows") or []
     modified = _modified_files()
-    head_sha = subprocess.run(
-        ["git", "rev-parse", "HEAD"], cwd=_ROOT, capture_output=True, text=True, check=True
-    ).stdout.strip()
+    head_sha = os.environ.get("INV_HEAD_SHA", "").strip()
+    if not head_sha:
+        try:
+            head_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=_ROOT, capture_output=True, text=True, check=True
+            ).stdout.strip()
+        except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+            head_sha = "UNKNOWN（证据树非 git 仓库，未提供 INV_HEAD_SHA）"
 
     rows: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
@@ -218,7 +233,7 @@ def build(base_inventory: Path) -> dict[str, Any]:
             module = importlib.util.module_from_spec(spec)
             try:
                 spec.loader.exec_module(module)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 failures.append(
                     {"revision": revision, "direction": "import", "error": f"{type(exc).__name__}: {exc}"[:160], "unproven": True}
                 )
@@ -292,7 +307,7 @@ def build(base_inventory: Path) -> dict[str, Any]:
         "head": head_sha[:12],
         "head_sha": head_sha,
         "base_commit": _BASE_COMMIT,
-        "generated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+        "generated_at": datetime.now(UTC).astimezone().isoformat(timespec="seconds"),
         "generator": "scripts/build_identity_inventory.py（Alembic offline as_sql + AST 回退）",
         "scan_scope": "data/migrations/versions/*.py 全链 upgrade/downgrade 的 op.execute 语句",
         "redaction": "PASSWORD '<...>' 与连接串口令在归档前替换为 ***REDACTED***",

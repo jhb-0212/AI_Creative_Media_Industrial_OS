@@ -1,8 +1,9 @@
 """WP-03 方案 A：退役角色契约（`RETIRED_ROLES` 五字段 + 恢复五条硬约束）。
 
-判据来自 2026-11-27 裁决：
+判据来自 2026-11-27 裁决，并按 D4 裁决（2026-11-28，f2b3 选 A）修订执行边界：
 - 当前 head 执行 Bootstrap 不创建 `qc_worker`；
-- 降级跨越退役 revision 时，恢复的角色状态与历史定义一致；
+- 退役职责在身份治理工具里执行，迁移只登记边界、不做身份 DDL；
+- 恢复退役身份（受控、显式确认）的状态与历史定义一致；
 - 口令不进 Registry 生成物 / 迁移源文件 / 审计报告，缺失时 fail-closed；
 - 恢复必须显式确认并产生告警；
 - 未声明角色不能通过 Bootstrap 或迁移被隐式创建。
@@ -77,14 +78,39 @@ def test_registry_payload_has_retired_section_without_secret_values() -> None:
     assert all("credential_source" in entry for entry in payload)
 
 
-def test_retirement_migration_delegates_and_has_no_inline_password() -> None:
+def _migration_code_only() -> str:
+    """迁移文件去掉模块/函数 docstring 后的「会执行的代码」。"""
     source = _RETIREMENT_MIGRATION.read_text(encoding="utf-8")
-    assert "restore_retired_role(" in source
-    assert "get_settings(" not in source.split('"""', 2)[-1], (
-        "downgrade 不应自己取口令：口令来源属于声明层（credential_source）"
+    parts = source.split('"""')
+    # 偶数段是 docstring（0 是 shebang 前的空段），奇数段才是代码
+    return "\n".join(parts[0::2])
+
+
+def test_retirement_migration_does_not_manage_identity_lifecycle() -> None:
+    """D4 裁决（Owner 2026-11-28，f2b3 选 A）：退役职责整体移出迁移。
+
+    迁移只登记退役边界与只读提示；不 ``DROP ROLE``、不 ``CREATE ROLE``、
+    不 ``ALTER ROLE``、不写口令，也不调用恢复入口（恢复不再是降级路径的一部分）。
+    """
+    code = _migration_code_only()
+    assert "restore_retired_role(" not in code, (
+        "降级不得重建已退役身份：恢复只能走受控身份治理流程"
     )
-    downgrade_body = source.split("def downgrade()", 1)[1]
-    assert "PASSWORD" not in downgrade_body
+    for forbidden in ("DROP ROLE", "CREATE ROLE", "ALTER ROLE", "PASSWORD '"):
+        assert forbidden not in code, f"迁移不得执行身份生命周期 DDL：{forbidden}"
+    assert "retired_roles_by_name(" in code, (
+        "退役边界必须从声明层取（RETIRED_ROLES），不能凭空假设"
+    )
+
+
+def test_retirement_tool_is_the_execution_entry() -> None:
+    """退役的执行载体是身份治理工具，且目标清单来自同一声明源。"""
+    tool = _ROOT / "scripts" / "retire_legacy_roles.py"
+    source = tool.read_text(encoding="utf-8")
+    assert "--retired" in source
+    assert "retired_role_names()" in source, "目标必须读 RETIRED_ROLES，不另存清单"
+    assert "RETIREMENT_EXECUTED" in source, "执行结果必须与 RETIRED 状态分开记录"
+
 
 
 def test_restore_requires_explicit_authorization(monkeypatch: pytest.MonkeyPatch) -> None:

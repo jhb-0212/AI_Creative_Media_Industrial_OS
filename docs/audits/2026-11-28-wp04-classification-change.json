@@ -1,0 +1,51 @@
+{
+  "revision": "2026-11-28 D4 strip 整改后矩阵分类变更记录",
+  "authority": {
+    "owner_ruling": "2026-11-28 D4-9：批准 strip 推广（5 个 revision）；f2b3 选 A；否决 B",
+    "scope": "仅分类记录与证据指针；不改生产库、不执行集群角色退役、不提交/推送/合并",
+    "rule": "分类只能由「正确实现 + 同一 HEAD 的真实往返证据」改变，不得靠文档或基线更新解除"
+  },
+  "evidence_batch": {
+    "code_state": "311530c68bd108ceaa6a984d2ef45a7d665ab86e + D4-strip（未提交，整改 worktree：D:\\WP04-evidence\\strip-impl）",
+    "runtime": "Docker postgres:16（16.16-1.pgdg13+1），端口 15444；干净集群 postgres:16 同镜像，端口 15445",
+    "roundtrip_results": "runs/2026-11-28/strip-sweep.results.json（25 条 P→U→D，全部 diff_groups=[]）",
+    "snapshot": "docs/audits/2026-11-28-wp04-bidirectional-snapshot.json（25 条实测，0 条含差异）",
+    "inventory": "docs/audits/2026-11-28-identity-migration-inventory.json（812 rows / 40 revisions 有身份动作）",
+    "matrix": "docs/audits/2026-11-28-wp04-reversibility-matrix.json（asymmetric 23 / unclassified 0 / blocking 0）"
+  },
+  "changes": [
+    {
+      "revision": "e6a7b8c9d0e1",
+      "from": "restore_required",
+      "to": "no_restore_proven",
+      "basis": "strip：upgrade 不再 CREATE/ALTER ROLE、不写口令；owner/operator/login 改断言存在；worker（qc_worker，已退役）的成员 REVOKE 改为 SQL 侧存在性守卫。真实往返 P→U→D 0 差异。",
+      "history_preserved": "2026-11-27 旧结论 no_restore_proven 已被 2026-11-27 真实快照（P 无 qc_worker、D 有）推翻为 restore_required；该推翻事实与旧快照文件均保留，未覆盖。",
+      "previous_evidence": "docs/audits/2026-11-27-wp04-bidirectional-snapshot.json；docs/audits/2026-11-27-wp04-reversibility-matrix.json"
+    },
+    {
+      "revision": "f2b3c4d5e6a7",
+      "from": "unproven_blocking",
+      "to": "no_restore_proven",
+      "basis": "A 方案：退役生命周期整体移出 migration——upgrade 不再 DROP ROLE（只登记边界 + 只读 NOTICE），downgrade 不再 restore/CREATE ROLE。源码身份动作归零（inventory 不再收录该 revision；代码级扫描 CLEAN；DDL 基线 role_drop=0）。退役改由 scripts/retire_legacy_roles.py --retired 执行，前置检查 pg_shdepend / 成员关系 / 对象所有权 / 默认权限与授权，零引用才 DROP。真实往返 P→U→D 0 差异。",
+      "history_preserved": "原 unproven_blocking 依据（升级在迁移内销毁集群角色、与 WP-02 冲突、需 Owner 裁决）保留于本记录与 docs/audits/2026-11-28-wp04-f2b3-owner-packet.md。",
+      "previous_evidence": "docs/audits/2026-11-28-wp04-f2b3-owner-packet.md"
+    },
+    {
+      "revision": "e0f1a2b3c4d5",
+      "from": "asymmetric（身份泄漏：升级建 3 个域角色、降级不删）",
+      "to": "symmetric（no_restore_proven）",
+      "basis": "strip：upgrade 只 CREATE SCHEMA + 断言域角色存在；角色由 Bootstrap 创建。真实往返 P→U→D 0 差异。",
+      "history_preserved": "旧盘点（docs/audits/2026-11-27-identity-migration-inventory.json）中该 revision 的 create_role 行仍在，可对照。"
+    }
+  ],
+  "unchanged_but_reverified": [
+    "其余 22 条 asymmetric revision：2026-11-28 重跑 P→U→D 仍全部 0 差异（见 strip-sweep.results.json）",
+    "8f3b2c1d4e5a / a0b1c2d3e4f5 / a5b6c7d8e9f0：strip 后源码身份 DDL 归零，P→U→D 0 差异"
+  ],
+  "not_claimed": [
+    "不声明集群级角色退役已完成（RETIREMENT_EXECUTED 需在真实集群执行并留痕）",
+    "不声明生产数据库已变更",
+    "不声明 D4 通过或 D5 准入",
+    "不声明本 ADR 已由 Owner 签署"
+  ]
+}

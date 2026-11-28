@@ -51,7 +51,6 @@ from collections.abc import Sequence
 
 from alembic import op
 
-from packages.shared.config import get_settings
 from packages.shared.db_grants import (
     MAINTENANCE_GUARD,
     MAINTENANCE_SCHEMA,
@@ -60,6 +59,7 @@ from packages.shared.db_grants import (
     maintenance_membership_statements,
 )
 from packages.shared.db_roles import maintenance_role
+from packages.shared.migration_identity import assert_role_present
 
 revision: str = "e6a7b8c9d0e1"
 down_revision: str | Sequence[str] | None = "a8b9c0d1e2f3"
@@ -69,42 +69,20 @@ depends_on: str | Sequence[str] | None = None
 _GUARD_SCHEMA, _GUARD_NAME = MAINTENANCE_GUARD.split(".")
 _GUARD_NAME = _GUARD_NAME.removesuffix("()")
 
-# 角色属性：四者共同「不可提权」，差别只在能否登录。
-_NO_ESCALATION = "NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS"
-
 
 def _role(key: str) -> str:
     return maintenance_role(key)
 
 
-def _create_role(role: str, *, login: bool, password: str | None = None) -> None:
-    """幂等建/改角色。
+def _assert_role(role: str) -> None:
+    """断言维护角色已由 bootstrap 创建（角色归身份治理，不归迁移）。
 
-    已存在时也要 ``ALTER``：只建不改会让「角色被人手工改过属性」永远停在错误
-    状态，而迁移报告是绿的——属性漂移只能靠每次收敛回来。重复执行时
-    ``ALTER`` 与 ``CREATE`` 等价（两边写的是同一组属性）。
+    D4 裁决（Owner 2026-11-28）：基础角色的创建、属性、口令与生命周期由
+    Bootstrap Identity / ``role_specs.py`` 统一负责；迁移只断言存在、管理自己的
+    对象与授权。原实现在 upgrade 里 ``CREATE/ALTER ROLE`` + 写口令——这既是第二
+    份身份事实源，也让 downgrade 只能靠"删角色"才能对称，而角色是集群级对象。
     """
-    attributes = "LOGIN" if login else "NOLOGIN"
-    # 口令来自配置，可能含单引号。PG 的 DDL 没有绑定参数，所以按 SQL 字面量
-    # 的规则转义（标准 conforming strings 下把 ' 写成 '' 就是正确字面量）。
-    # 不转义会让「口令里有引号」变成语法错误，或在最坏情况下拼出一条额外语句。
-    password_sql = (
-        " PASSWORD '" + password.replace("'", "''") + "'"
-        if password is not None
-        else ""
-    )
-    op.execute(
-        f"""
-        DO $$
-        BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}') THEN
-                CREATE ROLE {role} {attributes} {_NO_ESCALATION}{password_sql};
-            ELSE
-                ALTER ROLE {role} WITH {attributes} {_NO_ESCALATION}{password_sql};
-            END IF;
-        END $$;
-        """
-    )
+    assert_role_present(role, op=op)
 
 
 def _create_guard() -> None:
@@ -154,19 +132,10 @@ def _transfer_ownership() -> None:
 
 
 def upgrade() -> None:
-    settings = get_settings()
-    _create_role(_role("owner"), login=False)
-    _create_role(_role("operator"), login=False)
-    _create_role(
-        _role("login"),
-        login=True,
-        password=settings.postgres_qc_maintenance_login_password.get_secret_value(),
-    )
-    _create_role(
-        _role("worker"),
-        login=True,
-        password=settings.postgres_qc_worker_password.get_secret_value(),
-    )
+    # 三个在线维护身份由 bootstrap 先行创建（owner / operator / login）；
+    # 缺失即 fail-closed 并提示修复动作，迁移不隐式建身份。
+    for key in ("owner", "operator", "login"):
+        _assert_role(_role(key))
     for statement in maintenance_membership_statements():
         op.execute(statement)
     _create_guard()

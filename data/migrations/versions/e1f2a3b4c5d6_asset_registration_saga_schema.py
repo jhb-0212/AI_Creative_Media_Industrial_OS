@@ -309,7 +309,31 @@ def upgrade() -> None:
         op.execute(statement)
 
 
+_INFLIGHT_TASK_STATUS = "AWAITING_ASSET_REGISTRATION"
+
+
+def _assert_no_inflight_tasks() -> None:
+    """降级前置守卫（ADR-R46 §8 裁决 3）。
+
+    隐式的 ``VALIDATE`` 失败仍是第二道防线；这里把它提前到任何破坏性 DDL 之前，
+    让失败可读、可测试，并且不会降到一半才炸。错误文案含机器可检索前缀
+    ``[DOWNGRADE_BLOCKED:e1f2a3b4c5d6]``，供 CI/运维按 revision 定位。
+    """
+    count = op.get_bind().execute(
+        sa.text(f"SELECT count(*) FROM {_GEN_TASKS} WHERE status = :status"),
+        {"status": _INFLIGHT_TASK_STATUS},
+    ).scalar_one()
+    if count:
+        raise RuntimeError(
+            f"[DOWNGRADE_BLOCKED:e1f2a3b4c5d6] 在途任务状态不满足降级要求："
+            f"{count} 条 generation_tasks 仍为 {_INFLIGHT_TASK_STATUS}。"
+            " 处置：先让这些任务收敛（完成登记或显式置为 FAILED），再重跑 downgrade；"
+            " 不得直接改 status 绕过。"
+        )
+
+
 def downgrade() -> None:
+    _assert_no_inflight_tasks()
     # 恢复旧状态 CHECK；此时任何 AWAITING_ASSET_REGISTRATION 行都会让
     # VALIDATE 失败——这是正确行为：要回退必须先把在途任务处置完。
     op.execute(f"ALTER TABLE {_GEN_TASKS} DROP CONSTRAINT IF EXISTS {_TASKS_STATUS_CK}")

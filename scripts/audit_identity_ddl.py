@@ -43,6 +43,7 @@ EXIT_REGRESSION = 1
 # 类别名同时是基线文件的键，改名等于让基线失效，因此保持稳定。
 CATEGORY_ROLE_CREATE = "role_create"
 CATEGORY_ROLE_ALTER = "role_alter"
+CATEGORY_ROLE_DROP = "role_drop"
 CATEGORY_GRANT = "grant"
 CATEGORY_REVOKE = "revoke"
 CATEGORY_DEFAULT_PRIVS = "default_privs"
@@ -76,6 +77,10 @@ _BOUNDARY = r"(?:^|;\s*|\bTHEN\b|\bBEGIN\b|\bELSE\b|\bEXECUTE\b|\bLOOP\b)"
 _PATTERNS: dict[str, re.compile[str]] = {
     CATEGORY_ROLE_CREATE: re.compile(rf"{_BOUNDARY}\s*CREATE\s+ROLE\b", re.IGNORECASE),
     CATEGORY_ROLE_ALTER: re.compile(rf"{_BOUNDARY}\s*ALTER\s+ROLE\b", re.IGNORECASE),
+    # 销毁角色是身份生命周期的破坏性动作，必须单独计数：缺这一类时，
+    # 「只许减不许增」的基线对 DROP ROLE 完全失明——升级真的在删角色，
+    # 盘点却记 0，矩阵还能把它判成 symmetric（D4-10 实测复现）。
+    CATEGORY_ROLE_DROP: re.compile(rf"{_BOUNDARY}\s*DROP\s+ROLE\b", re.IGNORECASE),
     CATEGORY_DEFAULT_PRIVS: re.compile(
         rf"{_BOUNDARY}\s*ALTER\s+DEFAULT\s+PRIVILEGES\b", re.IGNORECASE
     ),

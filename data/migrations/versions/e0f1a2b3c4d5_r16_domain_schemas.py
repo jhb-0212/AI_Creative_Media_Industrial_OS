@@ -29,6 +29,7 @@ from packages.shared.db_grants import (
     QC_GOVERNANCE,
 )
 from packages.shared.db_roles import domain_role
+from packages.shared.migration_identity import assert_role_present
 
 revision: str = "e0f1a2b3c4d5"
 down_revision: str | Sequence[str] | None = "e9f0a1b2c3d4"
@@ -38,41 +39,21 @@ depends_on: Sequence[str] | None = None
 _SCHEMAS = (PRODUCTION_PLANNING, BUDGET_QUOTA, QC_GOVERNANCE)
 
 
-def _create_role_if_absent(role: str, password: str) -> None:
-    """幂等建角色：已存在则只更新口令（重复执行迁移不报错）。
+def _assert_domain_role(role: str) -> None:
+    """断言 R16 域角色已由 bootstrap 创建（角色归身份治理，不归迁移）。
 
-    PG 没有 ``CREATE ROLE IF NOT EXISTS``（它是 ``CREATE TABLE`` 才有的语法），
-    照抄会得到 syntax error，因此用 DO 块做存在性判断。
+    D4 裁决（Owner 2026-11-28）：基础角色不建、不改、不删；迁移只断言存在。
+    原实现在 upgrade 里 ``CREATE/ALTER ROLE`` 并写口令，导致降级必须删角色才能
+    对称；而角色是集群级对象，删不掉就整链失败（且可能废掉其它库的连接配置）。
     """
-    op.execute(
-        f"""
-        DO $$
-        BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}') THEN
-                CREATE ROLE {role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
-                    PASSWORD '{password}';
-            ELSE
-                ALTER ROLE {role} WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
-                    PASSWORD '{password}';
-            END IF;
-        END $$;
-        """
-    )
+    assert_role_present(role, op=op)
 
 
 def upgrade() -> None:
-    """预埋三个 R16 业务域的空 schema 与专用角色（幂等）。"""
-    from packages.shared.config import get_settings
-
-    settings = get_settings()
-    role_passwords = {
-        PRODUCTION_PLANNING: settings.postgres_production_planning_password.get_secret_value(),
-        BUDGET_QUOTA: settings.postgres_budget_quota_password.get_secret_value(),
-        QC_GOVERNANCE: settings.postgres_qc_governance_password.get_secret_value(),
-    }
+    """预埋三个 R16 业务域的空 schema；角色由 bootstrap 先行创建（仅断言）。"""
     for schema in _SCHEMAS:
         op.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
-        _create_role_if_absent(domain_role(schema), role_passwords[schema])
+        _assert_domain_role(domain_role(schema))
 
 
 def downgrade() -> None:

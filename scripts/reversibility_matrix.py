@@ -38,9 +38,9 @@ from pathlib import Path
 from typing import Any
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-_DEFAULT_INVENTORY = _REPO_ROOT / "docs" / "audits" / "2026-11-27-identity-migration-inventory.json"
-_DEFAULT_OUTPUT = _REPO_ROOT / "docs" / "audits" / "2026-11-27-wp04-reversibility-matrix.json"
-_DEFAULT_SNAPSHOT = _REPO_ROOT / "docs" / "audits" / "2026-11-27-wp04-bidirectional-snapshot.json"
+_DEFAULT_INVENTORY = _REPO_ROOT / "docs" / "audits" / "2026-11-28-identity-migration-inventory.json"
+_DEFAULT_OUTPUT = _REPO_ROOT / "docs" / "audits" / "2026-11-28-wp04-reversibility-matrix.json"
+_DEFAULT_SNAPSHOT = _REPO_ROOT / "docs" / "audits" / "2026-11-28-wp04-bidirectional-snapshot.json"
 
 CLASSIFICATIONS = ("no_restore_proven", "restore_required", "intentional_one_way", "unproven_blocking")
 
@@ -160,8 +160,20 @@ CLASSIFIED: dict[str, dict[str, str]] = {
     },
     "e6a7b8c9d0e1": {
         "class": "no_restore_proven",
-        "reason": "已修复（WP-04 整改轮）：降级后 qc_maintenance schema 多出 operator/login USAGE，函数 assert_signature_event_exists 的 ACL 残留",
-        "evidence": "docs/audits/2026-11-27-wp04-fix-round.json",
+        "reason": (
+            "历史：2026-11-27 整改轮曾标 no_restore_proven（降级后 qc_maintenance schema 多出 "
+            "operator/login USAGE、assert_signature_event_exists ACL 残留）。"
+            "2026-11-27 真实快照推翻了该结论：P 无 qc_worker、D 有（restore_required），"
+            "该推翻记录保留，不得覆盖。"
+            "D4 整改（2026-11-28，Owner 裁决 strip 推广）：本迁移不再创建/修改/删除基础角色，"
+            "四个维护角色改断言存在（worker 已退役），成员语句对不存在的 worker 退化为 no-op；"
+            "修复后真实往返 P→U→D 0 差异（e6a7 从 restore_required 转为实测对称）"
+        ),
+        "evidence": (
+            "docs/audits/2026-11-28-wp04-classification-change.json；"
+            "docs/audits/2026-11-28-wp04-bidirectional-snapshot.json；"
+            "docs/audits/2026-11-27-wp04-bidirectional-snapshot.json（推翻旧结论的证据，保留）"
+        ),
     },
     "a5b6c7d8e9f0": {
         "class": "no_restore_proven",
@@ -203,6 +215,23 @@ CLASSIFIED: dict[str, dict[str, str]] = {
         "reason": "隔离库实测 P==D 0 差异（建角色/授 schema 均在降级中被清除）",
         "evidence": "docs/audits/2026-11-27-wp04-triage-results.json",
     },
+    "f2b3c4d5e6a7": {
+        "class": "no_restore_proven",
+        "reason": (
+            "D4 裁决（Owner 2026-11-28）选 A：退役生命周期整体移出迁移。"
+            "upgrade 不再销毁集群角色（只登记边界 + 只读提示），downgrade 不再重建身份，"
+            "源码身份动作已归零；退役由 scripts/retire_legacy_roles.py --retired 在身份治理"
+            "流程内执行（前置检查：pg_shdepend/成员关系/对象所有权/默认权限与授权）。"
+            "实测：P→U→D 0 差异（runs/2026-11-28/strip-sweep.results.json）。"
+            "历史：原口径为 unproven_blocking（升级在迁移内 DROP ROLE），该记录保留于"
+            "docs/audits/2026-11-28-wp04-classification-change.json"
+        ),
+        "evidence": (
+            "docs/audits/2026-11-28-wp04-classification-change.json；"
+            "docs/audits/2026-11-28-wp04-bidirectional-snapshot.json；"
+            "docs/audits/2026-11-28-identity-migration-inventory.json"
+        ),
+    },
     "8f3b2c1d4e5a": {
         "class": "no_restore_proven",
         "reason": (
@@ -221,6 +250,14 @@ CLASSIFIED: dict[str, dict[str, str]] = {
 }
 
 _SCOPE_RE = re.compile(r"\bON\s+(?P<scope>.+?)\s+(?:TO|FROM)\s+(?P<tail>.+)$", re.IGNORECASE)
+#: 角色名不在 `DROP ROLE` 之后，而是作为 `format()` 的第二个参数：
+#: ``EXECUTE format('DROP ROLE %I', 'qc_worker')``。只认字面 DROP ROLE <name>
+#: 会让这种写法整条消失——升级真的在销毁集群角色，矩阵却判 symmetric（D4-10）。
+_EXECUTE_ROLE_RE = re.compile(
+    r"EXECUTE\s+(?:format|quote_ident)\s*\(\s*'(?:CREATE|DROP)\s+ROLE\s+%%?I'\s*,\s*'"
+    r"(?P<role>[A-Za-z0-9_]+)'",
+    re.IGNORECASE,
+)
 _TAIL_RE = re.compile(
     r"^(?P<role>[A-Za-z0-9_\"\.]+)"
     r"(?P<gopt>\s+WITH\s+GRANT\s+OPTION)?"
@@ -296,6 +333,8 @@ def parse_actions(row: dict[str, Any]) -> list[dict[str, str]]:
 
     if operation in {"create_role", "drop_role"}:
         match = re.search(r"(?:CREATE|DROP)\s+ROLE\s+(?:IF\s+EXISTS\s+)?(?P<role>[A-Za-z0-9_\"\.]+)", sql, re.I)
+        if not match:
+            match = _EXECUTE_ROLE_RE.search(sql)
         if not match:
             return []
         return [
@@ -606,12 +645,25 @@ def _compare(
 
     retired = {a["object"] for a in upgrade if a["kind"] == "drop_role"}
     rebuilt = {a["object"] for a in downgrade if a["kind"] == "create_role"}
+    # 销毁集群级角色是越界动作：角色由 bootstrap / 生命周期脚本管理，迁移只拥有
+    # 自己库内的对象与授权。这一条与"降级是否重建"无关——即便降级能重建，
+    # 升级本身在共享集群上就会失败（其它库仍有依赖），或悄悄废掉别人的连接配置。
+    for role in sorted(retired):
+        findings.append(
+            f"RISK:升级在迁移中销毁集群级角色 {role}"
+            f"（迁移无权删除集群身份；应由 bootstrap/生命周期层执行）"
+        )
     for role in sorted(retired & rebuilt):
         findings.append(f"RISK:升级退役身份 {role}，降级重建（已退役身份复活）")
     declared = _declared_retired()
     for role in sorted(rebuilt - retired):
         if role in declared:
-            notes.append(f"角色 {role} 已登记退役，重建由 RESTORE_POLICY 受控执行")
+            # A 方案（D4 裁决 2026-11-28）：退役职责归身份治理；降级在迁移里
+            # 重建退役身份就是「以迁移伪造恢复」，不再是可接受的受控例外。
+            findings.append(
+                f"RISK:降级在迁移中重建退役身份 {role}"
+                "（A 方案后退役/恢复归身份治理，迁移不得重建）"
+            )
             continue
         findings.append(f"RISK:降级创建本 revision 未退役的角色 {role}（身份越权创建）")
 
@@ -683,6 +735,8 @@ def build_matrix(
         "head": inventory.get("head"),
         "source": str(_DEFAULT_INVENTORY.relative_to(_REPO_ROOT)).replace("\\", "/"),
         "rule": "集合比对：对象+范围+角色+权限集+grant option；数量相等不算等价",
+        # 迁移链全量（含零身份动作的 revision）：供快照闸门区分「链内 N/A」与「链外漂移」
+        "chain_coverage": inventory.get("coverage") or {},
         "revisions_with_identity_ops": len(matrix),
         "asymmetric_revisions": len(asymmetric),
         "classified": {name: sum(1 for i in matrix if i["classification"] == name) for name in CLASSIFICATIONS},
@@ -766,6 +820,8 @@ def evaluate_snapshot(
             blocks.append(f"{revision}: 单向变化缺少 safety_contract，不得登记")
 
     matrix_rows = {item["revision"]: item for item in matrix_payload.get("matrix") or []}
+    chain_coverage = matrix_payload.get("chain_coverage") or {}
+    not_applicable: list[str] = []
     for revision, row in matrix_rows.items():
         if row.get("verdict") != "asymmetric":
             continue
@@ -785,8 +841,15 @@ def evaluate_snapshot(
             blocks.append(f"{revision}: 缺少 P/D 往返快照证据（分类={row['classification']}）")
             continue
     for revision in entries:
-        if revision not in matrix_rows:
-            blocks.append(f"{revision}: 快照中的 revision 不在迁移链内（数据源漂移）")
+        if revision in matrix_rows:
+            continue
+        if revision in chain_coverage:
+            # 在迁移链内、但该 revision 零身份动作（例如 A 方案后的 f2b3：
+            # 不 DROP/CREATE/ALTER ROLE）。没有身份面可比较，快照条目记为 N/A，
+            # 不当成「数据源漂移」——否则正确的整改反而会把闸门弄红。
+            not_applicable.append(revision)
+            continue
+        blocks.append(f"{revision}: 快照中的 revision 不在迁移链内（数据源漂移）")
 
     verdicts = {revision: entry.get("verdict") for revision, entry in entries.items()}
     return {
@@ -797,6 +860,8 @@ def evaluate_snapshot(
         },
         "ignored": ignored_used,
         "ignore_rules": SNAPSHOT_IGNORE_RULES,
+        # 链内零身份动作的 revision：实测过、但没有身份面可比较（不参与阻断）
+        "not_applicable": sorted(not_applicable),
         "blocks": blocks,
     }
 

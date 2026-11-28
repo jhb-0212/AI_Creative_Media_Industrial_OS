@@ -1,0 +1,5 @@
+{
+  "_doc": "ADR-R46 §8 裁决二：降级模式声明。未在此列出的 revision 默认 guarded（必须进 CI 往返矩阵）；manual/unsupported 必须显式登记，且不得与已证明的往返结果冲突。",
+  "manual": [],
+  "unsupported": []
+}

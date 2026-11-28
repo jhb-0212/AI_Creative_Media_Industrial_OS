@@ -44,6 +44,7 @@ from packages.shared.db_grants import (
     converge_statements,
 )
 from packages.shared.db_roles import domain_role
+from packages.shared.migration_identity import assert_role_present
 from packages.shared.rls import tenant_scope_predicate
 from packages.shared.status_constraint import status_check
 from services.project_planning.domain.enums import (
@@ -108,26 +109,14 @@ def _envelope_columns() -> list[sa.schema.SchemaItem]:
     ]
 
 
-def _create_role_if_absent(role: str, password: str) -> None:
-    """幂等建角色：已存在则只更新口令（重复执行迁移不报错）。
+def _assert_domain_role(role: str) -> None:
+    """断言域角色已由 bootstrap 创建（角色归身份治理，不归迁移）。
 
-    为什么不用 ``CREATE ROLE … IF NOT EXISTS``：PG 没有这个语法（它是
-    ``CREATE TABLE`` 才有的），照抄会得到 syntax error。
+    D4 裁决（Owner 2026-11-28）：基础角色的创建/属性/凭据由 Bootstrap Identity
+    统一负责；迁移只断言存在、管理自己的对象与授权。原实现 ``CREATE/ALTER ROLE``
+    + 写口令，使降级必须删角色才能对称，而角色是集群级对象（删不掉就整链失败）。
     """
-    op.execute(
-        f"""
-        DO $$
-        BEGIN
-            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}') THEN
-                CREATE ROLE {role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
-                    PASSWORD '{password}';
-            ELSE
-                ALTER ROLE {role} WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
-                    PASSWORD '{password}';
-            END IF;
-        END $$;
-        """
-    )
+    assert_role_present(role, op=op)
 
 
 def _table_ddl(table: str) -> list[sa.schema.SchemaItem]:
@@ -357,19 +346,12 @@ def upgrade() -> None:
     #    锁持有到事务结束；任何非空/对象异常都会让整条迁移回滚，不产生部分变更。
     _guard_cutover()
 
-    # 1) schema + 角色（角色名从配置读，口令从同一配置上下文取）
-    from packages.shared.config import get_settings
-
-    settings = get_settings()
-    role_passwords = {
-        PRODUCTION_PLANNING: settings.postgres_production_planning_password.get_secret_value(),
-        BUDGET_QUOTA: settings.postgres_budget_quota_password.get_secret_value(),
-        QC_GOVERNANCE: settings.postgres_qc_governance_password.get_secret_value(),
-    }
+    # 1) schema；角色由 bootstrap 先行创建，这里只断言存在
     for domain in (PRODUCTION_PLANNING, BUDGET_QUOTA, QC_GOVERNANCE):
         op.execute(f"CREATE SCHEMA IF NOT EXISTS {domain}")
-        # 角色必须先存在：给不存在的角色授权会直接失败，把升级路径堵死。
-        _create_role_if_absent(domain_role(domain), role_passwords[domain])
+        # 角色必须先存在：给不存在的角色授权会直接失败；缺失时 fail-closed
+        # 并提示先跑 bootstrap，而不是由迁移造一个身份出来。
+        _assert_domain_role(domain_role(domain))
     # 注：schema USAGE 与全部表级授权都经 converge_statements 生成（第 4 步），
     # 迁移里不写任何 GRANT 字面量——「迁移是矩阵的执行器」这条不变量才成立。
 

@@ -32,7 +32,7 @@ import asyncpg
 HOST = "localhost"
 PORT = 15444
 USER = "postgres"
-PASSWORD = "replay_super_pw"
+PASSWORD = "<ROTATED-2026-11-28>"
 TEMPLATE = "ai_film_industrial"
 ADMIN_DB = "postgres"
 

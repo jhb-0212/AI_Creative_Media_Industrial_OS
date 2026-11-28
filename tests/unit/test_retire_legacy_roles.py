@@ -76,10 +76,52 @@ def test_report_lists_per_database_counts() -> None:
         references=(_ref(database="lab_rework_tasks"),),
         shadow_dependencies=(("lab_rework_tasks", 95), ("ai_film_industrial", 95)),
     )
-    report = rlr._report(result)
+    report = rlr._report(
+        result,
+        roles=("afs_audit",),
+        retired_names=frozenset(),
+        surveyed=("lab_rework_tasks", "ai_film_industrial"),
+    )
     assert report["deletable"] is False
     assert report["shadow_dependencies"] == [
         {"database": "lab_rework_tasks", "count": 95},
         {"database": "ai_film_industrial", "count": 95},
     ]
     assert report["references"][0]["database"] == "lab_rework_tasks"
+    # 审计留痕口径：执行主体 / 目标 / 影响范围 / 前置检查 / 结果 缺一不可。
+    assert set(report) >= {
+        "tool",
+        "authority",
+        "targets",
+        "lifecycle_state",
+        "prechecks",
+        "references",
+        "deletable",
+    }
+    assert report["prechecks"]["shadow_dependency_rows"] == 190
+
+
+def test_lifecycle_state_separates_retired_from_executed() -> None:
+    """``RETIRED``（已登记）与 ``RETIREMENT_EXECUTED``（集群已无此身份）不得混为一谈。"""
+    present = rlr._lifecycle_state(
+        ("qc_worker", "afs_audit"),
+        retired_names=frozenset({"qc_worker"}),
+        result=rlr.assess(existing=("qc_worker",), references=(), shadow_dependencies=()),
+    )
+    assert present == {"qc_worker": "RETIRED_ONLY", "afs_audit": "NOT_APPLICABLE"}
+
+    absent = rlr._lifecycle_state(
+        ("qc_worker",),
+        retired_names=frozenset({"qc_worker"}),
+        result=rlr.assess(existing=(), references=(), shadow_dependencies=()),
+    )
+    assert absent == {"qc_worker": "RETIREMENT_EXECUTED"}
+
+
+def test_retired_mode_targets_come_from_declarations() -> None:
+    """``--retired`` 的目标清单只能读 ``RETIRED_ROLES``，不得另存一份。"""
+    from packages.shared.role_specs import retired_role_names
+
+    args = rlr._parse(["--retired", "--check"])
+    assert rlr._targets(args) == tuple(sorted(retired_role_names()))
+    assert rlr._targets(rlr._parse(["--check"])) == rlr.LEGACY_ROLES

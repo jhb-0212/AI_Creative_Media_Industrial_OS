@@ -1,4 +1,4 @@
-"""两个遗留壳角色的退役工具：``afs_audit`` / ``afs_data_repair``。
+"""遗留壳角色的退役工具：``afs_audit`` / ``afs_data_repair``、以及退役身份（``qc_worker``）。
 
 为什么要「先证明没人用」再 DROP
 ------------------------------
@@ -8,11 +8,31 @@ PostgreSQL 就会拒绝删除并列出依赖。更麻烦的是它拒得**不完�
 第一个阻塞对象，删完一处再跑一次才看到下一处。所以这里一次性把全部引用面
 枚举出来再决定，而不是「试着 DROP、失败就 REVOKE 一条」。
 
-这两条角色在本仓库的主迁移链里**从未被创建**（``data/migrations/versions``
+那两条遗留角色在本仓库的主迁移链里**从未被创建**（``data/migrations/versions``
 零命中），干净库（``ai_film_pg16_clean`` / ``ai_film_pg18_repair``）里也根本
 不存在——它们只存在于某些开发集群上，是 ``data/migrations/pending/feat-ownership``
 那套未合并设计的手工实验残留。因此退役不是「拆掉一套在用的能力」，而是
 「把未落地的设计留下的壳从集群里拿走」。
+
+``--retired``：退役身份的受控退役（D4 裁决后退役职责的唯一出口）
+--------------------------------------------------------------
+``qc_worker`` 的退役原先写在迁移 ``f2b3c4d5e6a7`` 的 ``upgrade`` 里（集群级
+``DROP ROLE``）。Owner 2026-11-28 裁决：身份生命周期属于统一身份治理，不属于
+Alembic migration——迁移不再执行 ``DROP ROLE``/``CREATE ROLE``，退役改由本工具
+的 ``--retired`` 模式执行。目标角色不另存一份清单，直接读
+``role_specs.RETIRED_ROLES``（声明唯一）。
+
+两种状态必须分开，不能混为一谈：
+
+* ``RETIRED``：身份已登记退役——``RETIRED_ROLES`` 里有它，普通 Bootstrap 不会
+  创建它；**不代表**集群里已经删掉了它；
+* ``RETIREMENT_EXECUTED``：真实集群中的退役操作已执行并通过验证——角色已不存在，
+  且（执行时）前置检查为「全集群零引用」。
+
+本工具报告里用 ``lifecycle_state`` 区分：``RETIRED_ONLY``（已登记、仍存在于集群）、
+``RETIREMENT_EXECUTED``（角色已不存在）、``NOT_APPLICABLE``（目标未登记为退役身份）。
+没有证明可安全删除时**不得强制** ``DROP ROLE``：有依赖就原样退出，必要时保留身份
+并限制登录，等依赖处置——不为「矩阵转绿」牺牲数据所有权与授权安全。
 
 判定口径（全部机器可查，不靠人回忆）
 ------------------------------------
@@ -34,18 +54,25 @@ PostgreSQL 就会拒绝删除并列出依赖。更麻烦的是它拒得**不完�
 
 用法::
 
-    python scripts/retire_legacy_roles.py --check     # 只报告，退出码 0=可删 / 2=有阻塞
-    python scripts/retire_legacy_roles.py --drop      # 仅在「全集群零引用」时真正 DROP
+    python scripts/retire_legacy_roles.py --check              # 遗留角色，只报告
+    python scripts/retire_legacy_roles.py --drop               # 仅在「全集群零引用」时 DROP
+    python scripts/retire_legacy_roles.py --retired --check    # 退役身份（读 RETIRED_ROLES）
+    python scripts/retire_legacy_roles.py --retired --drop     # 受控退役，零引用才执行
 
 ``--drop`` 刻意不做「顺手清理」：遇到阻塞就原样退出并打印清单，把「删开发集群
 实验库里的历史授权」留给人的一次显式决定。一个会自己 REVOKE 一批表的工具，等于
 把「退役一个空壳」偷偷升级成「改动若干库的授权面」。
+
+审计字段（``tool``/``authority``/``targets``/``prechecks``/``actions``/``result``）
+是身份生命周期操作的留痕口径：执行主体、目标角色、影响范围、前置检查、执行结果
+缺一不可，因此报告是 JSON 而不是几行日志。
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import getpass
 import json
 import sys
 from dataclasses import asdict, dataclass
@@ -241,11 +268,13 @@ _REFERENCE_QUERIES: tuple[tuple[str, str], ...] = (
 )
 
 
-async def _references_in(database: str, conn: asyncpg.Connection) -> list[Reference]:
-    roles = list(LEGACY_ROLES)
+async def _references_in(
+    database: str, conn: asyncpg.Connection, roles: tuple[str, ...]
+) -> list[Reference]:
+    targets = list(roles)
     found: list[Reference] = []
     for kind, sql in _REFERENCE_QUERIES:
-        for row in await conn.fetch(sql, roles):
+        for row in await conn.fetch(sql, targets):
             detail = {key: value for key, value in dict(row).items() if key != "role"}
             found.append(
                 Reference(
@@ -258,16 +287,16 @@ async def _references_in(database: str, conn: asyncpg.Connection) -> list[Refere
     return found
 
 
-async def _survey() -> Assessment:
-    roles = list(LEGACY_ROLES)
+async def _survey(roles: tuple[str, ...]) -> tuple[Assessment, tuple[str, ...]]:
+    targets = list(roles)
 
     maintenance = await asyncpg.connect(**_dsn(_MAINTENANCE_DATABASE))
     try:
         databases = [row["datname"] for row in await maintenance.fetch(_SQL_DATABASES)]
-        existing = tuple(row["rolname"] for row in await maintenance.fetch(_SQL_EXISTING, roles))
+        existing = tuple(row["rolname"] for row in await maintenance.fetch(_SQL_EXISTING, targets))
         shadow = [
             (str(row["database"]), int(row["n"]))
-            for row in await maintenance.fetch(_SQL_SHADOW, roles)
+            for row in await maintenance.fetch(_SQL_SHADOW, targets)
         ]
     finally:
         await maintenance.close()
@@ -280,29 +309,34 @@ async def _survey() -> Assessment:
             references.append(
                 Reference(
                     database=database,
-                    role=",".join(LEGACY_ROLES),
+                    role=",".join(targets),
                     kind="unreachable",
                     detail=str(exc),
                 )
             )
             continue
         try:
-            references.extend(await _references_in(database, conn))
+            references.extend(await _references_in(database, conn, targets))
         finally:
             await conn.close()
 
-    return assess(
-        existing=existing,
-        references=tuple(references),
-        shadow_dependencies=tuple(shadow),
+    # 影响范围：实际扫过（或明确标为不可达）的库清单，进审计报告。
+    surveyed = tuple(name for name in databases if name not in _EXCLUDED_DATABASES)
+    return (
+        assess(
+            existing=existing,
+            references=tuple(references),
+            shadow_dependencies=tuple(shadow),
+        ),
+        surveyed,
     )
 
 
-async def _drop() -> list[dict[str, str]]:
+async def _drop(roles: tuple[str, ...]) -> list[dict[str, str]]:
     actions: list[dict[str, str]] = []
     conn = await asyncpg.connect(**_dsn(_MAINTENANCE_DATABASE))
     try:
-        for role in LEGACY_ROLES:
+        for role in roles:
             if not await conn.fetchval("SELECT 1 FROM pg_roles WHERE rolname = $1", role):
                 actions.append({"role": role, "action": "absent"})
                 continue
@@ -313,31 +347,117 @@ async def _drop() -> list[dict[str, str]]:
     return actions
 
 
-def _report(result: Assessment) -> dict[str, object]:
+def _lifecycle_state(
+    roles: tuple[str, ...],
+    *,
+    retired_names: frozenset[str],
+    result: Assessment,
+) -> dict[str, str]:
+    """区分 ``RETIRED``（已登记）与 ``RETIREMENT_EXECUTED``（集群里真的没了）。
+
+    未登记为退役身份的目标不适用这两个状态——它们是遗留壳角色，不是退役契约的
+    对象；套用退役状态只会让「登记」与「执行」重新混为一谈。
+    """
+    state: dict[str, str] = {}
+    for role in roles:
+        if role not in retired_names:
+            state[role] = "NOT_APPLICABLE"
+        elif role in result.existing:
+            state[role] = "RETIRED_ONLY"
+        else:
+            state[role] = "RETIREMENT_EXECUTED"
+    return state
+
+
+def _report(
+    result: Assessment,
+    *,
+    roles: tuple[str, ...],
+    retired_names: frozenset[str],
+    surveyed: tuple[str, ...],
+) -> dict[str, object]:
     return {
+        "tool": "retire_legacy_roles",
+        "authority": {
+            "os_user": getpass.getuser(),
+            "database": _MAINTENANCE_DATABASE,
+            "scope": "cluster-wide（逐库枚举 ACL / 属主 / 成员关系，以 pg_shdepend 为准）",
+        },
+        "targets": list(roles),
+        "lifecycle_state": _lifecycle_state(
+            roles, retired_names=retired_names, result=result
+        ),
         "existing": list(result.existing),
         "deletable": result.deletable,
         "shadow_dependencies": [
             {"database": database, "count": count}
             for database, count in result.shadow_dependencies
         ],
+        "prechecks": {
+            "databases_surveyed": list(surveyed),
+            "references": len(result.references),
+            "shadow_dependency_rows": sum(count for _, count in result.shadow_dependencies),
+        },
         "references": [asdict(item) for item in result.references],
     }
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="退役遗留壳角色（默认只检查）")
+def _parse(argv: list[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="退役壳角色 / 退役身份（默认只检查）")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--check", action="store_true", help="只报告，不执行 DROP")
     group.add_argument("--drop", action="store_true", help="零引用时才执行 DROP")
-    args = parser.parse_args(argv)
+    parser.add_argument(
+        "--retired",
+        action="store_true",
+        help="目标改为 RETIRED_ROLES 登记的退役身份（f2b3 退役职责的唯一出口）",
+    )
+    return parser.parse_args(argv)
 
-    result = asyncio.run(_survey())
-    print(json.dumps(_report(result), ensure_ascii=False, indent=2))
+
+def _targets(args: argparse.Namespace) -> tuple[str, ...]:
+    if not args.retired:
+        return LEGACY_ROLES
+    from packages.shared.role_specs import retired_role_names
+
+    names = retired_role_names()
+    return tuple(sorted(names))
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse(argv)
+    roles = _targets(args)
+    if args.retired:
+        from packages.shared.role_specs import retired_role_names
+
+        retired_names = retired_role_names()
+    else:
+        retired_names = frozenset()
+    if not roles:
+        print(json.dumps({"targets": [], "result": "NOTHING_TO_DO"}, ensure_ascii=False))
+        return EXIT_CLEAN
+
+    result, surveyed = asyncio.run(_survey(roles))
+    if not result.existing:
+        outcome = "CHECK_ONLY_ABSENT"
+    elif result.deletable:
+        outcome = "CHECK_ONLY_DELETABLE"
+    elif result.shadow_dependencies or result.references:
+        outcome = "BLOCKED"
+    else:  # 理论上不可达：deletable=False 必有一类引用
+        outcome = "BLOCKED"
+    report = _report(
+        result, roles=roles, retired_names=retired_names, surveyed=surveyed
+    )
+    report["result"] = outcome if not args.drop else "PRECHECK"
 
     if not args.drop:
-        return EXIT_CLEAN if result.deletable or not result.existing else EXIT_BLOCKED
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return EXIT_CLEAN if outcome != "BLOCKED" else EXIT_BLOCKED
+
     if result.shadow_dependencies or result.references:
+        report["result"] = "BLOCKED"
+        print(json.dumps(report, ensure_ascii=False, indent=2))
         print(
             "拒绝执行 DROP：先清掉上面列出的引用（它们分布在不同数据库里，"
             "需要按库逐个处理），本工具不代做授权清理。",
@@ -345,12 +465,24 @@ def main(argv: list[str] | None = None) -> int:
         )
         return EXIT_BLOCKED
     try:
-        for action in asyncio.run(_drop()):
-            print(json.dumps(action))
+        actions = asyncio.run(_drop(roles))
     except asyncpg.PostgresError as exc:
+        report["result"] = "DROP_FAILED"
+        print(json.dumps(report, ensure_ascii=False, indent=2))
         print(f"DROP ROLE 失败：{exc}", file=sys.stderr)
         return EXIT_DROP_FAILED
+    report["result"] = "RETIREMENT_EXECUTED"
+    report["actions"] = actions
+    # 执行后状态：登记为退役身份的目标此时在集群里都不存在，即 RETIREMENT_EXECUTED；
+    # 遗留壳角色不适用该状态（它们不是退役契约的对象）。
+    report["lifecycle_state"] = {
+        role: ("NOT_APPLICABLE" if role not in retired_names else "RETIREMENT_EXECUTED")
+        for role in roles
+    }
+    print(json.dumps(report, ensure_ascii=False, indent=2))
     return EXIT_CLEAN
+
+
 
 
 if __name__ == "__main__":
