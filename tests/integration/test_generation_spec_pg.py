@@ -89,7 +89,9 @@ async def sample(engine: AsyncEngine) -> dict[str, object]:
     return {"tenant": tenant, "project_id": project_id, "spec_id": spec_id, "now": now}
 
 
-async def _insert_task(conn, sample: dict[str, object], *, prompt_ref: str, spec_id: str | None) -> None:
+async def _insert_task(
+    conn, sample: dict[str, object], *, prompt_ref: str, spec_id: str | None
+) -> None:
     await conn.execute(
         sa.text(
             "INSERT INTO production_planning.generation_tasks "
@@ -116,13 +118,19 @@ async def _insert_task(conn, sample: dict[str, object], *, prompt_ref: str, spec
     )
 
 
-async def test_spec_task_binding_is_enforced(engine: AsyncEngine, sample: dict[str, object]) -> None:
+async def test_spec_task_binding_is_enforced(
+    engine: AsyncEngine, sample: dict[str, object]
+) -> None:
     async with engine.begin() as conn:
-        await _insert_task(conn, sample, prompt_ref=f"genspec:{sample['spec_id']}", spec_id=sample["spec_id"])
+        await _insert_task(
+            conn, sample, prompt_ref=f"genspec:{sample['spec_id']}", spec_id=sample["spec_id"]
+        )
         # 幽灵规格：复合外键必须拒绝。
         with pytest.raises(DBAPIError) as missing:
             async with conn.begin_nested():
-                await _insert_task(conn, sample, prompt_ref="genspec:gs1_ghost", spec_id="gs1_ghost")
+                await _insert_task(
+                    conn, sample, prompt_ref="genspec:gs1_ghost", spec_id="gs1_ghost"
+                )
         assert _sqlstate(missing.value) == _FK_VIOLATION
         # 内联任务带规格：CHECK 必须拒绝。
         with pytest.raises(DBAPIError) as inline_spec:

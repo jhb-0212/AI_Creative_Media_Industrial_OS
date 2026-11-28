@@ -186,7 +186,7 @@ class GenerationService:
         # 幂等键 = (tenant_id, generation_task_id)（S-4）：同键同输入返回既有任务，
         # 同键不同输入一律 409——不能靠「再插一条同名任务」把两份输入都变成事实。
         if generation_task_id.strip():
-            existing = await self._repository.get_task_by_business_id(
+            existing: GenerationTask | None = await self._repository.get_task_by_business_id(
                 generation_task_id, tenant_id=tenant_id
             )
             if existing is not None:
@@ -340,7 +340,7 @@ class GenerationService:
             return existing.generation_spec_id is None
         if existing.generation_spec_id != spec.generation_spec_id:
             return False
-        stored = await self._repository.get_spec(spec.generation_spec_id)
+        stored: GenerationSpec | None = await self._repository.get_spec(spec.generation_spec_id)
         if stored is None:
             return False
         return stored.identity_payload() == spec.identity_payload()

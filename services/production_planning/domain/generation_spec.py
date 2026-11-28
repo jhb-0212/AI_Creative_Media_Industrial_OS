@@ -251,9 +251,7 @@ class GenerationSpec(Entity):
         ):
             value = str(getattr(self, name) or "")
             if not value.strip():
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
             if len(value) > max_len:
                 raise DomainError(
                     ErrorRegistry.VALIDATION_ERROR,

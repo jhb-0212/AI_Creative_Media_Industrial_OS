@@ -200,7 +200,7 @@ class GenerationSpecModel(Base, EntityMixin):
     size_policy_version: Mapped[str] = mapped_column(String(64), nullable=False)
     model_id: Mapped[str] = mapped_column(String(128), nullable=False)
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
-    generation_parameters: Mapped[dict] = mapped_column(
+    generation_parameters: Mapped[dict[str, object]] = mapped_column(
         JSONB, nullable=False, server_default="{}"
     )
     prompt_text: Mapped[str] = mapped_column(Text, nullable=False)

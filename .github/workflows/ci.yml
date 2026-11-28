@@ -256,7 +256,7 @@ jobs:
 
           import asyncpg
 
-          EXPECTED_HEAD = "f2b3c4d5e6a7"
+          EXPECTED_HEAD = "a9b0c1d2e3f4"
 
 
           async def main() -> None:

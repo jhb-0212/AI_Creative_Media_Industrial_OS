@@ -49,7 +49,10 @@ from adapters.storage.ports import (
 )
 from packages.shared.logging import get_logger
 from packages.shared.storage_locator import build_locator, extension_for_media_type
-from workers.generation.spec_resolver import SpecUnresolvableError
+from workers.generation.spec_resolver import (
+    ResolvedGenerationInput,
+    SpecUnresolvableError,
+)
 from workers.generation.worker import GenerationOutcome
 
 logger = get_logger(__name__)
@@ -192,7 +195,7 @@ class StorageBackedGenerationExecutor:
         default_model: str = "",
         media_type: str = "image/png",
         size: str = "",
-        resolve_input: Callable[[Any], Awaitable[Any]] | None = None,
+        resolve_input: Callable[[Any], Awaitable[ResolvedGenerationInput]] | None = None,
     ) -> None:
         self._gateway = gateway
         self._storage = storage

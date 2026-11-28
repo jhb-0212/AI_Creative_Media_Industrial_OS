@@ -51,6 +51,10 @@ class RepositorySpecResolver:
     def __init__(self, sessionmaker: Any) -> None:
         self._sessionmaker = sessionmaker
 
+    async def __call__(self, task: Any) -> ResolvedGenerationInput:
+        """执行器按可调用对象装配（``resolve_input=resolver``）。"""
+        return await self.resolve(task)
+
     async def resolve(self, task: Any) -> ResolvedGenerationInput:
         spec_id = str(getattr(task, "generation_spec_id", "") or "").strip()
         task_prompt_ref = str(getattr(task, "prompt_ref", "") or "")
@@ -65,9 +69,7 @@ class RepositorySpecResolver:
             repository = SqlAlchemyGenerationTaskRepository(session)
             spec = await repository.get_spec(spec_id)
             if spec is None:
-                raise SpecUnresolvableError(
-                    "spec-missing", f"规格 {spec_id} 不存在或不属于本租户"
-                )
+                raise SpecUnresolvableError("spec-missing", f"规格 {spec_id} 不存在或不属于本租户")
             if spec.tenant_id != task.tenant_id:
                 raise SpecUnresolvableError(
                     "spec-foreign-tenant", f"规格 {spec_id} 的租户与任务不一致"
@@ -78,9 +80,9 @@ class RepositorySpecResolver:
                     f"规格 {spec_id} 的 schema_version={spec.schema_version} "
                     f"超出支持集 {SPEC_SCHEMA_VERSION}",
                 )
-            if spec.project_id != getattr(task, "project_id", "") or spec.shot_revision_id != getattr(
-                task, "shot_revision_id", ""
-            ):
+            if spec.project_id != getattr(
+                task, "project_id", ""
+            ) or spec.shot_revision_id != getattr(task, "shot_revision_id", ""):
                 raise SpecUnresolvableError(
                     "spec-mismatch",
                     f"规格 {spec_id} 绑定 {spec.project_id}/{spec.shot_revision_id}，"
