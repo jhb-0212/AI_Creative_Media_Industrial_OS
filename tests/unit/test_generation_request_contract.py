@@ -26,7 +26,7 @@ _VALID_BODY = {
     "model_adapter_ref": "adapter-1",
     "constraint_snapshot_id": "snap-1",
     "budget_ref": "budget-1",
-    "prompt_ref": "prompt-1",
+    "prompt_ref": "inline:prompt-1",
 }
 
 
@@ -49,8 +49,24 @@ def test_request_model_has_no_result_field() -> None:
         "constraint_snapshot_id",
         "budget_ref",
         "prompt_ref",
+        "shot_spec_id",
+        "negative_prompt",
+        "generation_parameters",
         "generation_task_id",
     }
+
+
+def test_prompt_ref_is_optional_but_inline_only_by_convention() -> None:
+    """生产路径省略 prompt_ref；模型层不得把它设为必填（ADR-R47 §3）。
+
+    形态校验（只允许 ``inline:``）在服务层完成：把它写进 Pydantic 会让
+    「省略 prompt_ref」与「传空串」得到两种不同错误，而它们应当同义。
+    """
+    body = RequestGenerationRequest(
+        **{key: value for key, value in _VALID_BODY.items() if key != "prompt_ref"}
+    )
+    assert body.prompt_ref == ""
+    assert "min_length" not in repr(RequestGenerationRequest.model_fields["prompt_ref"])
 
 
 def test_request_rejects_result_field_explicitly() -> None:

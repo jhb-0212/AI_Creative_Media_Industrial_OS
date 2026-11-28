@@ -433,6 +433,36 @@ DOMAIN_GRANTS[PRODUCTION_PLANNING] = (
         "UPDATE：推进 SUCCEEDED/FAILED（或未来的 RUNNING 租约续期）与版本递增。"
         "无 DELETE：任务历史是「谁在什么约束下生成了什么」的证据。",
     ),
+    _grant(
+        PRODUCTION_PLANNING,
+        "generation_specs",
+        "SELECT INSERT",
+        "SELECT：任务创建幂等复用与 Worker 执行前校验；INSERT：GENERATION.REQUEST "
+        "同事务派生一次即冻结（ADR-R47）。无 UPDATE/DELETE：改写或删除规格等于"
+        "改写已受理任务的执行依据。",
+    ),
+    # 派生规格需要读 ShotSpec 的**结构化字段**（画幅 + 可渲染字段 + 锁定状态），
+    # 不是整行：生产域没有理由读别的镜头字段，列级授权让未来新增列不会自动可见。
+    _grant(
+        PROJECT_PLANNING,
+        "shot_specs",
+        "SELECT",
+        "跨域只读（ADR-R47）：GENERATION.REQUEST 派生 GenerationSpec 时读取"
+        "ShotSpec 的画幅/渲染字段/锁状态，并核对绑定修订；不写 ShotSpec。",
+        source="cross_domain",
+        columns=(
+            "aspect_ratio",
+            "camera_path",
+            "entity_id",
+            "locked_dimensions",
+            "project_id",
+            "shot_revision_id",
+            "shot_size_changes",
+            "status",
+            "subject_paths",
+            "tenant_id",
+        ),
+    ),
     _projects_readonly("生产链"),
     *_platform_grants(label="生产链"),
 )

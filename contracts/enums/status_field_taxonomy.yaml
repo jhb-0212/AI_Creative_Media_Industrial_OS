@@ -165,6 +165,15 @@ objects:
     reason: 字段级策略解析快照（resolved_fields + source_versions + validation_result）。它是「按某组策略版本算出来的结果」，可重算，不是有生命周期的实体。
     unblocks_when: >-
       该快照被证明不可由策略版本重算且需要独立审计生命周期时解除；否则派生视图永不建状态机。
+  - object: GenerationSpec
+    class: envelope_only
+    basis: immutable_record
+    reason: >-
+      生成输入快照在任务创建时派生一次即冻结（ADR-R47）。它的身份由内容哈希决定
+      （spec_sha256），改写内容等于换一份规格、必须新 id；可变部分属于任务与
+      ExecutionRecord，不在本对象上。因此 status 只是信封占位。
+    unblocks_when: >-
+      正文为生成规格引入可回滚/可变版本链并给出状态集时解除；当前冻结即唯一语义。
   - object: ShowcaseVersionTree
     class: envelope_only
     basis: derived_projection

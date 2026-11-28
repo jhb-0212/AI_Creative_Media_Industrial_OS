@@ -1088,6 +1088,16 @@
     ],
     [
       "relation",
+      "production_planning.generation_specs",
+      "postgres"
+    ],
+    [
+      "relation",
+      "production_planning.generation_specs_pkey",
+      "postgres"
+    ],
+    [
+      "relation",
       "production_planning.generation_tasks",
       "postgres"
     ],
@@ -1109,6 +1119,26 @@
     [
       "relation",
       "production_planning.ix_production_planning_artifact_manifests_t",
+      "postgres"
+    ],
+    [
+      "relation",
+      "production_planning.ix_production_planning_generation_specs_pro",
+      "postgres"
+    ],
+    [
+      "relation",
+      "production_planning.ix_production_planning_generation_specs_sho",
+      "postgres"
+    ],
+    [
+      "relation",
+      "production_planning.ix_production_planning_generation_specs_ten",
+      "postgres"
+    ],
+    [
+      "relation",
+      "production_planning.ix_production_planning_generation_tasks_gen",
       "postgres"
     ],
     [
@@ -1149,6 +1179,16 @@
     [
       "relation",
       "production_planning.uq_artifact_manifests_task_attempt",
+      "postgres"
+    ],
+    [
+      "relation",
+      "production_planning.uq_generation_specs_entity_project",
+      "postgres"
+    ],
+    [
+      "relation",
+      "production_planning.uq_generation_specs_spec_tenant",
       "postgres"
     ],
     [
@@ -6146,6 +6186,60 @@
       false
     ],
     [
+      "production_planning.generation_specs",
+      "DELETE",
+      "postgres",
+      false
+    ],
+    [
+      "production_planning.generation_specs",
+      "INSERT",
+      "postgres",
+      false
+    ],
+    [
+      "production_planning.generation_specs",
+      "INSERT",
+      "production_planning_role",
+      false
+    ],
+    [
+      "production_planning.generation_specs",
+      "REFERENCES",
+      "postgres",
+      false
+    ],
+    [
+      "production_planning.generation_specs",
+      "SELECT",
+      "postgres",
+      false
+    ],
+    [
+      "production_planning.generation_specs",
+      "SELECT",
+      "production_planning_role",
+      false
+    ],
+    [
+      "production_planning.generation_specs",
+      "TRIGGER",
+      "postgres",
+      false
+    ],
+    [
+      "production_planning.generation_specs",
+      "TRUNCATE",
+      "postgres",
+      false
+    ],
+    [
+      "production_planning.generation_specs",
+      "UPDATE",
+      "postgres",
+      false
+    ],
+    [
       "production_planning.generation_tasks",
       "DELETE",
       "postgres",
@@ -7418,6 +7512,66 @@
       "SELECT",
       "qc_governance_role",
       false
+    ],
+    [
+      "project_planning.shot_specs.aspect_ratio",
+      "SELECT",
+      "production_planning_role",
+      false
+    ],
+    [
+      "project_planning.shot_specs.camera_path",
+      "SELECT",
+      "production_planning_role",
+      false
+    ],
+    [
+      "project_planning.shot_specs.entity_id",
+      "SELECT",
+      "production_planning_role",
+      false
+    ],
+    [
+      "project_planning.shot_specs.locked_dimensions",
+      "SELECT",
+      "production_planning_role",
+      false
+    ],
+    [
+      "project_planning.shot_specs.project_id",
+      "SELECT",
+      "production_planning_role",
+      false
+    ],
+    [
+      "project_planning.shot_specs.shot_revision_id",
+      "SELECT",
+      "production_planning_role",
+      false
+    ],
+    [
+      "project_planning.shot_specs.shot_size_changes",
+      "SELECT",
+      "production_planning_role",
+      false
+    ],
+    [
+      "project_planning.shot_specs.status",
+      "SELECT",
+      "production_planning_role",
+      false
+    ],
+    [
+      "project_planning.shot_specs.subject_paths",
+      "SELECT",
+      "production_planning_role",
+      false
+    ],
+    [
+      "project_planning.shot_specs.tenant_id",
+      "SELECT",
+      "production_planning_role",
+      false
     ]
   ],
   "default_acl": [
@@ -7762,6 +7916,16 @@
       "{public}",
       "ALL",
       "((tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid) AND (EXISTS ( SELECT 1\n   FROM project_planning.projects p\n  WHERE (((p.entity_id)::text = (artifact_manifests.project_id)::text) AND (p.tenant_id = artifact_manifests.tenant_id)))))",
+      ""
+    ],
+    [
+      "production_planning",
+      "generation_specs",
+      "tenant_isolation_generation_specs",
+      "PERMISSIVE",
+      "{public}",
+      "ALL",
+      "((tenant_id = (NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text))::uuid) AND (EXISTS ( SELECT 1\n   FROM project_planning.projects p\n  WHERE (((p.entity_id)::text = (generation_specs.project_id)::text) AND (p.tenant_id = generation_specs.tenant_id)))))",
       ""
     ],
     [

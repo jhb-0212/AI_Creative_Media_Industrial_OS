@@ -134,7 +134,7 @@ async def test_generation_request_stays_requested() -> None:
         model_adapter_ref="adapter-1",
         constraint_snapshot_id="snap-1",
         budget_ref="budget-1",
-        prompt_ref="prompt-1",
+        prompt_ref="inline:prompt-1",
         created_by="director",
         tenant_id=_TENANT,
     )
@@ -165,7 +165,7 @@ async def test_generation_request_event_is_not_a_transition_fact() -> None:
         model_adapter_ref="adapter-1",
         constraint_snapshot_id="snap-1",
         budget_ref="budget-1",
-        prompt_ref="prompt-1",
+        prompt_ref="inline:prompt-1",
         created_by="director",
         tenant_id=_TENANT,
     )
@@ -220,7 +220,7 @@ async def test_task_freezes_route_quality_profile_at_creation() -> None:
         model_adapter_ref="adapter-1",
         constraint_snapshot_id="snap-1",
         budget_ref="budget-1",
-        prompt_ref="prompt-1",
+        prompt_ref="inline:prompt-1",
         created_by="director",
         tenant_id=_TENANT,
     )
@@ -242,7 +242,7 @@ async def test_task_freezes_route_quality_profile_at_creation() -> None:
             model_adapter_ref="adapter-1",
             constraint_snapshot_id="snap-1",
             budget_ref="budget-1",
-            prompt_ref="prompt-1",
+            prompt_ref="inline:prompt-1",
             created_by="director",
             tenant_id=_TENANT,
         )
@@ -273,7 +273,7 @@ async def test_task_rejects_route_from_another_project() -> None:
             model_adapter_ref="adapter-1",
             constraint_snapshot_id="snap-1",
             budget_ref="budget-1",
-            prompt_ref="prompt-1",
+            prompt_ref="inline:prompt-1",
             created_by="director",
             tenant_id=_TENANT,
         )

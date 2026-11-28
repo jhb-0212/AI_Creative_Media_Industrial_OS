@@ -101,7 +101,7 @@ async def test_unresolvable_prompt_never_calls_gateway(tmp_path: Path) -> None:
     gateway = FakeModelGateway()
     executor = _executor(tmp_path, gateway=gateway)
 
-    outcome = await executor.execute(_task(prompt_ref="prompt-8f3a2b"))
+    outcome = await executor.execute(_task(prompt_ref="inline:"))
 
     assert outcome.result == "FAILED"
     assert outcome.evidence_ref.startswith("prompt-unresolvable")

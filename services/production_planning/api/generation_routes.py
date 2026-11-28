@@ -76,7 +76,12 @@ class RequestGenerationRequest(BaseModel):
     model_adapter_ref: str = Field(..., min_length=1, max_length=128)
     constraint_snapshot_id: str = Field(..., min_length=1, max_length=128)
     budget_ref: str = Field(..., min_length=1, max_length=128)
-    prompt_ref: str = Field(..., min_length=1, max_length=200)
+    # 生产路径省略 prompt_ref：系统按 shot_spec_id 派生规格并冻结；只有 E2E /
+    # 本地联调显式传 ``inline:<正文>``（ADR-R47）。
+    prompt_ref: str = Field("", max_length=200)
+    shot_spec_id: str = Field("", max_length=64)
+    negative_prompt: str | None = Field(None, max_length=4096)
+    generation_parameters: dict[str, Any] = Field(default_factory=dict)
     generation_task_id: str = Field("", max_length=64)
 
 
@@ -141,6 +146,9 @@ async def request_generation(
         constraint_snapshot_id=body.constraint_snapshot_id,
         budget_ref=body.budget_ref,
         prompt_ref=body.prompt_ref,
+        shot_spec_id=body.shot_spec_id,
+        negative_prompt=body.negative_prompt,
+        generation_parameters=body.generation_parameters,
         created_by=principal.subject_id,
         tenant_id=principal.tenant_id,
         generation_task_id=body.generation_task_id,

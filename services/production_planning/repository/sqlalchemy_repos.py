@@ -5,23 +5,28 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.versioning import _orm_update_values, conditional_update
 from services.production_planning.domain.artifact_manifest import ArtifactManifest
+from services.production_planning.domain.generation_spec import GenerationSpec, ShotSpecFacts
 from services.production_planning.domain.generation_task import GenerationTask
 from services.production_planning.domain.production_route import ProductionRoute
 from services.production_planning.repository.orm import (
     ArtifactManifestModel,
+    GenerationSpecModel,
     GenerationTaskModel,
     ProductionRouteModel,
 )
 from services.project_planning.domain.enums import (
     ArtifactManifestStatus,
     GenerationTaskStatus,
+    NoLifecycleStatus,
     ProductionRouteStatus,
 )
+from services.project_planning.repository.orm import ShotSpecModel
 
 
 def _route_to_orm(route: ProductionRoute) -> ProductionRouteModel:
@@ -131,6 +136,7 @@ def _task_to_orm(task: GenerationTask) -> GenerationTaskModel:
         constraint_snapshot_id=task.constraint_snapshot_id,
         budget_ref=task.budget_ref,
         prompt_ref=task.prompt_ref,
+        generation_spec_id=task.generation_spec_id,
         lease_owner=task.lease_owner,
         lease_expires_at=task.lease_expires_at,
         attempt_count=task.attempt_count,
@@ -167,6 +173,7 @@ def _task_to_domain(model: GenerationTaskModel) -> GenerationTask:
         constraint_snapshot_id=model.constraint_snapshot_id,
         budget_ref=model.budget_ref,
         prompt_ref=model.prompt_ref,
+        generation_spec_id=model.generation_spec_id,
         status=status,
         lease_owner=model.lease_owner,
         lease_expires_at=model.lease_expires_at,
@@ -174,6 +181,84 @@ def _task_to_domain(model: GenerationTaskModel) -> GenerationTask:
         asset_version_id=model.asset_version_id,
         quality_profile_version=model.quality_profile_version,
         organization_id=model.organization_id,
+    )
+
+
+def _spec_to_orm(spec: GenerationSpec) -> GenerationSpecModel:
+    return GenerationSpecModel(
+        entity_id=spec.entity_id,
+        entity_type=spec.ENTITY_TYPE,
+        schema_version=spec.schema_version,
+        entity_version=spec.entity_version,
+        status=spec.status.value,
+        owner_module=spec.owner_module,
+        tenant_id=spec.tenant_id,
+        created_at=spec.created_at,
+        created_by=spec.created_by,
+        updated_at=spec.updated_at,
+        audit_ref=spec.audit_ref,
+        generation_spec_id=spec.generation_spec_id,
+        project_id=spec.project_id,
+        shot_revision_id=spec.shot_revision_id,
+        shot_spec_id=spec.shot_spec_id,
+        production_route_ref=spec.production_route_ref,
+        constraint_snapshot_id=spec.constraint_snapshot_id,
+        template_version=spec.template_version,
+        derivation_version=spec.derivation_version,
+        size_policy_id=spec.size_policy_id,
+        size_policy_version=spec.size_policy_version,
+        model_id=spec.model_id,
+        provider=spec.provider,
+        generation_parameters=spec.generation_parameters,
+        prompt_text=spec.prompt_text,
+        negative_prompt=spec.negative_prompt,
+        media_type=spec.media_type,
+        size=spec.size,
+        aspect_ratio=spec.aspect_ratio,
+        spec_sha256=spec.spec_sha256,
+        prompt_sha256=spec.prompt_sha256,
+    )
+
+
+def _spec_to_domain(model: GenerationSpecModel) -> GenerationSpec:
+    try:
+        status = NoLifecycleStatus(model.status)
+    except ValueError as exc:
+        raise DomainError(
+            ErrorRegistry.INTERNAL_ERROR,
+            detail=f"generation_specs 存量枚举非法: status={model.status!r}",
+        ) from exc
+    return GenerationSpec(
+        entity_id=model.entity_id,
+        created_by=model.created_by,
+        tenant_id=model.tenant_id,
+        schema_version=model.schema_version,
+        entity_version=model.entity_version,
+        owner_module=model.owner_module,
+        created_at=model.created_at,
+        updated_at=model.updated_at,
+        audit_ref=model.audit_ref,
+        generation_spec_id=model.generation_spec_id,
+        project_id=model.project_id,
+        shot_revision_id=model.shot_revision_id,
+        shot_spec_id=model.shot_spec_id,
+        production_route_ref=model.production_route_ref,
+        constraint_snapshot_id=model.constraint_snapshot_id,
+        template_version=model.template_version,
+        derivation_version=model.derivation_version,
+        size_policy_id=model.size_policy_id,
+        size_policy_version=model.size_policy_version,
+        model_id=model.model_id,
+        provider=model.provider,
+        generation_parameters=dict(model.generation_parameters or {}),
+        prompt_text=model.prompt_text,
+        negative_prompt=model.negative_prompt,
+        media_type=model.media_type,
+        size=model.size,
+        aspect_ratio=model.aspect_ratio,
+        spec_sha256=model.spec_sha256,
+        prompt_sha256=model.prompt_sha256,
+        status=status,
     )
 
 
@@ -257,6 +342,106 @@ class SqlAlchemyGenerationTaskRepository:
         self._session.add(_task_to_orm(task))
         await self._session.flush()
         return task
+
+    # ---- GenerationSpec（ADR-R47）---------------------------------------- #
+
+    async def add_spec(self, spec: GenerationSpec) -> GenerationSpec:
+        self._session.add(_spec_to_orm(spec))
+        await self._session.flush()
+        return spec
+
+    async def add_spec_reusing(self, spec: GenerationSpec) -> tuple[GenerationSpec, bool]:
+        """插入规格；唯一冲突时按内容复用，内容不符则 409（S-4）。
+
+        用 SAVEPOINT 而不是「先查再插」：并发两个请求可以同时查到「没有」再各自
+        插入，只有唯一约束能真正裁决。失败后回滚到 savepoint 再重读，事务本身
+        仍然可用——否则调用方拿到的是一个已被污染、连后续读都做不了的会话。
+        """
+        try:
+            async with self._session.begin_nested():
+                self._session.add(_spec_to_orm(spec))
+                await self._session.flush()
+            return spec, False
+        except IntegrityError:
+            existing = await self.get_spec(spec.generation_spec_id)
+            if existing is None:
+                # 唯一冲突却读不到：并发事务尚未提交，或冲突来自别的约束。
+                # 不能假设「就是并发」，交调用方按幂等冲突重试。
+                raise DomainError(
+                    ErrorRegistry.IDEMPOTENCY_CONFLICT,
+                    detail="生成规格插入冲突但读不到既有行；请按同一幂等键重试",
+                ) from None
+            if (
+                existing.spec_sha256 != spec.spec_sha256
+                or existing.identity_payload() != spec.identity_payload()
+            ):
+                raise DomainError(
+                    ErrorRegistry.IDEMPOTENCY_CONFLICT,
+                    detail=(
+                        f"generation_spec_id={spec.generation_spec_id} 已存在但内容不同："
+                        "同一 id 不得指向两份不同规格"
+                    ),
+                ) from None
+            return existing, True
+
+    async def get_spec(self, generation_spec_id: str) -> GenerationSpec | None:
+        result = await self._session.execute(
+            select(GenerationSpecModel).where(
+                GenerationSpecModel.generation_spec_id == generation_spec_id
+            )
+        )
+        model = result.scalar_one_or_none()
+        return _spec_to_domain(model) if model is not None else None
+
+    async def get_task_by_business_id(
+        self, generation_task_id: str, *, tenant_id: object
+    ) -> GenerationTask | None:
+        """幂等键读取：业务任务号必须与租户一起比对，避免跨租户命中。"""
+        result = await self._session.execute(
+            select(GenerationTaskModel).where(
+                GenerationTaskModel.generation_task_id == generation_task_id,
+                GenerationTaskModel.tenant_id == tenant_id,
+            )
+        )
+        model = result.scalar_one_or_none()
+        return _task_to_domain(model) if model is not None else None
+
+    async def get_shot_spec_for_revision(
+        self,
+        *,
+        project_id: str,
+        shot_revision_id: str,
+        tenant_id: object,
+        shot_spec_id: str = "",
+    ) -> ShotSpecFacts | None:
+        """跨域列级只读：取某修订的规格（是否 LOCKED 由调用方判定）。
+
+        ``shot_specs`` 对同一修订至多一份（``uq_shot_spec_per_revision``），
+        因此这里不需要「取最新」的排序策略——「最新」在存在唯一约束时是个
+        伪问题。显式按 project/tenant 过滤，不依赖 RLS 单独兜底。
+        """
+        conditions = [
+            ShotSpecModel.project_id == project_id,
+            ShotSpecModel.shot_revision_id == shot_revision_id,
+            ShotSpecModel.tenant_id == tenant_id,
+        ]
+        if shot_spec_id:
+            conditions.append(ShotSpecModel.entity_id == shot_spec_id)
+        result = await self._session.execute(select(ShotSpecModel).where(*conditions))
+        model = result.scalar_one_or_none()
+        if model is None:
+            return None
+        return ShotSpecFacts(
+            entity_id=model.entity_id,
+            project_id=model.project_id,
+            shot_revision_id=model.shot_revision_id,
+            aspect_ratio=model.aspect_ratio,
+            camera_path=model.camera_path,
+            subject_paths=model.subject_paths,
+            shot_size_changes=model.shot_size_changes,
+            locked_dimensions=model.locked_dimensions,
+            status=model.status,
+        )
 
     async def save(self, task: GenerationTask, expected_version: int) -> GenerationTask:
         await conditional_update(

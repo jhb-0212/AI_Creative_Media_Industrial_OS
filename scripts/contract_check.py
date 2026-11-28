@@ -861,6 +861,7 @@ _RESOURCE_SERIALIZERS: dict[str, tuple[str, str]] = {
 def _serializer_factories() -> dict[str, object]:
     """构造最小合法领域对象，用于校验 to_dict() 与契约定义的一致性。"""
     from datetime import UTC, datetime
+    from types import SimpleNamespace
     from uuid import uuid4
 
     from packages.shared.storage_locator import build_locator
@@ -868,6 +869,7 @@ def _serializer_factories() -> dict[str, object]:
     from services.asset_service.domain.qc_report import QCReport
     from services.budget_quota.domain.budget_ledger import BudgetLedger
     from services.budget_quota.domain.shot_budget_request import ShotBudgetRequest
+    from services.production_planning.domain.generation_spec import derive_spec
     from services.production_planning.domain.generation_task import GenerationTask
     from services.production_planning.domain.production_route import ProductionRoute
     from services.project_planning.domain.constraint_pack import ConstraintPack
@@ -977,6 +979,26 @@ def _serializer_factories() -> dict[str, object]:
             capability_ref="probe-capability",
             basis_ref="probe-basis",
         ),
+        "GenerationSpec": derive_spec(
+            shot_spec=SimpleNamespace(
+                entity_id="probe-shot-spec",
+                project_id="probe-project",
+                shot_revision_id="probe-revision",
+                aspect_ratio="16:9",
+                camera_path="probe-camera",
+                subject_paths="",
+                shot_size_changes="",
+                locked_dimensions="camera",
+            ),
+            tenant_id=tenant_id,
+            created_by="probe",
+            project_id="probe-project",
+            production_route_ref="probe-route-id",
+            constraint_snapshot_id="probe-snapshot",
+            model_adapter_ref="probe-adapter",
+            provider="probe",
+            media_type="image/png",
+        ),
         "GenerationTask": GenerationTask(
             entity_id="probe-task",
             created_by="probe",
@@ -989,7 +1011,7 @@ def _serializer_factories() -> dict[str, object]:
             model_adapter_ref="probe-adapter",
             constraint_snapshot_id="probe-snapshot",
             budget_ref="probe-budget",
-            prompt_ref="probe-prompt",
+            prompt_ref="inline:probe-prompt",
         ),
         "ShotBudgetRequest": ShotBudgetRequest(
             entity_id="probe-budget",

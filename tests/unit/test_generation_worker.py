@@ -167,7 +167,7 @@ async def _requested(service: GenerationService, repo: FakeTaskRepository):
         model_adapter_ref="adapter-1",
         constraint_snapshot_id="snap-1",
         budget_ref="budget-1",
-        prompt_ref="prompt-1",
+        prompt_ref="inline:prompt-1",
         created_by="director",
         tenant_id=_TENANT,
     )

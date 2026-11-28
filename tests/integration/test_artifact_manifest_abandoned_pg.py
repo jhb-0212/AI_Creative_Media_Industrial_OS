@@ -61,7 +61,7 @@ _INSERT_TASK = sa.text(
     " asset_version_id, quality_profile_version) "
     "VALUES (:eid, 'GenerationTask', 205, 1, 'REQUESTED', 'production_planning', "
     " :tid, :now, 'test-seeder', :now, :task_id, :pid, "
-    " '', '', '', '', '', '', '', '', 0, '', :qp)"
+    " '', '', '', '', '', '', 'inline:seed', '', 0, '', :qp)"
 )
 
 _INSERT_MANIFEST = sa.text(

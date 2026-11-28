@@ -297,7 +297,7 @@ async def task_id(admin_sessionmaker) -> str:
                     (:eid, 'GenerationTask', 205, 1, 'REQUESTED',
                      'production_planning', :tid, now(), 'tester', now(),
                      :eid, :pid, :sid, :srid, 'route-1', 'adapter-1',
-                     'snapshot-1', 'budget-1', 'prompt-1')
+                     'snapshot-1', 'budget-1', 'inline:prompt-1')
                 """
             ),
             {

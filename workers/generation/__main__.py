@@ -46,6 +46,7 @@ from workers.generation.executor import (
     StorageBackedGenerationExecutor,
     resolve_inline_prompt,
 )
+from workers.generation.spec_resolver import RepositorySpecResolver
 from workers.generation.worker import (
     GenerationExecutor,
     GenerationOutcome,
@@ -171,6 +172,7 @@ def _build_executor(settings: Any, sessionmaker: Any) -> tuple[Any, Any | None]:
         gateway=gateway,
         storage=storage,
         resolve_prompt=resolve_inline_prompt,
+        resolve_input=RepositorySpecResolver(sessionmaker),
         registrar=SagaAssetRegistrar(sessionmaker),
         default_model=getattr(settings, "model_gateway_default_model", ""),
         media_type=getattr(settings, "generation_default_media_type", "image/png"),

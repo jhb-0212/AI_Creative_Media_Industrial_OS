@@ -27,9 +27,11 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     Uuid,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from packages.shared.database import Base
@@ -39,6 +41,7 @@ from packages.shared.storage_locator import sql_locator_check
 from services.project_planning.domain.enums import (
     ArtifactManifestStatus,
     GenerationTaskStatus,
+    NoLifecycleStatus,
     ProductionRouteStatus,
 )
 
@@ -93,6 +96,26 @@ class GenerationTaskModel(Base, EntityMixin):
         project_tenant_fk("generation_tasks"),
         Index("ix_production_planning_generation_tasks_project_id", "project_id"),
         Index("ix_production_planning_generation_tasks_tenant_id", "tenant_id"),
+        # 任务侧绑定等式（ADR-R47 §3）：内联任务不得带规格引用；规格任务必须
+        # 恰好指向 ``genspec:<id>``。让「引用与正文」在库层不可能各说各话。
+        CheckConstraint(
+            "(prompt_ref LIKE 'inline:%' AND generation_spec_id IS NULL) "
+            "OR (generation_spec_id IS NOT NULL AND prompt_ref = 'genspec:' || generation_spec_id)",
+            name="ck_generation_tasks_prompt_ref_spec_binding",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "generation_spec_id"],
+            [
+                f"{SCHEMA_NAME}.generation_specs.tenant_id",
+                f"{SCHEMA_NAME}.generation_specs.generation_spec_id",
+            ],
+            name="fk_generation_tasks_generation_spec",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_production_planning_generation_tasks_generation_spec_id",
+            "generation_spec_id",
+        ),
         status_check((s.value for s in GenerationTaskStatus), table="generation_tasks"),
         {"schema": SCHEMA_NAME},
     )
@@ -106,6 +129,9 @@ class GenerationTaskModel(Base, EntityMixin):
     constraint_snapshot_id: Mapped[str] = mapped_column(String(128), nullable=False)
     budget_ref: Mapped[str] = mapped_column(String(128), nullable=False)
     prompt_ref: Mapped[str] = mapped_column(String(200), nullable=False)
+    # 生成输入快照引用（ADR-R47）：生产路径只存 ``genspec:<id>``，内联联调存
+    # ``inline:`` 且此列为 NULL。两者互斥由下面的 CHECK 在库层保证。
+    generation_spec_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # 租约：领取者、到期时间、领取次数（Phase 2，GENERATION.PROCESS）。
     lease_owner: Mapped[str] = mapped_column(String(128), nullable=False, server_default="")
     lease_expires_at: Mapped[datetime | None] = mapped_column(
@@ -122,6 +148,68 @@ class GenerationTaskModel(Base, EntityMixin):
     # 为什么不从 ``projects`` 现查：该表的 RLS 要求组织上下文，而 Worker 没有
     # ``current_organization_id``——查不到正是「没有组织」，两者会混成一件事。
     organization_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+
+
+class GenerationSpecModel(Base, EntityMixin):
+    """generation_specs：生成输入快照（写入即冻结，无 UPDATE 路径）。
+
+    身份由内容决定：``generation_spec_id`` 与 ``spec_sha256`` 都在领域层算好，
+    库层只保证「同一租户内 id 唯一」「状态只能是哨兵」「尺寸/画幅形态可控」。
+    为什么不把哈希表达式也写进 CHECK：规范 JSON 的键序/换行归一在 SQL 里没有
+    等价实现，库层复制一份算法只会得到两套互不承认的事实。
+    """
+
+    __tablename__ = "generation_specs"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "generation_spec_id",
+            name="uq_generation_specs_spec_tenant",
+        ),
+        UniqueConstraint("project_id", "entity_id", name="uq_generation_specs_entity_project"),
+        project_tenant_fk("generation_specs"),
+        Index("ix_production_planning_generation_specs_project_id", "project_id"),
+        Index("ix_production_planning_generation_specs_tenant_id", "tenant_id"),
+        Index("ix_production_planning_generation_specs_shot_spec_id", "shot_spec_id"),
+        CheckConstraint(
+            "size ~ '^[1-9][0-9]{2,4}x[1-9][0-9]{2,4}$'",
+            name="ck_generation_specs_size_shape",
+        ),
+        CheckConstraint(
+            "aspect_ratio ~ '^[1-9][0-9]{0,2}:[1-9][0-9]{0,2}$'",
+            name="ck_generation_specs_aspect_shape",
+        ),
+        CheckConstraint(
+            "media_type IN ('audio/wav', 'image/jpeg', 'image/png', 'image/webp', "
+            "'video/mp4', 'video/webm')",
+            name="ck_generation_specs_media_type",
+        ),
+        status_check((s.value for s in NoLifecycleStatus), table="generation_specs"),
+        {"schema": SCHEMA_NAME},
+    )
+
+    generation_spec_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    project_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    shot_revision_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    shot_spec_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    production_route_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    constraint_snapshot_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    template_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    derivation_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_policy_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_policy_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    generation_parameters: Mapped[dict[str, object]] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    prompt_text: Mapped[str] = mapped_column(Text, nullable=False)
+    negative_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    media_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    size: Mapped[str] = mapped_column(String(32), nullable=False)
+    aspect_ratio: Mapped[str] = mapped_column(String(32), nullable=False)
+    spec_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    prompt_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
 
 
 class ArtifactManifestModel(Base, EntityMixin):
@@ -171,6 +259,7 @@ class ArtifactManifestModel(Base, EntityMixin):
 __all__ = [
     "SCHEMA_NAME",
     "ArtifactManifestModel",
+    "GenerationSpecModel",
     "GenerationTaskModel",
     "ProductionRouteModel",
 ]
