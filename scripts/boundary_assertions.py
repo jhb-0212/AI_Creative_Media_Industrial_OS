@@ -1076,6 +1076,8 @@ _ORG_RLS_TABLES: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
         for schema, table in (
             ("production_planning", "production_routes"),
             ("production_planning", "generation_tasks"),
+            # ADR-R47：生成输入快照自带 project_id，组织规则经父项目传递。
+            ("production_planning", "generation_specs"),
             ("budget_quota", "shot_budget_requests"),
             ("qc_governance", "gate_decisions"),
             # A35 / ADR-R42：产物写入意图与登记回执都自带 project_id，

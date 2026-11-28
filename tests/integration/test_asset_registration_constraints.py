@@ -89,7 +89,7 @@ async def sample(admin_engine: AsyncEngine) -> AsyncIterator[dict[str, object]]:
                 " asset_version_id, quality_profile_version) "
                 "VALUES (:eid, 'GenerationTask', 205, 1, 'REQUESTED', "
                 " 'production_planning', :tid, :now, 'test-seeder', :now, "
-                " :task_id, :pid, '', '', '', '', '', '', '', '', 0, '', :qp)"
+                " :task_id, :pid, '', '', '', '', '', '', 'inline:seed', '', 0, '', :qp)"
             ),
             {
                 "eid": task_entity,
@@ -352,7 +352,7 @@ async def test_completed_receipt_requires_asset_id(
                 " asset_version_id, quality_profile_version) "
                 "VALUES (:eid, 'GenerationTask', 205, 1, 'REQUESTED', "
                 " 'production_planning', :tid, :now, 'test-seeder', :now, "
-                " :task_id, :pid, '', '', '', '', '', '', '', '', 0, '', '')"
+                " :task_id, :pid, '', '', '', '', '', '', 'inline:seed', '', 0, '', '')"
             ),
             {
                 "eid": f"reg-task-entity-bad-{sample['run']}",
@@ -436,7 +436,7 @@ async def test_receipt_rejects_asset_from_another_project_same_tenant(
                 " asset_version_id, quality_profile_version) "
                 "VALUES (:task_entity, 'GenerationTask', 205, 1, 'REQUESTED', "
                 " 'production_planning', :tid, :now, 'test-seeder', :now, "
-                " :task_id, :pid, '', '', '', '', '', '', '', '', 0, '', :qp)"
+                " :task_id, :pid, '', '', '', '', '', '', 'inline:seed', '', 0, '', :qp)"
             ),
             params,
         )

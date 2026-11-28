@@ -55,6 +55,9 @@ class GenerationTask(Entity):
     constraint_snapshot_id: str = ""
     budget_ref: str = ""
     prompt_ref: str = ""
+    # 生成输入快照引用（ADR-R47）：内部字段，不进响应；与 prompt_ref 的等式由
+    # 领域层与库层 CHECK 双重保证（内联任务为 None）。
+    generation_spec_id: str | None = None
     status: GenerationTaskStatus = GenerationTaskStatus.REQUESTED
     # 租约三元组：谁持有、何时到期、领取过几次。第三项用于「同一任务被反复领取
     # 却始终失败」的识别——只看状态看不出是首次执行还是第 9 次崩。
@@ -100,6 +103,23 @@ class GenerationTask(Entity):
                     ErrorRegistry.VALIDATION_ERROR,
                     detail=f"{name} 长度超过上限 {max_len}",
                 )
+
+        if self.generation_spec_id:
+            if self.prompt_ref != f"genspec:{self.generation_spec_id}":
+                raise DomainError(
+                    ErrorRegistry.VALIDATION_ERROR,
+                    detail=(
+                        "prompt_ref 与 generation_spec_id 不一致：规格任务的引用必须是 "
+                        f"'genspec:{self.generation_spec_id}'，实际 {self.prompt_ref!r}"
+                    ),
+                )
+        elif not self.prompt_ref.startswith("inline:"):
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail=(
+                    f"无规格引用的任务只允许 inline 提示词，实际 prompt_ref={self.prompt_ref!r}"
+                ),
+            )
 
     def transition_to(
         self,
@@ -291,7 +311,6 @@ class GenerationTask(Entity):
                 "model_adapter_ref": self.model_adapter_ref,
                 "constraint_snapshot_id": self.constraint_snapshot_id,
                 "budget_ref": self.budget_ref,
-                "prompt_ref": self.prompt_ref,
                 "status": self.status.value,
                 "lease_owner": self.lease_owner,
                 "lease_expires_at": (
@@ -300,6 +319,10 @@ class GenerationTask(Entity):
                 "attempt_count": self.attempt_count,
                 "asset_version_id": self.asset_version_id,
                 "quality_profile_version": self.quality_profile_version,
+                # ``prompt_ref`` 与 ``generation_spec_id`` **不进** ``to_dict``：
+                # 二者都是内部引用，响应形状由冻结契约声明（契约已移除
+                # prompt_ref，也未登记 generation_spec_id）。Worker 通过仓储
+                # 读取，不依赖响应。
                 # 组织归属**不进** ``to_dict``：``GenerationTask`` 的响应形状由
                 # 冻结契约声明（契约里没有这个字段），加进去就是「先实现后补
                 # 契约」的字段漂移。它是内部事实，只随仓储映射与端口传递。

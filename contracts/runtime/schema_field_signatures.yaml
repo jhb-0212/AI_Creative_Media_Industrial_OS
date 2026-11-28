@@ -1726,6 +1726,38 @@ signatures:
     status: string
     task_ref: string
     updated_at: string
+  GenerationSpec:
+    aspect_ratio: string
+    audit_ref: string|null
+    constraint_snapshot_id: string
+    created_at: string
+    created_by: string
+    derivation_version: string
+    entity_id: string
+    entity_type: string
+    entity_version: integer
+    generation_parameters: object
+    generation_spec_id: string
+    media_type: string
+    model_id: string
+    negative_prompt: string|null
+    owner_module: string
+    production_route_ref: string
+    project_id: string
+    prompt_sha256: string
+    prompt_text: string
+    provider: string
+    schema_version: integer
+    shot_revision_id: string
+    shot_spec_id: string
+    size: string
+    size_policy_id: string
+    size_policy_version: string
+    spec_sha256: string
+    status: string
+    template_version: string
+    tenant_id: string
+    updated_at: string
   GenerationTask:
     asset_version_id: string
     attempt_count: integer
@@ -1744,7 +1776,6 @@ signatures:
     owner_module: string
     production_route_ref: string
     project_id: string
-    prompt_ref: string
     quality_profile_version: string
     schema_version: integer
     shot_id: string

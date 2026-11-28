@@ -49,6 +49,7 @@ from adapters.storage.ports import (
 )
 from packages.shared.logging import get_logger
 from packages.shared.storage_locator import build_locator, extension_for_media_type
+from workers.generation.spec_resolver import SpecUnresolvableError
 from workers.generation.worker import GenerationOutcome
 
 logger = get_logger(__name__)
@@ -191,11 +192,13 @@ class StorageBackedGenerationExecutor:
         default_model: str = "",
         media_type: str = "image/png",
         size: str = "",
+        resolve_input: Callable[[Any], Awaitable[Any]] | None = None,
     ) -> None:
         self._gateway = gateway
         self._storage = storage
         self._resolve_prompt = resolve_prompt
         self._registrar = registrar
+        self._resolve_input = resolve_input
         self._default_model = default_model
         # 产物类型理论上应由生产路由（``production_route_ref``）决定，但路由
         # 解析尚未建模，先用配置默认值。这一点写进 external-evidence 交接单的
@@ -214,17 +217,35 @@ class StorageBackedGenerationExecutor:
             return recovered
 
         try:
-            prompt = await self._resolve_prompt(getattr(task, "prompt_ref", ""))
+            if getattr(task, "generation_spec_id", None):
+                if self._resolve_input is None:
+                    return _failed(
+                        "spec-unresolvable",
+                        "任务带 generation_spec_id 但执行器未装配规格解析器",
+                    )
+                spec_input = await self._resolve_input(task)
+                prompt = spec_input.prompt
+                model = spec_input.model_id or self._default_model
+                media_type = spec_input.media_type
+                size = spec_input.size
+            else:
+                prompt = await self._resolve_prompt(getattr(task, "prompt_ref", ""))
+                model = getattr(task, "model_adapter_ref", "") or self._default_model
+                media_type = self._media_type
+                size = self._size
         except PromptUnresolvableError as exc:
             logger.error("prompt unresolved for task %s: %s", task_id, exc)
             return _failed("prompt-unresolvable", str(exc))
+        except SpecUnresolvableError as exc:
+            logger.error("spec unresolved for task %s: %s", task_id, exc)
+            return _failed(exc.code, str(exc))
 
         request = GenerationRequest(
             task_id=task_id,
             prompt=prompt,
-            model=getattr(task, "model_adapter_ref", "") or self._default_model,
-            media_type=self._media_type,
-            size=self._size,
+            model=model,
+            media_type=media_type,
+            size=size,
         )
 
         try:

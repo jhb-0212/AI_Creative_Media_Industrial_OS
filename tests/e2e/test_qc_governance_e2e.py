@@ -184,7 +184,7 @@ async def _seed_generation_task(
                 model_adapter_ref="adapter-e2e",
                 constraint_snapshot_id="csp-e2e",
                 budget_ref="budget-e2e",
-                prompt_ref="prompt-e2e",
+                prompt_ref="inline:prompt-e2e",
                 asset_version_id=asset_version_id,
                 quality_profile_version=_QUALITY_PROFILE,
                 organization_id=organization_id,

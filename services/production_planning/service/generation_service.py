@@ -24,10 +24,12 @@ from packages.shared.event_payloads import stamp_event_payload
 from packages.shared.quality_profile import require_quality_profile
 from packages.shared.storage_locator import parse_locator, validate_locator_or_raise
 from services.production_planning.domain.artifact_manifest import ArtifactManifest
+from services.production_planning.domain.generation_spec import GenerationSpec, derive_spec
 from services.production_planning.domain.generation_task import GenerationTask
 from services.project_planning.domain.enums import (
     ArtifactManifestStatus,
     GenerationTaskStatus,
+    ShotSpecStatus,
 )
 from services.project_planning.domain.state_machine import (
     ASSET_REGISTRATION_COMPLETED_EVENT,
@@ -39,6 +41,38 @@ from services.project_planning.service.transition import advance_status, save_ve
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+#: 生产路线类型 → 产物媒体类型。路线没有显式媒体约束（ADR-R47 解析顺序第 ③ 层
+#: 当前为空），因此用路线类型作显式映射；未知类型一律拒绝，不落 image/png 默认。
+_MEDIA_BY_ROUTE_TYPE = {
+    "image": "image/png",
+    "video": "video/mp4",
+    "audio": "audio/wav",
+}
+
+
+def _media_type_for_route(route_type: str, route_ref: str) -> str:
+    normalized = (route_type or "").strip().lower()
+    media = _MEDIA_BY_ROUTE_TYPE.get(normalized)
+    if media is None:
+        raise DomainError(
+            ErrorRegistry.VALIDATION_ERROR,
+            detail=(
+                f"spec-media-type-unsupported: 路线 {route_ref} 类型 {route_type!r} "
+                "没有可确定的产物媒体类型"
+            ),
+        )
+    return media
+
+
+def _provider_for_model(model_adapter_ref: str) -> str:
+    """从模型适配器引用取供应商前缀；无前缀时用平台网关自身标识。"""
+    ref = (model_adapter_ref or "").strip()
+    head = ref.replace(":", "/").split("/")[0].strip()
+    if head and len(head) <= 64:
+        return head
+    return "afs-gateway"
 
 
 class GenerationService:
@@ -56,11 +90,14 @@ class GenerationService:
         model_adapter_ref: str,
         constraint_snapshot_id: str,
         budget_ref: str,
-        prompt_ref: str,
+        prompt_ref: str = "",
         created_by: str,
         tenant_id: UUID,
         generation_task_id: str = "",
         organization_id: UUID | None = None,
+        shot_spec_id: str = "",
+        negative_prompt: str | None = None,
+        generation_parameters: dict[str, Any] | None = None,
     ) -> GenerationTask:
         """创建生成任务，一律停在 REQUESTED，等 Worker 持租约领取。
 
@@ -111,6 +148,74 @@ class GenerationService:
                 ),
             )
         frozen_quality_profile = require_quality_profile(route.quality_profile_version)
+
+        # 输入来源二选一（ADR-R47 §3）：生产路径不自报 prompt_ref，规格在此派生；
+        # 内联路径只服务 E2E/本地联调，必须显式 ``inline:`` 且不得携带规格引用。
+        ref = (prompt_ref or "").strip()
+        spec: GenerationSpec | None = None
+        if ref:
+            if not ref.startswith("inline:"):
+                raise DomainError(
+                    ErrorRegistry.VALIDATION_ERROR,
+                    detail=(
+                        f"prompt_ref={ref!r} 不是可自报的形态：生产任务必须省略 prompt_ref "
+                        "由系统派生 GenerationSpec，只有 E2E 允许 inline:<正文>"
+                    ),
+                )
+            if shot_spec_id:
+                raise DomainError(
+                    ErrorRegistry.VALIDATION_ERROR,
+                    detail="内联任务不得同时声明 shot_spec_id（输入来源互斥）",
+                )
+        else:
+            spec = await self._derive_spec(
+                route=route,
+                project_id=project_id,
+                shot_revision_id=shot_revision_id,
+                shot_spec_id=shot_spec_id,
+                production_route_ref=production_route_ref,
+                constraint_snapshot_id=constraint_snapshot_id,
+                model_adapter_ref=model_adapter_ref,
+                negative_prompt=negative_prompt,
+                generation_parameters=generation_parameters,
+                created_by=created_by,
+                tenant_id=tenant_id,
+            )
+            ref = f"genspec:{spec.generation_spec_id}"
+
+        # 幂等键 = (tenant_id, generation_task_id)（S-4）：同键同输入返回既有任务，
+        # 同键不同输入一律 409——不能靠「再插一条同名任务」把两份输入都变成事实。
+        if generation_task_id.strip():
+            existing = await self._repository.get_task_by_business_id(
+                generation_task_id, tenant_id=tenant_id
+            )
+            if existing is not None:
+                if await self._same_request(
+                    existing,
+                    project_id=project_id,
+                    shot_id=shot_id,
+                    shot_revision_id=shot_revision_id,
+                    production_route_ref=production_route_ref,
+                    model_adapter_ref=model_adapter_ref,
+                    constraint_snapshot_id=constraint_snapshot_id,
+                    budget_ref=budget_ref,
+                    prompt_ref=ref,
+                    spec=spec,
+                ):
+                    return existing
+                raise DomainError(
+                    ErrorRegistry.IDEMPOTENCY_CONFLICT,
+                    detail=(
+                        f"generation_task_id={generation_task_id} 已存在且输入不同："
+                        "幂等键相同但内容不同，拒绝静默覆盖"
+                    ),
+                )
+
+        if spec is not None:
+            # 规格先落（同事务）：任务行的复合外键要求它已存在；内容相同的重复
+            # 派生按唯一约束复用，不做「先删后插」。
+            spec, _ = await self._repository.add_spec_reusing(spec)
+
         task = GenerationTask(
             entity_id=str(uuid4()),
             created_by=created_by,
@@ -123,7 +228,8 @@ class GenerationService:
             model_adapter_ref=model_adapter_ref,
             constraint_snapshot_id=constraint_snapshot_id,
             budget_ref=budget_ref,
-            prompt_ref=prompt_ref,
+            prompt_ref=ref,
+            generation_spec_id=spec.generation_spec_id if spec is not None else None,
             quality_profile_version=frozen_quality_profile,
             organization_id=organization_id,
         )
@@ -144,6 +250,100 @@ class GenerationService:
             },
         )
         return task
+
+    async def _derive_spec(
+        self,
+        *,
+        route: Any,
+        project_id: str,
+        shot_revision_id: str,
+        shot_spec_id: str,
+        production_route_ref: str,
+        constraint_snapshot_id: str,
+        model_adapter_ref: str,
+        negative_prompt: str | None,
+        generation_parameters: dict[str, Any] | None,
+        created_by: str,
+        tenant_id: UUID,
+    ) -> GenerationSpec:
+        """读取 LOCKED ShotSpec 并派生规格；所有拒绝都在这里给出可区分文案。"""
+        facts = await self._repository.get_shot_spec_for_revision(
+            project_id=project_id,
+            shot_revision_id=shot_revision_id,
+            tenant_id=tenant_id,
+            shot_spec_id=shot_spec_id,
+        )
+        if facts is None:
+            raise DomainError(
+                ErrorRegistry.NOT_FOUND,
+                detail=(
+                    f"spec-missing: 修订 {shot_revision_id} 没有可用规格"
+                    f"（shot_spec_id={shot_spec_id or '<未指定>'}）"
+                ),
+            )
+        if facts.status != ShotSpecStatus.LOCKED.value:
+            raise DomainError(
+                ErrorRegistry.STATE_TRANSITION_DENIED,
+                detail=(
+                    f"spec-shot-spec-unlocked: 规格 {facts.entity_id} 当前为 {facts.status}，"
+                    "只有 LOCKED 规格可以派生生成输入（DRAFT 试生成不在本阶段支持）"
+                ),
+            )
+        if facts.shot_revision_id != shot_revision_id or facts.project_id != project_id:
+            raise DomainError(
+                ErrorRegistry.VALIDATION_ERROR,
+                detail="spec-shot-spec-mismatch: 规格绑定的项目/修订与任务不一致",
+            )
+        media_type = _media_type_for_route(getattr(route, "route_type", ""), production_route_ref)
+        provider = _provider_for_model(model_adapter_ref)
+        return derive_spec(
+            shot_spec=facts,
+            tenant_id=tenant_id,
+            created_by=created_by,
+            project_id=project_id,
+            production_route_ref=production_route_ref,
+            constraint_snapshot_id=constraint_snapshot_id,
+            model_adapter_ref=model_adapter_ref,
+            provider=provider,
+            media_type=media_type,
+            negative_prompt=negative_prompt,
+            generation_parameters=generation_parameters,
+        )
+
+    async def _same_request(
+        self,
+        existing: GenerationTask,
+        *,
+        project_id: str,
+        shot_id: str,
+        shot_revision_id: str,
+        production_route_ref: str,
+        model_adapter_ref: str,
+        constraint_snapshot_id: str,
+        budget_ref: str,
+        prompt_ref: str,
+        spec: GenerationSpec | None,
+    ) -> bool:
+        """幂等键命中的旧任务是否由**同一份输入**产生（逐字段比对）。"""
+        if (
+            existing.project_id != project_id
+            or existing.shot_id != shot_id
+            or existing.shot_revision_id != shot_revision_id
+            or existing.production_route_ref != production_route_ref
+            or existing.model_adapter_ref != model_adapter_ref
+            or existing.constraint_snapshot_id != constraint_snapshot_id
+            or existing.budget_ref != budget_ref
+            or existing.prompt_ref != prompt_ref
+        ):
+            return False
+        if spec is None:
+            return existing.generation_spec_id is None
+        if existing.generation_spec_id != spec.generation_spec_id:
+            return False
+        stored = await self._repository.get_spec(spec.generation_spec_id)
+        if stored is None:
+            return False
+        return stored.identity_payload() == spec.identity_payload()
 
     # ---- R42 T0/T1：写入意图与存储确认 ---------------------------------- #
 

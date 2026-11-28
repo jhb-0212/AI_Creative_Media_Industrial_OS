@@ -1,7 +1,8 @@
 ---
 doc_type: proposal
-status: proposed
+status: implemented
 updated_at: 2026-11-29
+implemented_at: 2026-11-29
 reviewed_at: 2026-11-29
 review_decision: approved_with_conditions
 final_decisions_at: 2026-11-29
@@ -513,3 +514,48 @@ S-6 严格解析与 fail-closed（§2.3、§6.3–6.4）。
 
 提案至此**没有未决设计问题**。P2 开工仍需独立授权（契约变更 + 迁移 + 实现 + 冻结重签），
 授权后再走 P3（真实网关 E5）。
+
+> 2026-11-29 追加：Owner 随后口头授权 P2，上述「仍需独立授权」不再代表当前状态；
+> P2 落地记录见 §12（原文保留，供追溯当时的边界）。
+
+## 12. P2 落地记录（2026-11-29）
+
+Owner 授权：P2（契约变更 + 迁移 + 实现 + 冻结重签）。实现提交见
+`contracts/phase0/contract_amendments.yaml` 的 `V205-R47-P2-GENERATION-SPEC` 条目
+`source_commits`；审计记录见 `docs/audits/2026-11-29-adr-r47-p2-implementation.md`。
+
+### 12.1 实际落点（逐项对照 §7 契约 delta）
+
+| 项 | 落点 | 判据 |
+|---|---|---|
+| `object_schemas` 加 `GenerationSpec`，99→100 | `contracts/schemas/object_schemas.schema.json` | 对象结构校验 + 运行时 `to_dict` 一致（新增探测工厂） |
+| `GenerationTask` 响应移除 `prompt_ref` | schema 定义 + `GenerationTask.to_dict()` | 契约闸门「未声明字段」= 0 |
+| `generation_specs` 表 + 任务侧列/CHECK/FK/索引 | 迁移 `a9b0c1d2e3f4`（down `f2b3c4d5e6a7`） | 干净库 upgrade/downgrade/upgrade 往返 + `alembic check` 无漂移 |
+| 状态分类 | `status_field_taxonomy.yaml`：`envelope_only` + `immutable_record` | 分类闸门：100 对象的 status 全覆盖 |
+| 授权矩阵 | `db_grants.py`：规格表 `SELECT INSERT`；`shot_specs` 列级只读 | 矩阵覆盖断言 + 迁移逐条等于矩阵输出 |
+| 字段签名 | 重签 `schema_field_signatures.yaml`（100 对象） | 字段签名闸门一致 |
+| 冻结清单 | 修订登记后 `freeze_manifest.py --write` 重签 | 清单自指哈希 + 名称全集判定 |
+
+### 12.2 在授权范围内做出的实现取舍（需 Owner 知悉）
+
+1. **SizePolicy / 提示词模板不建表、不建对象**：两者都是「策略投影」，不是业务事实。
+   以代码内版本化常量发布（`packages/shared/size_policy.py`、`generation_template.py`），
+   `policy_id/version` 与 `template_version` 随规格冻结；内容摘要由单测钉死，改内容
+   不升版本即报红。这样避免为纯策略再走一遍 schema/taxonomy/CRUD/冻结的完整成本，
+   同时满足「被引用版本不得原地改」。
+2. **模板 v1 是最小确定性映射**：`camera_path/subject_paths/shot_size_changes/aspect_ratio`
+   按固定顺序、空字段省略拼成中文句子。它不是「创意提示词工程」的终态，而是可审计的
+   基线；提升文案质量必须发新 `template_version`，不得改 v1。
+3. **`provider` 由模型适配器引用的前缀派生**（无前缀时 `afs-gateway`）；`media_type`
+   由生产路线类型显式映射（image/video/audio），未知类型拒绝。两者都没有编造默认值。
+4. **`generation_parameters` 白名单当前为 `guidance_scale/seed/steps`**：Owner 约束是
+   「键白名单、≤16 键、仅 string/整数/布尔」，具体键集由实现方按现有网关参数收窄；
+   扩键需显式改白名单（合同对象 `propertyNames` 同步）。
+5. **Worker 复核 ShotSpec 仍 LOCKED**（失败码 `spec-shot-spec-unlocked|mismatch`）：
+   执行前只复核、不重算；与「Worker 不二次派生」一致。
+
+### 12.3 未纳入 P2 的部分（仍属 P3）
+
+- 真实网关五要素与 `scripts/verify_model_gateway.py` 的实跑证据；
+- A1 `AWAITING_ASSET_REGISTRATION → T2/T3 → SUCCEEDED` 的真实回执；
+- `ConstraintSnapshot` 对象（P2 只登记字符串引用，不解析）。
