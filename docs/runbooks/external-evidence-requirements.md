@@ -122,9 +122,9 @@ GENERATION_DEFAULT_SIZE
 
 | 缺口 | 现状 | 影响 |
 |---|---|---|
-| **提示词解析** | `generation_tasks.prompt_ref` 只是 ≤200 字符的引用，仓库内无提示词库解析实现。当前只接受 `inline:<正文>` 形态 | 真实生产提示词放不进 200 字符；接真网关前需先建提示词库 |
+| **提示词解析（已定方向，待实现）** | `generation_tasks.prompt_ref` 是 ≤200 字符的引用，当前只接受 `inline:<正文>`。方向已裁（ADR-R47）：提示词是 ShotSpec 的**派生输出**，不得存进 Shot/ShotRevision；任务创建时派生一次并冻结为 `GenerationSpec`，`prompt_ref` 收敛为 `genspec:<id>`，Worker 只认 `inline:` / `genspec:` 两形 | 真实生产提示词放不进 200 字符。**不是**「建提示词库」——库化会把派生输出变成第二权威。落地按 ADR-R47 §4 的 P1（契约提案）→ P2（迁移+实现）→ P3（E5） |
 | **资产登记（已接线，2026-11-28 更正）** | 装配已是 `SagaAssetRegistrar`（T0 意图 + T1 确认，各一个短事务，按任务租户切 RLS）；T2 回执由 `workers/relay/asset_registration.py` 处理并经 T3 写回任务终态。**原先「装配的是 `UnwiredAssetRegistrar`」已过时** | 代码链路完整、有集成测试覆盖（`test_asset_registration_saga_e2e.py` 等，用假网关）；真实网关下的 A1 仍未取证，缺的是外部输入而非接线 |
-| **产物类型与尺寸** | 理论上应由 `production_route_ref` / `constraint_snapshot_id` 决定，两者的解析未建模 | 当前用配置默认值（`GENERATION_DEFAULT_MEDIA_TYPE`），等于把「一律 png」变成隐含假设；对端若支持请求内指定尺寸，也仍需路线解析后才能填，不能由调用方自报 |
+| **产物类型与尺寸（已定方向，待实现）** | 应由生成规格携带（ADR-R47 D3）：`media_type` / `size` / `aspect_ratio` 来自 `production_route_ref` + `constraint_snapshot_id` + `ShotSpec.aspect_ratio` 的解析结果，在任务创建时冻结、解析失败即拒绝 | 当前用配置默认值（`GENERATION_DEFAULT_MEDIA_TYPE`），等于把「一律 png」变成隐含假设。注意 `constraint_snapshot_id` 目前**没有对应快照对象**，该环留到约束域立项时一并建模，不在 P1 拍形态 |
 | **网关单段取证** | 新增 `scripts/verify_model_gateway.py`：一条真实调用、自算 SHA-256、产物落盘读回复核、三类失败分退出码、凭据不落证 | 让 A1 失败能定位到「对端」还是「台账」；本身不构成 A1 |
 
 ---
