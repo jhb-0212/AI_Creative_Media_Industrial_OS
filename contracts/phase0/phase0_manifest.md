@@ -16,7 +16,7 @@
 
 | 正文类目 | 文件 | 字节 | SHA-256 | 对应章节 |
 |---|---|---|---|---|
-| ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 318439 | `8dd9923114ae0faae929d38e9c8d5043028865e80cd6926811da9413af7b5319` | 8.x 对象契约 / C.3 数据契约 |
+| ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 321662 | `16b45dfb86e38c79548866b52f08d0592fbfa5397b508dba6f29ff9f32b6e087` | 8.x 对象契约 / C.3 数据契约 |
 | ② OpenAPI 草案 | `contracts/openapi/openapi.draft.yaml` | 145972 | `41b497536be4ff40eeaceaa03744e7ced517898a80bfb19e5d9532d08370154b` | 31.6（由 Action Registry 派生） |
 | ③ 状态机 | `contracts/state_machines/state_machines.yaml` | 68503 | `947372930811f91071475655b09f306920f52e0f5e4758d32c902482de29d1e6` | 31.5 / 8.6 / 32.6 / 33.3 / 34.7 |
 | ④ Action Registry | `contracts/action_registry/action_registry.yaml` | 58935 | `3c4cb3310020477f66fcf503f2d66f55fc0c1dc21b1c30e6cce0ce9fe5c62271` | 31.6 唯一注册表 |
@@ -94,6 +94,7 @@
 - `V205-R44-TC-DECISION-BLOCK-LIFT`
 - `V205-P0-FREEZE-RESOLUTION-REGISTER`
 - `V205-R42-S1-AUTHORIZATION-ACK`
+- `V205-R47-P2-GENERATION-SPEC`
 
 契约名称全集必须精确等于「基线清单 ∪ 已批准修订」，由
 `scripts/freeze_manifest.py --check` 逐名称判定（不是只看数量）。

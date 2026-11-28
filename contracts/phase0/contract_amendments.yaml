@@ -2449,6 +2449,39 @@ amendments:
       - '同日第三次计数变化：2026-11-25 先是 TC-1~TC-5（blocked 2/lifted 6）、再是原件入仓（blocked 1/lifted 7）、晚为本条（blocked 0/lifted 8）。三份记录各标时点，当前状态以 verification_blocks.yaml 为准。'
       - '清单首次没有仍阻塞条目，不等于治理风险归零：P2 §5 的四项已知差额（audit_ref 非空校验、artifact_manifests 非 append-only、状态机条目 PENDING_PHASE1_REVIEW、偶发 ACL 红灯根因）是挂账而非 [V-BLOCKED]，不因本条转变性质。'
 
+  - id: 'V205-R47-P2-GENERATION-SPEC'
+    title: 'ADR-R47 P2：GenerationSpec 契约对象、任务侧字段收敛与迁移授权'
+    retroactive: false
+    recorded_at: '2026-11-29'
+    discovered_by: 'docs/proposals/generation-spec-contract-p1.md（P1 已批准）+ docs/audits/2026-11-29-adr-r47-p2-implementation.md'
+    reason: >-
+      ADR-R47 已裁定「生成参数在创建期一次性推导为不可变规格」，P1 提案经 Owner 三轮
+      评审后固化。P2 落地需要三处契约变更：新增 GenerationSpec 对象（内容寻址身份 +
+      prompt/size/model 冻结 + 审计追溯）、GenerationTask 响应移除 prompt_ref
+      （改为内部 generation_spec_id，响应不暴露）、以及 generation_specs 表的最小权限
+      与组织 RLS。三者是同一因果链：没有对象定义，运行时序列化无法被闸门校验；
+      不删 prompt_ref，规格与内联两条真相会在读侧并存；不建表与授权，规格只能停留在
+      内存里，重启即丢。
+    adr: 'docs/adr/ADR-R47-generation-spec-derivation.md'
+    approved_by: 'Owner 2026-11-29 口头授权 P2（契约变更 + 迁移 + 实现 + 冻结重签）；本条为实现方转录，非 Owner 手写签名'
+    approved_at: '2026-11-29'
+    source_commits:
+      - 'd4e0dc4'  # feat(r47): 落地生成规格 P2（契约/迁移/领域/仓储/API/Worker/测试）
+    additions:
+      schema_objects:
+        - object: 'GenerationSpec'
+          why: '生成规格聚合根：prompt/负向提示/尺寸/模型/种子等创作输入的不可变快照，供 Worker 解析与审计追溯'
+    counts_after:
+      actions: 108
+      openapi_operations: 108
+      schema_objects: 100
+      state_machines: 56
+    residual_risks:
+      - 'P2 只落地规格派生与执行侧解析，不含真实网关调用；P3 外部五要素（base_url 版本段/鉴权/配额口径/model id/产物取回）仍为空'
+      - 'generation_parameters 键白名单（guidance_scale/seed/steps）为实现方按现有网关收窄，Owner 未逐键确认；扩键须同步契约 propertyNames'
+      - '历史内联任务的绑定 CHECK 以 NOT VALID 上线，升级库历史行不被追溯判定；数据清理后才可 VALIDATE'
+      - 'Worker 复核 ShotSpec 依赖 shot_specs 列级只读的 10 列；ShotSpec 新增渲染字段时须同步扩展列清单与模板版本'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——
