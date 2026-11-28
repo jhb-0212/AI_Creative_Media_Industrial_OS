@@ -39,7 +39,13 @@ RELAY_DB_ENV = {
 }
 
 # 超级用户凭证只允许出现在 DDL / DBA 单元（建表、建分区必须表属主权限）。
-DDL_UNITS = {"postgres", "migrate", "outbox-maintenance"}
+#
+# ``bootstrap`` 是本清单里唯一的**身份** DDL 单元：``CREATE ROLE`` /
+# ``ALTER ROLE … NOSUPERUSER`` 只有超管能执行，而它同时要拿每个角色自己的口令
+# 才能设密码——这两件事都不能拆给别的进程。它的边界不靠「少给凭证」保证，而靠
+# 「一次性、只跑声明语句、``--roles`` 一个阶段、跑完即退」保证；迁移侧仍然只碰
+# 结构、只断言身份存在，职责不合并。
+DDL_UNITS = {"postgres", "migrate", "outbox-maintenance", "bootstrap"}
 
 
 def _env_of(services: dict[str, dict], name: str) -> dict[str, object]:

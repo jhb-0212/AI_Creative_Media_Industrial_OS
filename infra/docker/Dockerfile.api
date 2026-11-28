@@ -37,6 +37,9 @@ COPY workers/ ./workers/
 COPY data/ ./data/
 COPY contracts/ ./contracts/
 COPY alembic.ini ./
+# 身份 Bootstrap 执行器：迁移前必须先建角色（迁移只断言存在，不再创建身份）。
+# 只拷这一个脚本，而不是整个 scripts/：闸门脚本不进运行镜像。
+COPY scripts/bootstrap_identity.py ./scripts/bootstrap_identity.py
 
 RUN uv sync --frozen --no-dev
 
@@ -56,6 +59,7 @@ COPY --from=builder /app/packages ./packages
 COPY --from=builder /app/workers ./workers
 COPY --from=builder /app/data ./data
 COPY --from=builder /app/contracts ./contracts
+COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/alembic.ini ./
 
 ENV PATH="/app/.venv/bin:$PATH" \

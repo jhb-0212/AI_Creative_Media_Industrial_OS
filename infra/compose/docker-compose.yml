@@ -1,8 +1,13 @@
 # 本地/单机编排（Phase 1 最小闭环）
 #
 # 设计约束：
-# - 启动顺序由依赖条件强制：postgres 健康 → migrate 一次性执行成功 → api 起。
-#   迁移失败时 api 不会启动（fail-closed），不会出现「半旧表结构接流量」。
+# - 启动顺序由依赖条件强制：postgres 健康 → **bootstrap 建角色** → migrate 一次性
+#   执行成功 → api 起。迁移失败时 api 不会启动（fail-closed），不会出现「半旧表结构
+#   接流量」。
+# - 为什么 bootstrap 必须单独一步：2026-11-28 起迁移**不再创建角色**（身份生命周期
+#   归 bootstrap，迁移只 `assert_role_present`）。空集群直接跑 alembic 会在第一条
+#   角色断言处失败——这是设计的 fail-closed，不是缺陷，所以编排必须把 bootstrap
+#   放在 migrate 之前，而不是等它失败后再人工补。
 # - 迁移是独立一次性容器，不是 api 的入口脚本：多副本滚动发布时不会并发迁移。
 # - 口令全部走环境变量占位（默认值仅供本地开发）；生产由密钥系统注入，
 #   镜像与编排文件中不含任何真实口令。
@@ -66,6 +71,26 @@ x-db-relay: &db-relay
   POSTGRES_RELAY_USER: outbox_relay_role
   POSTGRES_RELAY_PASSWORD: ${POSTGRES_RELAY_PASSWORD:-relay_dev_password}
 
+# 身份 Bootstrap：**唯一持有全部角色口令**的部署单元（建角色、收敛属性、设口令）。
+#
+# 为什么凭证面必须这么大：``CREATE ROLE … PASSWORD`` 需要每个角色自己的口令，
+# 这不是「多给权限」而是「这次作业的输入」。代价是用一个**一次性、只跑声明语句、
+# 跑完即退**的进程把它圈住，而不是把口令摊给 api / migrate。
+# 它是超级用户连接（``ALTER ROLE … NOSUPERUSER`` 只有超管能跑），所以与 migrate
+# 同属「DDL 例外」；两者职责仍分开：一个碰身份，一个碰结构。
+x-db-bootstrap: &db-bootstrap
+  <<: *db-superuser
+  POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-app_dev_password}
+  POSTGRES_RELAY_PASSWORD: ${POSTGRES_RELAY_PASSWORD:-relay_dev_password}
+  POSTGRES_OUTBOX_OPS_PASSWORD: ${POSTGRES_OUTBOX_OPS_PASSWORD:-outbox_ops_dev_password}
+  POSTGRES_PROJECT_PLANNING_PASSWORD: ${POSTGRES_PROJECT_PLANNING_PASSWORD:-project_planning_dev_password}
+  POSTGRES_ASSET_SERVICE_PASSWORD: ${POSTGRES_ASSET_SERVICE_PASSWORD:-asset_service_dev_password}
+  POSTGRES_PRODUCTION_PLANNING_PASSWORD: ${POSTGRES_PRODUCTION_PLANNING_PASSWORD:-production_planning_dev_password}
+  POSTGRES_BUDGET_QUOTA_PASSWORD: ${POSTGRES_BUDGET_QUOTA_PASSWORD:-budget_quota_dev_password}
+  POSTGRES_QC_GOVERNANCE_PASSWORD: ${POSTGRES_QC_GOVERNANCE_PASSWORD:-qc_governance_dev_password}
+  POSTGRES_QC_MAINTENANCE_LOGIN_PASSWORD: ${POSTGRES_QC_MAINTENANCE_LOGIN_PASSWORD:-qc_maintenance_dev_password}
+  POSTGRES_QC_SCHEDULER_PASSWORD: ${POSTGRES_QC_SCHEDULER_PASSWORD:-qc_scheduler_dev_password}
+
 services:
   postgres:
     image: postgres:16
@@ -97,7 +122,25 @@ services:
       timeout: 5s
       retries: 5
 
-  # 一次性迁移容器：成功退出（exit 0）才允许 api 启动。
+  # 一次性身份引导：建角色、收敛属性。成功退出（exit 0）才允许迁移启动。
+  #
+  # 幂等：``bootstrap_identity.py --roles`` 对已存在的角色走 ALTER 收敛，重复执行
+  # 不会报错；但它会**重设口令**，所以生产必须由密钥系统注入当前口令，不能靠默认值。
+  bootstrap:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.api
+    image: ai-film-api:local
+    command: ["python", "scripts/bootstrap_identity.py", "--roles"]
+    environment:
+      <<: *db-bootstrap
+      APP_ENV: ${APP_ENV:-development}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # 一次性迁移容器：bootstrap 成功、且自身成功退出（exit 0）才允许 api 启动。
   migrate:
     build:
       context: ../..
@@ -108,6 +151,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      bootstrap:
+        condition: service_completed_successfully
     restart: "no"
 
   api:

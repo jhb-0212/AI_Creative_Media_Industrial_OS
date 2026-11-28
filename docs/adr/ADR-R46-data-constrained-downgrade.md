@@ -1,7 +1,7 @@
-# ADR-R46：数据约束型降级（Data-constrained downgrade）（D4 · 已裁决 DECIDED）
+# ADR-R46：数据约束型降级（Data-constrained downgrade）（D4 · 附录 A/B/C 已裁决；附录 D 为提案）
 
 ADR-R46
-Status: DECIDED
+Status: DECIDED（仅附录 A/B/C，签署记录 VER-0001 / VER-0002）；附录 D「空壳资产受控退役」= PROPOSED（待项目所有者签署）
 Decision: D4-9（身份迁移职责边界；strip 推广；f2b3 选 A、否决 B）
 Owner: Project Owner
 Signed: 2026-11-28（项目所有者；独立签署记录见 `docs/adr/ADR-R46-VERSION.txt` VER-0001）
@@ -409,8 +409,15 @@ Alembic migration          Identity Lifecycle
 
 ## 附录 D：「空壳资产」受控退役（R1，2026-11-28，VER-0003 追加）
 
-状态：**DECIDED（项目所有者 2026-11-28，指令「按最优的解决」）**。本附录固化
-`d0e1f2a3b4c5` 在存量无法转换时的**第二种**处置路径，与附录 A/B/C 并列，不溯及既存指纹。
+状态：**PROPOSED（提案，等待项目所有者签署）**。
+
+本附录由实现方起草，**不自证生效**。条款从「提案」变成「裁决」的唯一路径，是项目
+所有者在 `docs/adr/ADR-R46-VERSION.txt` 追加一条含 `signed_by` / `scope` /
+`decision_ref` 的记录；本附录此前写作 `DECIDED` 属于自证（正文替签署方下结论），
+已按 2026-11-28 代码审查结论改正。签署之前，R1 只能作为「候选处置路径」引用，
+不构成对任何实例的执行授权。
+
+本附录固化 `d0e1f2a3b4c5` 在存量无法转换时的**第二种**处置路径，与附录 A/B/C 并列，不溯及既存指纹。
 
 ### D.1 触发条件
 
@@ -427,31 +434,48 @@ Alembic migration          Identity Lifecycle
 
 1. **归档优先**：把待退役行整行（全字段）写入 `quarantine.asset_versions_<YYYYMMDD>`；
    被 `qc_reports` 引用的行，其证据行同步归档到 `quarantine.qc_reports_<YYYYMMDD>`；
-2. **等值校验**：逐行文本 md5（`ORDER BY t::text` 稳定序）在 live 与归档两侧必须一致；
-   不一致立即中止，删除不得发生；
-3. **仅删不可转换行**：判据与迁移 `_CONVERTIBLE` 取反逐项同源；可转换行一律不动；
+   归档表**已存在即拒绝执行**（复用旧表会让校验拿旧数据比新 live）；
+2. **等值校验**三件事同时成立才算等值，且全部在**一个事务**内、删除之前完成：
+   行数相等、双向 `EXCEPT` 结果为 0、SHA-256 内容指纹（`ORDER BY t::text` 稳定序）
+   两侧一致；任一项不满足即中止（事务回滚），删除不得发生。md5 仅作与既有记录兼容的
+   辅助校验，**单独不构成证明**；
+3. **仅删不可转换行**：判据由脚本**从 `d0e1` 迁移模块导入** `_CONVERTIBLE` 后取反得到
+   （脚本内不再有第二份字面量，迁移放宽判据时脚本自动跟随）；`storage_ref` 为 NULL
+   的行归入「不可转换」，不允许出现第三种状态；可转换行一律不动；
 4. **触发器例外**：`ADR-R11` 的 `BEFORE DELETE/UPDATE` 与 `BEFORE TRUNCATE` 只允许在
    **同一事务内**、**仅 `USER` 触发器**、**仅针对已等值归档的这批行**临时 `DISABLE`，
-   删除后立即 `ENABLE`；事务外的任何禁用均视为违规；
-5. **留证**：归档 CSV + md5 + 行数写入变更记录；备份保留至下一次成功升级后不少于 30 天。
+   删除后立即 `ENABLE`；事务外的任何禁用均视为违规。`qc_reports` 只有在确实存在证据行
+   需要删除时才禁用触发器，否则不动它；
+5. **删除定位**：按归档表主键删除（`asset_versions.entity_id` / `qc_reports.qc_report_id`），
+   不按谓词删除——按谓词删会在校验与删除之间把新写入的同形行一并删掉而这行**从未归档**；
+   删除行数取数据库回执（`RETURNING`）并与归档行数逐项比对；
+6. **留证**：归档 CSV + SHA-256 + 行数写入变更记录；备份保留至下一次成功升级后不少于 30 天。
 
 ### D.3 明确禁止
 
 1. 按 `sha256` 批量派生定位符（语法合规但内容不存在，等于把脏数据洗成绿灯）；
 2. 未完成等值归档即禁用触发器、或先删后补归档；
 3. 对可转换行做任何删除；
-4. 在已升级到 `d0e1` 之后再用本流程（那时列已是 `text`，形态不同，路径关闭）；
+4. 在已升级到 `d0e1` 之后再用本流程（那时列已是 `varchar` 受控定位符，jsonb 判据不再
+   适用；脚本会以显式 ABORT 拒绝，而不是抛一句 `operator does not exist`）；
 5. 用 R1 代替「内容真实存在、只是格式旧」的重算路径（那是方案 a，不是 R1）。
 
 ### D.4 落地与证据
 
-- 工具：`scripts/remediate_empty_shell_assets.py`（默认 dry-run；`--apply --suffix YYYYMMDD` 才执行；
-  归档后 md5 等值校验失败即中止；只删不可转换行）。
-- 用例：`tests/unit/test_remediate_empty_shell_assets.py`（13 项：判据与迁移同源、后缀白名单、
-  计划守卫、归档只拷不删、触发器禁用/恢复成对、md5 稳定序）。
+- 工具：`scripts/remediate_empty_shell_assets.py`（默认只读盘点；`--apply --suffix YYYYMMDD`
+  才执行；单事务 + 两表 `SHARE ROW EXCLUSIVE` 锁；归档后行数/双向 `EXCEPT`/SHA-256 三项
+  校验失败即回滚；删除按归档主键；`storage_ref` 已是非 jsonb 类型时直接拒绝——本流程只
+  存在于 `d0e1` 之前）。
+- 用例：`tests/unit/test_remediate_empty_shell_assets.py`（判据与迁移同源且 NULL 归入不可
+  转换、后缀白名单、计划守卫、归档只拷不删且不写 `IF NOT EXISTS`、锁与触发器禁用/恢复
+  成对、删除只认归档主键、SHA-256 稳定序与双向 `EXCEPT` 形态、md5 仅作兼容辅助）。
+- 实验库端到端（`runs/2026-11-28/remediate-lab3.log`）：3 行中 2 行不可转换 → 归档 2/2、
+  四项 `EXCEPT` 全 0、SHA-256 两侧一致、删除 2/2、剩余 0；可转换行存活且未进归档；
+  同名归档表再次执行被拒绝（exit 1）。
 - 首次真实执行（生产 `ai_film_industrial`，2026-11-28 14:20–14:36 CST）：
   1,873 行资产 + 519 行 QC 证据归档，md5 `2d3cb3f83051ba088a27000ee693f311` /
   `8e8fce01f3eb201d06aa1606a00f97a6` 前后一致；随后 18 revision 升级成功，四闸门全 0。
+  该次执行使用的是加固前版本（md5 单一判据、按谓词删除）；加固后的等价证据见上一行。
   记录：`reports/CHG-WP04-D4-9-生产变更记录-2026-11-28.md`。
 
 ### D.5 边界

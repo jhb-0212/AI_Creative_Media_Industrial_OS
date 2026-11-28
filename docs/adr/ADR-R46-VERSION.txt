@@ -85,3 +85,36 @@ CORRECTION（VER-0002 的 evidence 路径）
 [VER-0003] 2026-11-28 v1.2 追加附录 D（空壳资产受控退役 R1）
   bytes 33074 / lines 462 / sha256 d0d447d77ac6f2af52a23ce5521deee2b1c94ec155b06222d024e386b788e778 / blob_sha1 4e3fc0380ce2a625ff7c11120b1c8b6b28956aa2
   变更范围：新增附录 D；正文与附录 A/B/C 未改动文本
+
+CORRECTION（VER-0003 的状态与指纹）
+  corrected_line : VER-0003 单行（无 status / signed_by / scope 字段）
+  corrected_to   : 附录 D 状态由 DECIDED 改为 PROPOSED（待签）；正文头部 Status 明确标注
+                   「A/B/C 已签、附录 D 未签」。修订后指纹见 VER-0004
+  reason         : 附录 D 原文以「项目所有者指令」自证 DECIDED，但 VERSION 台账中没有对应
+                   的签署条目（无 signed_by / scope / decision_ref）——条款不能由实现方替
+                   签署方下结论。另：D.2/D.3/D.4 仍描述加固前形态（md5 单一判据、按谓词
+                   删除），与 2026-11-28 审查后的实现不符，须同步后重新采集
+  recorded_at    : 2026-11-28
+
+[VER-0004] 2026-11-28 v1.3 附录 D 状态回正 + 处置条款与实现对齐
+  version       : v1.3（自本条起现行有效文本为 v1.3；v1.0/v1.1/v1.2 是各自时点的独立文本，
+                  不得混用，也不得用本条指纹替代它们）
+  path          : docs/adr/ADR-R46-data-constrained-downgrade.md
+  status        : PROPOSED（附录 D）；附录 A/B/C 仍为 VER-0001 / VER-0002 记载的 DECIDED
+  date          : 2026-11-28
+  lines         : 486
+  bytes         : 35449
+  sha256_disk   : d82dc79fd04c5903ac9de173fc0161c7d2093894358761543f6072e80729bdfa
+  git_blob_sha1 : 841400284aadeed89c0f8a4723b1633a087b1714
+  git_tracked   : no（采集于工作树 ci-tree 修改后字节；正文为 LF，disk 与 LF 归一化后 sha256 一致）
+  fingerprint_scope : 仅 ADR 正文；不含本 VERSION 文件
+  recorded_at   : 2026-11-28
+  signed_by     : （空）——本条不构成签署，只登记「提案文本」的字节指纹
+  decision_ref  : 2026-11-28 代码与框架审查（阻断项 ③：ADR 自证 DECIDED）
+  scope         : 附录 D 状态行 + D.1–D.5 措辞；A/B/C 文本未改
+  evidence      : runs/2026-11-28/remediate-lab3.log（加固后处置路径的端到端证据）
+                  runs/2026-11-28/remediate-postmigration-guard.log（迁移后阶段守卫拒绝执行）
+                  runs/2026-11-28/adr-v13-fp.txt（本次指纹采集原始输出）
+  note          : 签署动作只能由项目所有者完成：追加含 signed_by / scope / decision_ref 的
+                  条目，并把附录 D 的状态行改为 DECIDED。实现方不得代签，也不得再以
+                  「正文写 DECIDED」代替台账条目。
