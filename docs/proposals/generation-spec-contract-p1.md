@@ -4,6 +4,7 @@ status: proposed
 updated_at: 2026-11-29
 reviewed_at: 2026-11-29
 review_decision: approved_with_conditions
+final_decisions_at: 2026-11-29
 proposal_baseline: 19c1ff9
 authoritative_sources:
   - docs/adr/ADR-R47-generation-spec-derivation.md
@@ -85,6 +86,7 @@ ADR-R44（不涉长流程引擎）、基线 8.1 / 8.12、契约 SR-6。
 | `prompt_text` | string | 是 | 1–8192 字符，非纯空白 | 提示词正文（派生结果，冻结） |
 | `negative_prompt` | string | 否 | 1–4096 字符 | 缺省 = 不传负向提示词；空串与纯空白**拒绝**（两者语义不同，不能混同） |
 | `spec_sha256` | string | 是 | 64 位小写十六进制 | 对规范化字段集计算（§2.1） |
+| `prompt_sha256` | string | 是 | 64 位小写十六进制 | **派生列**：`sha256(prompt_text 的 NFC 字节)`；用于与网关证据对账，**不参与身份域**（§2.1） |
 | `media_type` | string | 是 | 枚举：`image/png` / `image/jpeg` / `image/webp` / `video/mp4` / `video/webm` / `audio/wav` | 必须能被 `extension_for_media_type` 映射；`application/octet-stream` **不允许**（它会掩盖「不知道产物是什么」） |
 | `size` | string | 是 | `^[1-9][0-9]{2,4}x[1-9][0-9]{2,4}$` | 像素尺寸；不是比例，比例是 `aspect_ratio` |
 | `aspect_ratio` | string | 是 | `^[1-9][0-9]{0,2}:[1-9][0-9]{0,2}$` | 与 `size` 必须一致（§4.2） |
@@ -168,9 +170,16 @@ generation_spec_id = "gs1_" + base32(spec_sha256)[:26]     # 30 字符，≤64
 - 同 id 且完整 SHA-256 相同 ⇒ 视为同一规格，按复用处理（§4.1）；
 - 只用前缀比较 id，永远不用前缀断定内容相同。
 
-**与 ADR §3 的一处偏离（需 Owner 知悉）**：ADR §3 列了 `prompt_sha256` 与 `spec_sha256` 两列；
-本提案把前者**并入**后者（正文属于规范化字段集）。若 Owner 需要独立列以便与网关证据对话，
-P2 可加一个**派生列** `prompt_sha256`（不参与身份域、不参与一致性判定），不改变哈希规则。
+**与 ADR §3 的对齐（2026-11-29 已定）**：ADR §3 列了 `prompt_sha256` 与 `spec_sha256` 两列，本提案**保留两列**，
+职责不同：
+
+| 列 | 算什么 | 用途 | 是否入身份域 |
+|---|---|---|---|
+| `spec_sha256` | domain + 租户 + 规范化字段集（含正文） | 规格身份、去重、篡改检测 | **是**（id 由它派生） |
+| `prompt_sha256` | 仅正文的 NFC 字节 | 与网关证据里的「发出正文摘要」直接对账 | 否（派生，不参与 id） |
+
+两列都在 INSERT 时由同一段代码一次算出，不各自独立维护；读取时 Worker 两列都重算，
+任一不符即 `spec-tampered`。这样既保住「一个身份」，又能把「发出去的正文」与证据记录逐字节对上。
 
 ### 2.2 Worker 的三步校验（缺一即失败）
 
@@ -179,7 +188,7 @@ P2 可加一个**派生列** `prompt_sha256`（不参与身份域、不参与一
 | 1 | `task.prompt_ref` 必须等于 `"genspec:" + task.generation_spec_id`（DB CHECK 已保证，Worker 再验一次以防绕过写入口） | `spec-mismatch` |
 | 2 | 按 id 取规格；不存在 → 失败；`spec.tenant_id` 与任务租户不一致 → 失败（RLS 之外的第二道） | `spec-missing` / `spec-foreign-tenant` |
 | 3 | `spec.schema_version` 必须在 Worker 支持集合内（否则失败，不做结构兼容猜测） | `spec-schema-version-unsupported` |
-| 4 | 从**库内字段**重算 `spec_sha256` 与 id：哈希不符 → 失败（行被改过）；哈希与 id 不符 → 失败（id 被拼错或伪造） | `spec-tampered` |
+| 4 | 从**库内字段**重算 `spec_sha256` 与 id、并重算 `prompt_sha256`：任一不符 → 失败（行被改过）；哈希与 id 不符 → 失败（id 被拼错或伪造） | `spec-tampered` |
 
 四条合起来回答「引用形式不自动证明不可变」：**不可变由 id 派生 + DB 约束 + 读取时重算共同证明**，不靠 `genspec:` 这个前缀。
 顺序是刻意的：先证明「引用对得上」，再证明「东西存在且属于你」，再证明「我认识这个版本」，最后才重算哈希——
@@ -242,9 +251,19 @@ CHECK 让矛盾状态在写入时就不可表达。
 | 内部 | 仓储/Worker 使用 | 不变（columns + resolver） |
 | 审计/只读查询 | 无 | 将来提供独立的「按任务查冻结规格」只读能力（有权限），不复用普通任务响应 |
 
-风险与取舍要写明：移除响应字段是**破坏性契约变更**。如果 P2 时判断外部已有消费方，替代方案是
-保留字段但只对 `inline:` 任务返回值、对 `genspec:` 任务停止返回——两种方案都改变契约形状，都需要 Owner 在 P2 前确认；
-本提案倾向「直接移除」，因为该字段从无外部业务用途，留着就是一个泄露口径。
+风险与取舍要写明：移除响应字段是**破坏性契约变更**。
+
+**已定（2026-11-29 Owner「全部按最好的方案做」）**：**直接移除**，不做「只对 `inline:` 返回」的半保留。
+
+理由（这是长期最优，不是省事）：
+
+1. 半保留会让同一字段在不同任务上语义不同——客户端不得不先判断「这个任务为什么没有 prompt_ref」，排障时又多一条分支；
+2. `prompt_ref` 从来不是外部业务字段（外部要的是「任务到哪一步」「产物在哪」），它只是一个执行关联；
+3. 删除一次比「先保留、以后还要删」少一次破坏性变更，也少一次冻结重签；
+4. 若将来确有外部需要，给的是**独立的只读查询**（按任务查冻结规格，鉴权后返回完整规格），而不是把内部键塞回任务响应。
+
+P2 实施细节：`RequestGenerationRequest.prompt_ref` 改为可选（生产仅 `inline:` 联调允许）；
+`GenerationTask.to_dict()` 去掉该键；契约对象从 `required` 移除并说明；字段签名台账记 `removed`（理由 + 替代查询）。
 
 ---
 
@@ -454,7 +473,8 @@ on UniqueViolation(tenant_id, generation_spec_id):
 | 契约 | `contract_check` 全 PASS；对象/字段签名/占位登记三处一致；`prompt_ref` 移除有台账记录 |
 | 正向 | 创建任务 → 规格与任务同事务可见；`prompt_ref = genspec:<id>`；重发同幂等键 → 返回同一任务 |
 | 负向（结构） | 直接 UPDATE 规格 → 拒；INSERT 同 id 不同内容 → 唯一冲突且报警；`prompt_ref` 与 id 不等 → CHECK 拒；跨租户 SELECT → 空 |
-| 负向（Worker） | 篡改规格行 → `spec-tampered`；规格不存在 → `spec-missing`；租户不符 → `spec-foreign-tenant`；裸 id → `prompt-unresolvable`；未知 `schema_version` → `spec-schema-version-unsupported`；生产环境 `inline:` → 创建拒绝 |
+| 负向（Worker） | 篡改规格行 → `spec-tampered`；仅改 `prompt_text` 而不改 `prompt_sha256` → `spec-tampered`（两列都重算）；规格不存在 → `spec-missing`；租户不符 → `spec-foreign-tenant`；裸 id → `prompt-unresolvable`；未知 `schema_version` → `spec-schema-version-unsupported`；生产环境 `inline:` → 创建拒绝 |
+| 证据对账 | 网关证据记录的正文摘要与规格 `prompt_sha256` 逐字节相符；证据与规格不符时以规格为准并报警（不相符 = 取证失败，不是「重算」） |
 | 规范化/哈希 | `\r\n` 与 `\n` 同哈希；NFC 等价输入同哈希；键序无关；整数 vs 字符串小数不被混同；`""` 与缺省 `negative_prompt` 行为不同；跨租户同内容 ⇒ **不同 id** |
 | 碰撞处理 | 构造前缀相同、完整哈希不同的行 → 拒绝写入并报警，不覆盖 |
 | 派生一致性 | 同输入同版本 → 同 `spec_sha256`；`size` 与 `aspect_ratio` 差 >1% → 拒绝；`ShotSpec` 未 LOCK → 拒绝；`SizePolicy` 版本被引用后再改 → 新版本才可发布 |
@@ -484,9 +504,12 @@ S-6 严格解析与 fail-closed（§2.3、§6.3–6.4）。
 
 结论记录：`docs/audits/2026-11-29-adr-r47-p1-review-decision.md`。
 
-## 11. 仍未决、需要 Owner 在 P2 开工前确认的两件事
+## 11. 两处未决项的最终裁定（2026-11-29，Owner「全部按最好的方案做」）
 
-1. **`prompt_ref` 响应移除 vs 保留只对 `inline:` 返回**：两者都是破坏性/半破坏性变更，提案倾向移除（§3.3）。
-2. **ADR §3 的 `prompt_sha256` 独立列**：本提案把正文并入 `spec_sha256`；若要独立列，P2 加派生列（不入身份域）。
+| 项 | 裁定 | 落点 |
+|---|---|---|
+| `prompt_ref` 的外部暴露 | **直接移除**，不做「只对 `inline:` 返回」的半保留；请求侧仅保留 `inline:` 联调入口 | §3.3 |
+| `prompt_sha256` | **保留独立派生列**（`sha256(正文 NFC 字节)`，不入身份域），用于与网关证据对账；`spec_sha256` 仍是唯一身份 | §1.1、§2.1 |
 
-确认后：进入 P2（契约变更 + 迁移 + 实现 + 冻结重签），再走 P3（真实网关 E5）。
+提案至此**没有未决设计问题**。P2 开工仍需独立授权（契约变更 + 迁移 + 实现 + 冻结重签），
+授权后再走 P3（真实网关 E5）。
