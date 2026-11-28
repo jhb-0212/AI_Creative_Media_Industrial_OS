@@ -11,11 +11,11 @@
 ------------------------------------
     解析提示词 → 调网关 → 落存储 → 登记资产版本
 
-前三段本轮已接线（真网关到位即可用），第四段必须**注入**：资产登记需要系统
-主体、按任务租户切换 RLS 上下文、以及跨域事务语义，三者都还没有裁定
-（P2-01 范围）。没有注入时不宣称成功——见 ``_finish`` 的注释：
-无 ``asset_version_id`` 的 SUCCEEDED 会被降级为 FAILED，这是 P1-02 定下的
-fail-closed 行为，不是本模块的缺陷。
+四段均已接线：登记端口由 ``workers/generation/__main__.py`` 装配为
+``SagaAssetRegistrar``（T0 意图 / T1 确认，各一个短事务并按任务租户切 RLS）。
+T1 之后任务停在 ``AWAITING_ASSET_REGISTRATION``——本模块**不**宣称 SUCCEEDED，
+``asset_version_id`` 只能由资产域 T2 回执经 relay 的 T3 写回。没有登记结果的
+SUCCEEDED 会被降级为 FAILED，这是 P1-02 定下的 fail-closed 行为。
 
 为什么``prompt_ref`` 不能被当作提示词正文
 ------------------------------------------
@@ -77,9 +77,10 @@ PromptResolver = Callable[[str], Awaitable[str]]
 async def resolve_inline_prompt(prompt_ref: str) -> str:
     """只承认 ``inline:<正文>``，其余一律拒绝。
 
-    真实提示词库接入后，应在此之外增加一个「按引用查库」的实现并注入；
-    本函数保留给 E2E 与本地联调（``prompt_ref`` 上限 200 字符，够放一条
-    短提示词，不够放完整生产提示词）。
+    生产提示词的形态已由 ADR-R48 定方向：任务创建时从 ShotRevision + ShotSpec
+    派生一次并冻结为 ``GenerationSpec``，``prompt_ref`` 收敛为 ``genspec:<id>``。
+    该解析器在 P2 落地前，本函数仍是唯一实现，只服务 E2E 与本地联调
+    （``prompt_ref`` 上限 200 字符，够放一条短提示词，不够放完整生产提示词）。
     """
     ref = (prompt_ref or "").strip()
     if ref.startswith(INLINE_PROMPT_PREFIX):
@@ -88,7 +89,7 @@ async def resolve_inline_prompt(prompt_ref: str) -> str:
             return text
     raise PromptUnresolvableError(
         f"prompt_ref={ref!r} 无法解析为提示词正文："
-        f"只支持 {INLINE_PROMPT_PREFIX}<正文> 形态，或由提示词库解析器接管"
+        f"只支持 {INLINE_PROMPT_PREFIX}<正文>；生产引用 genspec:<id> 待 ADR-R48 P2"
     )
 
 

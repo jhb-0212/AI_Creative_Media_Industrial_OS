@@ -95,6 +95,18 @@
 | TC-4 | S3 兼容对象存储负责媒体产物 | 本地 FS + `local://` 内容寻址，无 S3/MinIO/SeaweedFS | 定位器契约已绑定 `local://`；换 S3 须改 `storage_locator` 契约 + 冻结重签 | (a) 保留 Storage Port，S3 作为新 backend 增量接入；(b) 维持本地 FS 至试播后再定 | `[V-BLOCKED][E1+E2]` |
 | TC-5 | 目标目录 `services/shot_planning` 独立域 | Shot 在 `services/project_planning`，归属走 Scene→Episode→Project（ADR-R16~19 已定） | 目录形态与既有 ADR 不一致；方案自身亦声明"不机械搬迁" | (a) 维持归属规则，仅做物理拆分且不改归属链；(b) 维持现状，推迟到生产图域立项时一并裁 | `[V-BLOCKED][E1+E2]` |
 
+### 4.1 裁决状态复核（2026-11-28）
+
+原表记录于 2026-11-23，**早于同日 ADR-R44 的签署**，因此「TC-1 待裁决」这一状态已被后续裁决覆盖。复核结论如下（不改原表，只记状态）：
+
+| 编号 | 当前状态 | 依据 |
+|---|---|---|
+| TC-1 | **已裁决 (b)：仅新流程引入 Temporal，R42 不迁**；本次不做新裁决、不改依赖、不部署 Temporal 服务 | `docs/adr/ADR-R44-technology-and-infrastructure-baseline.md` §4（所有者 2026-11-23 签署，DECIDED）。R44 D3 明确禁止把该结论扩大为「迁移 R42」。Saga 能力取证见 `docs/audits/2026-11-28-durable-execution-boundary-review.md` |
+| TC-2 ~ TC-5 | 仍为 R44 已裁方向（PG18 PoC 前维持 16 / Valkey PoC / S3 经 Storage Port 增量接入 / Shot 独立域），PoC 状态均 NOT RUN | 同上；本日未动任何组件 |
+| PR-06 | 「已裁决（(b)），非缺口」：R42 链不迁；新流程若用 Temporal 须独立 ADR 且不与 R42 共享状态 | 同上 |
+
+A-001 的验收标准（「明确写出 Saga 与 Temporal 边界的已批准 ADR」）已由 ADR-R44 TC-1 裁决 + 本复核满足；本次未改契约与迁移，故不涉及冻结重签。
+
 ---
 
 ## 5. 审计发现（每项按十字段格式；根因非症状复述）
