@@ -67,11 +67,18 @@ GENERATION_DEFAULT_SIZE
 
 ### 1.3 拿到之后怎么验（A1 的最小证据）
 
+0. **先单独钉住网关这一段**：`uv run python scripts/verify_model_gateway.py --evidence runs/gateway.json`
+   （配好 `MODEL_GATEWAY_BASE_URL/API_KEY/DEFAULT_MODEL` 后跑一次真实调用）。它只证明
+   「协议 + 凭据 + 模型 id + 产物取回方式」成立（第一节 1–5 项），**不能**代替 A1；
+   但它能把「对端不通」与「台账不通」分开，避免 A1 失败时只剩一个 FAILED。
 1. 配好上述配置，确认 Worker 启动日志出现 `generation executor wired to ...`；
-2. 提交一个真实生成任务，确认状态 `REQUESTED → RUNNING → SUCCEEDED`
-   且 `asset_version_id` 非空（空则会被 P1-02 的产物契约降级为 FAILED）；
-3. 按 `storage_ref` 读回产物，复核 sha256 与落盘时一致；
-4. 保存完整日志（含时间戳、环境标识、每条断言）。**用假网关跑出来的链路
+2. 提交一个真实生成任务，确认状态推进 `REQUESTED → RUNNING → AWAITING_ASSET_REGISTRATION`
+   ——**注意终态不是 SUCCEEDED**：R42 两段式登记下，T1 只把任务推到 AWAITING，`asset_version_id`
+   必须由 T2 回执经 relay 的 T3 写回后才非空（空则会被 P1-02 的产物契约降级为 FAILED）；
+3. 观察 `AWAITING_ASSET_REGISTRATION → SUCCEEDED` 且 `asset_version_id` 非空，这才算 A1 的
+   「链路走完」；只有步骤 1 的 SUCCEEDED 意味着拒绝把「编排跑完」当成「资产已登记」；
+4. 按 `storage_ref` 读回产物，复核 sha256 与落盘时一致；
+5. 保存完整日志（含时间戳、环境标识、每条断言）。**用假网关跑出来的链路
    只能证明「编排通了」，不能代替这一步。**
 
 ## 二、外部审计签署
@@ -116,8 +123,9 @@ GENERATION_DEFAULT_SIZE
 | 缺口 | 现状 | 影响 |
 |---|---|---|
 | **提示词解析** | `generation_tasks.prompt_ref` 只是 ≤200 字符的引用，仓库内无提示词库解析实现。当前只接受 `inline:<正文>` 形态 | 真实生产提示词放不进 200 字符；接真网关前需先建提示词库 |
-| **资产登记** | 执行器必须注入 `AssetRegistrar`，当前装配的是 `UnwiredAssetRegistrar`（必然抛错） | 即便网关配齐，任务仍以 `asset-registration-unwired` 失败。原因：资产登记需系统主体 + 按任务租户切换 RLS + 跨域事务，三者尚未裁定（P2-01） |
+| **资产登记（已接线，2026-11-28 更正）** | 装配已是 `SagaAssetRegistrar`（T0 意图 + T1 确认，各一个短事务，按任务租户切 RLS）；T2 回执由 `workers/relay/asset_registration.py` 处理并经 T3 写回任务终态。**原先「装配的是 `UnwiredAssetRegistrar`」已过时** | 代码链路完整、有集成测试覆盖（`test_asset_registration_saga_e2e.py` 等，用假网关）；真实网关下的 A1 仍未取证，缺的是外部输入而非接线 |
 | **产物类型与尺寸** | 理论上应由 `production_route_ref` / `constraint_snapshot_id` 决定，两者的解析未建模 | 当前用配置默认值（`GENERATION_DEFAULT_MEDIA_TYPE`），等于把「一律 png」变成隐含假设；对端若支持请求内指定尺寸，也仍需路线解析后才能填，不能由调用方自报 |
+| **网关单段取证** | 新增 `scripts/verify_model_gateway.py`：一条真实调用、自算 SHA-256、产物落盘读回复核、三类失败分退出码、凭据不落证 | 让 A1 失败能定位到「对端」还是「台账」；本身不构成 A1 |
 
 ---
 
