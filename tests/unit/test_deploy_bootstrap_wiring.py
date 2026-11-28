@@ -114,3 +114,26 @@ def test_ci_has_a_clean_cluster_job_that_expects_failure_first() -> None:
     assert "is missing: run scripts/bootstrap_identity.py --roles first" in ci, (
         "干净集群用例没有断言迁移应当失败：只测「bootstrap 后能升级」等于自证"
     )
+
+
+def test_ci_roundtrip_runs_on_a_dedicated_clean_database() -> None:
+    """迁移往返必须在没有测试残留的库上跑。
+
+    2026-11-28 的真实失败：主 job 的 ``pytest tests`` 在共享库上留下一批业务行，
+    其中 1 条 ``generation_tasks`` 停在 ``AWAITING_ASSET_REGISTRATION``；紧随其后的
+    ``alembic downgrade -58`` 在 ``e1f2a3b4c5d6`` 被 §8 守卫拦下（守卫是对的）。
+    于是「downgrade() 能不能执行」这条证据失效，而 CI 只显示 exit 1。
+    把往返放到独立库，才能让红/绿只反映迁移本身。
+    """
+    ci = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    start = ci.find("- name: Migration downgrade roundtrip")
+    assert start != -1, "CI 里没有迁移往返步骤"
+    step = ci[start:]
+    assert "ai_film_roundtrip" in step, (
+        "往返步骤没有独立库：主库的 pytest 残留会让 §8 守卫拦下降级，证据失效"
+    )
+    assert "CREATE DATABASE ai_film_roundtrip" in step
+    assert 'alembic downgrade "-${DEPTH}"' in step, "深度必须来自派生脚本，不能写死"
+    assert step.find("CREATE DATABASE ai_film_roundtrip") < step.find(
+        'alembic downgrade "-${DEPTH}"'
+    ), "先建库再回滚，顺序不能反"

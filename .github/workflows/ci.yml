@@ -137,11 +137,25 @@ jobs:
         # 写死的常量在「加了迁移却忘改」时不报错，只是少撤一格（本仓库两次踩坑：
         # outbox 分区撤销在 -1 时代被漏掉；本轮 3 个新增迁移仍写 -2，最早那个的
         # 降级从未在 CI 执行过）。取不到 merge-base 时脚本非零退出，不猜默认值。
+        #
+        # 为什么另开一个库：上一步的 pytest 跑在主库上，实测会留下 1 条
+        # AWAITING_ASSET_REGISTRATION 的在途任务，而 e1f2a3b4c5d6 的 §8 守卫
+        # **故意**拒绝在途任务上的降级。在主库回滚，红的是「数据状态」，掩盖的却是
+        # 「downgrade() 压根没被执行」——两种失败同为 exit 1，处置完全不同。
+        # 往返要证的是迁移可逆，就给它一个没有测试残留的干净库。
         run: |
           DEPTH="$(uv run python scripts/migration_roundtrip_depth.py)"
           echo "downgrade depth: ${DEPTH}"
+          export PGPASSWORD=postgres
+          psql -h localhost -U postgres -d postgres -c "DROP DATABASE IF EXISTS ai_film_roundtrip"
+          psql -h localhost -U postgres -d postgres -c "CREATE DATABASE ai_film_roundtrip"
+          export POSTGRES_DB=ai_film_roundtrip
+          uv run python scripts/bootstrap_identity.py --roles
+          uv run alembic upgrade head
           uv run alembic downgrade "-${DEPTH}"
           uv run alembic upgrade head
+          psql -h localhost -U postgres -d postgres -c "DROP DATABASE ai_film_roundtrip"
+          unset PGPASSWORD
         env:
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
