@@ -61,6 +61,13 @@ roles 仅存在于右：["svc_asset", false, false, false, false, false, true, f
    本次变更范围：生产要到下一次受控 `bootstrap --roles` 才会收敛；在那之前，
    用生产快照跑本测试会红——这是预期的，且必须红。
 
+   > **2026-11-28 复核更正**（原文保留不改）：上句关于生产 `svc_*` 的事实判断来自
+   > 重定前的**手工快照**，实测不成立。对 15432 真库跑 `verify_role_attributes.py`
+   > 得 20 角色 / 0 问题（`clean: true`），`svc_*` 现为 `NOLOGIN` 且 `INHERIT=true`，
+   > 与声明一致；完整身份面 `--check-baseline` 只有 22 条差异，全部属于
+   > `quarantine` 归档 schema/表（D4-9 退役动作的产物），无其他漂移。
+   > 证据与结论见 `docs/audits/2026-11-28-production-identity-surface-verification.md`。
+
 ## 5. 证据
 
 - `runs/2026-11-28/wire-clean-e2e.log`：干净集群 `upgrade` 先失败（`role "app_role" is missing`）→

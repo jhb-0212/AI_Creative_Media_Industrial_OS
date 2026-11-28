@@ -1,10 +1,10 @@
-# ADR-R46：数据约束型降级（Data-constrained downgrade）（D4 · 附录 A/B/C 已裁决；附录 D 为提案）
+# ADR-R46：数据约束型降级（Data-constrained downgrade）（D4 · 附录 A/B/C/D 已裁决）
 
 ADR-R46
-Status: DECIDED（仅附录 A/B/C，签署记录 VER-0001 / VER-0002）；附录 D「空壳资产受控退役」= PROPOSED（待项目所有者签署）
+Status: DECIDED（附录 A/B/C 签署记录 VER-0001 / VER-0002；附录 D「空壳资产受控退役」VER-0005）
 Decision: D4-9（身份迁移职责边界；strip 推广；f2b3 选 A、否决 B）
 Owner: Project Owner
-Signed: 2026-11-28（项目所有者；独立签署记录见 `docs/adr/ADR-R46-VERSION.txt` VER-0001）
+Signed: 2026-11-28（项目所有者；独立签署记录见 `docs/adr/ADR-R46-VERSION.txt` VER-0001 / VER-0005）
 Scope:
   - Identity lifecycle ownership
   - Migration authorization boundary
@@ -16,7 +16,7 @@ Scope:
 - 日期：2026-11-27（技术审查定稿）；2026-11-28（Owner 签署 D4-9 并改写 A.2/A.3/A.4–A.7）
 - 关联：ADR-R28（迁移谱系）、ADR-R40（统一授权模型）、WP-04（降级可逆性矩阵）、ADR-R45（会签指纹口径）
 - 影响面：`data/migrations/` 全部 65 个 revision 的降级路径、`scripts/reversibility_matrix.py`、CI 中的迁移往返验证
-- 签署范围：**附录 A（A.1–A.7）与 D4-9 裁决**（VER-0001）；**正文 §8 三项已于 2026-11-28 追加裁决**（附录 C，VER-0002），与 D4-9 分开记录，不溯及 VER-0001 的范围声明
+- 签署范围：**附录 A（A.1–A.7）与 D4-9 裁决**（VER-0001）；**正文 §8 三项已于 2026-11-28 追加裁决**（附录 C，VER-0002），与 D4-9 分开记录，不溯及 VER-0001 的范围声明；**附录 D（空壳资产受控退役）**（VER-0005，2026-11-28）
 
 
 ## 1. 问题
@@ -407,15 +407,16 @@ Alembic migration          Identity Lifecycle
 
 ---
 
-## 附录 D：「空壳资产」受控退役（R1，2026-11-28，VER-0003 追加）
+## 附录 D：「空壳资产」受控退役（R1，2026-11-28，VER-0003 追加；VER-0005 转 DECIDED）
 
-状态：**PROPOSED（提案，等待项目所有者签署）**。
+状态：**DECIDED（2026-11-28，签署记录 `docs/adr/ADR-R46-VERSION.txt` VER-0005）**。
 
-本附录由实现方起草，**不自证生效**。条款从「提案」变成「裁决」的唯一路径，是项目
-所有者在 `docs/adr/ADR-R46-VERSION.txt` 追加一条含 `signed_by` / `scope` /
-`decision_ref` 的记录；本附录此前写作 `DECIDED` 属于自证（正文替签署方下结论），
-已按 2026-11-28 代码审查结论改正。签署之前，R1 只能作为「候选处置路径」引用，
-不构成对任何实例的执行授权。
+本附录最初由实现方起草并以 `PROPOSED` 登记（VER-0003），按 2026-11-28 代码审查结论
+收回「自证生效」的写法：条款从「提案」变成「裁决」的唯一路径，是项目所有者追加一条含
+`signed_by` / `scope` / `decision_ref` 的 VERSION 记录，正文不得替签署方下结论。
+VER-0005 已按项目所有者 2026-11-28 的指令完成该记录（来源与转录方式见该条 `signed_by`
+与 `decision_ref`），故本附录转为 `DECIDED`；`PROPOSED` 期间的「只能作为候选处置路径」
+限制自 VER-0005 起解除，但 D.1 的四项触发条件、D.3 的五条禁止**不因裁决而放宽**。
 
 本附录固化 `d0e1f2a3b4c5` 在存量无法转换时的**第二种**处置路径，与附录 A/B/C 并列，不溯及既存指纹。
 

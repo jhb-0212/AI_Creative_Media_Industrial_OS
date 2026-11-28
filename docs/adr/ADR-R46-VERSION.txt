@@ -118,3 +118,25 @@ CORRECTION（VER-0003 的状态与指纹）
   note          : 签署动作只能由项目所有者完成：追加含 signed_by / scope / decision_ref 的
                   条目，并把附录 D 的状态行改为 DECIDED。实现方不得代签，也不得再以
                   「正文写 DECIDED」代替台账条目。
+
+[VER-0005] 2026-11-28 v1.4 附录 D 由 PROPOSED 转 DECIDED（项目所有者裁决转录）
+  version       : v1.4（自本条起现行有效文本为 v1.4；v1.3 及更早为各自时点文本，不得混用）
+  path          : docs/adr/ADR-R46-data-constrained-downgrade.md
+  status        : DECIDED（附录 D）；附录 A/B/C 仍为 VER-0001 / VER-0002 记载的 DECIDED
+  date          : 2026-11-28
+  lines         : 486
+  bytes         : 36217
+  sha256_disk   : 3a1c31959601c4a1dadd299787d39148bb18ed1ff848399ca38055e602825665
+  git_blob_sha1 : 4260cec4deedfbcaecdac90081e8835b096c5ac4
+  git_tracked   : yes（本条合并后随 main 入库；正文为 LF）
+  fingerprint_scope : 仅 ADR 正文；不含本 VERSION 文件
+  signed_by     : 项目所有者（jhb-0212）——授权来源为 2026-11-28 会话指令「全部按最优的做」；
+                  本条由实现方按该指令转录（不是手写签名，也不声称 Owner 手工编辑过正文）
+  decision_ref  : 2026-11-28 Owner 会话指令「全部按最优的做」（针对「附录 D 仍 PROPOSED」一项）；
+                  前置审查：reports/代码与框架审查-2026-11-28.md（阻断项① ADR 自证 DECIDED）
+  scope         : 附录 D 状态行与说明段；正文头部 Status / Signed / 签署范围三行；A/B/C 文本未改
+  evidence      : runs/2026-11-28/remediate-lab3.log（归档等值与删除的端到端记录）、
+                  runs/2026-11-28/remediate-postmigration-guard.log（迁移后阶段守卫拒绝）、
+                  runs/2026-11-28/adr-v14-fp.txt（本次指纹采集原始输出）
+  note          : 若 Owner 需要手写签署，可另追加一条个人签名记录；本条不放宽 D.1 四项触发条件
+                  与 D.3 五条禁止项。
