@@ -37,6 +37,7 @@ N-06 的表面现象是「``project_planning_role`` 持有契约里不存在的 
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 # 业务域键 == schema 名（DATA-1：一域一角色一 schema）。顺序即 db_roles 的
@@ -252,8 +253,7 @@ DOMAIN_GRANTS: dict[str, tuple[TableGrant, ...]] = {
             "auth",
             "revoked_tokens",
             "SELECT",
-            "SELECT：每个请求的吊销检查（fail-closed）。写入（吊销）由签发方负责，"
-            "业务域角色只读。",
+            "SELECT：每个请求的吊销检查（fail-closed）。写入（吊销）由签发方负责，业务域角色只读。",
             source="infra",
         ),
         _grant(
@@ -474,8 +474,78 @@ DOMAIN_GRANTS[QC_GOVERNANCE] = (
         "无 DELETE：队列记录是「这份产物检过没有」的证据，不能物理删除。",
     ),
     _projects_readonly("质检治理"),
+    # 调度投影（``qc_maintenance.task_projection``，迁移 ``a8b9c0d1e2f3``）。
+    # 它由质检域在同事务里写，因此授权挂在 ``qc_governance_role`` 上；但它
+    # **不**计入 ``business_tables``（那是「本域自有 schema 的表」），所以这里
+    # 用显式 qualified 名声明。写入路径必须写清，否则「谁能写投影」重新变成
+    # 没人回答的问题。
+    _grant(
+        "qc_maintenance",
+        "task_projection",
+        "SELECT INSERT UPDATE DELETE",
+        "SELECT：调度候选读取（queued/running 两类查询）与对账比对；"
+        "INSERT：任务入队时落首行投影；UPDATE：领取/续租/租约回收/进度变化时"
+        "同事务覆盖（带 entity_version 单调条件，旧快照不得覆盖新快照）；"
+        "DELETE：任务进入终态（PASSED/REJECTED）时删除该行——投影只表达"
+        "「活动任务」，留一行终态会让调度看到永不运行的候选。"
+        "DELETE 在此只针对**派生数据**，不是业务事实：错删可由 qc_tasks 重建。",
+    ),
     *_platform_grants(label="质检治理"),
 )
+
+
+# --------------------------------------------------------------------------- #
+# 平台运维角色（不是业务域：不拥有任何 schema，只操作事件总线的投递状态）
+# --------------------------------------------------------------------------- #
+# 为什么这里必须有第二张矩阵，而不是把运维角色塞进 DOMAINS
+# ------------------------------------------------------------
+# `DOMAINS` 的语义是「一域一角色一自有 schema」，覆盖判据、`business_tables`、
+# 组织 RLS 应检集合全都建立在「域 == schema」上。运维角色没有自己的 schema，
+# 塞进去会让「本域 schema 的每张 ORM 表都必须在矩阵里」这条判据对它求值成
+# 空集——看起来通过，实际是把判据变成永真式。
+#
+# 但也不能不声明：`data.role_grants_least_privilege` 禁止**此后**的迁移手写
+# GRANT（授权只能经矩阵收敛），没有声明载体时，新角色与新表的授权要么写不出
+# 来（只能手写 GRANT 然后被闸门拦下），要么被迫给某个业务域角色扩权——后者是
+# 权限倒退，比缺一个角色严重得多。D6-9 需要「读事件 + 清死信标记 + 写运维审计表」
+# 三者同时成立，而 outbox_relay_role 刻意没有 INSERT（否则可伪造任意业务事件），
+# 业务域角色刻意没有 outbox 的 UPDATE。所以这张表是权限边界的直接产物。
+OUTBOX_OPS = "outbox_ops"
+INFRA_ROLES: tuple[str, ...] = (OUTBOX_OPS,)
+
+INFRA_ROLE_GRANTS: dict[str, tuple[TableGrant, ...]] = {
+    OUTBOX_OPS: (
+        _grant(
+            "outbox",
+            "outbox_events",
+            "SELECT",
+            "SELECT：按 event_id 定位死信事件并 FOR UPDATE 读取失败事实"
+            "（attempts / dead_lettered_at）。RLS 仍按租户生效，跨租户查不到即 404。",
+            source="infra",
+        ),
+        _grant(
+            "outbox",
+            "outbox_events",
+            "UPDATE",
+            "UPDATE：重放只清死信标记三列（attempts 归零、next_attempt_at=now()、"
+            "dead_lettered_at=NULL），交回正常 claim。刻意不给 published_at："
+            "投递时间只能由真正投递成功的 relay 写，运维动作不得伪造「已投递」。"
+            "事件内容（payload / event_type / tenant_id）任何角色都不得改写。",
+            source="infra",
+            columns=("attempts", "dead_lettered_at", "next_attempt_at"),
+        ),
+        _grant(
+            "outbox",
+            "dead_letter_replays",
+            "SELECT INSERT",
+            "INSERT：每次重放尝试落一行 append-only 审计（操作者/理由/重放前失败次数/"
+            "重放前死信时刻/结果/失败原因）；SELECT：排障回读。"
+            "无 UPDATE/DELETE：审计行一旦写入即定稿，结果以新行表达，"
+            "改写历史等于抹掉「当时谁按什么理由放行的」。",
+            source="migration",
+        ),
+    ),
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -487,11 +557,7 @@ def declared_privileges(domain: str) -> dict[tuple[str, str], frozenset[str]]:
     分开取用不是细枝末节：整表授权与列级授权在数据库里是两份 ACL
     （``relacl`` vs ``attacl``），混在一起比对会让「列级只读」永远对不上。
     """
-    return {
-        (g.schema, g.table): g.privileges
-        for g in DOMAIN_GRANTS[domain]
-        if g.columns is None
-    }
+    return {(g.schema, g.table): g.privileges for g in DOMAIN_GRANTS[domain] if g.columns is None}
 
 
 def declared_column_privileges(
@@ -528,16 +594,21 @@ def referenced_schemas(domain: str) -> tuple[str, ...]:
     return tuple(sorted({grant.schema for grant in DOMAIN_GRANTS[domain]}))
 
 
-def schema_usage_statements(role: str, domain: str) -> list[str]:
+def schema_usage_statements(
+    role: str, domain: str, *, schemas: Sequence[str] | None = None
+) -> list[str]:
     """该域角色需要的 ``GRANT USAGE ON SCHEMA`` 全集（由 :func:`referenced_schemas` 派生）。
 
     单独成函数供两处调用：``converge_statements``（迁移与断言）与补 USAGE 的
     修复迁移。两处共用同一份派生，避免「迁移补了 A、断言要求 B」这种第二次分裂。
+
+    ``schemas`` 是**历史迁移的冻结范围**。迁移是时间胶囊：它执行时的库还没有
+    后来才出现的 schema（如 ``qc_maintenance``），按今天的派生结果去 GRANT 会在
+    clean install 上直接失败（``schema does not exist``），而已升级的库又不会
+    重跑那条迁移。不传表示按当前矩阵派生（断言 / 初始化）。
     """
-    return [
-        f"GRANT USAGE ON SCHEMA {schema} TO {role}"
-        for schema in referenced_schemas(domain)
-    ]
+    selected = referenced_schemas(domain) if schemas is None else tuple(schemas)
+    return [f"GRANT USAGE ON SCHEMA {schema} TO {role}" for schema in selected]
 
 
 def business_tables(domain: str) -> frozenset[tuple[str, str]]:
@@ -546,17 +617,64 @@ def business_tables(domain: str) -> frozenset[tuple[str, str]]:
     跨域列级只读（``source="cross_domain"``）不在此列：它属于**他域**的表，
     计入「本域表覆盖」会让「新增表必须声明」这条判据把邻居的表也算自家人。
     """
-    return frozenset(
-        (g.schema, g.table)
-        for g in DOMAIN_GRANTS[domain]
-        if g.schema == domain
-    )
+    return frozenset((g.schema, g.table) for g in DOMAIN_GRANTS[domain] if g.schema == domain)
 
 
 def _privileges_sql(privileges: frozenset[str]) -> str:
     """按固定顺序拼权限列表（``SELECT, INSERT, UPDATE``），保证语句可比对。"""
     order = {p: i for i, p in enumerate(_PRIVILEGE_ORDER)}
     return ", ".join(sorted(privileges, key=lambda p: order.get(p, len(order))))
+
+
+def _grants_converge(
+    role: str,
+    grants: tuple[TableGrant, ...],
+    *,
+    usage_schemas: tuple[str, ...],
+    tables: frozenset[str] | None,
+    default_privilege_schemas: tuple[str, ...],
+) -> list[str]:
+    """把一组声明收敛成 SQL 语句（业务域与运维角色共用同一实现）。
+
+    抽出来的唯一理由：两类角色的收敛规则必须**逐字相同**——REVOKE ALL 再按矩阵
+    GRANT、默认权限一并撤销、语句顺序稳定。分成两份实现后，「运维角色忘了撤默认
+    权限」这种缺口只能靠人去比对两段代码，而它恰好是最难在运行库上发现的一类。
+
+    ``usage_schemas`` 由调用方给出而不是在这里从 ``grants`` 反推：域角色的
+    USAGE 口径是 :func:`referenced_schemas`（已被 ACL 对账判据引用），运维角色
+    没有域，口径是它被授过表权限的 schema 全集。两套口径各自唯一，不在本函数里
+    合成第三套。
+    """
+    # schema USAGE 是「能访问这些 schema」的前置条件，和表级授权同属授权面：
+    # 只授表不授 USAGE，第一次读写就是 permission denied for schema。
+    statements: list[str] = [
+        f"GRANT USAGE ON SCHEMA {schema} TO {role}" for schema in usage_schemas
+    ]
+    statements += (
+        [
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} REVOKE ALL ON TABLES FROM {role}"
+            for schema in default_privilege_schemas
+        ]
+        + [
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} REVOKE ALL ON SEQUENCES FROM {role}"
+            for schema in default_privilege_schemas
+        ]
+        + [
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} REVOKE ALL ON TABLES FROM PUBLIC"
+            for schema in default_privilege_schemas
+        ]
+    )
+    selected = [grant for grant in grants if tables is None or grant.table in tables]
+    # 撤销按**表**去重，且全部先于授予。同一张表可能既有整表权限又有列级权限
+    # （运维角色的 outbox_events = SELECT 整表 + UPDATE 三列）；若按「每条声明
+    # revoke→grant」直译，第二条声明的 ``REVOKE ALL`` 会把第一条刚授的 SELECT
+    # 一起抹掉，最终 ACL 与矩阵不符却没人报错——语句逐条看都对。
+    for qualified in dict.fromkeys(grant.qualified() for grant in selected):
+        statements.append(f"REVOKE ALL ON {qualified} FROM PUBLIC")
+        statements.append(f"REVOKE ALL ON {qualified} FROM {role}")
+    for grant in selected:
+        statements.append(grant.grant_statement(role))
+    return statements
 
 
 def converge_statements(
@@ -584,41 +702,66 @@ def converge_statements(
     不撤销就等于把同一个根因留给「下一次建表」（``8f3b2c1d4e5a`` 曾给域角色
     授了 ``SELECT, INSERT, UPDATE, DELETE`` 的默认权限，而 ``b7c8d9e0f1a2``
     的「默认零授权」只覆盖了 app_role——旧机制在新角色上复发）。
+
+    ``tables`` 不仅决定对哪些表 REVOKE/GRANT，也决定为哪些 schema 补 USAGE：
+    同一个快照必须同时约束两者，否则历史迁移仍会按**今天的**矩阵对一个尚未
+    创建的 schema 发 ``GRANT USAGE``——clean install 在第一句就失败，而已升级
+    的库不会重跑该迁移，于是这个缺口只在「从零建库」时才暴露。
     """
-    # schema USAGE 是「能访问这些 schema」的前置条件，和表级授权同属授权面：
-    # 只授表不授 USAGE，第一次读写就是 permission denied for schema。
-    # 集合由矩阵派生（``referenced_schemas``）而不是写死本域 + project_planning：
-    # 硬编码版本只覆盖了「自己域 + 跨域只读」，于是 post-matrix 新建的域从来没拿到
-    # outbox/audit/auth 的 USAGE——表权限在、ACL 对账绿、写事件即 42501。
-    statements: list[str] = list(schema_usage_statements(role, domain))
-    statements += [
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} REVOKE ALL ON TABLES FROM {role}"
-        for schema in DOMAINS
-    ] + [
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
-        f"REVOKE ALL ON SEQUENCES FROM {role}"
-        for schema in DOMAINS
-    ] + [
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} REVOKE ALL ON TABLES FROM PUBLIC"
-        for schema in DOMAINS
-    ]
-    for grant in DOMAIN_GRANTS[domain]:
-        if tables is not None and grant.table not in tables:
-            continue
-        qualified = grant.qualified()
-        statements.append(f"REVOKE ALL ON {qualified} FROM PUBLIC")
-        statements.append(f"REVOKE ALL ON {qualified} FROM {role}")
-        statements.append(grant.grant_statement(role))
-    return statements
+    selected_grants = tuple(
+        grant for grant in DOMAIN_GRANTS[domain] if tables is None or grant.table in tables
+    )
+    usage = (
+        referenced_schemas(domain)
+        if tables is None
+        else tuple(sorted({grant.schema for grant in selected_grants}))
+    )
+    return _grants_converge(
+        role,
+        DOMAIN_GRANTS[domain],
+        usage_schemas=usage,
+        tables=tables,
+        default_privilege_schemas=DOMAINS,
+    )
 
 
-def legacy_statements(role: str, domain: str) -> list[str]:
+def infra_converge_statements(
+    role: str, infra: str, *, tables: frozenset[str] | None = None
+) -> list[str]:
+    """平台运维角色的授权收敛语句（与 :func:`converge_statements` 同规则）。
+
+    与域角色的唯一差别是「默认权限撤销的作用域」：域角色覆盖五个业务 schema，
+    运维角色只覆盖它真正被授过表权限的 schema（``outbox``）。多撤不会更安全，
+    少撤会让新分区/新表天生带权限——所以按声明派生，而不是抄一份 DOMAINS。
+    """
+    grants = INFRA_ROLE_GRANTS[infra]
+    schemas = tuple(sorted({grant.schema for grant in grants}))
+    return _grants_converge(
+        role,
+        grants,
+        usage_schemas=schemas,
+        tables=tables,
+        default_privilege_schemas=schemas,
+    )
+
+
+def legacy_statements(
+    role: str, domain: str, *, tables: frozenset[str] | set[str] | None = None
+) -> list[str]:
     """``converge_statements`` 的逆：回到「全量 DML + 全量默认权限」的旧状态。
 
     仅用于 ``downgrade()``。旧状态不等同于「矩阵的补集」：它是
     ``8f3b2c1d4e5a`` 的 ``GRANT ... ON ALL TABLES`` 加 ``_revoke_append_only_overreach``
     之后的具体结果——按表写出来，而不是用一个 ``ALL TABLES`` 回滚（那会把
     append-only 的收紧一并抹掉，正是本迁移要根治的形态）。
+
+    ``tables`` 是**迁移自己的冻结范围**：历史迁移只能回滚它真正改过的表。
+    不传（``None``）会按当前矩阵全量生成——这正是 `head → 7a8b9c0d1e2f`
+    在 ``c1a2b3d4e5f6`` 处失败的原因：该迁移 upgrade 时只授了 10 张表（
+    ``_GRANTED_AT_THIS_REVISION``），降级却按**今天的矩阵**去 ``REVOKE``
+    ``project_planning.scenes``（那是更晚的 ``a13b0c1d2e3f`` 才建的表，
+    在该降级点已被删掉）→ ``relation "project_planning.scenes" does not exist``。
+    冻结范围一传，历史迁移就只回滚自己那次 upgrade 动过的表。
     """
     append_only_tables = {
         (ASSET_SERVICE, "qc_reports"),
@@ -626,6 +769,10 @@ def legacy_statements(role: str, domain: str) -> list[str]:
     }
     statements: list[str] = []
     for grant in DOMAIN_GRANTS[domain]:
+        if tables is not None and grant.table not in tables:
+            # 不在本迁移冻结范围：可能尚未创建（更晚的迁移建的），也可能属于
+            # 别的迁移的授权面。回滚它不是"恢复旧状态"，而是替别人删东西。
+            continue
         if grant.schema not in DOMAINS:
             # 共享表（audit / outbox / auth / public）**不归本迁移管**（评审 F3）。
             # 本迁移从未改过它们的历史口径，所以「升级前是什么」就是矩阵此刻声明
@@ -651,15 +798,17 @@ def legacy_statements(role: str, domain: str) -> list[str]:
         qualified = grant.qualified()
         statements.append(f"REVOKE ALL ON {qualified} FROM {role}")
         statements.append(grant.grant_statement(role, frozenset(privileges)))
-    statements.extend(
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
+    # WP-04/#34：默认权限只恢复**本域自己的 schema**。旧实现在此对 ``DOMAINS``
+    # 全量循环，等于给每个域角色在别人的 schema 里也建一份「新表自动全量 DML」
+    # ——父态快照证明那些条目从未存在（asset_service 只有 asset_service_role
+    # 一条、project_planning 只有 project_planning_role 一条）。降级态据此多出
+    # 5 个角色 × 2 类对象 × 2 个 schema 的默认授权，属越权恢复。
+    statements.append(
+        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {domain} "
         f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {role}"
-        for schema in DOMAINS
     )
-    statements.extend(
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
-        f"GRANT USAGE, SELECT ON SEQUENCES TO {role}"
-        for schema in DOMAINS
+    statements.append(
+        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {domain} GRANT USAGE, SELECT ON SEQUENCES TO {role}"
     )
     return statements
 
@@ -761,29 +910,397 @@ def validate_matrix() -> list[str]:
     for key, variants in shared.items():
         if len(variants) > 1:
             problems.append(
-                f"{key[0]}.{key[1]} 在两个域的权限口径不一致："
-                f"{[sorted(v) for v in variants]}"
+                f"{key[0]}.{key[1]} 在两个域的权限口径不一致：{[sorted(v) for v in variants]}"
             )
 
     return problems
+
+
+def validate_infra_matrix() -> list[str]:
+    """平台运维角色矩阵的可判定性检查（与 :func:`validate_matrix` 同口径）。
+
+    独立成函数而不是复用 ``validate_matrix``：后者绑定 ``DOMAIN_GRANTS`` 与
+    ``DOMAINS``（域 == schema），对没有自有 schema 的角色求值会变成永真式。
+    但检查项必须一致——空 write_path、DELETE/TRUNCATE、重复声明、列清单乱序，
+    在两类角色上是同一批失效模式，不能因为「这是运维表」就放宽。
+
+    这里额外禁止 ``DELETE``：运维审计表与投递状态列都不允许物理删除，
+    一旦有人给它加上 DELETE，审计就从「append-only 事实」退化成「可被清理的日志」。
+    """
+    problems: list[str] = []
+    if set(INFRA_ROLE_GRANTS) != set(INFRA_ROLES):
+        problems.append(f"运维角色矩阵 {sorted(INFRA_ROLE_GRANTS)} 与 INFRA_ROLES 不一致")
+    for infra in INFRA_ROLES:
+        seen: set[tuple[str, str, tuple[str, ...] | None]] = set()
+        for grant in INFRA_ROLE_GRANTS[infra]:
+            key = (grant.schema, grant.table, grant.columns)
+            if key in seen:
+                problems.append(f"{infra}: {grant.qualified()} 重复声明")
+            seen.add(key)
+            unknown = grant.privileges - ALL_TABLE_PRIVILEGES
+            if unknown:
+                problems.append(f"{infra}: {grant.qualified()} 含未知权限 {sorted(unknown)}")
+            unusable = grant.privileges - _USABLE_PRIVILEGES
+            if unusable:
+                problems.append(
+                    f"{infra}: {grant.qualified()} 声明了应用用不到的权限 {sorted(unusable)}"
+                )
+            if "DELETE" in grant.privileges:
+                problems.append(
+                    f"{infra}: {grant.qualified()} 声明了 DELETE"
+                    "（运维角色不得物理删除投递事实或审计行）"
+                )
+            if not grant.privileges:
+                problems.append(f"{infra}: {grant.qualified()} 没有任何权限")
+            if grant.source not in {"orm", "migration", "infra", "cross_domain"}:
+                problems.append(f"{infra}: {grant.qualified()} 的 source={grant.source!r} 非法")
+            if not grant.write_path.strip():
+                problems.append(
+                    f"{infra}: {grant.qualified()} 未给出真实写入路径"
+                    "（说不出谁在写，就不该有写权限）"
+                )
+            if grant.columns is not None:
+                if not grant.columns:
+                    problems.append(f"{infra}: {grant.qualified()} 列级授权但没有列清单")
+                if list(grant.columns) != sorted(set(grant.columns)):
+                    problems.append(f"{infra}: {grant.qualified()} 的列清单未按字典序去重")
+                if len(grant.privileges) > 1:
+                    problems.append(
+                        f"{infra}: {grant.qualified()} 列级授权声明了多项权限 "
+                        f"{sorted(grant.privileges)}"
+                    )
+    return problems
+
+
+MAINTENANCE_SCHEMA = "qc_maintenance"
+MAINTENANCE_GUARD = f"{MAINTENANCE_SCHEMA}.assert_session_identity()"
+MAINTENANCE_SESSION = f"{MAINTENANCE_SCHEMA}.assert_session_member()"
+MAINTENANCE_ENUMERATE = f"{MAINTENANCE_SCHEMA}.enumerate_due_tasks()"
+MAINTENANCE_DETECT = f"{MAINTENANCE_SCHEMA}.detect_projection_anomalies()"
+MAINTENANCE_RECONCILE = f"{MAINTENANCE_SCHEMA}.reconcile_tenant_tasks(text)"
+MAINTENANCE_DENIAL = f"{MAINTENANCE_SCHEMA}.record_maintenance_denial(text, text, text, text, text)"
+MAINTENANCE_REPAIR = f"{MAINTENANCE_SCHEMA}.repair_tenant_task(text, text, text)"
+MAINTENANCE_HELPER = f"{MAINTENANCE_SCHEMA}._projection_anomalies(uuid)"
+# 工作单状态机的触发器函数：它不能直接调用，但 ACL 上默认带 PUBLIC EXECUTE，
+# 调度身份会经由 PUBLIC 拿到可执行判定——收 PUBLIC 时必须点名它。
+MAINTENANCE_TRANSITION_TRIGGER = f"{MAINTENANCE_SCHEMA}.enforce_work_order_transition()"
+DISCOVERY_GUARD = f"{MAINTENANCE_SCHEMA}.assert_discovery_identity()"
+MAINTENANCE_MAINTAIN_SINCE = 170000
+SECDEF_SIGNATURE = "audit.assert_signature_event_exists()"
+
+# 白名单：维护身份**只能**经这些函数触达数据库，且函数数量本身就是边界——
+# 多一个函数就多一个可被调用的能力，所以这里用元组而不是「按前缀匹配」。
+MAINTENANCE_COMMAND_FUNCTIONS: tuple[str, ...] = (
+    MAINTENANCE_SESSION,
+    MAINTENANCE_ENUMERATE,
+    MAINTENANCE_DETECT,
+    MAINTENANCE_RECONCILE,
+    MAINTENANCE_DENIAL,
+)
+
+
+def maintenance_membership_statements() -> list[str]:
+    """维护身份的成员关系（同样只有矩阵能声明）。
+
+    第一句做成**无条件**语句而不是 ``DO $$ IF EXISTS … $$`` 包裹：PG 里重复
+    ``GRANT <组> TO <成员>`` 是幂等的，对非成员 ``REVOKE`` 也只发一条 warning，
+    所以「重复执行」不需要条件分支；而条件分支会把语句变成一段 plpgsql，
+    闸门就无法按「逐条授权语句」比对，只能退化成模糊匹配。
+
+    第二句是例外：``worker`` 角色（``qc_worker``）已于 ``f2b3c4d5e6a7`` 退役，
+    bootstrap 不再创建它；而 ``REVOKE <组> FROM <不存在的角色>`` 在 PG 里是
+    **报错**（不是 warning），fresh install 会把 e6a7 直接堵死。因此这一句必须
+    带 SQL 侧存在性守卫：角色仍在（存量集群）就照旧收回，已不在则退化为 no-op。
+    守卫留在 SQL 而不是 Python 分支——盘点/闸门按「逐条语句」回放迁移，Python
+    分支会让 ``as_sql`` 展开与真实执行分叉，矩阵就再也比对不上。
+    """
+    from packages.shared.db_roles import maintenance_role
+
+    operator = maintenance_role("operator")
+    worker = maintenance_role("worker")
+    worker_literal = worker.replace("'", "''")
+    return [
+        f"GRANT {operator} TO {maintenance_role('login')}",
+        f"""DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{worker_literal}') THEN
+                REVOKE {operator} FROM {worker};
+            END IF;
+        END $$""",
+    ]
+
+
+def maintenance_identity_statements() -> list[str]:
+    """维护身份（``operator`` / ``login``）到达守卫所需的授权，与 SECDEF 函数收紧。
+
+    为什么不在迁移里直接写这几句：授权面只有一个执行器（矩阵），迁移只是它的
+    执行者。让维护授权走这里，判据才能把「矩阵声明」与「迁移实际执行」逐条
+    比对；写在迁移里就变成第二份事实源，且下一次有人往迁移补一句 GRANT 时
+    闸门再也拦不住。
+
+    只给 ``operator`` / ``login``：常规质检 Worker 在维护 schema 里没有任何可达
+    路径——这条边界靠授权面表达，而不是靠调用方自觉。Worker 的运行身份是
+    ``qc_governance_role``（域角色），专用壳角色 ``qc_worker`` 已于 2026-11-27
+    退役（迁移 ``f2b3c4d5e6a7``）；本函数的 ``REVOKE … FROM worker`` 仍保留，
+    因为它是历史迁移 ``e6a7b8c9d0e1`` 的执行内容，迁移是时间胶囊。
+    """
+    from packages.shared.db_roles import maintenance_role
+
+    operator = maintenance_role("operator")
+    login = maintenance_role("login")
+    return [
+        f"GRANT USAGE ON SCHEMA {MAINTENANCE_SCHEMA} TO {operator}",
+        f"GRANT USAGE ON SCHEMA {MAINTENANCE_SCHEMA} TO {login}",
+        f"REVOKE ALL ON FUNCTION {MAINTENANCE_GUARD} FROM PUBLIC",
+        f"GRANT EXECUTE ON FUNCTION {MAINTENANCE_GUARD} TO {operator}",
+        f"GRANT EXECUTE ON FUNCTION {MAINTENANCE_GUARD} TO {login}",
+        f"REVOKE ALL ON FUNCTION {SECDEF_SIGNATURE} FROM PUBLIC",
+    ]
+
+
+def maintenance_command_statements() -> list[str]:
+    """三个只读维护命令 + 会话成员判定的授权面（WP-A 第一阶段）。
+
+    只读阶段**刻意不授予任何写权限**：
+    * 对 ``qc_governance.qc_tasks`` 只有 ``SELECT``——检测/对账只读源表；
+    * 不给 ``UPDATE``/``DELETE``/``TRUNCATE``，也不给 PG17 的 ``MAINTAIN``。
+      修复命令（``repair_tenant_task``）落地时才按 PG 版本补锁权限，届时本函数
+      会多一段「版本适配」的语句，而不是在今天就提前扩大权限面。
+
+    由于三条命令都是 SECURITY DEFINER（owner 执行），owner 必须能真正读到
+    ``qc_tasks`` 与投影：它需要 schema USAGE + 表 SELECT，而 FORCE RLS 让它仍
+    被策略约束——所以迁移里另加「仅对维护 owner 开放」的读取策略，而不是
+    给它 BYPASSRLS。
+    """
+    from packages.shared.db_roles import maintenance_role
+
+    owner = maintenance_role("owner")
+    operator = maintenance_role("operator")
+    login = maintenance_role("login")
+    statements = [
+        f"GRANT USAGE ON SCHEMA {QC_GOVERNANCE} TO {owner}",
+        f"GRANT SELECT ON TABLE {QC_GOVERNANCE}.qc_tasks TO {owner}",
+        # 内部取数函数是对外命令的实现细节，不构成能力：REVOKE 而不 GRANT。
+        f"REVOKE ALL ON FUNCTION {MAINTENANCE_HELPER} FROM PUBLIC",
+    ]
+    for function in MAINTENANCE_COMMAND_FUNCTIONS:
+        statements.append(f"REVOKE ALL ON FUNCTION {function} FROM PUBLIC")
+        statements.append(f"GRANT EXECUTE ON FUNCTION {function} TO {operator}")
+        statements.append(f"GRANT EXECUTE ON FUNCTION {function} TO {login}")
+    return statements
+
+
+def maintenance_repair_statements(
+    server_version_num: int = 160000,
+) -> list[str]:
+    """修复命令的授权面：**按 PostgreSQL 版本取锁权限**（WP-A.2）。
+
+    修复事务要在读 ``qc_tasks`` 之前取 ``SHARE ROW EXCLUSIVE``（它能挡住普通
+    INSERT/UPDATE/DELETE，而 ``ACCESS SHARE`` 挡不住）。PG 的锁权限规则意味着
+    这句话在 PG16 上没有「只给锁、不给写」的选项：
+
+    * **PG17+**：``MAINTAIN`` 允许 ``LOCK TABLE`` 且不授予 DML。采用。
+    * **PG16**：只能用 ``UPDATE``。这是**兼容性例外**——``UPDATE`` 真的给了
+      owner 改写源表的能力，``NOLOGIN`` 不能把它变成「锁专用权限」。这条风险
+      必须如实记录，不能宣称数据库已验证「UPDATE 只用于加锁」。
+
+    版本分支用参数而不是读环境：迁移从活库取 ``server_version_num`` 传入，闸门
+    回放时取不到就用最低支持版本（160000），两侧因此是同一份声明、同一份输出。
+    """
+    from packages.shared.db_roles import maintenance_role
+
+    owner = maintenance_role("owner")
+    operator = maintenance_role("operator")
+    login = maintenance_role("login")
+    statements: list[str] = []
+    if server_version_num >= MAINTENANCE_MAINTAIN_SINCE:
+        statements.append(f"GRANT MAINTAIN ON TABLE {QC_GOVERNANCE}.qc_tasks TO {owner}")
+        # 幂等收紧：先前的 PG16 部署升到 PG17 后，残留的 UPDATE 必须收回，
+        # 否则「升级即降权」只是纸面结论。
+        statements.append(f"REVOKE UPDATE ON TABLE {QC_GOVERNANCE}.qc_tasks FROM {owner}")
+    else:
+        statements.append(f"GRANT UPDATE ON TABLE {QC_GOVERNANCE}.qc_tasks TO {owner}")
+    statements.append(f"REVOKE ALL ON FUNCTION {MAINTENANCE_REPAIR} FROM PUBLIC")
+    statements.append(f"GRANT EXECUTE ON FUNCTION {MAINTENANCE_REPAIR} TO {operator}")
+    statements.append(f"GRANT EXECUTE ON FUNCTION {MAINTENANCE_REPAIR} TO {login}")
+    return statements
+
+
+def maintenance_repair_restore_statements(
+    server_version_num: int = 160000,
+) -> list[str]:
+    """``dowdown`` 用：撤回修复命令的锁权限（回滚必须归还能力）。"""
+    from packages.shared.db_roles import maintenance_role
+
+    owner = maintenance_role("owner")
+    if server_version_num >= MAINTENANCE_MAINTAIN_SINCE:
+        return [f"REVOKE MAINTAIN ON TABLE {QC_GOVERNANCE}.qc_tasks FROM {owner}"]
+    return [f"REVOKE UPDATE ON TABLE {QC_GOVERNANCE}.qc_tasks FROM {owner}"]
+
+
+SCHEDULER_DISCOVERY_FUNCTIONS: tuple[str, ...] = (MAINTENANCE_ENUMERATE,)
+
+
+def discovery_guard_statements() -> list[str]:
+    """发现守卫函数的授权面：它在 SECDEF 发现函数内由 owner 执行。
+
+    守卫本身是 ``SECURITY INVOKER`` 且只做身份判定、不返回数据，但按本仓的
+    统一口径仍收回 ``PUBLIC``：一个「谁都能调」的判定函数会让「身份判定」
+    变成可被任何角色反复探询的接口。
+    """
+    from packages.shared.db_roles import maintenance_role
+
+    owner = maintenance_role("owner")
+    return [
+        f"REVOKE ALL ON FUNCTION {DISCOVERY_GUARD} FROM PUBLIC",
+        f"GRANT EXECUTE ON FUNCTION {DISCOVERY_GUARD} TO {owner}",
+    ]
+
+
+def maintenance_function_public_reclaim_statements() -> list[str]:
+    """收回 ``qc_maintenance`` 里残留的 ``PUBLIC`` 执行权。
+
+    为什么必须收：调度身份手上只有「schema USAGE + 发现函数 EXECUTE」两张牌，
+    但 PostgreSQL 新建函数默认带 ``PUBLIC EXECUTE``。只要 schema 里有一个函数
+    没被逐条收回，``qc_scheduler`` 就会经 ``PUBLIC`` 拿到它的 EXECUTE——授权面
+    看起来是白名单，实际判定是「白名单 ∪ 所有漏网函数」。
+    工作单状态机触发器 ``enforce_work_order_transition`` 就是这类残留：它是
+    触发器函数、无法直接调用，但在 ACL 上确实可执行。
+
+    两句合起来才是完整口径：补收历史残留；并给 owner 之后**自己创建**的函数
+    设默认（迁移以超级用户建对象，这一句不覆盖那种情况，故必须同时补收）。
+    """
+    from packages.shared.db_roles import maintenance_role
+
+    owner = maintenance_role("owner")
+    return [
+        f"REVOKE ALL ON FUNCTION {MAINTENANCE_TRANSITION_TRIGGER} FROM PUBLIC",
+        f"ALTER DEFAULT PRIVILEGES FOR ROLE {owner} "
+        f"IN SCHEMA {MAINTENANCE_SCHEMA} REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC",
+    ]
+
+
+def maintenance_function_public_reclaim_restore_statements() -> list[str]:
+    """``downgrade`` 用：把 ``PUBLIC`` 执行权放回原状。
+
+    注意这里用的是 ``REVOKE`` 而不是 ``GRANT``：``ALTER DEFAULT PRIVILEGES``
+    写的是一行"相对内置默认的差异"。升级那句 REVOKE 在 PG 16 上并不留下
+    ``pg_default_acl`` 条目；降级若改写成 GRANT，PG 会**新建**
+    ``{=X/owner}`` 这一行——父态快照里没有它（WP-04/#62）。实测（探针库
+    ``afs_t62probe``）：对同一目标再执行一次 REVOKE，行即消失，而"没有行"
+    本身就等于"内置默认 PUBLIC EXECUTE"，语义回到父态。
+    """
+    from packages.shared.db_roles import maintenance_role
+
+    owner = maintenance_role("owner")
+    return [
+        f"ALTER DEFAULT PRIVILEGES FOR ROLE {owner} "
+        f"IN SCHEMA {MAINTENANCE_SCHEMA} REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC",
+        f"GRANT EXECUTE ON FUNCTION {MAINTENANCE_TRANSITION_TRIGGER} TO PUBLIC",
+    ]
+
+
+def scheduler_statements() -> list[str]:
+    """调度发现身份的授权面（WP-B）：**只能**调用零参发现函数。
+
+    为什么把它写成「正向白名单 + 反向收紧」两句一组：
+
+    * 正向只有 ``USAGE ON SCHEMA`` 与 ``EXECUTE ON enumerate_due_tasks()``。
+      发现函数是 SECURITY DEFINER，读表发生在 owner 名下，返回的只有
+      「租户 + 待检条数」——Scheduler 因此**读不到**任务内容、租户业务表、
+      甚至连投影都不读。
+    * 反向对维护命令逐个 ``REVOKE``：新角色本来就没有这些权限，但重建角色、
+      手工授权、或将来有人「顺手」把它加进 operator 时，收敛语句必须能把
+      它拉回声明状态。只靠「建的时候干净」不是声明式。
+
+    不做「拒绝对 qc_tasks 的 SELECT」这类语句：它没有该权限，``REVOKE`` 一个
+    从未授予的表权限只会制造一条永远不生效的语句，让授权集合看起来比实际更大。
+    """
+    from packages.shared.db_roles import scheduler_role
+
+    scheduler = scheduler_role()
+    statements = [f"GRANT USAGE ON SCHEMA {MAINTENANCE_SCHEMA} TO {scheduler}"]
+    for function in SCHEDULER_DISCOVERY_FUNCTIONS:
+        statements.append(f"GRANT EXECUTE ON FUNCTION {function} TO {scheduler}")
+    for function in (
+        *MAINTENANCE_COMMAND_FUNCTIONS,
+        MAINTENANCE_REPAIR,
+    ):
+        if function in SCHEDULER_DISCOVERY_FUNCTIONS:
+            continue
+        statements.append(f"REVOKE ALL ON FUNCTION {function} FROM {scheduler}")
+    return statements
+
+
+def scheduler_restore_statements() -> list[str]:
+    """``downgrade`` 用：归还 Scheduler 的全部权限（角色本身由迁移删除）。"""
+    from packages.shared.db_roles import scheduler_role
+
+    scheduler = scheduler_role()
+    statements = [
+        f"REVOKE EXECUTE ON FUNCTION {function} FROM {scheduler}"
+        for function in SCHEDULER_DISCOVERY_FUNCTIONS
+    ]
+    statements.append(f"REVOKE USAGE ON SCHEMA {MAINTENANCE_SCHEMA} FROM {scheduler}")
+    return statements
+
+
+def maintenance_identity_restore_statements() -> list[str]:
+    """``downgrade`` 用：把被 WP-03 收紧的 PUBLIC 执行权放回原状。
+
+    ``assert_session_identity`` 不进这里——downgrade 会把它删掉，给一个即将
+    消失的函数授 PUBLIC 执行权没有意义。真正需要复原的只有历史函数的默认口径。
+    """
+    return [f"GRANT EXECUTE ON FUNCTION {SECDEF_SIGNATURE} TO PUBLIC"]
 
 
 __all__ = [
     "ALL_TABLE_PRIVILEGES",
     "ASSET_SERVICE",
     "BUDGET_QUOTA",
+    "DISCOVERY_GUARD",
     "DOMAINS",
     "DOMAIN_GRANTS",
+    "INFRA_ROLES",
+    "INFRA_ROLE_GRANTS",
+    "MAINTENANCE_COMMAND_FUNCTIONS",
+    "MAINTENANCE_DENIAL",
+    "MAINTENANCE_DETECT",
+    "MAINTENANCE_ENUMERATE",
+    "MAINTENANCE_GUARD",
+    "MAINTENANCE_HELPER",
+    "MAINTENANCE_MAINTAIN_SINCE",
+    "MAINTENANCE_RECONCILE",
+    "MAINTENANCE_REPAIR",
+    "MAINTENANCE_SCHEMA",
+    "MAINTENANCE_SESSION",
+    "MAINTENANCE_TRANSITION_TRIGGER",
+    "OUTBOX_OPS",
     "PRODUCTION_PLANNING",
     "PROJECT_PLANNING",
     "QC_GOVERNANCE",
+    "SCHEDULER_DISCOVERY_FUNCTIONS",
+    "SECDEF_SIGNATURE",
     "TableGrant",
     "business_tables",
     "converge_statements",
     "declared_column_privileges",
     "declared_privileges",
     "declared_tables",
+    "discovery_guard_statements",
+    "infra_converge_statements",
     "legacy_r16_grant_statements",
     "legacy_statements",
+    "maintenance_command_statements",
+    "maintenance_function_public_reclaim_restore_statements",
+    "maintenance_function_public_reclaim_statements",
+    "maintenance_identity_restore_statements",
+    "maintenance_identity_statements",
+    "maintenance_membership_statements",
+    "maintenance_repair_restore_statements",
+    "maintenance_repair_statements",
+    "scheduler_restore_statements",
+    "scheduler_statements",
+    "validate_infra_matrix",
     "validate_matrix",
 ]

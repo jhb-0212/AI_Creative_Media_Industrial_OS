@@ -19,11 +19,11 @@ class ProjectStatus(str, Enum):
     转移表权威定义见 domain/state_machine.py（单一事实源）。
     """
 
-    DRAFT = "DRAFT"            # 草稿：项目已创建，未开始正式生产
-    ACTIVE = "ACTIVE"          # 进行中：进入生产流程
-    ON_HOLD = "ON_HOLD"        # 暂停
-    COMPLETED = "COMPLETED"    # 完成
-    ARCHIVED = "ARCHIVED"      # 归档（终态，不可原地复活）
+    DRAFT = "DRAFT"  # 草稿：项目已创建，未开始正式生产
+    ACTIVE = "ACTIVE"  # 进行中：进入生产流程
+    ON_HOLD = "ON_HOLD"  # 暂停
+    COMPLETED = "COMPLETED"  # 完成
+    ARCHIVED = "ARCHIVED"  # 归档（终态，不可原地复活）
 
 
 class ProjectTier(str, Enum):
@@ -47,10 +47,10 @@ class ScriptStatus(str, Enum):
     转移表权威定义见 domain/state_machine.py 的 SCRIPT_ALLOWED_TRANSITIONS。
     """
 
-    DRAFT = "DRAFT"                # 草稿：导入的可编辑剧本版本（ADR-032 默认草案）
+    DRAFT = "DRAFT"  # 草稿：导入的可编辑剧本版本（ADR-032 默认草案）
     LOCK_PENDING = "LOCK_PENDING"  # 锁定申请中：已提交锁定申请，待人工批准
-    LOCKED = "LOCKED"              # 锁定：经 SCRIPT.LOCK.APPROVE 人工确认
-    SUPERSEDED = "SUPERSEDED"      # 被取代：新版本导入，旧版本终态（不可原地复活）
+    LOCKED = "LOCKED"  # 锁定：经 SCRIPT.LOCK.APPROVE 人工确认
+    SUPERSEDED = "SUPERSEDED"  # 被取代：新版本导入，旧版本终态（不可原地复活）
 
 
 class EpisodeStatus(str, Enum):
@@ -61,9 +61,9 @@ class EpisodeStatus(str, Enum):
     转移表权威定义见 domain/state_machine.py 的 EPISODE_ALLOWED_TRANSITIONS。
     """
 
-    DRAFT = "DRAFT"            # 草稿：集数已登记，未进入正式生产
-    ACTIVE = "ACTIVE"          # 进行中：集数进入生产流程
-    ARCHIVED = "ARCHIVED"      # 归档（终态，不可原地复活）
+    DRAFT = "DRAFT"  # 草稿：集数已登记，未进入正式生产
+    ACTIVE = "ACTIVE"  # 进行中：集数进入生产流程
+    ARCHIVED = "ARCHIVED"  # 归档（终态，不可原地复活）
 
 
 class SceneStatus(str, Enum):
@@ -76,9 +76,9 @@ class SceneStatus(str, Enum):
     不设生产进度态（那是 Shot 的职责）。
     """
 
-    DRAFT = "DRAFT"            # 草稿：场次已登记，未进入正式生产
-    ACTIVE = "ACTIVE"          # 进行中
-    ARCHIVED = "ARCHIVED"      # 归档（终态，不可原地复活）
+    DRAFT = "DRAFT"  # 草稿：场次已登记，未进入正式生产
+    ACTIVE = "ACTIVE"  # 进行中
+    ARCHIVED = "ARCHIVED"  # 归档（终态，不可原地复活）
 
 
 class ShotStatus(str, Enum):
@@ -91,11 +91,11 @@ class ShotStatus(str, Enum):
     CANCELLED 为终态，恢复必须新建 Shot 并重新授权。
     """
 
-    NOT_STARTED = "NOT_STARTED"                    # 未开始
-    IN_PRODUCTION = "IN_PRODUCTION"                # 生产中
-    BLOCKED = "BLOCKED"                            # 阻塞（必须有 blocked_reason）
-    PRODUCTION_COMPLETE = "PRODUCTION_COMPLETE"    # 生产产物已完成
-    CANCELLED = "CANCELLED"                        # 取消（终态，必须有授权记录）
+    NOT_STARTED = "NOT_STARTED"  # 未开始
+    IN_PRODUCTION = "IN_PRODUCTION"  # 生产中
+    BLOCKED = "BLOCKED"  # 阻塞（必须有 blocked_reason）
+    PRODUCTION_COMPLETE = "PRODUCTION_COMPLETE"  # 生产产物已完成
+    CANCELLED = "CANCELLED"  # 取消（终态，必须有授权记录）
 
 
 class ShotRevisionStatus(str, Enum):
@@ -136,8 +136,8 @@ class ShotSpecStatus(str, Enum):
     对其修订仍然有效。LOCKED 为终态：改规格必须新修订 + 新规格。
     """
 
-    DRAFT = "DRAFT"      # 草稿：可编辑（创建后即此态）
-    LOCKED = "LOCKED"    # 已锁定：维度/依据/审批事件齐备，此后不可原地修改
+    DRAFT = "DRAFT"  # 草稿：可编辑（创建后即此态）
+    LOCKED = "LOCKED"  # 已锁定：维度/依据/审批事件齐备，此后不可原地修改
 
 
 class ReworkTaskStatus(str, Enum):
@@ -177,56 +177,66 @@ class ConstraintPackStatus(str, Enum):
     授权人的判断。
     """
 
-    DRAFT = "DRAFT"            # 草稿：可编辑（创建后即此态）
-    ACTIVE = "ACTIVE"          # 已审批生效：唯一可作生成输入的状态
-    STALE = "STALE"            # 引用的 PrevizVersion 或上游锁定维度失效，须重新确认
+    DRAFT = "DRAFT"  # 草稿：可编辑（创建后即此态）
+    ACTIVE = "ACTIVE"  # 已审批生效：唯一可作生成输入的状态
+    STALE = "STALE"  # 引用的 PrevizVersion 或上游锁定维度失效，须重新确认
     SUPERSEDED = "SUPERSEDED"  # 已被新版本取代
-    REVOKED = "REVOKED"        # 授权被撤销，相关路线立即阻断
+    REVOKED = "REVOKED"  # 授权被撤销，相关路线立即阻断
 
 
 class ProductionRouteStatus(str, Enum):
     """生产路线选择记录的生命周期（R16-D3）。"""
 
     VERIFIED = "VERIFIED"  # 选择生效：路线选择已建立（创建即此态）
-    REVOKED = "REVOKED"    # 选择被撤销，终态不可原地复活
+    REVOKED = "REVOKED"  # 选择被撤销，终态不可原地复活
 
 
 class GenerationTaskStatus(str, Enum):
     """生成任务记录的生命周期（R16-D3 / Phase 2 租约 / R42 资产登记 Saga）。"""
 
     REQUESTED = "REQUESTED"  # 已请求：准入校验通过（创建即此态；也是租约到期退回态）
-    RUNNING = "RUNNING"      # 执行中：由 GENERATION.PROCESS 的租约持有者推进
-    AWAITING_ASSET_REGISTRATION = "AWAITING_ASSET_REGISTRATION"  # T1 已确认存储并发出登记请求；等待 T3 回执
+    RUNNING = "RUNNING"  # 执行中：由 GENERATION.PROCESS 的租约持有者推进
+    AWAITING_ASSET_REGISTRATION = (
+        "AWAITING_ASSET_REGISTRATION"  # T1 已确认存储并发出登记请求；等待 T3 回执
+    )
     SUCCEEDED = "SUCCEEDED"  # 登记成功回执驱动的终态（T3）
-    FAILED = "FAILED"        # 执行或登记失败的终态
+    FAILED = "FAILED"  # 执行或登记失败的终态
 
 
 class ArtifactManifestStatus(str, Enum):
-    """产物写入意图的状态（ADR-R42 T0/T1）。
+    """产物写入意图的状态（ADR-R42 T0/T1 + PR-G 崩溃恢复）。
 
     PREPARED 是 T0 落库的写入意图；STORED_VERIFIED 表示对象写入并复核过
-    SHA256。确认态冻结：恢复只能重试未确认的 PREPARED，不能回退已确认事实。
+    SHA256；ABANDONED 表示该意图已被确认放弃——对象确定不存在且被新 attempt
+    取代，或读回内容校验失败不可复用。
+
+    三条约束：
+    - STORED_VERIFIED / ABANDONED 都是**终态**（frozen）：恢复只能重试未确认的
+      PREPARED，不能把已确认或已放弃的事实改写回未确认；
+    - 放弃必须有证据（对象不存在 / 哈希不符），不能因为「不想等了」就丢弃意图；
+    - 放弃的意图不删除：它是「我们曾经尝试过这份内容」的事实，删掉等于篡改历史。
     """
 
     PREPARED = "PREPARED"
     STORED_VERIFIED = "STORED_VERIFIED"
+    ABANDONED = "ABANDONED"
 
 
 class QCTaskStatus(str, Enum):
     """QC 待检任务的生命周期（Phase 3，生成终态入队）。"""
 
-    QUEUED = "QUEUED"        # 待检：已入队，等待 QC Worker 领取
-    RUNNING = "RUNNING"      # 检测中：由 QC.TASK.PROCESS 的租约持有者推进
-    PASSED = "PASSED"        # 检测通过（终态）
-    REJECTED = "REJECTED"    # 检测不通过（终态）
+    QUEUED = "QUEUED"  # 待检：已入队，等待 QC Worker 领取
+    RUNNING = "RUNNING"  # 检测中：由 QC.TASK.PROCESS 的租约持有者推进
+    PASSED = "PASSED"  # 检测通过（终态）
+    REJECTED = "REJECTED"  # 检测不通过（终态）
 
 
 class ShotBudgetRequestStatus(str, Enum):
     """单镜头预算申请的生命周期（R16-D3，两步审批）。"""
 
-    DRAFT = "DRAFT"          # 草稿：申请人已提交，待审批（创建即此态）
-    APPROVED = "APPROVED"    # 已批准：同一事务原子记账（终态）
-    REJECTED = "REJECTED"    # 已拒绝（终态）
+    DRAFT = "DRAFT"  # 草稿：申请人已提交，待审批（创建即此态）
+    APPROVED = "APPROVED"  # 已批准：同一事务原子记账（终态）
+    REJECTED = "REJECTED"  # 已拒绝（终态）
 
 
 class NoLifecycleStatus(str, Enum):

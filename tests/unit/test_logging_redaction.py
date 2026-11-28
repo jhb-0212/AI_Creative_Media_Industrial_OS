@@ -14,9 +14,7 @@ def _run(event: dict[str, object]) -> dict[str, object]:
 
 def test_redacts_value_embedded_dsn_password() -> None:
     """database_url 键名不含 password，但连接串里有口令，必须被脱敏。"""
-    out = _run(
-        {"event": "db_connect", "database_url": "postgresql://app:secret@db:5432/x"}
-    )
+    out = _run({"event": "db_connect", "database_url": "postgresql://app:secret@db:5432/x"})
     assert out["database_url"] == "postgresql://***REDACTED***@db:5432/x"
 
 

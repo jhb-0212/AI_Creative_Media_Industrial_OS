@@ -41,8 +41,7 @@ def test_distinct_keys_at_different_levels_are_allowed() -> None:
 def test_merge_key_semantics_preserved() -> None:
     """合法的 << merge key 必须保留：显式键覆盖继承键，不算重复。"""
     data = load_yaml(
-        "defaults: &d\n  adapter: postgres\n  host: localhost\n"
-        "service:\n  <<: *d\n  host: prod\n",
+        "defaults: &d\n  adapter: postgres\n  host: localhost\nservice:\n  <<: *d\n  host: prod\n",
         source="merge.yaml",
     )
     assert data["service"] == {"adapter": "postgres", "host": "prod"}

@@ -30,6 +30,7 @@ Revision ID: ae8724980e0b
 Revises: 8f3b2c1d4e5a
 Create Date: 2026-11-18
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

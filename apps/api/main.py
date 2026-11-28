@@ -58,6 +58,9 @@ from apps.api.wiring import register_cross_domain_ports  # noqa: E402
 from services.asset_service.api.asset_routes import router as asset_router  # noqa: E402
 from services.budget_quota.api.budget_routes import ledger_router as budget_ledger_router  # noqa: E402
 from services.budget_quota.api.budget_routes import router as budget_router  # noqa: E402
+from services.outbox_ops.api.outbox_ops_routes import (  # noqa: E402
+    router as outbox_ops_router,
+)
 from services.production_planning.api.generation_routes import (  # noqa: E402
     router as generation_router,
 )
@@ -98,6 +101,7 @@ app.include_router(budget_router)
 app.include_router(budget_ledger_router)
 app.include_router(gate_router)
 app.include_router(qc_task_router)
+app.include_router(outbox_ops_router)
 
 # 跨域端口装配（组合根职责，见 apps/api/wiring.py）：
 # QC 终结要核验「报告是否真属于本任务的资产版本」，而报告在资产域。QC 域只声明
@@ -128,12 +132,8 @@ async def request_guard_middleware(
         if request.url.path not in _PROBE_PATHS:
             limiter = getattr(app.state, "rate_limiter", None)
             if limiter is not None:
-                decision: RateLimitDecision = await limiter.acquire(
-                    _client_identity(request)
-                )
-                RATE_LIMIT_DECISIONS_TOTAL.labels(
-                    decision=_decision_label(decision)
-                ).inc()
+                decision: RateLimitDecision = await limiter.acquire(_client_identity(request))
+                RATE_LIMIT_DECISIONS_TOTAL.labels(decision=_decision_label(decision)).inc()
                 if not decision.allowed:
                     status_code = ErrorRegistry.RATE_LIMIT.http_status
                     envelope = DomainError(ErrorRegistry.RATE_LIMIT)
@@ -147,12 +147,8 @@ async def request_guard_middleware(
         status_code = response.status_code
         return response
     finally:
-        HTTP_REQUESTS_TOTAL.labels(
-            method=method, status_code=str(status_code)
-        ).inc()
-        HTTP_REQUEST_DURATION_SECONDS.labels(method=method).observe(
-            time.perf_counter() - start
-        )
+        HTTP_REQUESTS_TOTAL.labels(method=method, status_code=str(status_code)).inc()
+        HTTP_REQUEST_DURATION_SECONDS.labels(method=method).observe(time.perf_counter() - start)
 
 
 def _decision_label(decision: RateLimitDecision) -> str:
@@ -232,9 +228,7 @@ async def domain_error_handler(_: Request, exc: DomainError) -> JSONResponse:
 
 
 @app.exception_handler(RequestValidationError)
-async def request_validation_handler(
-    _: Request, exc: RequestValidationError
-) -> JSONResponse:
+async def request_validation_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
     """把框架层参数校验失败统一到 C.3.2 错误信封（原先走 FastAPI 默认 detail 格式）。
 
     只透出 loc/msg/type，不含原始输入值（避免回显用户数据）。

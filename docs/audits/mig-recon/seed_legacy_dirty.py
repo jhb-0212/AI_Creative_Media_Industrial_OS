@@ -33,6 +33,7 @@
 
     python seed_legacy_dirty.py --port 15444 [--password ...]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -95,8 +96,11 @@ def statements() -> list[tuple[str, str, bool]]:
         (
             "clean:asset_versions",
             fx.insert_sql(
-                "asset_service.asset_versions", "av-clean",
-                project=PROJ_A, tenant=TENANT, org=ORG1,
+                "asset_service.asset_versions",
+                "av-clean",
+                project=PROJ_A,
+                tenant=TENANT,
+                org=ORG1,
             ),
             False,
         ),
@@ -104,16 +108,21 @@ def statements() -> list[tuple[str, str, bool]]:
         (
             "ref:asset_versions",
             fx.insert_sql(
-                "asset_service.asset_versions", "av-ref-qc-1",
-                project=PROJ_A, tenant=TENANT, org=ORG1,
+                "asset_service.asset_versions",
+                "av-ref-qc-1",
+                project=PROJ_A,
+                tenant=TENANT,
+                org=ORG1,
             ),
             False,
         ),
         (
             "ref:production_routes",
             fx.insert_sql(
-                "generation_execution.production_routes", "rt-coverage-base",
-                tenant=TENANT, org=ORG1,
+                "generation_execution.production_routes",
+                "rt-coverage-base",
+                tenant=TENANT,
+                org=ORG1,
             ),
             False,
         ),
@@ -121,16 +130,22 @@ def statements() -> list[tuple[str, str, bool]]:
         (
             "dirty:sentinel:asset_versions",
             fx.insert_sql(
-                "asset_service.asset_versions", "av-sentinel",
-                project=SENTINEL, tenant=TENANT, org=ORG1,
+                "asset_service.asset_versions",
+                "av-sentinel",
+                project=SENTINEL,
+                tenant=TENANT,
+                org=ORG1,
             ),
             True,
         ),
         (
             "dirty:sentinel:qc_reports",
             fx.insert_sql(
-                "asset_service.qc_reports", "qc-1",
-                project=SENTINEL, tenant=TENANT, org=ORG1,
+                "asset_service.qc_reports",
+                "qc-1",
+                project=SENTINEL,
+                tenant=TENANT,
+                org=ORG1,
             ),
             True,
         ),
@@ -138,8 +153,11 @@ def statements() -> list[tuple[str, str, bool]]:
         (
             "dirty:ghost:gate_decisions",
             fx.insert_sql(
-                "qc_governance.gate_decisions", "gd-ghost",
-                project=GHOST, tenant=TENANT, org=ORG1,
+                "qc_governance.gate_decisions",
+                "gd-ghost",
+                project=GHOST,
+                tenant=TENANT,
+                org=ORG1,
             ),
             False,
         ),
@@ -147,8 +165,11 @@ def statements() -> list[tuple[str, str, bool]]:
         (
             "dirty:org_mismatch:generation_tasks",
             fx.insert_sql(
-                "generation_execution.generation_tasks", "gt-mismatch",
-                project=PROJ_A, tenant=TENANT, org=ORG2,
+                "generation_execution.generation_tasks",
+                "gt-mismatch",
+                project=PROJ_A,
+                tenant=TENANT,
+                org=ORG2,
             ),
             False,
         ),
@@ -156,8 +177,10 @@ def statements() -> list[tuple[str, str, bool]]:
         (
             "dirty:orphan:production_routes",
             fx.insert_sql(
-                "generation_execution.production_routes", "rt-orphan",
-                tenant=TENANT, org=ORG2,
+                "generation_execution.production_routes",
+                "rt-orphan",
+                tenant=TENANT,
+                org=ORG2,
             ),
             False,
         ),
@@ -169,13 +192,16 @@ async def main() -> int:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=15444)
     ap.add_argument("--user", default="postgres")
-    ap.add_argument("--password", default="replay_super_pw")
+    ap.add_argument("--password", default="<ROTATED-2026-11-28>")
     ap.add_argument("--db", default="ai_film_industrial")
     args = ap.parse_args()
 
     conn = await asyncpg.connect(
-        host=args.host, port=args.port, user=args.user,
-        password=args.password, database=args.db,
+        host=args.host,
+        port=args.port,
+        user=args.user,
+        password=args.password,
+        database=args.db,
     )
     try:
         # 前置：确认此刻**没有**归属外键（否则说明还没降级，脏行插不进去）

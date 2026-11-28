@@ -61,9 +61,7 @@ def _sqlstate(exc: BaseException) -> str:
 async def _count_scene(session, scene_id: str) -> int:
     return (
         await session.scalar(
-            text(
-                "SELECT count(*) FROM project_planning.scenes WHERE entity_id = :eid"
-            ),
+            text("SELECT count(*) FROM project_planning.scenes WHERE entity_id = :eid"),
             {"eid": scene_id},
         )
         or 0
@@ -94,15 +92,11 @@ async def test_new_tables_have_rls_enabled_and_forced(admin_sessionmaker) -> Non
 
     flags = {name: (enabled, forced) for name, enabled, forced in rows}
     assert set(flags) == set(_NEW_TABLES), f"表缺失：{set(_NEW_TABLES) - set(flags)}"
-    assert all(enabled for enabled, _ in flags.values()), (
-        f"未启用 RLS（策略会是惰性的）：{flags}"
-    )
+    assert all(enabled for enabled, _ in flags.values()), f"未启用 RLS（策略会是惰性的）：{flags}"
     assert all(forced for _, forced in flags.values()), f"未 FORCE RLS：{flags}"
 
 
-async def test_scenes_are_invisible_across_tenants(
-    db_sessionmaker, admin_sessionmaker
-) -> None:
+async def test_scenes_are_invisible_across_tenants(db_sessionmaker, admin_sessionmaker) -> None:
     """跨租户读为 0、本租户读为 1（租户维度的运行时证据）。"""
     tenant_a = uuid.uuid4()
     tenant_b = uuid.uuid4()
@@ -150,9 +144,7 @@ async def test_scenes_are_invisible_across_organizations(
     scene_id = f"scene_org_{tenant.hex[:8]}"
 
     await seed_organization(admin_sessionmaker, org_id=org_a, tenant=tenant)
-    await seed_project(
-        admin_sessionmaker, project_id=project_id, tenant=tenant, org_id=org_a
-    )
+    await seed_project(admin_sessionmaker, project_id=project_id, tenant=tenant, org_id=org_a)
     await seed_episode(
         admin_sessionmaker, episode_id=episode_id, project_id=project_id, tenant=tenant
     )
@@ -175,9 +167,7 @@ async def test_scenes_are_invisible_across_organizations(
         await session.rollback()
 
 
-async def test_cross_tenant_scene_insert_is_rejected(
-    db_sessionmaker, admin_sessionmaker
-) -> None:
+async def test_cross_tenant_scene_insert_is_rejected(db_sessionmaker, admin_sessionmaker) -> None:
     """向「自己租户 + 他租户项目」写入场次 → ``WITH CHECK`` 拒绝（42501）。
 
     只测读会让「策略只过滤 SELECT」的写法过关：``CREATE POLICY ... FOR SELECT``

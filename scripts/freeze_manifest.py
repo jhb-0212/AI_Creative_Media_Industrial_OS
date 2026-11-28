@@ -11,6 +11,11 @@
 
 1. **权威源未变**：基线主文档的字节数与 SHA-256 与冻结清单一致；
 2. **派生文件未私改**：十一类冻结产物的字节数与 SHA-256 与清单一致；
+2b. **冻结依据未变**：登记于 ``frozen_inventory.yaml`` 的治理附件（如签署决议）
+   字节与 SHA-256 与清单一致——它们是「冻结这件事本身」的证据，不是契约产物；
+   而「该有哪些附件」由修订台账的 ``frozen_attachments`` 声明：附件的要求侧与
+   登记侧必须分开存，否则删掉登记就等于删掉要求，闸门无从分辨「从来没有」与
+   「被悄悄移除」；
 3. **演进有据**：当前契约名称全集必须精确等于
    「基线清单 ∪ 已批准修订」——任何未登记的新增、缺失的基线项、
    登记了却不存在的陈旧条目，全部报红。
@@ -44,7 +49,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -58,8 +63,16 @@ from packages.shared.yaml_strict import DuplicateYamlKeyError, load_yaml_file  #
 # 「游离副本」扫描时跳过的目录：它们不是仓库交付物，把基线正文放进去也不构成
 # 「读者会读到第二份正文」的风险（依赖包与工具缓存的内部文件不会被当作基线引用）。
 _SCAN_EXCLUDED_DIRS = frozenset(
-    {".git", ".venv", "venv", "node_modules", "__pycache__",
-     ".mypy_cache", ".ruff_cache", ".pytest_cache"}
+    {
+        ".git",
+        ".venv",
+        "venv",
+        "node_modules",
+        "__pycache__",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".pytest_cache",
+    }
 )
 
 # 正文 31.6 的自述数量口径：基线是「冻结时刻的快照」，它自述的 action 数必须等于
@@ -104,14 +117,37 @@ ARTIFACTS: tuple[Artifact, ...] = (
     Artifact("② OpenAPI 草案", OPENAPI, "31.6（由 Action Registry 派生）"),
     Artifact("③ 状态机", STATE_MACHINES, "31.5 / 8.6 / 32.6 / 33.3 / 34.7"),
     Artifact("④ Action Registry", ACTION_REGISTRY, "31.6 唯一注册表"),
-    Artifact("⑤ 权限矩阵", ROOT / "contracts" / "permission" / "permission_matrix.yaml", "C.5 / 31.6"),
-    Artifact("⑥ 预算与成本口径", ROOT / "contracts" / "budget" / "budget_caliber.yaml", "C.2 / 34.6"),
-    Artifact("⑦ 指标字典", ROOT / "contracts" / "metrics" / "metric_dictionary.yaml", "31.10 / 34.13"),
+    Artifact(
+        "⑤ 权限矩阵", ROOT / "contracts" / "permission" / "permission_matrix.yaml", "C.5 / 31.6"
+    ),
+    Artifact(
+        "⑥ 预算与成本口径", ROOT / "contracts" / "budget" / "budget_caliber.yaml", "C.2 / 34.6"
+    ),
+    Artifact(
+        "⑦ 指标字典", ROOT / "contracts" / "metrics" / "metric_dictionary.yaml", "31.10 / 34.13"
+    ),
     Artifact("⑧ 冻结包清单", MANIFEST_PATH, "31.11 契约证据清单", self_reference=True),
     Artifact("⑨ 枚举注册表", ROOT / "contracts" / "enums" / "enum_registry.yaml", "31.5 / C.7"),
     Artifact("⑩ ADR 主索引", ROOT / "docs" / "adr" / "adr_index.yaml", "31.12 / 32.13 / 33.15"),
     Artifact("⑪ 阶段表", ROOT / "contracts" / "phases" / "phase_map.yaml", "31.2 唯一阶段总表"),
 )
+
+# 冻结附件（治理文件）：冻结结论所依据的决议/签署件。
+#
+# 为什么不塞进 ARTIFACTS：十一类是基线 31.11 声明的**契约产物**，它们的名称全集要
+# 参与「基线 ∪ 修订 == 实际」的判定；把一份决议塞进去，会把「十一类」变成十二类，
+# 并让名称全集判定开始吃进非契约文件。
+#
+# 但附件也不能只写在某份审计的正文里：冻结的依据若能被悄悄替换，清单再绿也没有意义。
+# 所以字节与哈希登记在 frozen_inventory.yaml，由本脚本逐项复核——附件变了，
+# 意味着冻结依据变了，须重新裁决，而不是重签清单。
+#
+# 登记的软肋是「要求只存在于登记里」：整段删掉，要求与登记一起消失。因此要求侧另立
+# 于修订台账（``frozen_attachments``），由 check_attachment_authorization 比对。
+# 附件的字段分三类：路径、正整数字节数、64 位十六进制摘要。
+# 不复用 `_is_filled`：那个判据的语义是「追溯性字段是否已填」（只认字符串），
+# 拿它判 `bytes: 21327` 会把合法值判成缺失——判据语义不一致比缺陷本身更难查。
+_HEX = frozenset("0123456789abcdef")
 
 
 def _load_yaml(path: Path) -> Any:
@@ -346,6 +382,162 @@ def check_manifest_integrity() -> list[str]:
 
 
 # --------------------------------------------------------------------------- #
+# 第二层补：冻结附件（治理文件）的字节与哈希
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class Attachment:
+    """冻结附件的**登记侧**视图（``frozen_inventory.attachments`` 的一条）。
+
+    ``path`` 已规范化为仓库内相对路径；字节与哈希是「当前登记的是哪一版」。
+    """
+
+    path: str
+    size: int
+    sha256: str
+    role: str
+
+
+@dataclass(frozen=True)
+class ApprovedAttachment:
+    """冻结附件的**要求侧**视图（``contract_amendments.amendments[].frozen_attachments``）。
+
+    与 :class:`Attachment` 刻意分开而不是复用：两者是同一件事的两个面。
+    本条回答「冻结面必须包含哪一份、内容必须是哪一版」，由一条已批准修订背书；
+    登记侧回答「现在登记了没」。只有要求侧独立存在，「删掉登记」才会红——
+    否则要求与登记住在同一个可删除的段里，删掉它俩就一起消失，闸门无法分辨
+    「从来没有附件」与「附件被悄悄移除」。
+    """
+
+    path: str
+    size: int
+    sha256: str
+
+
+def _attachment_path(rel: Any, where: str) -> str:
+    """校验并规范化附件路径：只接受仓库内相对路径，且不得经过符号链接。
+
+    路径本身就是判据的一部分。绝对路径、盘符、``..`` 上跳、符号链接，都能让
+    「--check 读的那份文件」与「仓库里那份文件」不是同一个东西——校验照样绿，
+    证据却指向别处。所以在入口一次性拒绝，而不是等读到内容时再说。
+    """
+    if not isinstance(rel, str) or not rel.strip():
+        raise FreezeDriftError(f"{where}.path 必须是非空字符串，实际 {rel!r}")
+    raw = rel.strip()
+    posix = PurePosixPath(raw.replace("\\", "/"))
+    native = Path(raw)
+    if posix.is_absolute() or native.is_absolute() or native.drive or ".." in posix.parts:
+        raise FreezeDriftError(
+            f"{where}.path 必须是仓库内相对路径（不接受绝对路径、盘符或 `..` 上跳）：{raw!r}"
+        )
+    target = ROOT / posix
+    try:
+        target.resolve().relative_to(ROOT.resolve())
+    except ValueError:
+        raise FreezeDriftError(
+            f"{where}.path 解析后不在仓库内（疑似经由符号链接越界）：{raw!r}"
+        ) from None
+    if target.is_symlink():
+        raise FreezeDriftError(
+            f"{where}.path 不能是符号链接：{raw!r}"
+            "（冻结附件的字节必须直接来自仓库内的这个文件，而不是一层间接引用）"
+        )
+    return posix.as_posix()
+
+
+def _attachment_identity(item: dict[str, Any], where: str) -> tuple[str, int, str]:
+    """取出「路径 + 字节数 + 摘要」三元组；登记与批准共用同一套形状校验。
+
+    共用是刻意的：两侧判据一旦分叉，比对就失去意义——「登记合规、批准不合规」
+    会变成两个各自能过、合起来矛盾的判据。
+    """
+    path = _attachment_path(item.get("path"), where)
+    digest = item.get("sha256")
+    if not isinstance(digest, str) or len(digest) != 64 or not set(digest) <= _HEX:
+        raise FreezeDriftError(f"{where}.sha256 必须是 64 位十六进制，实际 {digest!r}")
+    size = item.get("bytes")
+    if isinstance(size, bool) or not isinstance(size, int) or size <= 0:
+        raise FreezeDriftError(f"{where}.bytes 必须是正整数，实际 {size!r}")
+    return path, size, digest.lower()
+
+
+def attachment_entries(inventory: dict[str, Any]) -> list[Attachment]:
+    """读 ``frozen_inventory.yaml`` 的 ``attachments``；缺省视为「没有附件」。
+
+    缺省不报错是刻意的：冻结面在历史上确实没有附件，把「没登记」当损坏会让
+    所有既有分支的 --check 变红；但**登记了就必须完整**，缺字段属于结构损坏。
+
+    「缺省 = 没有附件」也正是本层的软肋：整段删掉，要求与登记一起消失。补法是
+    把要求侧另立一条判据（:func:`check_attachment_authorization`），而不是在这里
+    报红——在这里报红只能证明「当前这份 inventory 少了点什么」，证明不了应该有什么。
+    """
+    raw = inventory.get("attachments")
+    if raw is None:
+        return []
+    entries: list[Attachment] = []
+    for index, item in enumerate(_sequence(raw, "frozen_inventory.attachments")):
+        where = f"frozen_inventory.attachments[{index}]"
+        entry = _mapping(item, where)
+        path, size, digest = _attachment_identity(entry, where)
+        role = entry.get("role")
+        if not isinstance(role, str) or not role.strip():
+            raise FreezeDriftError(f"{where}.role 必须是非空字符串")
+        entries.append(Attachment(path=path, size=size, sha256=digest, role=role.strip()))
+    return entries
+
+
+def check_attachments(inventory: dict[str, Any]) -> list[str]:
+    """附件必须存在、字节与哈希与登记一致，且清单已把它登记进冻结面。
+
+    缺了第一条，「原件缺失」就会以「只有哈希没有文件」的形式复发——那正是这条
+    阻塞项原先的样子。缺了第二条，附件会变成一个只有 --check 看得见、清单看不见
+    的隐藏事实，读者仍要靠某份审计的正文才知道冻结依据是什么。
+
+    这一条只管**登记侧自洽**（登记了什么就验什么）；「该有什么」由
+    :func:`check_attachment_authorization` 依据修订台账判定，两者合起来才闭环。
+    """
+    entries = attachment_entries(inventory)
+    if not entries:
+        return []
+
+    manifest_text = MANIFEST_PATH.read_text(encoding="utf-8") if MANIFEST_PATH.exists() else ""
+    problems: list[str] = []
+    seen: set[str] = set()
+    for entry in entries:
+        rel = entry.path
+        if rel in seen:
+            problems.append(f"附件重复登记：{rel}")
+            continue
+        seen.add(rel)
+
+        path = ROOT / rel
+        if not path.is_file():
+            problems.append(
+                f"附件缺失：{rel}（冻结依据不能只有哈希没有文件；"
+                "文件不在仓库时须由 Owner 指定外部权威存档，而不是删掉这条登记）"
+            )
+            continue
+        actual_bytes = path.stat().st_size
+        if actual_bytes != entry.size:
+            problems.append(
+                f"附件字节数与登记不符：{rel}（登记 {entry.size}，实际 {actual_bytes}）"
+            )
+        digest = _sha256(path)
+        if digest != entry.sha256:
+            problems.append(
+                f"附件内容已变更：{rel}（登记 {entry.sha256[:16]}…，"
+                f"实际 {digest[:16]}…）；改动冻结依据须重新裁决，不是重签清单"
+            )
+        if manifest_text and (
+            f"`{rel}`" not in manifest_text or f"`{digest}`" not in manifest_text
+        ):
+            problems.append(
+                f"清单未登记附件 {rel}：附件的字节与哈希必须出现在 "
+                "phase0_manifest.md（改完 --write 重签，或它根本不该进冻结面）"
+            )
+    return problems
+
+
+# --------------------------------------------------------------------------- #
 # 第三层：演进有据（基线 ∪ 修订 == 实际，双向精确）
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
@@ -359,6 +551,7 @@ class Amendment:
     removed_actions: frozenset[str]
     removed_objects: frozenset[str]
     removed_state_machines: frozenset[str]
+    approved_attachments: tuple[ApprovedAttachment, ...] = ()
 
 
 # 修订条目必填字段（唯一权威）。历史条目缺 ``source_commits`` 的例外**不在这里放宽**，
@@ -374,9 +567,7 @@ _REQUIRED_AMENDMENT_FIELDS = (
 )
 
 
-def _collect_names(
-    entries: Any, key: str, where: str
-) -> frozenset[str]:
+def _collect_names(entries: Any, key: str, where: str) -> frozenset[str]:
     """收集 ``[{action_key: X}, ...]`` 或 ``[{object: X}, ...]`` 的名称集合。"""
     names: list[str] = []
     for index, item in enumerate(_sequence(entries, where)):
@@ -443,9 +634,7 @@ def load_amendments() -> list[Amendment]:
         if amendment_id in seen_ids:
             raise FreezeDriftError(f"修订 id 重复：{amendment_id}")
         seen_ids.add(amendment_id)
-        missing = [
-            key for key in _REQUIRED_AMENDMENT_FIELDS if not _is_filled(entry.get(key))
-        ]
+        missing = [key for key in _REQUIRED_AMENDMENT_FIELDS if not _is_filled(entry.get(key))]
         if missing:
             # 唯一例外：只缺 source_commits 且已在 traceability_debt 登记。
             # 写成「missing == ['source_commits']」而不是「in missing」，
@@ -485,6 +674,9 @@ def load_amendments() -> list[Amendment]:
                     "object",
                     f"{where}.removals.state_machines",
                 ),
+                approved_attachments=_approved_attachments(
+                    entry.get("frozen_attachments"), f"{where}.frozen_attachments"
+                ),
             )
         )
     # 反向完备：债务清单必须精确等于「实际缺 source_commits 的条目」。
@@ -497,6 +689,68 @@ def load_amendments() -> list[Amendment]:
             f"{stale_debt}。债务条目必须在补齐后删除（陈旧债务会掩盖真实缺口）"
         )
     return amendments
+
+
+def _approved_attachments(raw: Any, where: str) -> tuple[ApprovedAttachment, ...]:
+    """解析修订里的 ``frozen_attachments``；缺省表示该修订不涉及冻结附件。
+
+    缺省合法：绝大多数修订只动契约名称，与附件无关；但一旦写了这个键，就必须
+    是完整的三元组——半条声明比没有声明更危险，因为它看起来像已经批准过。
+    """
+    if raw is None:
+        return ()
+    approved: list[ApprovedAttachment] = []
+    for index, item in enumerate(_sequence(raw, where)):
+        spot = f"{where}[{index}]"
+        path, size, digest = _attachment_identity(_mapping(item, spot), spot)
+        approved.append(ApprovedAttachment(path=path, size=size, sha256=digest))
+    return tuple(approved)
+
+
+def check_attachment_authorization(
+    inventory: dict[str, Any], amendments: list[Amendment]
+) -> list[str]:
+    """修订批准纳入冻结面的附件，必须仍在登记里，且内容就是批准的那一版。
+
+    这是附件层的**要求侧**，与十一类的「基线 ∪ 修订 == 实际」同构。十一类若只有
+    派生文件、没有基线清单，删掉一个 Action 就无从比对；附件同理——要求若只写在
+    可删除的登记段里，删掉登记就等于删掉要求，而「删掉一段 YAML」与「从来没有过
+    附件」在磁盘上完全是同一个样子。判据必须能从别处知道「应该有什么」，那个别处
+    只能是修订台账：它是批准附件进入冻结面的那一笔。
+
+    方向是单向的（批准 → 必须登记），不是双向：「登记先落、修订后落」是两段式
+    登记的固有顺序（``source_commits`` 不能指向自身），要求「每条登记都必须已有
+    批准」会让中间那次提交必然为红。反向的「偷加附件」由清单哈希、code review 与
+    Owner 裁决兜，不在这里假装能兜住——漏报一个方向好过让闸门时红时绿。
+    """
+    registered = {entry.path: entry for entry in attachment_entries(inventory)}
+    problems: list[str] = []
+    approved_digest: dict[str, str] = {}
+    for amendment in amendments:
+        for att in amendment.approved_attachments:
+            previous = approved_digest.get(att.path)
+            if previous is not None and previous != att.sha256:
+                problems.append(
+                    f"附件 {att.path} 被多条修订批准为不同内容：{previous[:16]}… 与 "
+                    f"{att.sha256[:16]}…（同一份冻结依据只能有一个批准版本）"
+                )
+            approved_digest.setdefault(att.path, att.sha256)
+
+            entry = registered.get(att.path)
+            if entry is None:
+                problems.append(
+                    f"修订 {amendment.id} 批准纳入冻结面的附件未登记：{att.path}"
+                    "（冻结依据不得静默移除；确需移出必须修改批准它的那条修订，"
+                    "而不是删掉 frozen_inventory.attachments 里的条目）"
+                )
+                continue
+            if (entry.size, entry.sha256) != (att.size, att.sha256):
+                problems.append(
+                    f"附件 {att.path} 与修订 {amendment.id} 批准的内容不一致："
+                    f"登记 {entry.size} 字节 / {entry.sha256[:16]}…，"
+                    f"批准 {att.size} 字节 / {att.sha256[:16]}…（换掉冻结依据要重走裁决）"
+                )
+    return problems
 
 
 def _diff_against_baseline(
@@ -534,14 +788,22 @@ def _diff_against_baseline(
     return problems
 
 
-def check_amendment_consistency(inventory: dict[str, Any]) -> list[str]:
-    """基线清单 + 已批准修订 必须与当前契约名称全集逐项相等。"""
+def check_amendment_consistency(
+    inventory: dict[str, Any], amendments: list[Amendment] | None = None
+) -> list[str]:
+    """基线清单 + 已批准修订 必须与当前契约名称全集逐项相等。
+
+    ``amendments`` 允许外部传入，是为了让 ``check_all`` 只解析一次台账；不传则
+    自行读取（测试直接调用本函数时仍按「读磁盘上的台账」理解，与判据一致）。
+    """
     baseline = _mapping(inventory.get("baseline"), "frozen_inventory.baseline")
     counts = _mapping(baseline.get("counts"), "frozen_inventory.baseline.counts")
 
     base_actions = set(_strings(inventory.get("actions"), "frozen_inventory.actions"))
     base_objects = set(_strings(inventory.get("schema_objects"), "frozen_inventory.schema_objects"))
-    base_machines = set(_strings(inventory.get("state_machines"), "frozen_inventory.state_machines"))
+    base_machines = set(
+        _strings(inventory.get("state_machines"), "frozen_inventory.state_machines")
+    )
 
     # 清单自述数量必须与名称全集长度一致，避免「改了列表忘了改计数」。
     problems: list[str] = []
@@ -555,16 +817,28 @@ def check_amendment_consistency(inventory: dict[str, Any]) -> list[str]:
                 f"frozen_inventory.baseline.counts.{label}={declared} 与名称全集 {len(names)} 不一致"
             )
 
-    amendments = load_amendments()
-    added_actions = frozenset().union(*(a.added_actions for a in amendments)) if amendments else frozenset()
-    added_objects = frozenset().union(*(a.added_objects for a in amendments)) if amendments else frozenset()
-    added_machines = (
-        frozenset().union(*(a.added_state_machines for a in amendments)) if amendments else frozenset()
+    amendments = load_amendments() if amendments is None else amendments
+    added_actions = (
+        frozenset().union(*(a.added_actions for a in amendments)) if amendments else frozenset()
     )
-    removed_actions = frozenset().union(*(a.removed_actions for a in amendments)) if amendments else frozenset()
-    removed_objects = frozenset().union(*(a.removed_objects for a in amendments)) if amendments else frozenset()
+    added_objects = (
+        frozenset().union(*(a.added_objects for a in amendments)) if amendments else frozenset()
+    )
+    added_machines = (
+        frozenset().union(*(a.added_state_machines for a in amendments))
+        if amendments
+        else frozenset()
+    )
+    removed_actions = (
+        frozenset().union(*(a.removed_actions for a in amendments)) if amendments else frozenset()
+    )
+    removed_objects = (
+        frozenset().union(*(a.removed_objects for a in amendments)) if amendments else frozenset()
+    )
     removed_machines = (
-        frozenset().union(*(a.removed_state_machines for a in amendments)) if amendments else frozenset()
+        frozenset().union(*(a.removed_state_machines for a in amendments))
+        if amendments
+        else frozenset()
     )
 
     # 增补项若已在基线里，说明登记写错了（重复登记 = 台账噪声）。
@@ -580,10 +854,18 @@ def check_amendment_consistency(inventory: dict[str, Any]) -> list[str]:
         "Action", base_actions, current_actions(), set(added_actions), set(removed_actions)
     )
     problems += _diff_against_baseline(
-        "Schema 对象", base_objects, current_schema_objects(), set(added_objects), set(removed_objects)
+        "Schema 对象",
+        base_objects,
+        current_schema_objects(),
+        set(added_objects),
+        set(removed_objects),
     )
     problems += _diff_against_baseline(
-        "状态机", base_machines, current_state_machines(), set(added_machines), set(removed_machines)
+        "状态机",
+        base_machines,
+        current_state_machines(),
+        set(added_machines),
+        set(removed_machines),
     )
     return problems
 
@@ -626,11 +908,32 @@ def write_manifest() -> None:
         elif size is None or digest is None:
             raise FreezeDriftError(f"{artifact.category} 文件不存在，无法登记：{rel}")
         else:
-            rows.append(f"| {artifact.category} | `{rel}` | {size} | `{digest}` | {artifact.section} |")
+            rows.append(
+                f"| {artifact.category} | `{rel}` | {size} | `{digest}` | {artifact.section} |"
+            )
 
     amendments = load_amendments()
-    amendment_lines = (
-        "\n".join(f"- `{a.id}`" for a in amendments) if amendments else "- （无）"
+    # 生成清单不改判据：要求侧不成立时直接拒绝出清单。--write 若照写，就会生成一份
+    # 「附件表里没有它」的清单——那是把证据的缺席也一并签了字，比不签更糟。
+    # 注意这不影响两段式：只登记、尚未批准时没有要求，这一条不成立，--write 照常可用。
+    authorization = check_attachment_authorization(inventory, amendments)
+    if authorization:
+        raise FreezeDriftError(
+            "拒绝生成清单：附件要求侧与登记侧不一致——" + "；".join(authorization)
+        )
+    amendment_lines = "\n".join(f"- `{a.id}`" for a in amendments) if amendments else "- （无）"
+    attachment_lines: list[str] = []
+    for entry in attachment_entries(inventory):
+        path = ROOT / entry.path
+        if not path.is_file():
+            raise FreezeDriftError(f"冻结附件文件不存在，无法登记：{entry.path}")
+        attachment_lines.append(
+            f"| `{entry.path}` | {path.stat().st_size} | `{_sha256(path)}` | {entry.role} |"
+        )
+    attachments_block = (
+        "\n".join(attachment_lines)
+        if attachment_lines
+        else "| （无） | — | — | 当前冻结面只由十一类契约产物构成 |"
     )
     body = f"""# Phase 0 契约冻结包清单
 
@@ -651,6 +954,16 @@ def write_manifest() -> None:
 | 正文类目 | 文件 | 字节 | SHA-256 | 对应章节 |
 |---|---|---|---|---|
 {chr(10).join(rows)}
+
+## 冻结附件（治理文件）
+
+除十一类契约产物外，冻结结论所依据的治理文件也在此登记并校验字节：它们不是契约派生物，
+不参与「基线 ∪ 修订 == 实际」的名称全集判定，但一旦被改动，冻结的依据就变了——
+须重新裁决，而不是重签清单。
+
+| 文件 | 字节 | SHA-256 | 作用 |
+|---|---|---|---|
+{attachments_block}
 
 ## 已批准修订
 
@@ -686,12 +999,15 @@ python scripts/contract_check.py            # 派生之间的交叉一致性
 def check_all() -> list[str]:
     """三层判定合并执行，返回全部问题（而不是遇到第一个就退出）。"""
     inventory = _mapping(_load_yaml(INVENTORY_PATH), "frozen_inventory.yaml")
+    amendments = load_amendments()
     problems: list[str] = []
     problems += check_baseline_document(inventory)
     problems += check_stray_baseline_copies()
     problems += check_baseline_self_reported_counts(inventory)
     problems += check_manifest_integrity()
-    problems += check_amendment_consistency(inventory)
+    problems += check_attachments(inventory)
+    problems += check_attachment_authorization(inventory, amendments)
+    problems += check_amendment_consistency(inventory, amendments)
     problems += check_openapi_parity()
     return problems
 
@@ -736,10 +1052,13 @@ def main(argv: list[str] | None = None) -> int:
     objects = current_schema_objects()
     machines = current_state_machines()
     amendments = load_amendments()
+    attachments = attachment_entries(inventory)
+    approved_attachments = sum(len(a.approved_attachments) for a in amendments)
     print(
         f"[PASS] 契约冻结：基线 {baseline['revision']} 未变"
         f"（{str(baseline['document_sha256'])[:16]}…）"
         f" / 十一类产物哈希一致"
+        f" / 冻结附件 {len(attachments)} 份（修订批准 {approved_attachments} 份）"
         f" / 演进有据（{len(amendments)} 条修订："
         f"Action {len(actions)} = {counts['actions']}+{len(actions) - int(counts['actions'])}，"
         f"Schema {len(objects)} = {counts['schema_objects']}"

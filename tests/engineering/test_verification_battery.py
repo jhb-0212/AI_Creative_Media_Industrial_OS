@@ -63,17 +63,13 @@ def _probe(check_id: str, category: str) -> vb.Probe:
 
 
 def test_coverage_passes_when_every_category_has_a_probe() -> None:
-    battery = vb.Battery(
-        probes=[_probe(f"probe-{key}", key) for key in vb.CATEGORIES]
-    )
+    battery = vb.Battery(probes=[_probe(f"probe-{key}", key) for key in vb.CATEGORIES])
     assert battery.coverage_gaps() == []
 
 
 def test_coverage_detects_category_without_probe() -> None:
     """漏一类不能是绿灯：这正是手写清单腐烂的方向。"""
-    battery = vb.Battery(
-        probes=[_probe(f"probe-{key}", key) for key in list(vb.CATEGORIES)[:-1]]
-    )
+    battery = vb.Battery(probes=[_probe(f"probe-{key}", key) for key in list(vb.CATEGORIES)[:-1]])
     gaps = battery.coverage_gaps()
     assert any("没有任何探针" in gap for gap in gaps)
 
@@ -87,9 +83,7 @@ def test_coverage_detects_unregistered_category() -> None:
 
 
 def test_coverage_detects_duplicate_check_id() -> None:
-    battery = vb.Battery(
-        probes=[_probe(f"probe-{key}", key) for key in vb.CATEGORIES]
-    )
+    battery = vb.Battery(probes=[_probe(f"probe-{key}", key) for key in vb.CATEGORIES])
     battery.probes.append(_probe("probe-C1", "C1"))
     assert any("核验编号重复" in gap for gap in battery.coverage_gaps())
 

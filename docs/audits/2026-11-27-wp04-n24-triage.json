@@ -1,0 +1,9 @@
+[
+  {
+    "revision": "8f3b2c1d4e5a",
+    "parent": "7a8b9c0d1e2f",
+    "status": "ok",
+    "verdict": "no_restore_proven",
+    "diff": {}
+  }
+]

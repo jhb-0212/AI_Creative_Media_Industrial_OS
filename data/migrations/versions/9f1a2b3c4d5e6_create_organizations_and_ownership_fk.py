@@ -28,6 +28,7 @@ Revision ID: 9f1a2b3c4d5e6
 Revises: a1b2c3d4e5f6
 Create Date: 2026-11-17
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -90,9 +91,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """回滚：删外键 + 删 organization_id 列 + 删 organizations 表。"""
-    op.drop_constraint(
-        "fk_episodes_project", "episodes", schema=SCHEMA, type_="foreignkey"
-    )
+    op.drop_constraint("fk_episodes_project", "episodes", schema=SCHEMA, type_="foreignkey")
     op.drop_constraint(
         "fk_projects_organization",
         "projects",

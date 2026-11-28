@@ -115,7 +115,10 @@ def _parameter_names(rel_path: str, symbol: str) -> set[str]:
     for node in ast.walk(_tree(rel_path)):
         if isinstance(node, ast.ClassDef) and node.name == symbol:
             for sub in node.body:
-                if isinstance(sub, ast.FunctionDef | ast.AsyncFunctionDef) and sub.name == "__init__":
+                if (
+                    isinstance(sub, ast.FunctionDef | ast.AsyncFunctionDef)
+                    and sub.name == "__init__"
+                ):
                     return _param_names(sub)
             return set()
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name == symbol:
@@ -216,16 +219,13 @@ def _status_value(status: object) -> str:
     return str(getattr(status, "value", status))
 
 
-def _iter_python_files(
-    roots: tuple[str, ...], *, root: Path | None = None
-) -> list[str]:
+def _iter_python_files(roots: tuple[str, ...], *, root: Path | None = None) -> list[str]:
     """遍历若干目录下的 ``.py`` 相对路径（按字典序，保证报错顺序稳定）。"""
     base = ROOT if root is None else root
     files: list[str] = []
     for root_name in roots:
         files.extend(
-            path.relative_to(base).as_posix()
-            for path in sorted((base / root_name).rglob("*.py"))
+            path.relative_to(base).as_posix() for path in sorted((base / root_name).rglob("*.py"))
         )
     return files
 
@@ -299,8 +299,7 @@ def auth_rbac_capability_enforced() -> AssertionResult:
         authorize(action_key, without_caps)
         return (
             False,
-            f"角色具备但缺少 Capability 时动作 {action_key} 未被拒绝："
-            "token_required 仍是死声明",
+            f"角色具备但缺少 Capability 时动作 {action_key} 未被拒绝：token_required 仍是死声明",
         )
     except DomainError:
         pass
@@ -417,8 +416,7 @@ def auth_countersignature_not_downgraded() -> AssertionResult:
     else:
         return (
             False,
-            f"动作 {action_key} 要求多方会签，却被单个角色 {role} 放行——"
-            "会签被静默降级为单人授权",
+            f"动作 {action_key} 要求多方会签，却被单个角色 {role} 放行——会签被静默降级为单人授权",
         )
 
     # 反向探针：单席位动作必须仍能放行，否则「一律拒绝」也能骗过上面的检查。
@@ -457,8 +455,7 @@ def auth_single_entry_covers_resource() -> AssertionResult:
     if not signature_ok and not offenders:
         return (
             False,
-            "authorize 未接收资源参数，且路由层也没有归属判定——"
-            "资源级授权环节整体缺失",
+            "authorize 未接收资源参数，且路由层也没有归属判定——资源级授权环节整体缺失",
         )
     if not signature_ok:
         return (
@@ -479,9 +476,7 @@ def _authorize_has_resource_param() -> bool:
     """``authorize`` 是否声明了资源形参（名称不限，但必须是显式参数）。"""
     path = "services/identity_access/rbac.py"
     for node in ast.walk(_tree(path)):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and (
-            node.name == "authorize"
-        ):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and (node.name == "authorize"):
             params = {arg.arg for arg in node.args.args}
             params |= {arg.arg for arg in node.args.kwonlyargs}
             return bool(params & {"resource", "resource_ref", "ownership"})
@@ -666,9 +661,7 @@ def lifecycle_edge_ownership() -> AssertionResult:
     return _require(not problems, "；".join(problems))
 
 
-def evaluate_lifecycle_edge_ownership(
-    specs: tuple[LifecycleSpec, ...], *, root: Path
-) -> list[str]:
+def evaluate_lifecycle_edge_ownership(specs: tuple[LifecycleSpec, ...], *, root: Path) -> list[str]:
     """纯判定：返回边所有权不成立的位置。
 
     五条判据，覆盖「形态」「事实」「执行」三层：
@@ -717,8 +710,7 @@ def evaluate_lifecycle_edge_ownership(
             status = spec.registry.get(owner)
             if status is None:
                 problems.append(
-                    f"{spec.object_name} 边 {source}->{target} 的所有者 "
-                    f"{owner!r} 不在动作注册表"
+                    f"{spec.object_name} 边 {source}->{target} 的所有者 {owner!r} 不在动作注册表"
                 )
             elif status != "ACTIVE":
                 problems.append(
@@ -785,11 +777,7 @@ def _evaluate_aggregate_entry(
         return [f"{object_name}：聚合根文件不存在 {rel_path}"]
     tree = ast.parse(path.read_text(encoding="utf-8"))
     cls = next(
-        (
-            node
-            for node in tree.body
-            if isinstance(node, ast.ClassDef) and node.name == class_name
-        ),
+        (node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == class_name),
         None,
     )
     if cls is None:
@@ -806,9 +794,7 @@ def _evaluate_aggregate_entry(
     if func is None:
         return [f"{object_name}：{class_name} 未定义 transition_to"]
 
-    params = [arg.arg for arg in func.args.args] + [
-        arg.arg for arg in func.args.kwonlyargs
-    ]
+    params = [arg.arg for arg in func.args.args] + [arg.arg for arg in func.args.kwonlyargs]
     if "action" not in params:
         return [
             f"{object_name}：{class_name}.transition_to 未接收 action 形参——"
@@ -878,9 +864,7 @@ def _normalize_allowed_map(raw: object) -> dict[str, frozenset[str]]:
         return {}
     result: dict[str, frozenset[str]] = {}
     for source, targets in raw.items():
-        result[_status_value(source)] = frozenset(
-            _status_value(target) for target in targets
-        )
+        result[_status_value(source)] = frozenset(_status_value(target) for target in targets)
     return result
 
 
@@ -888,10 +872,7 @@ def _describe_allowed(allowed: dict[str, frozenset[str]]) -> str:
     """邻接集的可读描述（报错用，按 source 排序保证 diff 稳定）。"""
     return (
         "{"
-        + ", ".join(
-            f"{source}: {sorted(targets)}"
-            for source, targets in sorted(allowed.items())
-        )
+        + ", ".join(f"{source}: {sorted(targets)}" for source, targets in sorted(allowed.items()))
         + "}"
     )
 
@@ -925,12 +906,9 @@ def scope_project_organization_fk() -> AssertionResult:
             continue
         if node.args[0].value != "fk_projects_organization_tenant":
             continue
-        col_lists = [
-            arg for arg in node.args[1:] if isinstance(arg, (ast.List, ast.Tuple))
-        ]
+        col_lists = [arg for arg in node.args[1:] if isinstance(arg, (ast.List, ast.Tuple))]
         pairs = [
-            [elt.value for elt in arg.elts if isinstance(elt, ast.Constant)]
-            for arg in col_lists
+            [elt.value for elt in arg.elts if isinstance(elt, ast.Constant)] for arg in col_lists
         ]
         expected = ["organization_id", "tenant_id"]
         if len(pairs) < 2 or pairs[0] != expected or pairs[1] != expected:
@@ -968,9 +946,7 @@ def scope_child_resource_fk() -> AssertionResult:
             "单列外键放行跨项目借用返工授权（P1-03）",
         )
     a13 = _read("data/migrations/versions/a13b0c1d2e3f_scene_shot_rework_runtime_tables.py")
-    upgrade_mig = _read(
-        "data/migrations/versions/b1c2d3e4f5a6_shot_rework_basis_composite_fk.py"
-    )
+    upgrade_mig = _read("data/migrations/versions/b1c2d3e4f5a6_shot_rework_basis_composite_fk.py")
     if "FOREIGN KEY (project_id, rework_basis_ref)" not in upgrade_mig:
         return (False, "存量升级迁移未把 fk_shots_rework_basis 改为复合外键（P1-03）")
     if (
@@ -1102,8 +1078,6 @@ _ORG_RLS_TABLES: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
             ("production_planning", "generation_tasks"),
             ("budget_quota", "shot_budget_requests"),
             ("qc_governance", "gate_decisions"),
-            # Phase 3：QC 待检队列同样以父项目存在性表达组织可见性。
-            ("qc_governance", "qc_tasks"),
             # A35 / ADR-R42：产物写入意图与登记回执都自带 project_id，
             # 组织可见性经父项目传递；漏登记会让这两张表的策略不被求值。
             ("production_planning", "artifact_manifests"),
@@ -1111,8 +1085,26 @@ _ORG_RLS_TABLES: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
         )
     ),
     # R16：预算账本是追加式流水，无 project/org 列，按租户维度兜底隔离
-    #（"tenant" 形态：仍校验 tenant 谓词与 FORCE，只是不要求父项目存在性）。
+    # （"tenant" 形态：仍校验 tenant 谓词与 FORCE，只是不要求父项目存在性）。
     ("budget_quota", "budget_ledger", "tenant", ()),
+    # WP-D：QC 待检队列从「父项目存在性」改为「租户维度」。
+    #
+    # 为什么必须改：旧形态让 ``qc_tasks`` 的可见性**间接继承 projects 的 RLS**，
+    # 于是组织级项目的任务对**调度器与 QC Worker 一律不可见**——发现函数
+    # （SECURITY DEFINER）能数到待检条数，领取却永远读不到行，队列表面上「非空、
+    # 无进展」。这正是 WP-C 用 409 挡住的那条成因链，只是它在 qc_tasks 上复发：
+    # 策略是 OR/AND 语义之外还**传染**被引用表的策略，而调度器没有组织可注入。
+    #
+    # 为什么这样不越界：待检队列本来就是**系统级调度、租户级执行**的工作队列
+    # （``QC.TASK.PROCESS`` 的 allowed_principals 是「QC Worker（租约持有者）」这个
+    # 系统席位，不是人类浏览者）；组织是**随行事实**（``organization_id``）供下游
+    # 建上下文，不是可见性谓词。项目归属仍由复合外键
+    # ``(project_id, tenant_id) -> projects`` 在所有连接上强制。
+    #
+    # 代价说得明白：同一租户内、持有 QC Worker 席位的身份可以看见别的组织的待检
+    # 任务元数据（项目/产物引用）。它读不到别的组织的报告与资产——那两张表仍是
+    # 组织面 RLS（``qc_reports`` 经两跳 EXISTS）。
+    ("qc_governance", "qc_tasks", "tenant", ()),
 )
 
 
@@ -1165,34 +1157,36 @@ def evaluate_org_rls(
         tenant_scope_predicate,
     )
 
-    def _policy_statement(schema: str, table: str) -> str | None:
-        """取某张表上策略的**最终**形态（后写覆盖先写，DROP 视为没有）。
+    def _table_policies(schema: str, table: str) -> dict[str, str]:
+        """取某张表上**全部**存活策略（按策略名）。
 
-        为什么必须是最终形态而不是第一条：``8f2a1b3c4d5e`` 先建租户单维策略，
-        ``e9f0a1b2c3d4`` 再升级为「租户 + 组织」并 DROP→CREATE。取第一条会把
-        已经升级过的表报成「缺组织谓词」——判据问的必须是「数据库最后是什么样」，
-        否则每加一次策略修订都要回来改判据。
+        旧实现只保留「最后一条 CREATE POLICY」，把「文件顺序」当成了数据库终态：
+        PostgreSQL 的多条 permissive 策略是 **OR**，restrictive 是 **AND**，
+        创建顺序不决定授权语义。于是给同一张表再加一条「仅 owner 可读」策略，
+        就会让闸门把隔离策略整个忘掉——那不是策略坏了，是判据算错了。
 
-        匹配键是 ``ON <schema>.<table>``（DDL 里的定位点）而不是 ``.<table>``：
-        子表的 EXISTS 子句里也写着 ``project_planning.projects``，只按表名找会把
-        子表的策略当成 projects 的。
+        现在按策略名建集合：``CREATE`` 加入、``DROP POLICY <name>`` 只移除同名，
+        顺序置换不影响结果。匹配键是 ``ON <schema>.<table>``（DDL 定位点）并且
+        要求后接空白或结束，否则 ``scenes_archive`` 会被当成 ``scenes``。
         """
         marker = f" ON {schema}.{table}"
-        final: str | None = None
+        live: dict[str, str] = {}
         for statement in statements:
             index = statement.find(marker)
             if index < 0:
                 continue
-            # 定位点后面必须紧跟空白或语句结束，否则 ``scenes_archive`` 会被
-            # 当成 ``scenes``（前缀命中的老问题）。
             trailing = statement[index + len(marker) : index + len(marker) + 1]
             if trailing not in ("", " "):
                 continue
             if statement.startswith("CREATE POLICY "):
-                final = statement
+                name = _policy_name(statement)
+                if name:
+                    live[name] = statement
             elif statement.startswith("DROP POLICY "):
-                final = None
-        return final
+                name = _policy_name(statement, drop=True)
+                if name:
+                    live.pop(name, None)
+        return live
 
     problems: list[str] = []
 
@@ -1215,12 +1209,23 @@ def evaluate_org_rls(
             )
 
     for schema, table, form, correlations in _ORG_RLS_TABLES:
-        policy = _policy_statement(schema, table)
+        policies = _table_policies(schema, table)
+        isolation_name = f"tenant_isolation_{table}"
+        policy = policies.get(isolation_name)
         if policy is None:
-            problems.append(f"{schema}.{table} 缺少策略")
+            problems.append(
+                f"{schema}.{table} 缺少策略 {isolation_name}"
+                f"（现有策略：{sorted(policies) or '无'}）"
+            )
             continue
-        if f"tenant_isolation_{table}" not in policy:
-            problems.append(f"{schema}.{table} 策略名不是 tenant_isolation_{table}")
+        # 隔离策略必须对所有连接生效：只 TO 某个业务角色时，别的角色看这张表
+        # 就是零策略——而零策略在 FORCE 下意味着「完全不可见」，看起来像权限
+        # 收紧，实际是其它入口的功能崩塌。
+        if "PUBLIC" not in _policy_grantees(policy):
+            problems.append(
+                f"{schema}.{table} 的隔离策略只对 {sorted(_policy_grantees(policy))} "
+                "生效（应包含 PUBLIC）"
+            )
         if tenant_scope_predicate() not in policy:
             problems.append(f"{schema}.{table} 策略缺租户谓词")
         if form == "column":
@@ -1230,17 +1235,13 @@ def evaluate_org_rls(
                     "（手抄的副本会与单一事实源漂移）"
                 )
             if RLS_ORGANIZATION_SETTING not in policy:
-                problems.append(
-                    f"{schema}.{table} 策略未读取组织上下文 {RLS_ORGANIZATION_SETTING}"
-                )
+                problems.append(f"{schema}.{table} 策略未读取组织上下文 {RLS_ORGANIZATION_SETTING}")
         elif form == "tenant":
             # 无 project/org 列的业务表（预算账本）：以租户维度兜底隔离，
             # 只校验租户谓词（上面已校验）与策略名，不要求父项目存在性。
             pass
         else:
-            if "EXISTS (SELECT 1 FROM" not in policy or (
-                "project_planning.projects" not in policy
-            ):
+            if "EXISTS (SELECT 1 FROM" not in policy or ("project_planning.projects" not in policy):
                 problems.append(
                     f"{schema}.{table} 未用父项目存在性表达组织规则"
                     "（子表复制组织列会成为第二事实源）"
@@ -1257,10 +1258,20 @@ def evaluate_org_rls(
                         "（未关联的 EXISTS 会把全部他组织子行放行）"
                     )
 
+        # 同一张表上的其它策略也要看：permissive 策略之间是 OR，一条
+        # 「TO PUBLIC … USING (true)」就能把隔离策略整体旁路——只检查隔离策略
+        # 本身的判据对这种形态是盲的。
+        for other_name, other in sorted(policies.items()):
+            if other_name == isolation_name:
+                continue
+            if _is_permissive_everything(other):
+                problems.append(
+                    f"{schema}.{table} 存在对 PUBLIC 完全放行的策略 {other_name}"
+                    "（permissive 策略是 OR 关系，会旁路隔离策略）"
+                )
+
     forced = {
-        statement.removeprefix("ALTER TABLE ")
-        .removesuffix(" FORCE ROW LEVEL SECURITY")
-        .strip()
+        statement.removeprefix("ALTER TABLE ").removesuffix(" FORCE ROW LEVEL SECURITY").strip()
         for statement in statements
         if statement.startswith("ALTER TABLE ") and "FORCE ROW LEVEL SECURITY" in statement
     }
@@ -1271,9 +1282,7 @@ def evaluate_org_rls(
     # 判据 3：业务代码不得自行注入作用域（唯一注入点是 build_tenant_uow_dependency）。
     # outbox relay 例外：它按租户枚举事件、没有组织维度（ADR-R24 §4 的设计选择）。
     if self_injected_paths:
-        problems.append(
-            f"业务代码自行注入 RLS 作用域（应经唯一依赖）: {self_injected_paths}"
-        )
+        problems.append(f"业务代码自行注入 RLS 作用域（应经唯一依赖）: {self_injected_paths}")
 
     # 判据 4：注入点必须带组织维度，且启动期验证被接线到每个业务域引擎。
     if not injects_organization:
@@ -1315,6 +1324,47 @@ def find_self_injected_scope_paths(
 
 
 _POLICY_MARKERS: tuple[str, ...] = ("CREATE POLICY", "FORCE ROW LEVEL SECURITY")
+
+_POLICY_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_POLICY_TO_CLAUSE = re.compile(
+    r"\bTO\s+([A-Za-z0-9_\"', ]+?)(?=\s+(?:USING|WITH\s+CHECK|AS|FOR)\b|\s*;|\s*$)"
+)
+
+
+def _policy_name(statement: str, *, drop: bool = False) -> str | None:
+    """从 ``CREATE POLICY`` / ``DROP POLICY`` 语句里取策略名。
+
+    只接受裸标识符：解析不出名字时返回 None，调用方会把它当成「没有这条策略」，
+    报红方向是安全的一侧（少一条策略 ≠ 多一条放行）。
+    """
+    prefix = "DROP POLICY " if drop else "CREATE POLICY "
+    if not statement.startswith(prefix):
+        return None
+    rest = statement[len(prefix) :]
+    for optional in ("IF EXISTS ", "IF NOT EXISTS "):
+        if rest.startswith(optional):
+            rest = rest[len(optional) :]
+    token = rest.split(" ", 1)[0].strip().strip('"')
+    return token if _POLICY_IDENT.fullmatch(token) else None
+
+
+def _policy_grantees(statement: str) -> frozenset[str]:
+    """策略的适用角色。没有 ``TO`` 子句时 PostgreSQL 默认是 PUBLIC。"""
+    match = _POLICY_TO_CLAUSE.search(statement)
+    if match is None:
+        return frozenset({"PUBLIC"})
+    roles = {role.strip().strip('"').upper() for role in match.group(1).split(",") if role.strip()}
+    return frozenset(roles or {"PUBLIC"})
+
+
+def _is_permissive_everything(statement: str) -> bool:
+    """``TO PUBLIC ... USING (true)``：一条策略就把整张表放开。"""
+    if "RESTRICTIVE" in statement:
+        return False
+    if "PUBLIC" not in _policy_grantees(statement):
+        return False
+    normalized = re.sub(r"\s+", " ", statement)
+    return "USING (true)" in normalized or "USING (TRUE)" in normalized
 
 
 def _policy_statements() -> list[str]:
@@ -1375,9 +1425,7 @@ def scope_org_rls_enforced() -> AssertionResult:
     problems = evaluate_org_rls(
         _policy_statements(),
         database_text=_read("packages/shared/database.py"),
-        injects_organization=_injects_organization_from_principal(
-            "packages/shared/rls.py"
-        ),
+        injects_organization=_injects_organization_from_principal("packages/shared/rls.py"),
         self_injected_paths=find_self_injected_scope_paths(),
         tenant_tables=_tenant_scoped_business_tables(),
     )
@@ -1442,9 +1490,7 @@ def _non_docstring_literals(rel_path: str) -> list[str]:
     tree = _tree(rel_path)
     docstrings: set[int] = set()
     for node in ast.walk(tree):
-        if not isinstance(
-            node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
-        ):
+        if not isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
             continue
         body = getattr(node, "body", [])
         if (
@@ -1481,12 +1527,8 @@ def _unfrozen_converge_calls(rel_paths: list[str]) -> list[str]:
             if not isinstance(node, ast.Call):
                 continue
             func = node.func
-            name = (
-                func.attr
-                if isinstance(func, ast.Attribute)
-                else getattr(func, "id", "")
-            )
-            if name != "converge_statements":
+            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+            if name not in ("converge_statements", "infra_converge_statements"):
                 continue
             if not any(kw.arg == "tables" for kw in node.keywords):
                 found.append(f"{rel_path}:{node.lineno}")
@@ -1542,9 +1584,7 @@ def _is_authorization_statement(statement: str) -> bool:
     语句集合」会让每一次新增 DDL 都误报「迁移多执行」。
     """
     normalized = statement.strip().upper()
-    return any(
-        normalized.startswith(prefix) for prefix in _AUTHORIZATION_STATEMENT_PREFIXES
-    )
+    return any(normalized.startswith(prefix) for prefix in _AUTHORIZATION_STATEMENT_PREFIXES)
 
 
 def evaluate_least_privilege(
@@ -1556,6 +1596,8 @@ def evaluate_least_privilege(
     rendered: list[str],
     grant_forbidden_literals: dict[str, list[str]],
     unfrozen_converge_calls: list[str],
+    infra_converge: dict[str, list[str]] | None = None,
+    auxiliary_converge: Sequence[str] = (),
 ) -> list[str]:
     """判定「域角色的授权面 == 矩阵声明」（纯函数，供负向用例喂构造数据）。
 
@@ -1580,7 +1622,9 @@ def evaluate_least_privilege(
 
     # 1. 覆盖（双向）。
     for domain, tables in orm_tables.items():
-        declared = {table for schema, table in business.get(domain, frozenset()) if schema == domain}
+        declared = {
+            table for schema, table in business.get(domain, frozenset()) if schema == domain
+        }
         missing = sorted(tables - declared)
         if missing:
             problems.append(
@@ -1608,15 +1652,31 @@ def evaluate_least_privilege(
     # 而真正的失效模式（少一条 GRANT、多一条矩阵没声明的 GRANT）在集合语义下
     # 一个都不会漏。
     rendered_set = {
-        statement.strip()
-        for statement in rendered
-        if _is_authorization_statement(statement)
+        statement.strip() for statement in rendered if _is_authorization_statement(statement)
     }
     expected_set = {
         statement.strip()
         for statement in (
             statement for domain in sorted(converge) for statement in converge[domain]
         )
+        if _is_authorization_statement(statement)
+    }
+    # 平台运维角色的授权（outbox_ops_role 等）也必须由矩阵收敛：它们不走
+    # DOMAINS，但同样是「声明 → 迁移执行」，不能因为不是业务域就退回手写 GRANT。
+    # 不并进来会出现诡异局面——迁移按矩阵执行运维角色的授权，却被判成
+    # 「迁移多执行 N 条」。
+    for infra in sorted(infra_converge or {}):
+        expected_set |= {
+            statement.strip()
+            for statement in infra_converge[infra]
+            if _is_authorization_statement(statement)
+        }
+    # 第三类授权面：既不是业务域的表级权限，也不是运维角色的收敛——维护身份对
+    # 维护 schema / 守卫函数 / SECDEF 函数的授权与收紧。它们同样由 db_grants
+    # 声明、由迁移执行；不并进来就会变成「迁移多执行 N 条」而被迫放宽判据。
+    expected_set |= {
+        statement.strip()
+        for statement in auxiliary_converge
         if _is_authorization_statement(statement)
     }
     if rendered_set != expected_set:
@@ -1674,12 +1734,22 @@ def data_role_grants_least_privilege() -> AssertionResult:
     """
     from packages.shared.db_grants import (
         DOMAINS,
+        INFRA_ROLES,
         business_tables,
         converge_statements,
         declared_privileges,
+        discovery_guard_statements,
+        infra_converge_statements,
+        maintenance_command_statements,
+        maintenance_function_public_reclaim_statements,
+        maintenance_identity_statements,
+        maintenance_membership_statements,
+        maintenance_repair_statements,
+        scheduler_statements,
+        validate_infra_matrix,
         validate_matrix,
     )
-    from packages.shared.db_roles import domain_role
+    from packages.shared.db_roles import domain_role, infra_role
     from services.asset_service.repository import orm as asset_orm
     from services.budget_quota.repository import orm as budget_orm
     from services.production_planning.repository import orm as production_orm
@@ -1699,26 +1769,45 @@ def data_role_grants_least_privilege() -> AssertionResult:
     scan_paths = [converge_migration, *later_migrations]
 
     problems = evaluate_least_privilege(
-        matrix_problems=validate_matrix(),
+        matrix_problems=validate_matrix() + validate_infra_matrix(),
         business={domain: business_tables(domain) for domain in DOMAINS},
-        orm_tables={
-            domain: frozenset(by_schema.get(domain, set())) for domain in DOMAINS
-        },
-        converge={
-            domain: converge_statements(domain_role(domain), domain)
-            for domain in DOMAINS
+        orm_tables={domain: frozenset(by_schema.get(domain, set())) for domain in DOMAINS},
+        converge={domain: converge_statements(domain_role(domain), domain) for domain in DOMAINS},
+        # 运维角色的授权同样只能经矩阵收敛（D6-9 的 outbox_ops_role）。它没有
+        # 自有 schema，不能进 DOMAINS——但「不是业务域」不等于「可以手写 GRANT」。
+        infra_converge={
+            infra: infra_converge_statements(infra_role(infra), infra) for infra in INFRA_ROLES
         },
         # 回放**全部**授权迁移并取并集：迁移是时间胶囊，新表由新迁移授权，
         # 只看收敛那一次会在「矩阵加表」后误报（评审 F1）。
         rendered=[
-            statement
-            for path in scan_paths
-            for statement in _rendered_migration_statements(path)
+            statement for path in scan_paths for statement in _rendered_migration_statements(path)
         ],
-        grant_forbidden_literals={
-            path: _non_docstring_literals(path) for path in scan_paths
-        },
+        grant_forbidden_literals={path: _non_docstring_literals(path) for path in scan_paths},
         unfrozen_converge_calls=_unfrozen_converge_calls(scan_paths),
+        # 维护身份的授权面（WP-03）：不属任何业务域、也不是运维角色，
+        # 但同样是「矩阵声明 → 迁移执行」。这里只并 upgrade 的语句：闸门回放
+        # 的是 upgrade()，downgrade 的复原语句不在比对集合里（否则会要求
+        # 每条 downgrade 语句都必须在 upgrade 里出现一次，语义反了）。
+        auxiliary_converge=[
+            *maintenance_membership_statements(),
+            *maintenance_identity_statements(),
+            # WP-A 第一阶段：三个只读命令 + 会话成员判定（含 owner 对 qc_tasks 的
+            # 只读授权）。
+            *maintenance_command_statements(),
+            # WP-A.2：修复命令的锁权限与 EXECUTE 白名单。闸门回放迁移时没有活库，
+            # 迁移侧按最低支持版本（PG16）取分支，这里必须取同一分支，否则回放
+            # 会因「PG17 的 MAINTAIN 语句」被判成迁移多执行。PG17+ 的真实 ACL
+            # 由 PG18 集成验收单独核对。
+            *maintenance_repair_statements(server_version_num=160000),
+            # WP-B：调度发现身份只有「schema USAGE + 发现函数 EXECUTE」，
+            # 以及为发现守卫函数作 PUBLIC 收紧（守卫只判定身份、不返回数据）。
+            *discovery_guard_statements(),
+            # 没有这一步，「只能发现」会被 PUBLIC 默认执行权绕过：白名单之外
+            # 任何一个遗留函数都会让调度身份拿到 EXECUTE。
+            *maintenance_function_public_reclaim_statements(),
+            *scheduler_statements(),
+        ],
     )
     if problems:
         return (False, "；".join(problems))
@@ -1742,14 +1831,19 @@ _DEFAULT_ROLE_NAMES = frozenset(
         "outbox_relay_role",
         "project_planning_role",
         "asset_service_role",
+        # R16 三域拆分与 D6-9 运维角色同在「按配置解析」这条判据之下：
+        # 少了它们，扫描集合就只覆盖早期两个域角色，新角色写死字面量不会被拦。
+        "production_planning_role",
+        "budget_quota_role",
+        "qc_governance_role",
+        "outbox_ops_role",
     }
 )
 
 # 按 SQL 标识符边界匹配：``"GRANT ... TO app_role"`` 要拦，
 # ``"app_role_name"``（读取函数名）不能误伤。
 _ROLE_NAME_TOKEN = {
-    role: re.compile(rf"(?<![A-Za-z0-9_]){role}(?![A-Za-z0-9_])")
-    for role in _DEFAULT_ROLE_NAMES
+    role: re.compile(rf"(?<![A-Za-z0-9_]){role}(?![A-Za-z0-9_])") for role in _DEFAULT_ROLE_NAMES
 }
 
 
@@ -1889,9 +1983,7 @@ def keys_process_scoped_validation() -> AssertionResult:
         "workers/outbox_maintenance/__main__.py",
     ]
     missing = [ep for ep in entrypoints if "get_process_settings" not in _read(ep)]
-    return _require(
-        not missing, f"以下进程入口未声明 process_role（会回落成 api 语义）: {missing}"
-    )
+    return _require(not missing, f"以下进程入口未声明 process_role（会回落成 api 语义）: {missing}")
 
 
 @assertion("keys.physical_separation")
@@ -2005,6 +2097,29 @@ PROCESS_ALLOWED_DB_ENV: dict[str, frozenset[str]] = {
             "POSTGRES_USER",
             "POSTGRES_PASSWORD",
             "POSTGRES_DB",
+        }
+    ),
+    # 身份 Bootstrap：迁移前建角色必须用超管，且需要每个角色自己的口令。
+    # 这是本编排里凭证面最大的一个单元——它本来就是身份提供者，遮不住；
+    # 能做的是把它做成**一次性、只跑声明语句、跑完即退**，并在下面这条闸门里
+    # 明确登记，而不是让它默认继承全套。
+    "bootstrap": frozenset(
+        {
+            "POSTGRES_HOST",
+            "POSTGRES_PORT",
+            "POSTGRES_USER",
+            "POSTGRES_PASSWORD",
+            "POSTGRES_DB",
+            "POSTGRES_APP_PASSWORD",
+            "POSTGRES_RELAY_PASSWORD",
+            "POSTGRES_OUTBOX_OPS_PASSWORD",
+            "POSTGRES_PROJECT_PLANNING_PASSWORD",
+            "POSTGRES_ASSET_SERVICE_PASSWORD",
+            "POSTGRES_PRODUCTION_PLANNING_PASSWORD",
+            "POSTGRES_BUDGET_QUOTA_PASSWORD",
+            "POSTGRES_QC_GOVERNANCE_PASSWORD",
+            "POSTGRES_QC_MAINTENANCE_LOGIN_PASSWORD",
+            "POSTGRES_QC_SCHEDULER_PASSWORD",
         }
     ),
     "api": frozenset(
@@ -2145,6 +2260,17 @@ _TRANSITION_ENTRY_WHITELIST: dict[tuple[str, str], str] = {
 # 断言必须覆盖两种，否则「方法名」被覆盖而「状态被改写」没被覆盖（评审 T1）。
 STATUS_ATTR = "status"
 
+# 租约字段：状态之外的第二组「写错就静默失去 fencing」的列。
+#
+# 为什么它们必须进同一道闸门
+# --------------------------
+# 只保护 ``status`` 是不够的：一个 Worker 只要能在领域方法之外改写
+# ``lease_owner`` / ``lease_expires_at`` / ``lease_generation``，就能把「我不再
+# 持有租约」改写成「我还持有」，而且事实行、事件、投影全都不会报错。三个字段
+# 分别守不同的东西：owner 是身份、expires 是有效期、generation 是代次；
+# 缺任一个都能拼出一条能通过校验的假租约。
+LEASE_ATTRS: frozenset[str] = frozenset({"lease_owner", "lease_expires_at", "lease_generation"})
+
 # 领域层「改状态」的唯一方法名。新增一个方法名不该让断言失效——所以真正的
 # 兜底是下面的落库规则：改状态想生效就必须落库，落库点只有审计入口。
 _STATUS_MUTATORS = frozenset({"transition_to"})
@@ -2192,6 +2318,7 @@ def evaluate_transition_entries(root: Path) -> list[str]:
     """
     calls_outside: list[str] = []
     assigns_outside: list[str] = []
+    lease_assigns_outside: list[str] = []
     saves_outside: list[str] = []
     scanned = 0
     for root_name in ("services", "packages", "apps"):
@@ -2210,6 +2337,8 @@ def evaluate_transition_entries(root: Path) -> list[str]:
                         if not isinstance(func, ast.Attribute):
                             if _is_self_status_setattr(sub):
                                 assigns_outside.append(f"{rel}::{node.name}（setattr）")
+                            if _is_setattr_of_lease(sub):
+                                lease_assigns_outside.append(f"{rel}::{node.name}（setattr）")
                             continue
                         if in_domain or audited_entry:
                             continue
@@ -2218,11 +2347,12 @@ def evaluate_transition_entries(root: Path) -> list[str]:
                         elif func.attr == _PERSIST_METHOD:
                             saves_outside.append(f"{rel}::{node.name}")
                     elif isinstance(sub, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
-                        targets = (
-                            sub.targets
-                            if isinstance(sub, ast.Assign)
-                            else [sub.target]
-                        )
+                        targets = sub.targets if isinstance(sub, ast.Assign) else [sub.target]
+                        # 租约字段：只允许在 ``/domain/`` 内改写（聚合自己的租约
+                        # 方法）。服务层、仓储、Worker、路由任何一处直接赋值都
+                        # 意味着「这条写入没经过 fencing 判定」。
+                        if not in_domain and any(_is_attr_of(t, LEASE_ATTRS) for t in targets):
+                            lease_assigns_outside.append(f"{rel}::{node.name}")
                         if not any(_is_self_status_attr(t) for t in targets):
                             continue
                         if node.name != "transition_to" or not in_domain:
@@ -2237,6 +2367,12 @@ def evaluate_transition_entries(root: Path) -> list[str]:
         problems.append(
             "在领域 transition_to 之外直接改写 self.status（事实行会静默缺失）："
             + "、".join(sorted(set(assigns_outside)))
+        )
+    if lease_assigns_outside:
+        problems.append(
+            "在 /domain/ 之外直接改写租约字段（lease_owner / lease_expires_at / "
+            "lease_generation 必须只由领域方法维护，否则 fencing 判定被旁路）："
+            + "、".join(sorted(set(lease_assigns_outside)))
         )
     if saves_outside:
         problems.append(
@@ -2257,6 +2393,27 @@ def _is_self_status_attr(node: ast.expr) -> bool:
         and node.attr == STATUS_ATTR
         and isinstance(node.value, ast.Name)
         and node.value.id == "self"
+    )
+
+
+def _is_attr_of(node: ast.expr, names: frozenset[str]) -> bool:
+    """``<任意对象>.<names 之一>``：租约字段可能挂在 ``self``、``task``、``row``。"""
+    return isinstance(node, ast.Attribute) and node.attr in names
+
+
+def _is_setattr_of_lease(call: ast.Call) -> bool:
+    """``setattr(任意对象, "lease_*", ...)``。
+
+    只看第二个实参（属性名字面量）：第一个实参是**谁**都可以（``task``、
+    ``row``、``self``），它甚至可以是普通名字而不是属性访问——按对象形态
+    过滤会让 ``setattr(task, ...)`` 这种最常见的写法整条漏掉。
+    """
+    return (
+        isinstance(call.func, ast.Name)
+        and call.func.id == "setattr"
+        and len(call.args) >= 2
+        and isinstance(call.args[1], ast.Constant)
+        and call.args[1].value in LEASE_ATTRS
     )
 
 
@@ -2291,6 +2448,20 @@ class _EmptyScalarResult:
         return iter(())
 
 
+class _EmptyRow:
+    """``.one()`` 的替身：可下标取值（每个字段为 None），但迭代为空。
+
+    ``f6a7`` 用 ``min(occurred_at), max(occurred_at) = row[0], row[1]``，对 None 有
+    显式兜底（空表从本月起建分区），所以「每列 None」正是回放该走的分支。
+    """
+
+    def __getitem__(self, index: int) -> None:
+        return None
+
+    def __iter__(self):
+        return iter(())
+
+
 class _EmptyResult:
     """空查询结果：迁移里的「先查后判」在回放时一律得到空集。"""
 
@@ -2300,12 +2471,32 @@ class _EmptyResult:
     def all(self) -> list[object]:
         return []
 
-    def one(self) -> None:
-        return None
+    def one(self) -> _EmptyRow:
+        return _EmptyRow()
 
     def first(self) -> None:
         """空结果的首行为 None——迁移里的 `if row is None` 判据据此走「不存在」分支。"""
         return None
+
+    def fetchall(self) -> list[object]:
+        return []
+
+    def scalar(self) -> None:
+        """标量取值为 None：迁移里的「有没有在途行」在回放中视为「没有」。"""
+        return None
+
+    def scalar_one(self) -> int:
+        """``scalar_one`` 与 ``scalar`` 分开实现。
+
+        回放只关心「迁移会执行什么 DDL」，不关心库里此刻的计数；这里返回 0，
+        guard 类迁移（如 e1f2 降级前置守卫）在回放时走「无阻塞」分支。
+        缺这个方法会让回放崩在 AttributeError，而闸门把崩溃报成
+        「无法加载迁移」——正是 ``d0e1`` 注释里反复提醒的那个错误方向。
+        """
+        return 0
+
+    def scalar_one_or_none(self) -> int:
+        return 0
 
 
 class _EmptyBind:
@@ -2320,6 +2511,33 @@ class _EmptyBind:
         return _EmptyResult()
 
 
+class _ReplayContext:
+    """alembic ``context`` 代理在回放中的替身。
+
+    有些迁移直接 ``from alembic import context`` 再调 ``context.is_offline_mode()``
+    （``c7d8`` 的数据自检就是这么写的）。真实执行时该代理由 Alembic 的 Environment
+    建立；回放里没有 Environment，代理未建立就抛
+    ``NameError: name '_proxy' is not defined``——闸门会把它报成「无法加载迁移」。
+
+    这里按**离线语义**回答：``is_offline_mode() == True`` 让迁移走「只渲染 DDL、
+    不查存量」的分支，正好是回放想要的。
+    """
+
+    opts: dict[str, object] = {}
+
+    def is_offline_mode(self) -> bool:
+        return True
+
+    def get_bind(self) -> _EmptyBind:
+        return _EmptyBind()
+
+    def get_x_argument(self, as_dictionary: bool = False) -> object:
+        return {} if as_dictionary else []
+
+    def get_context(self) -> _ReplayContext:
+        return self
+
+
 class _SqlCollector:
     """假的 alembic ``op``：只记录 ``execute()`` 的 SQL，不连数据库。"""
 
@@ -2331,6 +2549,9 @@ class _SqlCollector:
 
     def get_bind(self) -> _EmptyBind:
         return _EmptyBind()
+
+    def get_context(self) -> _ReplayContext:
+        return _ReplayContext()
 
     # 结构类 DDL 在本断言里不需要 SQL 文本：这里判定的是权限/安全语句，
     # 建表语句由另一条判据（schema 对齐）负责。显式实现而不是 __getattr__ 兜底，
@@ -2387,9 +2608,7 @@ class _SqlCollector:
         return None
 
 
-def _rendered_migration_statements(
-    rel_path: str, *, direction: str = "upgrade"
-) -> list[str]:
+def _rendered_migration_statements(rel_path: str, *, direction: str = "upgrade") -> list[str]:
     """回放一份迁移的 ``upgrade()``（或 ``downgrade()``），返回语句列表。
 
     与 ``_rendered_migration_sql`` 同源（后者只是本函数的拼接结果）。需要按语句
@@ -2408,6 +2627,10 @@ def _rendered_migration_statements(
     spec.loader.exec_module(module)
     collector = _SqlCollector()
     module.op = collector  # type: ignore[attr-defined]
+    # 直接 ``from alembic import context`` 的迁移（c7d8 的数据自检）会打真代理，
+    # 代理未建立即抛 NameError。按离线语义替换成回放替身。
+    if hasattr(module, "context"):
+        module.context = _ReplayContext()  # type: ignore[attr-defined]
     getattr(module, direction)()
     return list(collector.statements)
 
@@ -2420,7 +2643,6 @@ def _rendered_migration_sql(rel_path: str) -> str:
     读源码只能匹配到片段，回放才能匹配到语句——后者才是「数据库实际收到了什么」。
     """
     return "\n".join(_rendered_migration_statements(rel_path))
-
 
 
 @assertion("data.transition_fact_table")
@@ -2457,10 +2679,9 @@ def data_transition_fact_table() -> AssertionResult:
     model = (ROOT / "packages/shared/status_transition.py").read_text(encoding="utf-8")
     if '__tablename__ = "status_transitions"' not in model:
         return (False, "ORM 映射未指向 status_transitions：规则与持久化不同源")
-    if "SCHEMA_NAME = \"audit\"" not in model:
+    if 'SCHEMA_NAME = "audit"' not in model:
         return (False, "ORM 映射未落在 audit schema")
     return (True, "")
-
 
 
 @assertion("data.accumulative_countersign")
@@ -2524,9 +2745,15 @@ def data_accumulative_countersign() -> AssertionResult:
             if rel == allowed_writer:
                 continue
             for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-                if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-                    and node.func.id == "ApprovalSignatureModel"):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == "ApprovalSignatureModel"
+                ):
                     writers.append(rel)
     if writers:
-        return (False, "签署事实写入点越界（须只在 countersign 服务）：" + "、".join(sorted(set(writers))))
+        return (
+            False,
+            "签署事实写入点越界（须只在 countersign 服务）：" + "、".join(sorted(set(writers))),
+        )
     return (True, "")

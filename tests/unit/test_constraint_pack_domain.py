@@ -174,9 +174,7 @@ def test_unknown_applicability_is_rejected(value: str) -> None:
 
 
 def test_not_applicable_with_no_content_is_allowed() -> None:
-    pack = _pack(
-        applicability="NOT_APPLICABLE", locked_dimensions=[], constraints=[]
-    )
+    pack = _pack(applicability="NOT_APPLICABLE", locked_dimensions=[], constraints=[])
 
     assert pack.applicability == "NOT_APPLICABLE"
     assert pack.locked_dimensions == []
@@ -393,9 +391,7 @@ def test_not_applicable_pack_can_be_activated() -> None:
 
 def test_lock_edge_is_owned_by_lock_action_only() -> None:
     """治理动作用来走 ON 边的入口不能顺带走 LOCK 边。"""
-    pack = _pack(
-        approved_by="director", approved_at=datetime(2026, 11, 21, tzinfo=UTC)
-    )
+    pack = _pack(approved_by="director", approved_at=datetime(2026, 11, 21, tzinfo=UTC))
 
     with pytest.raises(DomainError) as exc:
         _activate(pack, action=CONSTRAINT_PACK_STATUS_CHANGE_ACTION)
@@ -412,9 +408,7 @@ def test_governance_edges_are_owned_by_status_change_only() -> None:
     _activate(pack)
 
     with pytest.raises(DomainError) as exc:
-        pack.transition_to(
-            ConstraintPackStatus.REVOKED, "audit://2", CONSTRAINT_PACK_LOCK_ACTION
-        )
+        pack.transition_to(ConstraintPackStatus.REVOKED, "audit://2", CONSTRAINT_PACK_LOCK_ACTION)
 
     assert "独占" in exc.value.detail
 

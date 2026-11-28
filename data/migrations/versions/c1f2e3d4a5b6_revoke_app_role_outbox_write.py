@@ -25,6 +25,7 @@ Revision ID: c1f2e3d4a5b6
 Revises: b9e1c2d3f4a5
 Create Date: 2026-11-18
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -44,9 +45,7 @@ OUTBOX_TABLE = "outbox_events"
 
 def upgrade() -> None:
     """回收 app_role 对 outbox_events 的写权限（保留 SELECT）。"""
-    op.execute(
-        f"REVOKE INSERT, UPDATE ON {OUTBOX_SCHEMA}.{OUTBOX_TABLE} FROM {app_role_name()}"
-    )
+    op.execute(f"REVOKE INSERT, UPDATE ON {OUTBOX_SCHEMA}.{OUTBOX_TABLE} FROM {app_role_name()}")
     # 未来新建事件表：默认权限不再自动授予 app_role 写权。
     op.execute(
         f"ALTER DEFAULT PRIVILEGES IN SCHEMA {OUTBOX_SCHEMA} "
@@ -56,9 +55,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """回滚：恢复 app_role 对 outbox_events 的写权限（仅本地回退用）。"""
-    op.execute(
-        f"GRANT INSERT, UPDATE ON {OUTBOX_SCHEMA}.{OUTBOX_TABLE} TO {app_role_name()}"
-    )
+    op.execute(f"GRANT INSERT, UPDATE ON {OUTBOX_SCHEMA}.{OUTBOX_TABLE} TO {app_role_name()}")
     op.execute(
         f"ALTER DEFAULT PRIVILEGES IN SCHEMA {OUTBOX_SCHEMA} "
         f"GRANT INSERT, UPDATE ON TABLES TO {app_role_name()}"

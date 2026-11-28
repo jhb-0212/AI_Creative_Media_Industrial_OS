@@ -87,6 +87,12 @@ dist/
 # 不落盘；此规则是防泄漏的最后一道网，不是推荐用法）
 /_*.txt
 /commit_msg*.txt
+# `.<x>.txt`：`ruff … > .ruff.txt`、`pytest … > .test.txt` 这类重定向落盘的中间产物。
+# 它们曾经进过库（清理过一次又被加回来）：内容全是本机一次跑动的输出，没有任何
+# 复现价值，却会随分支漂移制造「证据类」噪声。锚定根目录：docs/ 下的 .txt 是证据，
+# 不受此规则影响。
+/.*.txt
+/.*.json
 
 # 本地开发身份密钥对（make dev-keys 生成，绝不入库）
 infra/compose/.dev-keys/

@@ -18,10 +18,7 @@ from pathlib import Path
 import pytest
 
 _SCHEMA_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "contracts"
-    / "schemas"
-    / "object_schemas.schema.json"
+    Path(__file__).resolve().parents[2] / "contracts" / "schemas" / "object_schemas.schema.json"
 )
 _OBJECTS = ("ArtifactManifest", "AssetRegistrationReceipt")
 

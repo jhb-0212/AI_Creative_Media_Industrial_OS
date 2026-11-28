@@ -86,6 +86,13 @@ get_read_qc_governance_tenant_uow = build_tenant_uow_dependency(
     get_principal, make_read_uow_dependency("qc_governance_sessionmaker")
 )
 
+# D6-9 运维重放：独立连接池 + 独立角色（outbox_ops_role）。它不是业务域
+# UoW——没有自有 schema，只对 outbox 有「读事件 + 清死信三列 + 写审计表」的
+# 最小权限。因此这里只提供写单元：重放必须写审计，只读池在数据库层就会被拒。
+get_outbox_ops_tenant_uow = build_tenant_uow_dependency(
+    get_principal, make_uow_dependency("outbox_ops_sessionmaker")
+)
+
 
 def require_role(action_key: str) -> Callable[..., Awaitable[Principal]]:
     """构造绑定 ``get_principal`` 的角色授权依赖（动作级闸门）。
@@ -187,6 +194,7 @@ __all__ = [
     "authorize_on_resource",
     "get_asset_tenant_uow",
     "get_budget_quota_tenant_uow",
+    "get_outbox_ops_tenant_uow",
     "get_principal",
     "get_production_planning_tenant_uow",
     "get_project_tenant_uow",

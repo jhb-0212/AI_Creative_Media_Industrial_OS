@@ -59,9 +59,7 @@ class GateDecision(Entity):
         # 但允许空值（不同 Gate 的信息完备度不同，禁止空值会拒掉合法决策）。
         for name in ("decision", "decided_by", "gate_key", "project_id"):
             if _blank(getattr(self, name)):
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
         if self.decision not in ("APPROVED", "REJECTED"):
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,

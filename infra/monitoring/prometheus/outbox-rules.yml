@@ -2,8 +2,14 @@
 #
 # 指标来源：API 进程的 /metrics（packages/shared/metrics.py）
 #   outbox_relay_backlog                当前未投递事件数
+#   outbox_relay_dead                   当前死信数（投递已放弃，待人工处置）
 #   outbox_relay_events_total           已投递事件累计数（按结果标签）
 #   outbox_relay_run_errors_total       relay 轮次失败累计数
+#   outbox_dead_letter_replays_total    人工重放成功累计数（按 event_type）
+#
+# 死信的两个指标分工：`outbox_relay_dead` 是存量（Gauge，随 relay 每轮扫描刷新），
+# `outbox_dead_letter_replays_total` 是处置动作的次数（Counter，提交成功才 +1）。
+# 只看存量无法区分「一直 5 条没人管」与「重放 100 条又新进 100 条」，所以两个都要。
 #
 # 明确边界：保留期维护的「新鲜度」不是 Prometheus 指标（维护进程独立于 API，
 # 没有 pushgateway）。它由 `outbox.maintenance_runs` 表提供，巡检 SQL 见
@@ -48,3 +54,21 @@ groups:
           description: >-
             有积压且零进展，比单纯积压更接近「消费者已死」；
             确认 relay 进程存活与数据库连接，再判断是否为下游阻塞。
+
+      # 死信不会自愈：事件已被放弃投递，只能人工处置（查询 + 重放）。
+      # 用 30m 而不是立即告警，是为了排除「刚进死信、运维正在看」的正常处置窗口；
+      # 也不用 critical —— 一条毒事件就足以触发，长期 critical 会让人对这条规则脱敏。
+      - alert: OutboxDeadLettersPresent
+        expr: outbox_relay_dead > 0
+        for: 30m
+        labels:
+          severity: warning
+          component: outbox
+        annotations:
+          summary: "Outbox 存在死信且超过 30 分钟未清空"
+          description: >-
+            死信意味着某类事件已投递失败到上限、业务链路可能已断。先
+            `GET /outbox/dead-letters` 看 event_type 与 attempts（不要先手工改库），
+            确认下游修复后用 `POST /outbox/dead-letters/{event_id}/replay` 处置。
+            处置总量看 outbox_dead_letter_replays_total；存量不降说明新进速度快于处置，
+            应优先查上游为什么持续失败，而不是加快重放。

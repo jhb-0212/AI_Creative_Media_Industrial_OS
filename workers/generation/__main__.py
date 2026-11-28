@@ -59,9 +59,7 @@ class UnconfiguredExecutor(GenerationExecutor):
     """未接真实生成网关时的占位执行器：如实失败，不伪造产物。"""
 
     async def execute(self, task: Any) -> GenerationOutcome:
-        logger.warning(
-            "no generation gateway configured; task %s marked FAILED", task.entity_id
-        )
+        logger.warning("no generation gateway configured; task %s marked FAILED", task.entity_id)
         return GenerationOutcome(
             result="FAILED",
             evidence_ref="generation-gateway-not-configured",
@@ -160,8 +158,7 @@ def _build_executor(settings: Any, sessionmaker: Any) -> tuple[Any, Any | None]:
     storage_root = getattr(settings, "storage_local_root", "")
     if not storage_root:
         raise ValueError(
-            "已配置 MODEL_GATEWAY_BASE_URL 但 STORAGE_LOCAL_ROOT 为空："
-            "产物无处落地，拒绝启动"
+            "已配置 MODEL_GATEWAY_BASE_URL 但 STORAGE_LOCAL_ROOT 为空：产物无处落地，拒绝启动"
         )
 
     protocol = getattr(settings, "model_gateway_protocol", "openai_compatible")
@@ -201,17 +198,12 @@ def _build_gateway(settings: Any, base_url: str, protocol: str) -> Any:
             api_key=settings.model_gateway_api_key.get_secret_value(),
             default_model=getattr(settings, "model_gateway_default_model", ""),
             timeout_seconds=getattr(settings, "model_gateway_timeout_seconds", 120.0),
-            max_bytes=getattr(
-                settings, "model_gateway_max_artifact_bytes", 256 * 1024 * 1024
-            ),
-            response_format=getattr(
-                settings, "model_gateway_response_format", "b64_json"
-            ),
+            max_bytes=getattr(settings, "model_gateway_max_artifact_bytes", 256 * 1024 * 1024),
+            response_format=getattr(settings, "model_gateway_response_format", "b64_json"),
         )
 
     raise ValueError(
-        f"MODEL_GATEWAY_PROTOCOL={protocol!r} 无对应适配器"
-        "（已实现: openai_compatible）"
+        f"MODEL_GATEWAY_PROTOCOL={protocol!r} 无对应适配器（已实现: openai_compatible）"
     )
 
 

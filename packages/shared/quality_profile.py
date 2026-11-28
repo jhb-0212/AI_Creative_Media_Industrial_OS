@@ -33,10 +33,7 @@ def require_quality_profile(version: str) -> str:
     if value != UNIFIED_HIGH_QUALITY:
         raise DomainError(
             ErrorRegistry.VALIDATION_ERROR,
-            detail=(
-                f"质量策略版本非法：{value!r}；"
-                f"契约唯一合法值为 {UNIFIED_HIGH_QUALITY!r}"
-            ),
+            detail=(f"质量策略版本非法：{value!r}；契约唯一合法值为 {UNIFIED_HIGH_QUALITY!r}"),
         )
     return value
 

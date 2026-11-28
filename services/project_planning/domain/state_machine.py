@@ -119,9 +119,7 @@ EPISODE_LIFECYCLE = Lifecycle(
 # 剧本直接推成终态——所有权判定把这个可能性在结构层封死。
 # --------------------------------------------------------------------------- #
 SCRIPT_TRANSITIONS: tuple[Transition[ScriptStatus], ...] = (
-    Transition(
-        ScriptStatus.DRAFT, ScriptStatus.LOCK_PENDING, SCRIPT_LOCK_REQUEST_ACTION
-    ),
+    Transition(ScriptStatus.DRAFT, ScriptStatus.LOCK_PENDING, SCRIPT_LOCK_REQUEST_ACTION),
     Transition(ScriptStatus.LOCK_PENDING, ScriptStatus.LOCKED, SCRIPT_LOCK_APPROVE_ACTION),
     Transition(ScriptStatus.DRAFT, ScriptStatus.SUPERSEDED, SCRIPT_IMPORT_ACTION),
     Transition(ScriptStatus.LOCK_PENDING, ScriptStatus.SUPERSEDED, SCRIPT_IMPORT_ACTION),
@@ -306,18 +304,12 @@ SHOT_DRAFT_TRANSITIONS: tuple[Transition[ShotDraftStatus], ...] = (
     Transition(
         ShotDraftStatus.PENDING_CONFIRM, ShotDraftStatus.IN_REVIEW, SHOT_DRAFT_CONFIRM_ACTION
     ),
-    Transition(
-        ShotDraftStatus.IN_REVIEW, ShotDraftStatus.CONFIRMED, SHOT_DRAFT_CONFIRM_ACTION
-    ),
-    Transition(
-        ShotDraftStatus.IN_REVIEW, ShotDraftStatus.RETURNED, SHOT_DRAFT_RETURN_ACTION
-    ),
+    Transition(ShotDraftStatus.IN_REVIEW, ShotDraftStatus.CONFIRMED, SHOT_DRAFT_CONFIRM_ACTION),
+    Transition(ShotDraftStatus.IN_REVIEW, ShotDraftStatus.RETURNED, SHOT_DRAFT_RETURN_ACTION),
     Transition(
         ShotDraftStatus.PENDING_CONFIRM, ShotDraftStatus.DISCARDED, SHOT_DRAFT_DISCARD_ACTION
     ),
-    Transition(
-        ShotDraftStatus.IN_REVIEW, ShotDraftStatus.DISCARDED, SHOT_DRAFT_DISCARD_ACTION
-    ),
+    Transition(ShotDraftStatus.IN_REVIEW, ShotDraftStatus.DISCARDED, SHOT_DRAFT_DISCARD_ACTION),
 )
 
 SHOT_DRAFT_LIFECYCLE = Lifecycle(
@@ -329,10 +321,16 @@ SHOT_DRAFT_LIFECYCLE = Lifecycle(
 # ReworkTask：4 条边。REJECTED 无入边——它是合法状态值，但当前没有任何
 # 授权转移，按 31.5 未登记转移一律拒绝（不是「未实现所以放行」）。
 REWORK_TASK_TRANSITIONS: tuple[Transition[ReworkTaskStatus], ...] = (
-    Transition(ReworkTaskStatus.OPEN, ReworkTaskStatus.IN_PROGRESS, REWORK_TASK_STATUS_CHANGE_ACTION),
-    Transition(ReworkTaskStatus.IN_PROGRESS, ReworkTaskStatus.DONE, REWORK_TASK_STATUS_CHANGE_ACTION),
+    Transition(
+        ReworkTaskStatus.OPEN, ReworkTaskStatus.IN_PROGRESS, REWORK_TASK_STATUS_CHANGE_ACTION
+    ),
+    Transition(
+        ReworkTaskStatus.IN_PROGRESS, ReworkTaskStatus.DONE, REWORK_TASK_STATUS_CHANGE_ACTION
+    ),
     Transition(ReworkTaskStatus.DONE, ReworkTaskStatus.VERIFYING, REWORK_TASK_STATUS_CHANGE_ACTION),
-    Transition(ReworkTaskStatus.VERIFYING, ReworkTaskStatus.CLOSED, REWORK_TASK_STATUS_CHANGE_ACTION),
+    Transition(
+        ReworkTaskStatus.VERIFYING, ReworkTaskStatus.CLOSED, REWORK_TASK_STATUS_CHANGE_ACTION
+    ),
 )
 
 REWORK_TASK_LIFECYCLE = Lifecycle(
@@ -437,9 +435,9 @@ CONSTRAINT_PACK_LIFECYCLE = Lifecycle(
     frozen_states=(),
 )
 
-CONSTRAINT_PACK_ALLOWED_TRANSITIONS: dict[
-    ConstraintPackStatus, frozenset[ConstraintPackStatus]
-] = CONSTRAINT_PACK_LIFECYCLE.allowed_transitions()
+CONSTRAINT_PACK_ALLOWED_TRANSITIONS: dict[ConstraintPackStatus, frozenset[ConstraintPackStatus]] = (
+    CONSTRAINT_PACK_LIFECYCLE.allowed_transitions()
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -528,12 +526,20 @@ GENERATION_TASK_LIFECYCLE = Lifecycle(
     frozen_states=(),
 )
 
-# R42 T1：产物意图只有一条确认边，归 GENERATION.PROCESS（对象存储写入由
-# 持有租约的 Generation Worker 完成）。确认态冻结，恢复只重试 PREPARED 行。
+# R42 T1 + PR-G：产物意图的确认边与放弃边。二者都归 GENERATION.PROCESS
+# （对象存储写入/核对由持有租约的 Generation Worker 完成）。
+#   PREPARED → STORED_VERIFIED：对象写入并复核 SHA256 后确认落盘；
+#   PREPARED → ABANDONED：对象确定不存在/内容不可复用，意图被放弃（有新 attempt 取代）。
+# 后两态都冻结：恢复只重试 PREPARED，不得回改写已确认或已放弃的事实。
 ARTIFACT_MANIFEST_TRANSITIONS: tuple[Transition[ArtifactManifestStatus], ...] = (
     Transition(
         ArtifactManifestStatus.PREPARED,
         ArtifactManifestStatus.STORED_VERIFIED,
+        GENERATION_PROCESS_ACTION,
+    ),
+    Transition(
+        ArtifactManifestStatus.PREPARED,
+        ArtifactManifestStatus.ABANDONED,
         GENERATION_PROCESS_ACTION,
     ),
 )
@@ -542,19 +548,20 @@ ARTIFACT_MANIFEST_LIFECYCLE = Lifecycle(
     states=tuple(ArtifactManifestStatus),
     edges=ARTIFACT_MANIFEST_TRANSITIONS,
     initial_states=(ArtifactManifestStatus.PREPARED,),
-    frozen_states=(ArtifactManifestStatus.STORED_VERIFIED,),
+    frozen_states=(
+        ArtifactManifestStatus.STORED_VERIFIED,
+        ArtifactManifestStatus.ABANDONED,
+    ),
 )
 ARTIFACT_MANIFEST_ALLOWED_TRANSITIONS: dict[
     ArtifactManifestStatus, frozenset[ArtifactManifestStatus]
 ] = ARTIFACT_MANIFEST_LIFECYCLE.allowed_transitions()
 
-GENERATION_TASK_ALLOWED_TRANSITIONS: dict[
-    GenerationTaskStatus, frozenset[GenerationTaskStatus]
-] = GENERATION_TASK_LIFECYCLE.allowed_transitions()
+GENERATION_TASK_ALLOWED_TRANSITIONS: dict[GenerationTaskStatus, frozenset[GenerationTaskStatus]] = (
+    GENERATION_TASK_LIFECYCLE.allowed_transitions()
+)
 
-SHOT_BUDGET_REQUEST_TRANSITIONS: tuple[
-    Transition[ShotBudgetRequestStatus], ...
-] = (
+SHOT_BUDGET_REQUEST_TRANSITIONS: tuple[Transition[ShotBudgetRequestStatus], ...] = (
     Transition(
         ShotBudgetRequestStatus.DRAFT,
         ShotBudgetRequestStatus.APPROVED,
@@ -592,9 +599,7 @@ def can_transition(source: ProjectStatus, target: ProjectStatus) -> bool:
     return PROJECT_LIFECYCLE.edge_for(source, target) is not None
 
 
-def assert_transition(
-    source: ProjectStatus, target: ProjectStatus
-) -> Transition[ProjectStatus]:
+def assert_transition(source: ProjectStatus, target: ProjectStatus) -> Transition[ProjectStatus]:
     """校验 Project 转移结构，未登记则抛 DomainError（31.5）。
 
     返回该边，便于调用方复用同一条声明（避免「校验一遍、再查一遍」）。
@@ -638,7 +643,7 @@ __all__ = [
     "EPISODE_LIFECYCLE",
     "EPISODE_STATUS_CHANGE_ACTION",
     "EPISODE_TRANSITIONS",
-        "GENERATION_PROCESS_ACTION",
+    "GENERATION_PROCESS_ACTION",
     "GENERATION_REQUEST_ACTION",
     "GENERATION_TASK_ALLOWED_TRANSITIONS",
     "GENERATION_TASK_LIFECYCLE",

@@ -103,9 +103,7 @@ class _Shots(ShotRepository):
         self.known = known if known is not None else {"shot-1"}
         self.queried: list[tuple[str, list[str]]] = []
 
-    async def existing_ids_in_project(
-        self, project_id: str, shot_ids: list[str]
-    ) -> set[str]:
+    async def existing_ids_in_project(self, project_id: str, shot_ids: list[str]) -> set[str]:
         self.queried.append((project_id, list(shot_ids)))
         return self.known & set(shot_ids)
 
@@ -187,9 +185,7 @@ def _service(
     return service, packs, shots, outbox
 
 
-async def _create(
-    service: ConstraintPackService, **overrides: Any
-) -> ConstraintPack:
+async def _create(service: ConstraintPackService, **overrides: Any) -> ConstraintPack:
     params: dict[str, Any] = {
         "project_id": "proj-1",
         "shot_ids": ["shot-1"],
@@ -294,9 +290,7 @@ async def test_duplicate_version_conflict_names_the_occupant() -> None:
     """同包同版本被占：必须说清「被哪个实体占着」，否则不知道该动哪个参数。"""
     service, packs, _, _ = _service()
     await _create(service, entity_id="pack-1", constraint_pack_id="cp-1", version=1)
-    packs.add_error = DuplicateEntityError(
-        "pack-1", constraint="uq_constraint_pack_version"
-    )
+    packs.add_error = DuplicateEntityError("pack-1", constraint="uq_constraint_pack_version")
 
     with pytest.raises(DomainError) as exc:
         await _create(service, entity_id="pack-2", constraint_pack_id="cp-1", version=1)
@@ -448,14 +442,10 @@ async def test_single_active_conflict_explains_missing_supersede_entry() -> None
     """
     service, packs, _, _ = _service()
     v1 = await _create(service, entity_id="pack-1")
-    v2 = await _create(
-        service, entity_id="pack-2", constraint_pack_id="pack-1", version=2
-    )
+    v2 = await _create(service, entity_id="pack-2", constraint_pack_id="pack-1", version=2)
     assert v2.constraint_pack_id == v1.constraint_pack_id, "两版本共用同一逻辑包标识"
 
-    packs.save_error = DuplicateEntityError(
-        "pack-2", constraint="uq_constraint_pack_single_active"
-    )
+    packs.save_error = DuplicateEntityError("pack-2", constraint="uq_constraint_pack_single_active")
 
     with pytest.raises(DomainError) as exc:
         await service.lock_pack(

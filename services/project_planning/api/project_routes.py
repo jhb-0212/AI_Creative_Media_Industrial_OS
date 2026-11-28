@@ -100,9 +100,7 @@ async def create_project(
     # 应用层的 403 AUTH_SCOPE_DENIED 分支因此在这条路径上不再触发——它不是
     # 被删掉，而是变成「解析链路被绕过时」的 fail-closed 兜底。
     ownership = (
-        await SqlOwnershipResolver(uow.session).resolve(
-            "Organization", str(body.organization_id)
-        )
+        await SqlOwnershipResolver(uow.session).resolve("Organization", str(body.organization_id))
         if body.organization_id is not None
         else OwnershipPath(tenant_id=principal.tenant_id)
     )

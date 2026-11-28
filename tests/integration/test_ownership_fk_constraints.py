@@ -105,9 +105,7 @@ async def test_project_must_reference_existing_organization(db_sessionmaker) -> 
         await session.rollback()
 
 
-async def test_episode_must_reference_existing_project(
-    db_sessionmaker, admin_sessionmaker
-) -> None:
+async def test_episode_must_reference_existing_project(db_sessionmaker, admin_sessionmaker) -> None:
     """写引用不存在项目的集数 → 数据库层拒绝（SCOPE-2）。
 
     两层证据，缺一不可：
@@ -181,10 +179,7 @@ async def _drop_organization(admin_sessionmaker, org_id) -> None:
     """清理播种的组织行（管理连接；业务角色既无 DELETE 也无须有）。"""
     async with admin_sessionmaker() as session:
         await session.execute(
-            text(
-                "DELETE FROM project_planning.organizations "
-                "WHERE organization_id = :org"
-            ),
+            text("DELETE FROM project_planning.organizations WHERE organization_id = :org"),
             {"org": org_id},
         )
         await session.commit()
@@ -380,9 +375,7 @@ async def test_asset_cannot_reference_cross_tenant_project(
         await session.rollback()
 
 
-async def test_asset_with_same_tenant_project_succeeds(
-    db_sessionmaker, asset_sessionmaker
-) -> None:
+async def test_asset_with_same_tenant_project_succeeds(db_sessionmaker, asset_sessionmaker) -> None:
     """正向：同租户真实项目下登记资产 → 外键放行（不误伤合法路径）。"""
     tenant = uuid.uuid4()
     project_id = uuid.uuid4().hex
@@ -404,9 +397,7 @@ async def test_asset_with_same_tenant_project_succeeds(
         await session.rollback()
 
 
-async def test_organizations_are_tenant_isolated(
-    db_sessionmaker, admin_sessionmaker
-) -> None:
+async def test_organizations_are_tenant_isolated(db_sessionmaker, admin_sessionmaker) -> None:
     """organizations 表纳入租户 RLS：别的租户看不到本租户的组织（审查 R8）。
 
     组织上下文**两次都注入同一个组织**，让组织维度恒定成立——这样"不可见"
@@ -495,9 +486,7 @@ async def _derived_project_scoped_tables(session) -> list[tuple[str, str, bool]]
             )
         )
     ).all()
-    return [
-        (str(r.table_schema), str(r.table_name), bool(r.has_tenant)) for r in rows
-    ]
+    return [(str(r.table_schema), str(r.table_name), bool(r.has_tenant)) for r in rows]
 
 
 async def _projects_table(session) -> str:
@@ -599,9 +588,7 @@ async def test_every_project_scoped_table_has_tenant_covering_fk(
             missing.append(f"{child}（需要覆盖 {sorted(required)}）")
             continue
         if not any(edge[1] for edge in covering):
-            unvalidated.append(
-                f"{child}（{', '.join(e[0] for e in covering)} 尚未 VALIDATE）"
-            )
+            unvalidated.append(f"{child}（{', '.join(e[0] for e in covering)} 尚未 VALIDATE）")
         if has_tenant and any(set(edge[2]) == {"project_id"} for edge in child_edges):
             redundant.append(child)
 

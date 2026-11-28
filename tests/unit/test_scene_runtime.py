@@ -80,9 +80,7 @@ class _ShotRepo(ShotRepository):
     def __init__(self, shots: list[Shot] | None = None) -> None:
         self.rows: dict[str, Shot] = {s.entity_id: s for s in (shots or [])}
 
-    async def existing_ids_in_project(
-        self, project_id: str, shot_ids: list[str]
-    ) -> set[str]:
+    async def existing_ids_in_project(self, project_id: str, shot_ids: list[str]) -> set[str]:
         # 本文件不建约束包：镜头归属查询只服务 CONSTRAINT.PACK.CREATE。
         # 让它直接失败，是为了把「别处误用这个端口」变成红灯，而不是返回一个
         # 看起来合理的空集（空集会让「镜头都不属于本项目」变成静默通过）。
@@ -105,8 +103,7 @@ class _ShotRepo(ShotRepository):
 
     async def has_with_status(self, scene_id: str, status: ShotStatus) -> bool:
         return any(
-            shot.scene_id == scene_id and shot.status is status
-            for shot in self.rows.values()
+            shot.scene_id == scene_id and shot.status is status for shot in self.rows.values()
         )
 
 
@@ -125,9 +122,7 @@ class _EpisodeRepo(EpisodeRepository):
     async def get_by_id(self, entity_id: str) -> Episode | None:
         return next((e for e in self._episodes if e.entity_id == entity_id), None)
 
-    async def get_by_project_ref(
-        self, project_id: str, episode_ref: str
-    ) -> Episode | None:
+    async def get_by_project_ref(self, project_id: str, episode_ref: str) -> Episode | None:
         return next(
             (
                 e
@@ -426,30 +421,22 @@ async def test_freeze_guards_are_actual_call_sites(monkeypatch: pytest.MonkeyPat
     **行为用例依赖的守卫真的在调用链上**，防止有人把判定改成死代码后，
     行为用例因其他偶然原因仍通过。
     """
-    svc, _, _, _, _, _ = _service(
-        _project(ProjectStatus.ACTIVE), [_episode(EpisodeStatus.ACTIVE)]
-    )
+    svc, _, _, _, _, _ = _service(_project(ProjectStatus.ACTIVE), [_episode(EpisodeStatus.ACTIVE)])
 
     def project_boom(*args: object, **kwargs: object) -> None:
         raise AssertionError("PROJECT_FREEZE_GUARD_CALLED")
 
     # Lifecycle 是 frozen dataclass，不能替换实例属性；替换类方法即可覆盖调用点。
-    monkeypatch.setattr(
-        type(PROJECT_LIFECYCLE), "assert_child_creation_allowed", project_boom
-    )
+    monkeypatch.setattr(type(PROJECT_LIFECYCLE), "assert_child_creation_allowed", project_boom)
     with pytest.raises(AssertionError, match="PROJECT_FREEZE_GUARD_CALLED"):
         await _create(svc)
 
-    svc, _, _, _, _, _ = _service(
-        _project(ProjectStatus.ACTIVE), [_episode(EpisodeStatus.ACTIVE)]
-    )
+    svc, _, _, _, _, _ = _service(_project(ProjectStatus.ACTIVE), [_episode(EpisodeStatus.ACTIVE)])
 
     def episode_boom(*args: object, **kwargs: object) -> None:
         raise AssertionError("EPISODE_FREEZE_GUARD_CALLED")
 
-    monkeypatch.setattr(
-        type(EPISODE_LIFECYCLE), "assert_child_creation_allowed", episode_boom
-    )
+    monkeypatch.setattr(type(EPISODE_LIFECYCLE), "assert_child_creation_allowed", episode_boom)
     with pytest.raises(AssertionError, match="EPISODE_FREEZE_GUARD_CALLED"):
         await _create(svc)
 
@@ -479,9 +466,7 @@ async def test_idempotency_runs_before_freeze_guard(monkeypatch: pytest.MonkeyPa
     def boom(*args: object, **kwargs: object) -> None:
         raise AssertionError("FREEZE_GUARD_RAN_BEFORE_IDEMPOTENCY")
 
-    monkeypatch.setattr(
-        type(PROJECT_LIFECYCLE), "assert_child_creation_allowed", boom
-    )
+    monkeypatch.setattr(type(PROJECT_LIFECYCLE), "assert_child_creation_allowed", boom)
     replayed = await _create(svc)
 
     assert replayed.entity_id == "scene-fixed"

@@ -15,6 +15,7 @@ D-10.1 明确拒绝「用文档声明替代真实数据库验证」「将未验�
     python docs/audits/mig-recon/acceptance_ledger.py --db ai_film_industrial --port 15444
     python docs/audits/mig-recon/acceptance_ledger.py --selftest   # 三种库各跑一次，证明可 FAIL
 """
+
 from __future__ import annotations
 
 import argparse
@@ -99,24 +100,27 @@ def ledger_rows() -> list[Row]:
     """
     return [
         Row("project_planning.episodes", "A", "fk_episodes_project_tenant_org"),
-        Row("generation_execution.production_routes", "B",
-            "fk_production_routes_organization_tenant"),
-        Row("generation_execution.generation_tasks", "A",
-            "fk_generation_tasks_project_tenant_org"),
-        Row("generation_execution.shot_route_selections", "A",
-            "fk_shot_route_selections_project_tenant_org"),
+        Row(
+            "generation_execution.production_routes",
+            "B",
+            "fk_production_routes_organization_tenant",
+        ),
+        Row("generation_execution.generation_tasks", "A", "fk_generation_tasks_project_tenant_org"),
+        Row(
+            "generation_execution.shot_route_selections",
+            "A",
+            "fk_shot_route_selections_project_tenant_org",
+        ),
         Row("shot_planning.shot_drafts", "A", "fk_shot_drafts_project_tenant_org"),
         Row("shot_planning.shot_revisions", "A", "fk_shot_revisions_project_tenant_org"),
         Row("shot_planning.shot_visual_plans", "A", "fk_shot_visual_plans_project_tenant_org"),
         Row("shot_planning.constraint_packs", "A", "fk_constraint_packs_project_tenant_org"),
         Row("shot_planning.shot_specs", "A", "fk_shot_specs_project_tenant_org"),
-        Row("asset_service.delivery_manifests", "A",
-            "fk_delivery_manifests_project_tenant_org"),
+        Row("asset_service.delivery_manifests", "A", "fk_delivery_manifests_project_tenant_org"),
         Row("asset_service.asset_versions", "A", "fk_asset_versions_project_tenant_org"),
         Row("asset_service.qc_reports", "A", "fk_qc_reports_project_tenant_org"),
         Row("qc_governance.gate_decisions", "A", "fk_gate_decisions_project_tenant_org"),
-        Row("qc_governance.qc_review_sessions", "A",
-            "fk_qc_review_sessions_project_tenant_org"),
+        Row("qc_governance.qc_review_sessions", "A", "fk_qc_review_sessions_project_tenant_org"),
         Row("workflow.approval_flows", "A", "fk_approval_flows_project_tenant_org"),
         Row("workflow.approval_tickets", "A", "fk_approval_tickets_project_tenant_org"),
         Row("workflow.approval_steps", "A", "fk_approval_steps_project_tenant_org"),
@@ -129,88 +133,139 @@ def ledger_rows() -> list[Row]:
         # 批次九：返工授权记录首次入库。它是 `shots.rework_basis_ref` 的
         # 目标键——不进台账就会出现「外键有了、目标归属没人验」的半闭环。
         Row("workflow.rework_tasks", "A", "fk_rework_tasks_project_tenant_org"),
-
         Row(PROJECTS, "ROOT", "fk_projects_organization_tenant"),
-
         # ---- 一致半边（A2）：本行 project 必须等于父行 project ----
-        Row("asset_service.qc_reports", "A2", "fk_qc_reports_asset_version_project",
+        Row(
+            "asset_service.qc_reports",
+            "A2",
+            "fk_qc_reports_asset_version_project",
             parent="asset_service.asset_versions",
             parent_cols=(("entity_id", "asset_version_id"),),
             parent_pk="entity_id",
-            note="QC 报告随被检资产版本"),
-        Row("qc_governance.qc_review_sessions", "A2",
+            note="QC 报告随被检资产版本",
+        ),
+        Row(
+            "qc_governance.qc_review_sessions",
+            "A2",
             "fk_qc_review_sessions_asset_version_project",
             parent="asset_service.asset_versions",
             parent_cols=(("entity_id", "asset_version_id"),),
             parent_pk="entity_id",
-            note="QC 会话随被检资产版本"),
-        Row("qc_governance.qc_review_sessions", "A2",
+            note="QC 会话随被检资产版本",
+        ),
+        Row(
+            "qc_governance.qc_review_sessions",
+            "A2",
             "fk_qc_review_sessions_qc_report_project",
             parent="asset_service.qc_reports",
             parent_cols=(("qc_report_id", "qc_report_ref"),),
             parent_pk="qc_report_id",
-            note="QC 会话随其引用的报告"),
-        Row("shot_planning.shot_specs", "A2", "fk_shot_specs_shot_revision_project",
+            note="QC 会话随其引用的报告",
+        ),
+        Row(
+            "shot_planning.shot_specs",
+            "A2",
+            "fk_shot_specs_shot_revision_project",
             parent="shot_planning.shot_revisions",
             parent_cols=(("entity_id", "shot_revision_id"),),
             parent_pk="entity_id",
-            note="规格随镜头修订"),
-        Row("shot_planning.shot_drafts", "A2", "fk_shot_drafts_episode_project",
+            note="规格随镜头修订",
+        ),
+        Row(
+            "shot_planning.shot_drafts",
+            "A2",
+            "fk_shot_drafts_episode_project",
             parent="project_planning.episodes",
             parent_cols=(("project_id", "project_id"), ("episode_ref", "episode_ref")),
             parent_pk="entity_id",
-            note="草案按集组织（业务键已含 project，一致由结构保证）"),
-        Row("shot_planning.shot_revisions", "A2", "fk_shot_revisions_episode_project",
+            note="草案按集组织（业务键已含 project，一致由结构保证）",
+        ),
+        Row(
+            "shot_planning.shot_revisions",
+            "A2",
+            "fk_shot_revisions_episode_project",
             parent="project_planning.episodes",
             parent_cols=(("project_id", "project_id"), ("episode_ref", "episode_ref")),
             parent_pk="entity_id",
-            note="修订按集组织（业务键已含 project，一致由结构保证）"),
+            note="修订按集组织（业务键已含 project，一致由结构保证）",
+        ),
         # 批次五的「一致」半边。父列都在 `parent_cols` 里显式写出：
         # `scenes` 的被引用键是 `scene_id`（不是 `entity_id`），`episodes` 的是 `entity_id`，
         # 按命名推导必错，而「JOIN 上了但比错列」比不检查更糟。
-        Row("project_planning.scenes", "A2", "fk_scenes_episode_project",
+        Row(
+            "project_planning.scenes",
+            "A2",
+            "fk_scenes_episode_project",
             parent="project_planning.episodes",
             parent_cols=(("entity_id", "episode_id"), ("project_id", "project_id")),
             parent_pk="entity_id",
-            note="场次唯一的上行归属锚点：集"),
-        Row("shot_planning.shots", "A2", "fk_shots_scene_project",
+            note="场次唯一的上行归属锚点：集",
+        ),
+        Row(
+            "shot_planning.shots",
+            "A2",
+            "fk_shots_scene_project",
             parent="project_planning.scenes",
             parent_cols=(("scene_id", "scene_id"), ("project_id", "project_id")),
             parent_pk="scene_id",
-            note="镜头归属经场次收敛到集，不由自身推导"),
-        Row("shot_planning.shot_revisions", "A2", "fk_shot_revisions_scene_project",
+            note="镜头归属经场次收敛到集，不由自身推导",
+        ),
+        Row(
+            "shot_planning.shot_revisions",
+            "A2",
+            "fk_shot_revisions_scene_project",
             parent="project_planning.scenes",
             parent_cols=(("scene_id", "scene_id"), ("project_id", "project_id")),
             parent_pk="scene_id",
-            note="正式修订按身份归场次（旧 scene_ref 只是草案来源编码）"),
-        Row("shot_planning.shot_revisions", "A2", "fk_shot_revisions_episode_identity",
+            note="正式修订按身份归场次（旧 scene_ref 只是草案来源编码）",
+        ),
+        Row(
+            "shot_planning.shot_revisions",
+            "A2",
+            "fk_shot_revisions_episode_identity",
             parent="project_planning.episodes",
             parent_cols=(("entity_id", "episode_id"), ("project_id", "project_id")),
             parent_pk="entity_id",
-            note="正式修订按身份归集（契约 ShotRevision.episode_id 必填）"),
-        Row("workflow.approval_tickets", "A2", "fk_approval_tickets_flow_project",
+            note="正式修订按身份归集（契约 ShotRevision.episode_id 必填）",
+        ),
+        Row(
+            "workflow.approval_tickets",
+            "A2",
+            "fk_approval_tickets_flow_project",
             parent="workflow.approval_flows",
             parent_cols=(("entity_id", "flow_id"),),
             parent_pk="entity_id",
-            note="票据随流程"),
-        Row("workflow.approval_steps", "A2", "fk_approval_steps_ticket_project",
+            note="票据随流程",
+        ),
+        Row(
+            "workflow.approval_steps",
+            "A2",
+            "fk_approval_steps_ticket_project",
             parent="workflow.approval_tickets",
             parent_cols=(("entity_id", "ticket_id"),),
             parent_pk="entity_id",
-            note="步骤随票据"),
-        Row("generation_execution.generation_tasks", "A2", "fk_generation_tasks_route_org",
+            note="步骤随票据",
+        ),
+        Row(
+            "generation_execution.generation_tasks",
+            "A2",
+            "fk_generation_tasks_route_org",
             parent="generation_execution.production_routes",
             parent_cols=(("entity_id", "route_id"),),
             parent_pk="entity_id",
             org_level=True,
-            note="路线库跨项目复用，父行只到组织层"),
-        Row("generation_execution.shot_route_selections", "A2",
+            note="路线库跨项目复用，父行只到组织层",
+        ),
+        Row(
+            "generation_execution.shot_route_selections",
+            "A2",
             "fk_shot_route_selections_route_org",
             parent="generation_execution.production_routes",
             parent_cols=(("entity_id", "route_id"),),
             parent_pk="entity_id",
             org_level=True,
-            note="路线库跨项目复用，父行只到组织层"),
+            note="路线库跨项目复用，父行只到组织层",
+        ),
     ]
 
 
@@ -345,9 +400,7 @@ async def quarantine_stats(conn: asyncpg.Connection) -> dict[str, object]:
         return {"available": False}
     total = int(await conn.fetchval(f"SELECT count(*) FROM {PROJECTS}"))
     quarantine = int(
-        await conn.fetchval(
-            f"SELECT count(*) FROM {PROJECTS} WHERE entity_id LIKE 'quarantine-%'"
-        )
+        await conn.fetchval(f"SELECT count(*) FROM {PROJECTS} WHERE entity_id LIKE 'quarantine-%'")
     )
     return {
         "available": True,
@@ -437,7 +490,11 @@ def render_md(
     invariants: list[dict[str, object]] | None = None,
 ) -> str:
     passed = sum(1 for r in rows if r["pass"])
-    overall = f"PASS（{len(rows)}/{len(rows)} 闭环）" if passed == len(rows) else f"未通过（{passed}/{len(rows)}）"
+    overall = (
+        f"PASS（{len(rows)}/{len(rows)} 闭环）"
+        if passed == len(rows)
+        else f"未通过（{passed}/{len(rows)}）"
+    )
 
     # 分两节渲染：两类不变量混在一张表里时，读者会自然地把「真实 18 行全绿」
     # 读成「保护完备」，而 I-1 的一致半边就在旁边空着。分开列并把小计写出来，
@@ -517,9 +574,7 @@ def render_md(
             "| --- | --- | --- | --- |",
         ]
         for inv in invariants:
-            lines.append(
-                f"| {inv['title']} | {inv['status']} | {inv['actual']} | {inv['note']} |"
-            )
+            lines.append(f"| {inv['title']} | {inv['status']} | {inv['actual']} | {inv['note']} |")
         na = [i["title"] for i in invariants if i["status"] == "N-A"]
         if na:
             lines += [
@@ -538,7 +593,7 @@ def render_md(
 
 async def run(db: str, port: int, host: str = "localhost", write: bool = True) -> dict:
     conn = await asyncpg.connect(
-        host=host, port=port, user="postgres", password="replay_super_pw", database=db
+        host=host, port=port, user="postgres", password="<ROTATED-2026-11-28>", database=db
     )
     try:
         rows = await collect(conn)
@@ -653,8 +708,11 @@ async def _recreate(db: str, template: str, port: int) -> str:
     回退的实现复用 `lab.prepare_pre_activation_baseline`，不另写一份。
     """
     admin = await asyncpg.connect(
-        host="localhost", port=port, user="postgres",
-        password="replay_super_pw", database="postgres",
+        host="localhost",
+        port=port,
+        user="postgres",
+        password="<ROTATED-2026-11-28>",
+        database="postgres",
     )
     try:
         await lab.fresh_clone(admin, db, template)
@@ -662,8 +720,11 @@ async def _recreate(db: str, template: str, port: int) -> str:
         await admin.close()
 
     conn = await asyncpg.connect(
-        host="localhost", port=port, user="postgres",
-        password="replay_super_pw", database=db,
+        host="localhost",
+        port=port,
+        user="postgres",
+        password="<ROTATED-2026-11-28>",
+        database=db,
     )
     try:
         purge, _order, checks = await lab.prepare_pre_activation_baseline(conn, PENDING)
@@ -676,8 +737,11 @@ async def _recreate(db: str, template: str, port: int) -> str:
 
 async def _drop(db: str, port: int) -> None:
     conn = await asyncpg.connect(
-        host="localhost", port=port, user="postgres",
-        password="replay_super_pw", database="postgres",
+        host="localhost",
+        port=port,
+        user="postgres",
+        password="<ROTATED-2026-11-28>",
+        database="postgres",
     )
     try:
         await conn.execute(f'DROP DATABASE IF EXISTS "{db}"')
@@ -705,29 +769,60 @@ async def _structural_constraints(conn: asyncpg.Connection) -> set[str]:
 
 SELFTEST_SCENARIOS = (
     # db              migrate  validate          dirty           passed pending  fail_rows
-    {"db": "ledger_nomig", "migrate": False, "validate": "none", "dirty_mode": "none",
-         "passed": 0, "pending": 0, "fail_rows": None},
+    {
+        "db": "ledger_nomig",
+        "migrate": False,
+        "validate": "none",
+        "dirty_mode": "none",
+        "passed": 0,
+        "pending": 0,
+        "fail_rows": None,
+    },
     # pending：约束全建、一条都没 VALIDATE。所有行（含「一致」半边）都必须
     # 落在「待验证」而不是 PASS——这是「存在 ≠ 闭环」最容易翻车的那一态。
     # pending 态：约束全建、一条都没 VALIDATE。但**新建表**的归属外键写在
     # `CREATE TABLE` 里，DDL 不允许建表时声明 NOT VALID（没有历史行可豁免），
     # 故它们必然已是 valid。把它们算成「待验证」是伪造状态，故如实计为结构通过。
-    {"db": "ledger_pending", "migrate": True, "validate": "none", "dirty_mode": "none",
-         "passed": "structural", "pending": "all_minus_structural", "fail_rows": None},
-    {"db": "ledger_clean", "migrate": True, "validate": "all", "dirty_mode": "none",
-         "passed": "all", "pending": 0, "fail_rows": None},
+    {
+        "db": "ledger_pending",
+        "migrate": True,
+        "validate": "none",
+        "dirty_mode": "none",
+        "passed": "structural",
+        "pending": "all_minus_structural",
+        "fail_rows": None,
+    },
+    {
+        "db": "ledger_clean",
+        "migrate": True,
+        "validate": "all",
+        "dirty_mode": "none",
+        "passed": "all",
+        "pending": 0,
+        "fail_rows": None,
+    },
     # 只让 asset_versions 一张脏：验证台账能精确到「这一张」，而不是红灯一片。
-    {"db": "ledger_dirty", "migrate": True, "validate": "all_but_av", "dirty_mode": "av",
-         "passed": "all_minus_1", "pending": 0,
-         "fail_rows": (("asset_service.asset_versions",
-                     "fk_asset_versions_project_tenant_org"),)},
+    {
+        "db": "ledger_dirty",
+        "migrate": True,
+        "validate": "all_but_av",
+        "dirty_mode": "av",
+        "passed": "all_minus_1",
+        "pending": 0,
+        "fail_rows": (("asset_service.asset_versions", "fk_asset_versions_project_tenant_org"),),
+    },
     # 「真实」半边完全成立、只有「一致」半边被破坏。这一态是旧版自检完全没有的：
     # 没有它，「一致 10 行」既没有被证明能通过，也没有被证明能失败——
     # 而一个永远不 FAIL 的检查等于不存在。
-    {"db": "ledger_inconsistent", "migrate": True, "validate": "all_tolerant",
-         "dirty_mode": "inconsistent", "passed": "all_minus_1", "pending": 0,
-         "fail_rows": (("asset_service.qc_reports",
-                     "fk_qc_reports_asset_version_project"),)},
+    {
+        "db": "ledger_inconsistent",
+        "migrate": True,
+        "validate": "all_tolerant",
+        "dirty_mode": "inconsistent",
+        "passed": "all_minus_1",
+        "pending": 0,
+        "fail_rows": (("asset_service.qc_reports", "fk_qc_reports_asset_version_project"),),
+    },
 )
 
 
@@ -756,8 +851,11 @@ async def selftest(port: int, template: str) -> int:
             db = sc["db"]
             await _recreate(db, template, port)
             conn = await asyncpg.connect(
-                host="localhost", port=port, user="postgres",
-                password="replay_super_pw", database=db,
+                host="localhost",
+                port=port,
+                user="postgres",
+                password="<ROTATED-2026-11-28>",
+                database=db,
             )
             try:
                 mode = sc["dirty_mode"]
@@ -791,27 +889,38 @@ async def selftest(port: int, template: str) -> int:
             pending = sum(1 for row in r["rows"] if str(row["verdict"]).startswith("待验证"))
             # 期望值允许用「相对量」表达（all / all_minus_1）：台账行数会随批次增长，
             # 把 18、28 写死在断言里，下一批就得改测试——那是让测试迁就实现。
-            structural = sum(
-                1 for row in r["rows"] if str(row["constraint"]) in natural_valid
-            )
+            structural = sum(1 for row in r["rows"] if str(row["constraint"]) in natural_valid)
             want_passed = (
-                total if sc["passed"] == "all"
-                else total - 1 if sc["passed"] == "all_minus_1"
-                else structural if sc["passed"] == "structural"
+                total
+                if sc["passed"] == "all"
+                else total - 1
+                if sc["passed"] == "all_minus_1"
+                else structural
+                if sc["passed"] == "structural"
                 else sc["passed"]
             )
             want_pending = (
-                total if sc["pending"] == "all"
-                else total - structural if sc["pending"] == "all_minus_structural"
+                total
+                if sc["pending"] == "all"
+                else total - structural
+                if sc["pending"] == "all_minus_structural"
                 else sc["pending"]
             )
             got_fail = tuple(
-                (str(row["table"]), str(row["constraint"]))
-                for row in r["rows"] if not row["pass"]
+                (str(row["table"]), str(row["constraint"])) for row in r["rows"] if not row["pass"]
             )
             results.append(
-                (db, r["passed"], total, r["closed"], pending,
-                 got_fail, want_passed, want_pending, sc["fail_rows"])
+                (
+                    db,
+                    r["passed"],
+                    total,
+                    r["closed"],
+                    pending,
+                    got_fail,
+                    want_passed,
+                    want_pending,
+                    sc["fail_rows"],
+                )
             )
     finally:
         for sc in SELFTEST_SCENARIOS:
@@ -820,12 +929,19 @@ async def selftest(port: int, template: str) -> int:
     print("\n台账自检（同一脚本、多种库状态，判定必须不同）")
     print("-" * 92)
     ok = True
-    for (db, passed, total, closed, pending, got_fail,
-         want_passed, want_pending, want_fail) in results:
+    for (
+        db,
+        passed,
+        total,
+        closed,
+        pending,
+        got_fail,
+        want_passed,
+        want_pending,
+        want_fail,
+    ) in results:
         good = (
-            passed == want_passed
-            and pending == want_pending
-            and closed == (want_passed == total)
+            passed == want_passed and pending == want_pending and closed == (want_passed == total)
         )
         if want_fail is not None:
             # 只比数量是不够的：27/28 也可能是别的行在红。必须比**是哪一行**，
@@ -848,10 +964,15 @@ async def selftest(port: int, template: str) -> int:
         "  dirty         仅 asset_versions 存量违规（指向不存在的项目）→ 全绿减 1，且**恰好**那一行\n"
         "  inconsistent  仅 qc_reports 父子归属不同（两个项目都真实）→ 全绿减 1，且**恰好**那一行"
     )
-    print("结论：" + (
-        "台账可区分「未建立 / 待验证 / 存量违规（真实半边）/ 归属不一致（一致半边）/ 闭环」，"
-        "且失败行可精确定位——不是恒真。"
-        if ok else "自检失败——台账判定不可信，禁止用于验收。"))
+    print(
+        "结论："
+        + (
+            "台账可区分「未建立 / 待验证 / 存量违规（真实半边）/ 归属不一致（一致半边）/ 闭环」，"
+            "且失败行可精确定位——不是恒真。"
+            if ok
+            else "自检失败——台账判定不可信，禁止用于验收。"
+        )
+    )
     return 0 if ok else 1
 
 
@@ -981,8 +1102,11 @@ async def apply_validate(db: str, port: int, host: str) -> list[tuple[str, str, 
     订正走例外工单，不由台账代劳。
     """
     conn = await asyncpg.connect(
-        host=host, port=port, user="postgres",
-        password="replay_super_pw", database=db,
+        host=host,
+        port=port,
+        user="postgres",
+        password="<ROTATED-2026-11-28>",
+        database=db,
     )
     out: list[tuple[str, str, str]] = []
     try:
@@ -990,7 +1114,8 @@ async def apply_validate(db: str, port: int, host: str) -> list[tuple[str, str, 
             state = await conn.fetchrow(
                 "SELECT convalidated FROM pg_constraint "
                 "WHERE conname = $1 AND conrelid = $2::regclass",
-                row.constraint, row.table,
+                row.constraint,
+                row.table,
             )
             if state is None:
                 out.append((row.table, "SKIP", "约束不存在，先执行迁移"))
@@ -999,9 +1124,7 @@ async def apply_validate(db: str, port: int, host: str) -> list[tuple[str, str, 
                 out.append((row.table, "DONE", "已闭环，无需重复验证"))
                 continue
             try:
-                await conn.execute(
-                    f"ALTER TABLE {row.table} VALIDATE CONSTRAINT {row.constraint}"
-                )
+                await conn.execute(f"ALTER TABLE {row.table} VALIDATE CONSTRAINT {row.constraint}")
                 out.append((row.table, "OK", "VALIDATE 通过"))
             except asyncpg.PostgresError as exc:
                 # 存量脏行 → 23503。如实登记并继续下一行，最后由退出码体现失败。
@@ -1044,7 +1167,8 @@ def main() -> int:
     ap.add_argument("--template", default="ai_film_industrial", help="自检时用作克隆模板")
     ap.add_argument("--selftest", action="store_true", help="三种库各跑一次，证明可 FAIL")
     ap.add_argument(
-        "--validate", action="store_true",
+        "--validate",
+        action="store_true",
         help="先对未闭环的行执行 VALIDATE CONSTRAINT，再出台账（闭环动作，一次性）",
     )
     return asyncio.run(main_async(ap.parse_args()))

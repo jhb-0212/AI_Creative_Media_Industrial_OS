@@ -52,19 +52,13 @@ class FakeTaskRepository(InMemoryRepository):
 
     async def get_by_generation_task_id(self, generation_task_id: str):
         return next(
-            (
-                task
-                for task in self._tasks()
-                if task.generation_task_id == generation_task_id
-            ),
+            (task for task in self._tasks() if task.generation_task_id == generation_task_id),
             None,
         )
 
     async def next_claimable_for_claim(self):
         requested = [
-            task
-            for task in self._tasks()
-            if task.status is GenerationTaskStatus.REQUESTED
+            task for task in self._tasks() if task.status is GenerationTaskStatus.REQUESTED
         ]
         if not requested:
             return None
@@ -83,8 +77,7 @@ class FakeTaskRepository(InMemoryRepository):
         succeeded = [
             task
             for task in self._tasks()
-            if task.status is GenerationTaskStatus.SUCCEEDED
-            and task.asset_version_id
+            if task.status is GenerationTaskStatus.SUCCEEDED and task.asset_version_id
         ]
         return sorted(succeeded, key=lambda task: task.created_at)[:limit]
 
@@ -218,9 +211,7 @@ async def test_lease_lost_abandons_result_without_overwriting() -> None:
     async def steal() -> None:
         # 等 Worker 进入 RUNNING 后模拟「租约到期被扫尾回收」
         await asyncio.sleep(0.15)
-        repo.snapshot()[task.entity_id].lease_expires_at = (
-            datetime.now(UTC) - timedelta(seconds=5)
-        )
+        repo.snapshot()[task.entity_id].lease_expires_at = datetime.now(UTC) - timedelta(seconds=5)
         await service.release_expired(task_id=task.entity_id)
 
     await asyncio.gather(steal(), worker.process_one())
@@ -234,13 +225,9 @@ async def test_lease_lost_abandons_result_without_overwriting() -> None:
 async def test_sweep_only_reclaims_expired() -> None:
     worker, repo, service = _setup(RecordingExecutor())
     fresh = await _requested(service, repo)
-    await service.claim(
-        task_id=fresh.entity_id, worker_id="worker-1", lease_seconds=120
-    )
+    await service.claim(task_id=fresh.entity_id, worker_id="worker-1", lease_seconds=120)
     dead = await _requested(service, repo)
-    await service.claim(
-        task_id=dead.entity_id, worker_id="worker-2", lease_seconds=120
-    )
+    await service.claim(task_id=dead.entity_id, worker_id="worker-2", lease_seconds=120)
     dead.lease_expires_at = datetime.now(UTC) - timedelta(seconds=10)
 
     reclaimed = await worker.sweep_expired()
@@ -411,15 +398,9 @@ async def test_expired_lease_cannot_renew_or_finish() -> None:
     _worker, repo, service = _setup(RecordingExecutor())
     task = await _requested(service, repo)
     await service.claim(task_id=task.entity_id, worker_id="worker-1", lease_seconds=60)
-    repo.snapshot()[task.entity_id].lease_expires_at = datetime.now(UTC) - timedelta(
-        seconds=1
-    )
+    repo.snapshot()[task.entity_id].lease_expires_at = datetime.now(UTC) - timedelta(seconds=1)
 
     with pytest.raises(DomainError, match="过期"):
-        await service.renew(
-            task_id=task.entity_id, worker_id="worker-1", lease_seconds=60
-        )
+        await service.renew(task_id=task.entity_id, worker_id="worker-1", lease_seconds=60)
     with pytest.raises(DomainError, match="过期"):
-        await service.finish(
-            task_id=task.entity_id, worker_id="worker-1", result="FAILED"
-        )
+        await service.finish(task_id=task.entity_id, worker_id="worker-1", result="FAILED")

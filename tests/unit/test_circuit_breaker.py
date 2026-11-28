@@ -56,9 +56,7 @@ def test_open_fast_fails_without_allowing() -> None:
 
 def test_open_recovers_to_half_open_after_cooldown() -> None:
     clock = _FakeClock()
-    breaker = CircuitBreaker(
-        failure_threshold=1, recovery_timeout_seconds=30.0, clock=clock
-    )
+    breaker = CircuitBreaker(failure_threshold=1, recovery_timeout_seconds=30.0, clock=clock)
     assert breaker.allow() is True
     breaker.record_failure()
     assert breaker.state is CircuitState.OPEN
@@ -76,9 +74,7 @@ def test_open_recovers_to_half_open_after_cooldown() -> None:
 
 def test_half_open_only_allows_one_probe_in_flight() -> None:
     clock = _FakeClock()
-    breaker = CircuitBreaker(
-        failure_threshold=1, recovery_timeout_seconds=10.0, clock=clock
-    )
+    breaker = CircuitBreaker(failure_threshold=1, recovery_timeout_seconds=10.0, clock=clock)
     breaker.allow()
     breaker.record_failure()  # → OPEN
     clock.advance(10.0)
@@ -91,9 +87,7 @@ def test_half_open_only_allows_one_probe_in_flight() -> None:
 
 def test_half_open_probe_success_closes() -> None:
     clock = _FakeClock()
-    breaker = CircuitBreaker(
-        failure_threshold=1, recovery_timeout_seconds=10.0, clock=clock
-    )
+    breaker = CircuitBreaker(failure_threshold=1, recovery_timeout_seconds=10.0, clock=clock)
     breaker.allow()
     breaker.record_failure()  # → OPEN
     clock.advance(10.0)
@@ -108,9 +102,7 @@ def test_half_open_probe_success_closes() -> None:
 
 def test_half_open_probe_failure_reopens_with_fresh_timer() -> None:
     clock = _FakeClock()
-    breaker = CircuitBreaker(
-        failure_threshold=1, recovery_timeout_seconds=10.0, clock=clock
-    )
+    breaker = CircuitBreaker(failure_threshold=1, recovery_timeout_seconds=10.0, clock=clock)
     breaker.allow()
     breaker.record_failure()  # → OPEN
     clock.advance(10.0)
@@ -193,9 +185,7 @@ def test_state_observer_receives_transitions_with_previous() -> None:
     不必自己维护一份状态名清单（那是第二个事实源，新增状态时必定漏改）。
     """
     seen: list[tuple[CircuitState, CircuitState | None]] = []
-    breaker = CircuitBreaker(
-        failure_threshold=1, state_observer=lambda s, p: seen.append((s, p))
-    )
+    breaker = CircuitBreaker(failure_threshold=1, state_observer=lambda s, p: seen.append((s, p)))
 
     assert seen == [(CircuitState.CLOSED, None)]
     assert breaker.allow() is True
@@ -221,9 +211,7 @@ def test_release_probe_frees_wedged_half_open() -> None:
     系统却再也不会尝试。
     """
     clock = _FakeClock()
-    breaker = CircuitBreaker(
-        failure_threshold=1, recovery_timeout_seconds=5.0, clock=clock
-    )
+    breaker = CircuitBreaker(failure_threshold=1, recovery_timeout_seconds=5.0, clock=clock)
     assert breaker.allow() is True
     breaker.record_failure()
     clock.advance(6)

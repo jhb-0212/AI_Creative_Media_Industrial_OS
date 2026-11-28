@@ -138,7 +138,9 @@ async def _seed_organization(admin_sessionmaker, org_id: uuid.UUID) -> None:
         await session.commit()
 
 
-def _client_with_org(organization_id: uuid.UUID | None, subject_id: str = "org_user") -> AsyncClient:
+def _client_with_org(
+    organization_id: uuid.UUID | None, subject_id: str = "org_user"
+) -> AsyncClient:
     """构造带指定 org claim 的 client（真实 JWT + 真实 ASGI 端点）。"""
     from httpx import ASGITransport
 
@@ -146,9 +148,7 @@ def _client_with_org(organization_id: uuid.UUID | None, subject_id: str = "org_u
     from tests.conftest import make_test_token
 
     transport = ASGITransport(app=app)
-    token = make_test_token(
-        subject_id=subject_id, organization_id=organization_id
-    )
+    token = make_test_token(subject_id=subject_id, organization_id=organization_id)
     headers = {"Authorization": f"Bearer {token}"}
     return AsyncClient(transport=transport, base_url="http://test", headers=headers)
 

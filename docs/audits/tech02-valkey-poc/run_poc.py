@@ -63,8 +63,9 @@ async def matrix(version: str, url: str) -> None:
         try:
             info = await c.info("server")
         except Exception as e:
-            record("①②", f"{version} 版本指纹", False,
-                   f"连接不可用 {type(e).__name__}: {str(e)[:80]}")
+            record(
+                "①②", f"{version} 版本指纹", False, f"连接不可用 {type(e).__name__}: {str(e)[:80]}"
+            )
             return
         info = info
         ver = info.get("valkey_version") or info.get("redis_version")
@@ -76,8 +77,9 @@ async def matrix(version: str, url: str) -> None:
         await c.expire(key, 30)
         ttl = await c.ttl(key)
         c2 = await c.incr(key)
-        record("①②", f"{version} INCR+EXPIRE", (c1, c2, ttl) == (1, 2, 30),
-               f"incr={c1},{c2} ttl={ttl}")
+        record(
+            "①②", f"{version} INCR+EXPIRE", (c1, c2, ttl) == (1, 2, 30), f"incr={c1},{c2} ttl={ttl}"
+        )
 
         # 高并发计数：100 并发 INCR 同一键，结果必须精确 100（无丢失）
         hkey = f"poc:hot:{version}:{int(time.time() * 1000)}"
@@ -92,8 +94,7 @@ async def matrix(version: str, url: str) -> None:
         decisions = [await rl.acquire(ident) for _ in range(5)]
         allowed = [d.allowed for d in decisions]
         ok = allowed == [True, True, True, False, False]
-        record("①②", f"{version} RateLimiter 固定窗口", ok,
-               f"limit=3 连续5次 allowed={allowed}")
+        record("①②", f"{version} RateLimiter 固定窗口", ok, f"limit=3 连续5次 allowed={allowed}")
 
         # 连接池关闭：redis-py 的 aclose() 释放连接池资源（disconnect），
         # 语义不是「永久禁用客户端」——之后再 ping 会惰性重建连接，这是正常行为。
@@ -101,9 +102,13 @@ async def matrix(version: str, url: str) -> None:
         await rl.aclose()
         pool = c.connection_pool
         in_use = len(getattr(pool, "_in_use_connections", set()))
-        record("①②", f"{version} 连接池关闭", in_use == 0,
-               f"aclose 后连接池 in_use={in_use}（redis-py 8.x aclose 释放连接，"
-               f"后续 ping 惰性重建属正常，不作为判据）")
+        record(
+            "①②",
+            f"{version} 连接池关闭",
+            in_use == 0,
+            f"aclose 后连接池 in_use={in_use}（redis-py 8.x aclose 释放连接，"
+            f"后续 ping 惰性重建属正常，不作为判据）",
+        )
 
         # 清理测试键
         await c.delete(key, hkey, f"ratelimit:{ident}")
@@ -125,37 +130,55 @@ async def failure_injection() -> None:
     from packages.shared.rate_limit import _observe_backend_circuit
 
     breaker = CircuitBreaker(
-        failure_threshold=2, recovery_timeout_seconds=60.0, enabled=True,
+        failure_threshold=2,
+        recovery_timeout_seconds=60.0,
+        enabled=True,
         state_observer=_observe_backend_circuit,
     )
     rl = RateLimiter(bad, limit=1, window_seconds=60, breaker=breaker)
 
     d1 = await rl.acquire("poc-fail-1")
     d2 = await rl.acquire("poc-fail-2")
-    record("③", "fail-open 放行", d1.allowed and d2.allowed and d1.degraded and d2.degraded,
-           f"allowed={d1.allowed},{d2.allowed} degraded={d1.degraded},{d2.degraded}")
+    record(
+        "③",
+        "fail-open 放行",
+        d1.allowed and d2.allowed and d1.degraded and d2.degraded,
+        f"allowed={d1.allowed},{d2.allowed} degraded={d1.degraded},{d2.degraded}",
+    )
 
     after_errors = metric_value(RATE_LIMIT_BACKEND_ERRORS)
     err_delta = after_errors - before_errors
     record("③", "后端错误指标可见", err_delta >= 2, f"rate_limit_backend_errors +{err_delta}")
 
     from_open = breaker.state
-    record("③", "熔断 OPEN 状态", from_open is CircuitState.OPEN,
-           f"failure_threshold=2 连续失败后 state={from_open.value}")
+    record(
+        "③",
+        "熔断 OPEN 状态",
+        from_open is CircuitState.OPEN,
+        f"failure_threshold=2 连续失败后 state={from_open.value}",
+    )
 
     # OPEN 期：不应再发网络包。用假时钟推进到冷却期前，acquire 应立刻降级返回
     t0 = time.monotonic()
     d3 = await rl.acquire("poc-fail-3")
     elapsed = time.monotonic() - t0
-    record("③", "OPEN 期零网络包", d3.degraded and elapsed < 0.5,
-           f"degraded={d3.degraded} 耗时={elapsed:.3f}s（无 1s 连接超时）")
+    record(
+        "③",
+        "OPEN 期零网络包",
+        d3.degraded and elapsed < 0.5,
+        f"degraded={d3.degraded} 耗时={elapsed:.3f}s（无 1s 连接超时）",
+    )
 
     state_labels = {
         s: RATE_LIMIT_CIRCUIT_STATE.labels(state=s)._value.get()
         for s in ("closed", "open", "half_open")
     }
-    record("③", "熔断状态指标可见", state_labels.get("open") == 1.0,
-           f"rate_limit_circuit_state={state_labels}")
+    record(
+        "③",
+        "熔断状态指标可见",
+        state_labels.get("open") == 1.0,
+        f"rate_limit_circuit_state={state_labels}",
+    )
 
     await rl.aclose()
 
@@ -174,8 +197,12 @@ async def window_gap() -> None:
         during = await c.get(key)
         await asyncio.sleep(2.2)
         after = await c.get(key)
-        record("④", "窗口到期计数归零实证", during == "1" and after is None,
-               f"窗口内={during} 到期后={after!r} -> 固定窗口重置语义确认")
+        record(
+            "④",
+            "窗口到期计数归零实证",
+            during == "1" and after is None,
+            f"窗口内={during} 到期后={after!r} -> 固定窗口重置语义确认",
+        )
         await c.delete(key)
     finally:
         await c.aclose()
@@ -186,11 +213,16 @@ async def window_gap() -> None:
 # --------------------------------------------------------------------------- #
 def auth_semantics() -> None:
     import inspect
+
     src = inspect.getsource(RateLimiter.acquire)
     # 限流键只用调用方传入的 identity（中间件按令牌指纹/IP 构造），不读 Principal
     no_principal = "principal" not in src.lower()
-    record("⑤", "限流不触碰鉴权权威", no_principal,
-           "acquire() 仅用 identity 字符串计数，不读取/绕过 Principal 鉴权")
+    record(
+        "⑤",
+        "限流不触碰鉴权权威",
+        no_principal,
+        "acquire() 仅用 identity 字符串计数，不读取/绕过 Principal 鉴权",
+    )
 
 
 async def main() -> None:

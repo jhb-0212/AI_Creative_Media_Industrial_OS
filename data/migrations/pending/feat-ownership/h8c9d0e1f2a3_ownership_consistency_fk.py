@@ -130,67 +130,88 @@ SUPERSEDED_FK: tuple[tuple[str, str], ...] = (
 COMPOSITE_FK: tuple[tuple[str, str, tuple[str, ...], str, tuple[str, ...], str], ...] = (
     # 资产域
     (
-        f"{ASSET}.qc_reports", "fk_qc_reports_asset_version_project",
+        f"{ASSET}.qc_reports",
+        "fk_qc_reports_asset_version_project",
         ("asset_version_id", "project_id", "tenant_id", "organization_id"),
         f"{ASSET}.asset_versions",
-        ("entity_id", "project_id", "tenant_id", "organization_id"), "",
+        ("entity_id", "project_id", "tenant_id", "organization_id"),
+        "",
     ),
     (
-        f"{QC}.qc_review_sessions", "fk_qc_review_sessions_asset_version_project",
+        f"{QC}.qc_review_sessions",
+        "fk_qc_review_sessions_asset_version_project",
         ("asset_version_id", "project_id", "tenant_id", "organization_id"),
         f"{ASSET}.asset_versions",
-        ("entity_id", "project_id", "tenant_id", "organization_id"), "",
+        ("entity_id", "project_id", "tenant_id", "organization_id"),
+        "",
     ),
     (
-        f"{QC}.qc_review_sessions", "fk_qc_review_sessions_qc_report_project",
+        f"{QC}.qc_review_sessions",
+        "fk_qc_review_sessions_qc_report_project",
         ("qc_report_ref", "project_id", "tenant_id", "organization_id"),
         f"{ASSET}.qc_reports",
-        ("qc_report_id", "project_id", "tenant_id", "organization_id"), "",
+        ("qc_report_id", "project_id", "tenant_id", "organization_id"),
+        "",
     ),
     # 镜头域：规格随修订
     (
-        f"{SHOT}.shot_specs", "fk_shot_specs_shot_revision_project",
+        f"{SHOT}.shot_specs",
+        "fk_shot_specs_shot_revision_project",
         ("shot_revision_id", "project_id", "tenant_id", "organization_id"),
         f"{SHOT}.shot_revisions",
-        ("entity_id", "project_id", "tenant_id", "organization_id"), "",
+        ("entity_id", "project_id", "tenant_id", "organization_id"),
+        "",
     ),
     # 镜头域：草案/修订随分集。业务键 (project_id, episode_ref) 本身已含 project，
     # 故两列即可锁死一致性，无需四列——`script_revisions` 早就是这个形状。
     (
-        f"{SHOT}.shot_drafts", "fk_shot_drafts_episode_project",
+        f"{SHOT}.shot_drafts",
+        "fk_shot_drafts_episode_project",
         ("project_id", "episode_ref"),
         f"{PLANNING}.episodes",
-        ("project_id", "episode_ref"), "",
+        ("project_id", "episode_ref"),
+        "",
     ),
     (
-        f"{SHOT}.shot_revisions", "fk_shot_revisions_episode_project",
+        f"{SHOT}.shot_revisions",
+        "fk_shot_revisions_episode_project",
         ("project_id", "episode_ref"),
         f"{PLANNING}.episodes",
-        ("project_id", "episode_ref"), "",
+        ("project_id", "episode_ref"),
+        "",
     ),
     # 审批域：票据随流程、步骤随票据
     (
-        f"{WF}.approval_tickets", "fk_approval_tickets_flow_project",
+        f"{WF}.approval_tickets",
+        "fk_approval_tickets_flow_project",
         ("flow_id", "project_id", "tenant_id", "organization_id"),
         f"{WF}.approval_flows",
-        ("entity_id", "project_id", "tenant_id", "organization_id"), "",
+        ("entity_id", "project_id", "tenant_id", "organization_id"),
+        "",
     ),
     (
-        f"{WF}.approval_steps", "fk_approval_steps_ticket_project",
+        f"{WF}.approval_steps",
+        "fk_approval_steps_ticket_project",
         ("ticket_id", "project_id", "tenant_id", "organization_id"),
         f"{WF}.approval_tickets",
-        ("entity_id", "project_id", "tenant_id", "organization_id"), "",
+        ("entity_id", "project_id", "tenant_id", "organization_id"),
+        "",
     ),
     # 组织级边：路线库跨项目复用，只能要求同组织
     (
-        f"{GEN}.generation_tasks", "fk_generation_tasks_route_org",
+        f"{GEN}.generation_tasks",
+        "fk_generation_tasks_route_org",
         ("route_id", "organization_id"),
-        f"{GEN}.production_routes", ("entity_id", "organization_id"), "",
+        f"{GEN}.production_routes",
+        ("entity_id", "organization_id"),
+        "",
     ),
     (
-        f"{GEN}.shot_route_selections", "fk_shot_route_selections_route_org",
+        f"{GEN}.shot_route_selections",
+        "fk_shot_route_selections_route_org",
         ("route_id", "organization_id"),
-        f"{GEN}.production_routes", ("entity_id", "organization_id"),
+        f"{GEN}.production_routes",
+        ("entity_id", "organization_id"),
         " ON DELETE RESTRICT",
     ),
 )
@@ -229,14 +250,16 @@ def upgrade_steps() -> list[Step]:
     steps: list[Step] = []
 
     for table, name, key in PARENT_UNIQUE_4:
-        steps.append(Step(
-            f"ALTER TABLE {table} ADD CONSTRAINT {name} "
-            f"UNIQUE ({key}, project_id, tenant_id, organization_id)"
-        ))
+        steps.append(
+            Step(
+                f"ALTER TABLE {table} ADD CONSTRAINT {name} "
+                f"UNIQUE ({key}, project_id, tenant_id, organization_id)"
+            )
+        )
     for table, name, key in PARENT_UNIQUE_2:
-        steps.append(Step(
-            f"ALTER TABLE {table} ADD CONSTRAINT {name} UNIQUE ({key}, organization_id)"
-        ))
+        steps.append(
+            Step(f"ALTER TABLE {table} ADD CONSTRAINT {name} UNIQUE ({key}, organization_id)")
+        )
 
     # 先删弱键、再加复合键。反过来会出现一个短暂窗口：两条键同时约束同一列，
     # 若此时有人读系统目录，会看到「保护已经存在」的假象。
@@ -244,11 +267,13 @@ def upgrade_steps() -> list[Step]:
         steps.append(Step(f"ALTER TABLE {table} DROP CONSTRAINT IF EXISTS {name}"))
 
     for table, name, child_cols, parent, parent_cols, tail in COMPOSITE_FK:
-        steps.append(Step(
-            f"ALTER TABLE {table} ADD CONSTRAINT {name} "
-            f"FOREIGN KEY ({_cols(child_cols)}) "
-            f"REFERENCES {parent} ({_cols(parent_cols)}){tail} NOT VALID"
-        ))
+        steps.append(
+            Step(
+                f"ALTER TABLE {table} ADD CONSTRAINT {name} "
+                f"FOREIGN KEY ({_cols(child_cols)}) "
+                f"REFERENCES {parent} ({_cols(parent_cols)}){tail} NOT VALID"
+            )
+        )
     return steps
 
 
@@ -272,24 +297,32 @@ def downgrade_steps() -> list[Step]:
     for table, name, _key in reversed(PARENT_UNIQUE_4):
         steps.append(Step(f"ALTER TABLE {table} DROP CONSTRAINT IF EXISTS {name}"))
 
-    steps.append(Step(
-        f"ALTER TABLE {ASSET}.qc_reports "
-        f"DROP CONSTRAINT IF EXISTS qc_reports_asset_version_id_fkey"
-    ))
-    steps.append(Step(
-        f"ALTER TABLE {ASSET}.qc_reports ADD CONSTRAINT qc_reports_asset_version_id_fkey "
-        f"FOREIGN KEY (asset_version_id) REFERENCES {ASSET}.asset_versions (entity_id)"
-    ))
-    steps.append(Step(
-        f"ALTER TABLE {GEN}.shot_route_selections "
-        f"DROP CONSTRAINT IF EXISTS fk_generation_execution_shot_route_selections_route_id"
-    ))
-    steps.append(Step(
-        f"ALTER TABLE {GEN}.shot_route_selections "
-        f"ADD CONSTRAINT fk_generation_execution_shot_route_selections_route_id "
-        f"FOREIGN KEY (route_id) REFERENCES {GEN}.production_routes (entity_id) "
-        f"ON DELETE RESTRICT"
-    ))
+    steps.append(
+        Step(
+            f"ALTER TABLE {ASSET}.qc_reports "
+            f"DROP CONSTRAINT IF EXISTS qc_reports_asset_version_id_fkey"
+        )
+    )
+    steps.append(
+        Step(
+            f"ALTER TABLE {ASSET}.qc_reports ADD CONSTRAINT qc_reports_asset_version_id_fkey "
+            f"FOREIGN KEY (asset_version_id) REFERENCES {ASSET}.asset_versions (entity_id)"
+        )
+    )
+    steps.append(
+        Step(
+            f"ALTER TABLE {GEN}.shot_route_selections "
+            f"DROP CONSTRAINT IF EXISTS fk_generation_execution_shot_route_selections_route_id"
+        )
+    )
+    steps.append(
+        Step(
+            f"ALTER TABLE {GEN}.shot_route_selections "
+            f"ADD CONSTRAINT fk_generation_execution_shot_route_selections_route_id "
+            f"FOREIGN KEY (route_id) REFERENCES {GEN}.production_routes (entity_id) "
+            f"ON DELETE RESTRICT"
+        )
+    )
     return steps
 
 

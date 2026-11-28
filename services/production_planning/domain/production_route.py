@@ -65,9 +65,7 @@ class ProductionRoute(Entity):
             "basis_ref",
         ):
             if _blank(getattr(self, name)):
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
         for name, max_len in (
             ("route_id", 64),
             ("project_id", 64),

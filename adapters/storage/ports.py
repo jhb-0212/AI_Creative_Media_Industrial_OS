@@ -60,6 +60,26 @@ class StorageIntegrityError(StorageError):
     """
 
 
+class StorageObjectMissingError(StorageIntegrityError):
+    """内容确定不存在（定位符合法，但存储里没有这份对象）。
+
+    单独一个类型是为了让恢复流程把「确定不存在」与「存在但不可用」区分开：
+    - 确定不存在 → 可以放弃旧的写入意图并重新生成（有依据的放弃）；
+    - 存在但哈希不符 → 放弃但记录「内容不可复用」，绝不用损坏内容向下游登记。
+    两者是 ``StorageIntegrityError`` 的子类，既有 ``except StorageIntegrityError``
+    仍能兜住；恢复流程按顺序先捕这个更具体的类型。
+    """
+
+
+class StorageUnavailableError(StorageError):
+    """存储后端暂时不可用：超时、权限、连接失败等**无法判定对象是否存在**的故障。
+
+    与 ``StorageObjectMissingError`` 的区别是恢复处置的根本依据：可用性故障下
+    「对象不存在」这个结论不成立，因此**不得**据此放弃写入意图或重新生成——
+    那会把一次短暂抖动误判成永久缺失。正确动作是保留意图并让上层稍后重试。
+    """
+
+
 class StorageSizeLimitError(StorageIntegrityError):
     """内容超出配置的大小上限。
 
@@ -88,9 +108,7 @@ class ObjectStoragePort(Protocol):
     并留下与资产台账的对应记录。
     """
 
-    async def put(
-        self, *, data: bytes, media_type: str, expected_sha256: str = ""
-    ) -> StoredObject:
+    async def put(self, *, data: bytes, media_type: str, expected_sha256: str = "") -> StoredObject:
         """落盘并返回受控定位符。
 
         ``expected_sha256`` 非空时用于核对**上游声明**的哈希（例如模型网关

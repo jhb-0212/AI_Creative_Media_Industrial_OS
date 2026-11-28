@@ -23,9 +23,7 @@ def test_domain_error_to_response_payload() -> None:
 
 def test_error_registry_codes_are_unique() -> None:
     codes = [
-        getattr(ErrorRegistry, attr).code
-        for attr in dir(ErrorRegistry)
-        if not attr.startswith("_")
+        getattr(ErrorRegistry, attr).code for attr in dir(ErrorRegistry) if not attr.startswith("_")
     ]
     assert len(codes) == len(set(codes)), "错误码必须全局唯一"
 

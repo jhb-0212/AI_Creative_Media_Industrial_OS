@@ -16,6 +16,7 @@ Revision ID: 6a7b8c9d0e1f
 Revises: 0fcaf4db4573
 Create Date: 2026-11-13
 """
+
 from __future__ import annotations
 
 import os
@@ -44,9 +45,11 @@ def upgrade() -> None:
     #    存在且无归属验证，产生了引用不存在 Episode 的历史脏数据。复合外键
     #    要求 (project_id, episode_ref) 必须匹配真实 Episode，故先行清理。
     #    这些记录业务上非法（归属悬空），删除是唯一正确处置——但不是静默处置。
-    orphan_count = op.get_bind().execute(
-        sa.text(
-            f"""
+    orphan_count = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                f"""
             SELECT count(*) FROM {SCHEMA}.script_revisions sr
             WHERE NOT EXISTS (
                 SELECT 1 FROM {SCHEMA}.episodes e
@@ -54,8 +57,10 @@ def upgrade() -> None:
                   AND e.episode_ref = sr.episode_ref
             )
             """
+            )
         )
-    ).scalar_one()
+        .scalar_one()
+    )
 
     if orphan_count:
         if os.getenv("ALLOW_ORPHAN_SCRIPT_CLEANUP") != "1":

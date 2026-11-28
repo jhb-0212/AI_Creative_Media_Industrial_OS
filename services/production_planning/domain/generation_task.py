@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 from packages.errors.error_codes import DomainError, ErrorRegistry
 from packages.shared.entity import Entity
@@ -64,6 +65,8 @@ class GenerationTask(Entity):
     # 映射到「待检资产」；只放在 Worker 内存里，进程一崩就再也查不回产物。
     asset_version_id: str = ""
     quality_profile_version: str = ""
+    # 组织归属：随任务事实下传给 QC，供其建立组织上下文（None = 租户级项目）。
+    organization_id: UUID | None = None
 
     def __post_init__(self) -> None:
         super()._validate_envelope()
@@ -80,9 +83,7 @@ class GenerationTask(Entity):
             "prompt_ref",
         ):
             if _blank(getattr(self, name)):
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
         for name, max_len in (
             ("generation_task_id", 64),
             ("project_id", 64),
@@ -177,9 +178,7 @@ class GenerationTask(Entity):
         asset_version_id = (asset_version_id or "").strip()
         quality_profile_version = (quality_profile_version or "").strip()
         if not asset_version_id:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="asset_version_id 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="asset_version_id 不能为空")
         if not quality_profile_version:
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR, detail="quality_profile_version 不能为空"
@@ -207,9 +206,7 @@ class GenerationTask(Entity):
         要根治的自报成功。
         """
         self.require_lease_owner(worker_id)
-        self.transition_to(
-            GenerationTaskStatus.AWAITING_ASSET_REGISTRATION, audit_ref, action
-        )
+        self.transition_to(GenerationTaskStatus.AWAITING_ASSET_REGISTRATION, audit_ref, action)
         self.lease_owner = ""
         self.lease_expires_at = None
         return self
@@ -230,9 +227,7 @@ class GenerationTask(Entity):
         if self.status is not GenerationTaskStatus.AWAITING_ASSET_REGISTRATION:
             raise DomainError(
                 ErrorRegistry.STATE_TRANSITION_DENIED,
-                detail=(
-                    f"任务当前为 {self.status.value}，只能从等待登记态接受回执终态"
-                ),
+                detail=(f"任务当前为 {self.status.value}，只能从等待登记态接受回执终态"),
             )
         self.attach_product_refs(asset_version_id, quality_profile_version)
         self.transition_to(target, audit_ref, action)
@@ -279,9 +274,7 @@ class GenerationTask(Entity):
             raise DomainError(
                 ErrorRegistry.STATE_TRANSITION_DENIED, detail="租约尚未到期，不可回收"
             )
-        self.transition_to(
-            GenerationTaskStatus.REQUESTED, audit_ref, GENERATION_PROCESS_ACTION
-        )
+        self.transition_to(GenerationTaskStatus.REQUESTED, audit_ref, GENERATION_PROCESS_ACTION)
         self.lease_owner = ""
         self.lease_expires_at = None
         return self
@@ -302,13 +295,14 @@ class GenerationTask(Entity):
                 "status": self.status.value,
                 "lease_owner": self.lease_owner,
                 "lease_expires_at": (
-                    self.lease_expires_at.isoformat()
-                    if self.lease_expires_at is not None
-                    else None
+                    self.lease_expires_at.isoformat() if self.lease_expires_at is not None else None
                 ),
                 "attempt_count": self.attempt_count,
                 "asset_version_id": self.asset_version_id,
                 "quality_profile_version": self.quality_profile_version,
+                # 组织归属**不进** ``to_dict``：``GenerationTask`` 的响应形状由
+                # 冻结契约声明（契约里没有这个字段），加进去就是「先实现后补
+                # 契约」的字段漂移。它是内部事实，只随仓储映射与端口传递。
             }
         )
         return data

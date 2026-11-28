@@ -27,9 +27,7 @@ class InMemoryProjectRepository(ProjectRepository):
     async def add(self, project: Project) -> None:
         # INSERT 语义：主键已存在即唯一冲突（端口契约，与 SQL 实现同语义）。
         if project.entity_id in self._store:
-            raise DuplicateEntityError(
-                project.entity_id, constraint="pk_project_planning_projects"
-            )
+            raise DuplicateEntityError(project.entity_id, constraint="pk_project_planning_projects")
         self._store[project.entity_id] = project
 
     async def save(self, project: Project, expected_version: int) -> None:
@@ -73,14 +71,10 @@ class InMemorySceneRepository(SceneRepository):
 
     async def add(self, scene: Scene) -> None:
         if scene.entity_id in self._store:
-            raise DuplicateEntityError(
-                scene.entity_id, constraint="pk_project_planning_scenes"
-            )
+            raise DuplicateEntityError(scene.entity_id, constraint="pk_project_planning_scenes")
         existing = await self.get_by_project_code(scene.project_id, scene.scene_code)
         if existing is not None:
-            raise DuplicateEntityError(
-                scene.entity_id, constraint="uq_scenes_project_code"
-            )
+            raise DuplicateEntityError(scene.entity_id, constraint="uq_scenes_project_code")
         # 存快照而非同一对象引用：领域对象在 advance_status 里会原地改 version，
         # 若仓储持有的是同一引用，乐观锁就会拿「改后的版本」和调用方传来的
         # 「改前版本」比较，必然假冲突——真实数据库不会有这种别名问题。
@@ -100,9 +94,7 @@ class InMemorySceneRepository(SceneRepository):
         """进程内无行锁语义，等同普通读；SQL 实现用 FOR SHARE 真正加锁。"""
         return await self.get_by_id(entity_id)
 
-    async def get_by_project_code(
-        self, project_id: str, scene_code: str
-    ) -> Scene | None:
+    async def get_by_project_code(self, project_id: str, scene_code: str) -> Scene | None:
         for scene in self._store.values():
             if scene.project_id == project_id and scene.scene_code == scene_code:
                 return replace(scene)

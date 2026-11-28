@@ -14,7 +14,11 @@
 # 1. implemented.route 必须写成 "METHOD /path"，路径与运行时 app 的 path 完全一致；
 # 2. not_implemented 必须写 reason（给下一个人看，不是给 CI 看）；
 # 3. PHASE_GATED 的 action 不进本台账（它们不要求实现，提了反而制造口径混乱）；
-# 4. 新增运行时端点必须同时在这里登记，否则 contract_check 报「未登记端点」。
+# 4. 新增运行时端点必须同时在这里登记，否则 contract_check 报「未登记端点」；
+# 5. 真的实现了但**没有 HTTP 端点**的动作，登记 mechanism: in_process，并写明
+#    module 与 reason（为什么没有对外入口），且不得同时写 route。
+#    这一条存在的理由：只认 route 的台账会逼着「无 HTTP 面的实现」二选一说谎
+#    ——要么编一个 route，要么谎称未实现。声明与事实不符才是台账真正要防的东西。
 version: 1
 
 implemented:
@@ -52,7 +56,21 @@ implemented:
   ASSET.VERSION.CREATE:
     route: "POST /assets"
     module: services/asset_service/api/asset_routes.py
+  # 自动入队：没有 HTTP 入口。GENERATION_SUCCEEDED 由 relay 消费后直调
+  # QCTaskService（workers/relay/handlers.py），不经过 API 层。
+  # C7-b 之前这里登记为 route: POST /qc-tasks，但那其实是**人工**入口：
+  # 台账只认 HTTP 端点，于是自动入队只能借一个人家的门牌号，而那条门牌号
+  # 上的席位、核验、幂等全都不是自动路径的语义。两份事实挤在一行，
+  # 结果就是「声明存在，但声明的内容不是事实」。
   QC.TASK.ENQUEUE:
+    mechanism: in_process
+    module: services/qc_governance/service/qc_task_service.py
+    invoked_by: workers/relay/handlers.py（GENERATION_SUCCEEDED 处理器）
+    reason: >-
+      自动入队不经 HTTP：relay 消费事件后直调 QCTaskService.enqueue。没有对外端点
+      是设计结果而非缺口——它不该被任何外部调用方触发，事件就是它的唯一入口。
+      人工入口另由 QC.TASK.RECOVER 承载（POST /qc-tasks）。
+  QC.TASK.RECOVER:
     route: POST /qc-tasks
     module: services/qc_governance/api/qc_task_routes.py
   QC.TASK.PROCESS:
@@ -184,6 +202,16 @@ implemented:
   BUDGET.SHOT.REFUND:
     route: "POST /budget-ledger/{entity_id}/refund"
     module: services/budget_quota/api/budget_routes.py
+  # --- 平台运维（事件总线）---
+  # 读与写是两个动作、两个席位：查询用于定位要处置的事件，重放才是处置。
+  # 查询不是重放的「前置步骤」而是独立能力——把它并进 REPLAY 会让「只想看看
+  # 有哪些死信」也必须持有处置权。
+  OUTBOX.DEAD_LETTER.READ:
+    route: "GET /outbox/dead-letters"
+    module: services/outbox_ops/api/outbox_ops_routes.py
+  OUTBOX.DEAD_LETTER.REPLAY:
+    route: "POST /outbox/dead-letters/{event_id}/replay"
+    module: services/outbox_ops/api/outbox_ops_routes.py
 
 # 以下 ACTIVE action 契约已启用、运行时尚未实现。每一项都是一条待排期的真实缺口。
 not_implemented:

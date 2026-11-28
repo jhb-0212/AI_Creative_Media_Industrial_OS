@@ -86,22 +86,16 @@ class ShotRevision(Entity):
         ):
             value = getattr(self, name)
             if not value or not str(value).strip():
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
             if len(value) > max_len:
                 raise DomainError(
                     ErrorRegistry.VALIDATION_ERROR,
                     detail=f"{name} 长度超过上限 {max_len}",
                 )
         if self.revision_no < 1:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="revision_no 从 1 开始"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="revision_no 从 1 开始")
         if self.confirmed_at is None:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="confirmed_at 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="confirmed_at 不能为空")
 
     def transition_to(
         self, target: ShotRevisionStatus, audit_ref: str, action: str
@@ -143,9 +137,7 @@ class ShotRevision(Entity):
                 "changed_fields": self.changed_fields,
                 "provenance": self.provenance,
                 "confirmed_by": self.confirmed_by,
-                "confirmed_at": (
-                    self.confirmed_at.isoformat() if self.confirmed_at else None
-                ),
+                "confirmed_at": (self.confirmed_at.isoformat() if self.confirmed_at else None),
             }
         )
         return data

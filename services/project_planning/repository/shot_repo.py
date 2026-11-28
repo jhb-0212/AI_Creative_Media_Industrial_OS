@@ -57,9 +57,7 @@ class ShotRevisionRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def get_by_revision_no(
-        self, shot_id: str, revision_no: int
-    ) -> ShotRevision | None:
+    async def get_by_revision_no(self, shot_id: str, revision_no: int) -> ShotRevision | None:
         """版本冲突检测：同镜头同 revision_no 至多一条。"""
         raise NotImplementedError
 

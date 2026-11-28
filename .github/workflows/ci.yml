@@ -41,6 +41,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          # 迁移往返深度由 merge-base 派生（见 Migration downgrade roundtrip 一步）。
+          # 浅克隆取不到共同祖先，派生脚本会按「失败即失败」非零退出——所以必须拿全历史。
+          fetch-depth: 0
 
       - uses: actions/setup-python@v7
         with:
@@ -79,6 +83,19 @@ jobs:
           echo "PostgreSQL not ready after 60s" >&2
           exit 1
 
+      - name: Bootstrap identity roles (迁移前置，fail-closed 的另一半)
+        # 2026-11-28 起迁移**不创建角色**，只用 assert_role_present 断言存在；
+        # 空库先跑 alembic 会在第一条断言处退出 1。缺了这一步，「闸门全绿」与
+        # 「主线 CI 一开 PR 就红」可以同时成立——本步骤就是把它钉进 CI。
+        run: uv run python scripts/bootstrap_identity.py --roles
+        env:
+          APP_ENV: development
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ai_film_industrial
+
       - name: Apply migrations
         # 数据库集成测试依赖真实表结构，必须先建表（全新空库），再跑测试。
         run: uv run alembic upgrade head
@@ -115,15 +132,152 @@ jobs:
         # 只做 upgrade head 时，downgrade 的正确性没有任何运行时证据：删索引、删表、
         # 删约束的顺序错了，只有真库回滚才会报错（clean install 永远走 upgrade）。
         # 回滚再升级还顺带证明「rollback 之后这张库还能重新建成 head 形态」。
+        #
+        # 深度由 scripts/migration_roundtrip_depth.py 从 merge-base 派生，不再手抄：
+        # 写死的常量在「加了迁移却忘改」时不报错，只是少撤一格（本仓库两次踩坑：
+        # outbox 分区撤销在 -1 时代被漏掉；本轮 3 个新增迁移仍写 -2，最早那个的
+        # 降级从未在 CI 执行过）。取不到 merge-base 时脚本非零退出，不猜默认值。
+        #
+        # 为什么另开一个库：上一步的 pytest 跑在主库上，实测会留下 1 条
+        # AWAITING_ASSET_REGISTRATION 的在途任务，而 e1f2a3b4c5d6 的 §8 守卫
+        # **故意**拒绝在途任务上的降级。在主库回滚，红的是「数据状态」，掩盖的却是
+        # 「downgrade() 压根没被执行」——两种失败同为 exit 1，处置完全不同。
+        # 往返要证的是迁移可逆，就给它一个没有测试残留的干净库。
         run: |
-          uv run alembic downgrade -1
+          DEPTH="$(uv run python scripts/migration_roundtrip_depth.py)"
+          echo "downgrade depth: ${DEPTH}"
+          export PGPASSWORD=postgres
+          psql -h localhost -U postgres -d postgres -c "DROP DATABASE IF EXISTS ai_film_roundtrip"
+          psql -h localhost -U postgres -d postgres -c "CREATE DATABASE ai_film_roundtrip"
+          export POSTGRES_DB=ai_film_roundtrip
+          uv run python scripts/bootstrap_identity.py --roles
           uv run alembic upgrade head
+          uv run alembic downgrade "-${DEPTH}"
+          uv run alembic upgrade head
+          psql -h localhost -U postgres -d postgres -c "DROP DATABASE ai_film_roundtrip"
+          unset PGPASSWORD
         env:
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: ai_film_industrial
+
+  fresh-cluster-bootstrap:
+    # 空集群（只有 postgres 角色）的真实路径：先迁移**必须失败** → bootstrap 后必须成功。
+    #
+    # 为什么单独立一个 job：主 job 的 postgres service 会被 bootstrap 步骤补上角色，
+    # 之后再跑什么都不可能暴露「空集群升不上去」。本地复跑同样在已 bootstrap 的库上，
+    # 天然看不到这个缺口——2026-11-28 就是这么出现「闸门全绿、主线必红」的。
+    runs-on: ubuntu-24.04
+    services:
+      postgres-clean:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --frozen --extra dev
+      - name: Create empty application database
+        run: |
+          uv run python - <<'PY'
+          import asyncio
+
+          import asyncpg
+
+
+          async def main() -> None:
+              conn = await asyncpg.connect(
+                  host="127.0.0.1", port=55432, user="postgres",
+                  password="postgres", database="postgres",
+              )
+              await conn.execute("CREATE DATABASE ai_film_industrial")
+              await conn.close()
+
+
+          asyncio.run(main())
+          PY
+        env:
+          APP_ENV: development
+      - name: Migrate on a cluster without roles must fail closed
+        run: |
+          set -o pipefail
+          if uv run alembic upgrade head > /tmp/pre-bootstrap.log 2>&1; then
+            echo "::error::空集群直接迁移竟然成功——角色断言没有生效"
+            exit 1
+          fi
+          grep -q "is missing: run scripts/bootstrap_identity.py --roles first" /tmp/pre-bootstrap.log
+          echo "fail-closed 生效：$(grep -o 'role \"[a-z_]*\" is missing' /tmp/pre-bootstrap.log | head -1)"
+        env:
+          APP_ENV: development
+          POSTGRES_HOST: 127.0.0.1
+          POSTGRES_PORT: 55432
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ai_film_industrial
+      - name: Bootstrap roles
+        run: uv run python scripts/bootstrap_identity.py --roles
+        env:
+          APP_ENV: development
+          POSTGRES_HOST: 127.0.0.1
+          POSTGRES_PORT: 55432
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ai_film_industrial
+      - name: Migrate to head after bootstrap
+        run: uv run alembic upgrade head
+        env:
+          APP_ENV: development
+          POSTGRES_HOST: 127.0.0.1
+          POSTGRES_PORT: 55432
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ai_film_industrial
+      - name: Assert head and retired role
+        run: |
+          uv run python - <<'PY'
+          import asyncio
+
+          import asyncpg
+
+          EXPECTED_HEAD = "f2b3c4d5e6a7"
+
+
+          async def main() -> None:
+              conn = await asyncpg.connect(
+                  host="127.0.0.1", port=55432, user="postgres",
+                  password="postgres", database="ai_film_industrial",
+              )
+              head = await conn.fetchval("SELECT version_num FROM alembic_version")
+              retired = await conn.fetchval(
+                  "SELECT count(*) FROM pg_roles WHERE rolname = 'qc_worker'"
+              )
+              await conn.close()
+              assert head == EXPECTED_HEAD, f"head={head!r}，期望 {EXPECTED_HEAD}"
+              assert retired == 0, "bootstrap 不得创建已退役的 qc_worker"
+
+
+          asyncio.run(main())
+          print("head 与退役边界均符合预期")
+          PY
+        env:
+          APP_ENV: development
 
   contract-check:
     runs-on: ubuntu-24.04

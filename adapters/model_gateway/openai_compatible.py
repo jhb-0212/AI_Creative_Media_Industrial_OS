@@ -98,9 +98,7 @@ class OpenAICompatibleGateway:
     async def generate(self, request: GenerationRequest) -> GatewayArtifact:
         model = request.model or self._default_model
         if not model:
-            raise GatewayMisconfiguredError(
-                "请求未指定 model 且未配置 MODEL_GATEWAY_DEFAULT_MODEL"
-            )
+            raise GatewayMisconfiguredError("请求未指定 model 且未配置 MODEL_GATEWAY_DEFAULT_MODEL")
 
         payload: dict[str, Any] = {
             "model": model,
@@ -130,9 +128,7 @@ class OpenAICompatibleGateway:
 
     # --- 内部 -------------------------------------------------------------
 
-    async def _post(
-        self, payload: dict[str, Any], *, request: GenerationRequest
-    ) -> httpx.Response:
+    async def _post(self, payload: dict[str, Any], *, request: GenerationRequest) -> httpx.Response:
         url = f"{self._base_url}/images/generations"
         try:
             response = await self._client.post(
@@ -153,8 +149,7 @@ class OpenAICompatibleGateway:
 
         if response.status_code == 429 or response.status_code >= 500:
             raise GatewayRetryableError(
-                f"网关返回 {response.status_code}"
-                f"（task={request.task_id}）: {excerpt(response)}"
+                f"网关返回 {response.status_code}（task={request.task_id}）: {excerpt(response)}"
             )
         if response.status_code >= 400:
             raise GatewayRejectedError(
@@ -181,9 +176,7 @@ class OpenAICompatibleGateway:
     ) -> tuple[bytes, str]:
         items = body.get("data")
         if not isinstance(items, list) or not items:
-            raise GatewayRejectedError(
-                f"网关响应缺少非空 data 数组（task={request.task_id}）"
-            )
+            raise GatewayRejectedError(f"网关响应缺少非空 data 数组（task={request.task_id}）")
         first = items[0]
         if not isinstance(first, dict):
             raise GatewayRejectedError("网关响应 data[0] 不是对象")
@@ -205,19 +198,14 @@ class OpenAICompatibleGateway:
         # 先按长度粗判：base64 膨胀约 4/3，超限的串不必解码就知道会超。
         if len(b64) // 4 * 3 > self._max_bytes:
             raise GatewayRejectedError(
-                f"产物 base64 长度 {len(b64)} 超出上限 {self._max_bytes}"
-                f"（task={request.task_id}）"
+                f"产物 base64 长度 {len(b64)} 超出上限 {self._max_bytes}（task={request.task_id}）"
             )
         try:
             data = base64.b64decode(b64, validate=True)
         except (binascii.Error, ValueError) as exc:
-            raise GatewayRejectedError(
-                f"产物 base64 解码失败（task={request.task_id}）"
-            ) from exc
+            raise GatewayRejectedError(f"产物 base64 解码失败（task={request.task_id}）") from exc
         if len(data) > self._max_bytes:
-            raise GatewayRejectedError(
-                f"产物 {len(data)} 字节超出上限 {self._max_bytes}"
-            )
+            raise GatewayRejectedError(f"产物 {len(data)} 字节超出上限 {self._max_bytes}")
         return data
 
     async def _download(self, url: str, request: GenerationRequest) -> tuple[bytes, str]:
@@ -241,15 +229,11 @@ class OpenAICompatibleGateway:
                         )
                     media_type = media_type_or_fallback(response, request.media_type)
                     return (
-                        await read_capped(
-                            response, limit=self._max_bytes, task_id=request.task_id
-                        ),
+                        await read_capped(response, limit=self._max_bytes, task_id=request.task_id),
                         media_type,
                     )
             except httpx.TimeoutException as exc:
-                raise GatewayRetryableError(
-                    f"产物下载超时（task={request.task_id}）"
-                ) from exc
+                raise GatewayRetryableError(f"产物下载超时（task={request.task_id}）") from exc
             except httpx.TransportError as exc:
                 raise GatewayRetryableError(
                     f"产物下载连接失败（task={request.task_id}）: {type(exc).__name__}"

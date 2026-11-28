@@ -43,7 +43,7 @@ import asyncpg
 HOST = "localhost"
 PORT = 15444  # step-feat：分支链已重放到 head
 MAIN_PORT = 15443  # step-main：主支链 head，用于可空性对照
-SUPER_PW = "replay_super_pw"
+SUPER_PW = "<ROTATED-2026-11-28>"
 LAB = "t3_lab"
 TEMPLATE = "ai_film_industrial"
 MAIN_DB = "ai_film_industrial"
@@ -63,7 +63,9 @@ O2 = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 NOPE = "ffffffff-ffff-ffff-ffff-ffffffffffff"  # 不存在的组织
 P1 = "proj-1"
 
-CLEANUP_NOTE = "TRUNCATE 不触发行级触发器，故可作为阶段重置；守卫拦不住 TRUNCATE，属运维权限面的边界"
+CLEANUP_NOTE = (
+    "TRUNCATE 不触发行级触发器，故可作为阶段重置；守卫拦不住 TRUNCATE，属运维权限面的边界"
+)
 
 
 def asset_insert(
@@ -83,7 +85,7 @@ def asset_insert(
         f"('{entity_id}', 'AssetVersion', 2, 1, 'GENERATED', 'asset_service', "
         f"'{tenant}', '{org}', {project_sql}, now(), 't3', now(), "
         f"'VIDEO', repeat('{tone}', 64), "
-        f"'{{\"bucket\":\"b\",\"key\":\"{entity_id}\"}}'::jsonb, '[]'::jsonb)"
+        f'\'{{"bucket":"b","key":"{entity_id}"}}\'::jsonb, \'[]\'::jsonb)'
     )
 
 
@@ -192,7 +194,9 @@ async def run(conn: asyncpg.Connection, step: Step) -> Result:
         note=step.note,
         verdict="PASS" if ok else "FAIL",
     )
-    print(f"[{result.verdict}] {step.phase} {step.label}: 期望={result.expect} 实际={actual} | {c1}")
+    print(
+        f"[{result.verdict}] {step.phase} {step.label}: 期望={result.expect} 实际={actual} | {c1}"
+    )
     return result
 
 
@@ -278,7 +282,9 @@ def build_steps() -> list[Step]:
     )
 
     # ===== B 场景 1：正常归属 =====
-    add(Step("B1", "插入项目/租户/组织完全匹配的资产", asset_insert("asset-ok"), note="场景 1 正向"))
+    add(
+        Step("B1", "插入项目/租户/组织完全匹配的资产", asset_insert("asset-ok"), note="场景 1 正向")
+    )
     add(
         Step(
             "B2",
@@ -324,7 +330,14 @@ def build_steps() -> list[Step]:
             note="场景 7 关键：历史脏数据未清时，新写入同样被拦",
         )
     )
-    add(Step("C6", "NOT VALID 下写合规资产", asset_insert("asset-ok-2", tone="d"), note="合规写入不被误伤"))
+    add(
+        Step(
+            "C6",
+            "NOT VALID 下写合规资产",
+            asset_insert("asset-ok-2", tone="d"),
+            note="合规写入不被误伤",
+        )
+    )
     add(
         Step(
             "C7",
@@ -415,7 +428,14 @@ def build_steps() -> list[Step]:
             note="**预期成功**：两列只比 project+tenant → 组织错配被放行，这是两列方案的盲区",
         )
     )
-    add(Step("E3", "撤两列约束", f"ALTER TABLE {ASSETS} DROP CONSTRAINT {FK_2COL}", note="准备三列方案"))
+    add(
+        Step(
+            "E3",
+            "撤两列约束",
+            f"ALTER TABLE {ASSETS} DROP CONSTRAINT {FK_2COL}",
+            note="准备三列方案",
+        )
+    )
     add(
         Step(
             "E4",
@@ -448,7 +468,14 @@ def build_steps() -> list[Step]:
 
     # ===== F 场景 5：legacy-unassigned 哨兵 =====
     add(Step("F0", "清空资产表", f"TRUNCATE {ASSETS} CASCADE", note="E9 残留的 fk3 不拦 TRUNCATE"))
-    add(Step("F0b", "撤掉 E9 残留约束", drop_both(), note="隔离变量：本阶段只让触发器起作用，不让外键抢答"))
+    add(
+        Step(
+            "F0b",
+            "撤掉 E9 残留约束",
+            drop_both(),
+            note="隔离变量：本阶段只让触发器起作用，不让外键抢答",
+        )
+    )
     add(
         Step(
             "F1",
@@ -558,7 +585,9 @@ async def main_side_contrast() -> dict[str, str]:
                 "table_schema = 'project_planning' AND table_name = 'projects' AND column_name = 'organization_id'"
             )
         )
-        out["organizations 表行数"] = str(await conn.fetchval("SELECT count(*) FROM project_planning.organizations"))
+        out["organizations 表行数"] = str(
+            await conn.fetchval("SELECT count(*) FROM project_planning.organizations")
+        )
         await attempt(
             "反证：organization_id 非空且不存在",
             "INSERT INTO project_planning.projects (entity_id, entity_type, schema_version, entity_version, "
@@ -583,12 +612,28 @@ async def main_side_contrast() -> dict[str, str]:
 
 SCENARIOS = [
     ("1 正常归属", "B1 → B2", "完全匹配的资产可写入，且干净数据上外键可建"),
-    ("2 孤儿项目", "C2 → C3 → C10 → C12", "无约束时孤儿可写入；建约束时被拒而非静默删；修复后方可 VALIDATE"),
+    (
+        "2 孤儿项目",
+        "C2 → C3 → C10 → C12",
+        "无约束时孤儿可写入；建约束时被拒而非静默删；修复后方可 VALIDATE",
+    ),
     ("3 租户错配", "D2 → D3", "两列外键即可拦截 project+tenant 不一致"),
     ("4 组织错配", "E1 → E2 → E4", "两列外键放行、三列外键拦截 —— 两列方案的结构性盲区"),
-    ("5 legacy-unassigned 哨兵", "F1 → F2 → F9", "触发器只挡魔法值、不查存在性；历史哨兵行阻塞外键，必须人工映射"),
-    ("6 NULL / MATCH SIMPLE", "G1 + 可空性审计", "分支侧归属列全 NOT NULL，放行路径列级不可达；主支 organization_id 可空则可绕过"),
-    ("7 NOT VALID 分阶段", "C4 → C5 → C7 → C12", "跳过历史扫描但新写入仍受约束；未清脏即 VALIDATE 会失败且状态保持 f"),
+    (
+        "5 legacy-unassigned 哨兵",
+        "F1 → F2 → F9",
+        "触发器只挡魔法值、不查存在性；历史哨兵行阻塞外键，必须人工映射",
+    ),
+    (
+        "6 NULL / MATCH SIMPLE",
+        "G1 + 可空性审计",
+        "分支侧归属列全 NOT NULL，放行路径列级不可达；主支 organization_id 可空则可绕过",
+    ),
+    (
+        "7 NOT VALID 分阶段",
+        "C4 → C5 → C7 → C12",
+        "跳过历史扫描但新写入仍受约束；未清脏即 VALIDATE 会失败且状态保持 f",
+    ),
 ]
 
 
@@ -665,7 +710,9 @@ async def main() -> int:
             lines.append(f"- **{r.phase} {r.label}** `{r.actual}` — {r.detail}")
 
     lines += ["", "## 5. 归属列可空性审计（分支侧全库）", ""]
-    lines.append(f"共 {len(nullability)} 个归属列；`is_nullable` 全为 `NO` 时，复合外键的 MATCH SIMPLE 放行路径不可达。")
+    lines.append(
+        f"共 {len(nullability)} 个归属列；`is_nullable` 全为 `NO` 时，复合外键的 MATCH SIMPLE 放行路径不可达。"
+    )
     lines.append("")
     lines.append("| 表 | 列 | is_nullable |")
     lines.append("| --- | --- | --- |")
@@ -694,9 +741,7 @@ async def main() -> int:
                 "passed": passed,
                 "total": len(results),
                 "steps": [r.__dict__ for r in results],
-                "scenarios": [
-                    {"scenario": n, "steps": s, "fact": f} for n, s, f in SCENARIOS
-                ],
+                "scenarios": [{"scenario": n, "steps": s, "fact": f} for n, s, f in SCENARIOS],
                 "ownership_nullability": nullability,
                 "main_side_contrast": contrast,
                 "final_constraints": final_constraints,

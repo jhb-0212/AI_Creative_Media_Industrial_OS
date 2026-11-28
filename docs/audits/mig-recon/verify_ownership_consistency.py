@@ -71,7 +71,9 @@ OUT_JSON = Path(__file__).resolve().parent / "verify-ownership-consistency.json"
 #: 指向另一条链的 head，放进 `versions/` 会让 `upgrade head` 出现二义性。
 #: 自检要回退批次四，必须到这个目录找文件——指错目录时 `rewind_to` 会「回退 0 层」
 #: 却照样返回成功，于是 S0 在已修复的库上跑出全绿并误判为闸门失效。
-VERSIONS_DIR = Path(__file__).resolve().parents[3] / "data" / "migrations" / "pending" / "feat-ownership"
+VERSIONS_DIR = (
+    Path(__file__).resolve().parents[3] / "data" / "migrations" / "pending" / "feat-ownership"
+)
 
 #: 业务 schema。刻意不含 `outbox` / `auth`：它们不承载项目归属
 #: （`outbox` 靠 tenant 分区，`auth` 是凭证域），纳入只会制造无关噪声。
@@ -120,12 +122,12 @@ SELECT o.tbl, a.attname AS col
 
 NonRefCategory = Literal[
     "external_artifact",  # 外部系统/存储/第三方产物的标识，不在本库实体图内
-    "soft_pointer",       # 跨模块软引用：目标模块自有归属闭环，本行不据它定位父行
-    "reservation",        # 预算/配额预留单号，由预算域生成，不是实体身份
-    "own_business_key",   # 本表自己的业务键（如 episodes.episode_ref），不是引用
-    "polymorphic",        # 多态引用：目标类型由另一列决定，无法用单条外键表达
-    "subject_identity",   # 主体（人/服务）标识，跨身份证域，不是项目实体
-    "embedded_object",    # jsonb 内的对象引用（id + 版本），单列外键表达不了
+    "soft_pointer",  # 跨模块软引用：目标模块自有归属闭环，本行不据它定位父行
+    "reservation",  # 预算/配额预留单号，由预算域生成，不是实体身份
+    "own_business_key",  # 本表自己的业务键（如 episodes.episode_ref），不是引用
+    "polymorphic",  # 多态引用：目标类型由另一列决定，无法用单条外键表达
+    "subject_identity",  # 主体（人/服务）标识，跨身份证域，不是项目实体
+    "embedded_object",  # jsonb 内的对象引用（id + 版本），单列外键表达不了
 ]
 
 
@@ -185,7 +187,6 @@ CLASSIFICATION: dict[tuple[str, str], Edge | NonRef] = {
     ("workflow.approval_steps", "ticket_id"): Edge(
         "workflow.approval_tickets", "审批步骤是票据的组成；跨票据挂步骤会使票数统计错位"
     ),
-
     # ---- 以下为「不是归属边」，按类归并 ----
     ("asset_service.asset_versions", "adapter_id"): NonRef(
         "external_artifact", "生成适配器标识，指向外部工具而非库内实体"
@@ -223,7 +224,7 @@ CLASSIFICATION: dict[tuple[str, str], Edge | NonRef] = {
     ),
     ("shot_planning.shots", "source_draft_ref"): NonRef(
         "embedded_object",
-        "jsonb 内嵌 {draft_id, draft_version}；外键无法表达版本化内嵌引用，来源追溯由应用层校验"
+        "jsonb 内嵌 {draft_id, draft_version}；外键无法表达版本化内嵌引用，来源追溯由应用层校验",
     ),
     # 契约 ShotRevision 用 `scene_id` 作归属（本闸门就按它判）。`scene_ref` 是
     # 草案期的场次业务编码，保留只为「这条修订从哪个草案版本来」的追溯；
@@ -236,20 +237,21 @@ CLASSIFICATION: dict[tuple[str, str], Edge | NonRef] = {
     # 剧本依据/约束包/上一版」从判据里删掉（批次十一已建四列复合外键）。
     ("shot_planning.shot_revisions", "basis_script_revision_id"): Edge(
         "project_planning.script_revisions",
-        "剧本依据必须是同项目同租户同组织的真实版本；legacy 夹具行为 NULL，由 ck_sr_basis_script 限死"
+        "剧本依据必须是同项目同租户同组织的真实版本；legacy 夹具行为 NULL，由 ck_sr_basis_script 限死",
     ),
     ("shot_planning.shot_revisions", "constraint_pack_id"): Edge(
         "shot_planning.constraint_packs",
-        "applicability=BOUND 时必填且须同项目；NOT_APPLICABLE 时必须为空，双向 CHECK 已落库"
+        "applicability=BOUND 时必填且须同项目；NOT_APPLICABLE 时必须为空，双向 CHECK 已落库",
     ),
     ("shot_planning.shot_revisions", "supersedes_shot_revision_id"): Edge(
         "shot_planning.shot_revisions",
-        "自引用复合外键：只允许同项目的上一版修订被取代；首版为空合法"
+        "自引用复合外键：只允许同项目的上一版修订被取代；首版为空合法",
     ),
     # 三条非边：jsonb 内嵌精确版本引用，单列外键表达不了；地点是外部
     # 主数据/文本引用，不决定项目归属（归属由 scene_id 承担）。
     ("shot_planning.shot_revisions", "intent_ref"): NonRef(
-        "embedded_object", "jsonb 内嵌 {intent_id, intent_version}，精确版本引用且由契约 schema 校验结构"
+        "embedded_object",
+        "jsonb 内嵌 {intent_id, intent_version}，精确版本引用且由契约 schema 校验结构",
     ),
     ("shot_planning.shot_revisions", "source_draft_ref"): NonRef(
         "embedded_object", "jsonb 内嵌 {draft_id, draft_version}；与 shots.source_draft_ref 同类"
@@ -293,7 +295,6 @@ CLASSIFICATION: dict[tuple[str, str], Edge | NonRef] = {
     ("project_planning.episodes", "episode_ref"): NonRef(
         "own_business_key", "本表自身的业务键（与 project_id 组成唯一键），不是对父行的引用"
     ),
-
     # ---- 批次五新建的两张业务对象表 ----
     # `scenes` / `shots` 自己也是归属表，它们的身份列与引名列必须同样被认领。
     # 新建表第一次让这些边进入视野：以前表不存在，没有人问过它们指向谁。
@@ -316,7 +317,6 @@ CLASSIFICATION: dict[tuple[str, str], Edge | NonRef] = {
         "workflow.rework_tasks",
         "返工依据引用（ReworkTask 授权记录）；回退到 IN_PRODUCTION 时必须能指回授权",
     ),
-
     # ---- 批次九新表：只有决定 project 归属的列才登记为 Edge ----
     # 其余四列是「跟着别人的归属走」或「本表自己的键」，不是父子归属边。
     # 全登记成 Edge 会让判据要求给每列建外键，那是另一种形式的假阳性。
@@ -334,7 +334,6 @@ CLASSIFICATION: dict[tuple[str, str], Edge | NonRef] = {
     ("workflow.rework_tasks", "target_ref"): NonRef(
         "polymorphic", "多态目标引用（目标类型由业务上下文决定），无法用单条外键表达"
     ),
-
     # ---- 父表在库中尚不存在：显式登记为悬空边，见 DANGLING 说明 ----
     # 这四类不写成 NonRef —— 它们是**真实设计的归属边**，只是目标表还没建。
     # 归类为「不是边」会把「未实施」永久洗白，那正是本项目反复踩的坑。
@@ -349,9 +348,7 @@ CLASSIFICATION: dict[tuple[str, str], Edge | NonRef] = {
     ("shot_planning.shot_revisions", "shot_id"): Edge(
         "shot_planning.shots", "修订属于某个镜头身份"
     ),
-    ("shot_planning.shot_specs", "shot_id"): Edge(
-        "shot_planning.shots", "规格属于某个镜头身份"
-    ),
+    ("shot_planning.shot_specs", "shot_id"): Edge("shot_planning.shots", "规格属于某个镜头身份"),
     ("shot_planning.shot_visual_plans", "shot_id"): Edge(
         "shot_planning.shots", "视觉方案属于某个镜头身份"
     ),
@@ -397,25 +394,19 @@ class Exempt:
 
 
 EXEMPTIONS: dict[tuple[str, str], Exempt] = {
-    (
-        "shot_planning.shot_drafts", "scene_ref"
-    ): Exempt(
+    ("shot_planning.shot_drafts", "scene_ref"): Exempt(
         "DRAFT_INTERNAL",
         "`ShotBreakdownDraft` 契约把场次放在 `scene_breakdowns[]` 数组内，**没有**顶层场次"
         "引用字段；本列是草案期内部标识，不是对象引用。若将来契约补了顶层 `scene_id`，"
         "该豁免自动失效并要求建边。",
     ),
-    (
-        "shot_planning.shots", "cancellation_ref"
-    ): Exempt(
+    ("shot_planning.shots", "cancellation_ref"): Exempt(
         "AUTH_RECORD_UNMODELED",
         "取消授权所指向的「授权记录」对象**尚未建模**——`contract_amendments.yaml` 明载"
         "「专用 Approval 对象仍未建模（见 ADR-R18）」。契约要求该列在 CANCELLED 时必填，"
         "但没有任何对象可供外键指向。若将来建模为 Approval 或复用 GateDecision，此豁免自动失效。",
     ),
-    (
-        "qc_governance.gate_decisions", "gate_instance_id"
-    ): Exempt(
+    ("qc_governance.gate_decisions", "gate_instance_id"): Exempt(
         "PARENT_NO_SCHEMA",
         "`GateInstance` 无 schema——`contracts/phase0/contract_amendments.yaml`（V205-R14-A8 "
         "residual_risks）已把它登记为「下一个同型缺口」。无契约的表不能凭空建，"
@@ -459,7 +450,10 @@ async def exemption_holds(conn: asyncpg.Connection, code: str) -> tuple[bool, st
             "SELECT to_regclass('qc_governance.gate_instances') IS NOT NULL"
         )
         if exists:
-            return False, "库中已有 gate_instances，但契约仍无定义（无契约的事实源，须裁撤或补契约）"
+            return (
+                False,
+                "库中已有 gate_instances，但契约仍无定义（无契约的事实源，须裁撤或补契约）",
+            )
         return True, "契约无 GateInstance 且库中无该表"
     raise ValueError(f"未知豁免码：{code}")
 
@@ -597,8 +591,7 @@ async def evaluate(
             # 派生出来却没人认领 —— 这一条正是「清单不会自己举手」的反面：
             # 漏掉的条目在这里会**自己喊出来**，而不是安静地不参与判断。
             report.findings.append(
-                Finding(tbl, col, "-", "UNCLASSIFIED",
-                        "派生集中出现但未在 CLASSIFICATION 中分类")
+                Finding(tbl, col, "-", "UNCLASSIFIED", "派生集中出现但未在 CLASSIFICATION 中分类")
             )
             continue
 
@@ -608,8 +601,7 @@ async def evaluate(
         exists = await conn.fetchval("SELECT to_regclass($1) IS NOT NULL", spec.parent)
         if not exists:
             report.findings.append(
-                Finding(tbl, col, spec.parent, "DANGLING",
-                        f"{spec.note}；目标表在库中不存在")
+                Finding(tbl, col, spec.parent, "DANGLING", f"{spec.note}；目标表在库中不存在")
             )
             continue
 
@@ -624,22 +616,31 @@ async def evaluate(
             # 父行本身只到组织层：只能要求同组织，不要求同项目。
             ok, weak, pending = await _find_org_level(conn, tbl, col, spec.parent)
             if ok:
-                report.findings.append(Finding(tbl, col, spec.parent, "PASS",
-                                               f"组织级边：{ok[0]}"))
+                report.findings.append(Finding(tbl, col, spec.parent, "PASS", f"组织级边：{ok[0]}"))
             elif pending:
                 # 「已建未 VALIDATE」不能报成 NO_FK：前者只需一条 VALIDATE，
                 # 后者要重新设计约束。混为一谈会让运维重复建键，而真正待办
                 # （跑 VALIDATE）永远不出现在清单里。
                 report.findings.append(
-                    Finding(tbl, col, spec.parent, "PENDING_VALIDATE",
-                            f"组织级边已建、未验证：{'; '.join(pending)}")
+                    Finding(
+                        tbl,
+                        col,
+                        spec.parent,
+                        "PENDING_VALIDATE",
+                        f"组织级边已建、未验证：{'; '.join(pending)}",
+                    )
                 )
             else:
                 report.findings.append(
-                    Finding(tbl, col, spec.parent, "NO_FK",
-                            f"{spec.note}；父表为组织级（无 project_id），"
-                            f"需两列外键 (col, organization_id)"
-                            + (f"；现有：{'; '.join(weak)}" if weak else ""))
+                    Finding(
+                        tbl,
+                        col,
+                        spec.parent,
+                        "NO_FK",
+                        f"{spec.note}；父表为组织级（无 project_id），"
+                        f"需两列外键 (col, organization_id)"
+                        + (f"；现有：{'; '.join(weak)}" if weak else ""),
+                    )
                 )
             continue
 
@@ -652,13 +653,16 @@ async def evaluate(
             )
         elif weak:
             report.findings.append(
-                Finding(tbl, col, spec.parent, "FK_NOT_COMPOSITE",
-                        "只保父行存在、未锁 project 一致：" + "; ".join(weak))
+                Finding(
+                    tbl,
+                    col,
+                    spec.parent,
+                    "FK_NOT_COMPOSITE",
+                    "只保父行存在、未锁 project 一致：" + "; ".join(weak),
+                )
             )
         else:
-            report.findings.append(
-                Finding(tbl, col, spec.parent, "NO_FK", spec.note)
-            )
+            report.findings.append(Finding(tbl, col, spec.parent, "NO_FK", spec.note))
     return report
 
 
@@ -681,7 +685,9 @@ async def _find_org_level(
                  JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
                 WHERE c.oid = (SELECT oid FROM pg_constraint WHERE conname = $1
                                 AND conrelid = to_regclass($2) AND confrelid = to_regclass($3))""",
-            r["conname"], child, parent,
+            r["conname"],
+            child,
+            parent,
         )
         names = {x["attname"] for x in cols}
         if col in names and "organization_id" in names:
@@ -707,8 +713,13 @@ def render_md(report: Report, *, db: str, port: int, note: str) -> str:
         head += [f"> {note}", ""]
 
     order: list[Status] = [
-        "UNCLASSIFIED", "DANGLING", "NO_FK", "FK_NOT_COMPOSITE", "PENDING_VALIDATE",
-        "EXEMPT", "PASS",
+        "UNCLASSIFIED",
+        "DANGLING",
+        "NO_FK",
+        "FK_NOT_COMPOSITE",
+        "PENDING_VALIDATE",
+        "EXEMPT",
+        "PASS",
     ]
     rows = [f"| {s} | {report.count(s)} |" for s in order]
     head += ["| 状态 | 条数 |", "| --- | --- |", *rows, ""]
@@ -723,12 +734,16 @@ def render_md(report: Report, *, db: str, port: int, note: str) -> str:
         head += [f"## {s}（{len(items)}）", ""]
         if s == "PASS":
             head += ["| 表 | 列 | 父表 | 约束 |", "| --- | --- | --- | --- |"]
-            head += [f"| `{f.table}` | `{f.column}` | `{f.parent}` | `{f.detail}` |"
-                     for f in sorted(items, key=lambda x: (x.table, x.column))]
+            head += [
+                f"| `{f.table}` | `{f.column}` | `{f.parent}` | `{f.detail}` |"
+                for f in sorted(items, key=lambda x: (x.table, x.column))
+            ]
         else:
             head += ["| 表 | 列 | 父表 | 说明 |", "| --- | --- | --- | --- |"]
-            head += [f"| `{f.table}` | `{f.column}` | `{f.parent}` | {f.detail} |"
-                     for f in sorted(items, key=lambda x: (x.table, x.column))]
+            head += [
+                f"| `{f.table}` | `{f.column}` | `{f.parent}` | {f.detail} |"
+                for f in sorted(items, key=lambda x: (x.table, x.column))
+            ]
         head.append("")
 
     dangling = [f for f in report.findings if f.status == "DANGLING"]
@@ -752,9 +767,17 @@ def dump_json(report: Report) -> str:
         {
             "derived": report.derived,
             "ok": report.ok,
-            "counts": {s: report.count(s) for s in
-                       ("PASS", "NO_FK", "FK_NOT_COMPOSITE", "PENDING_VALIDATE",
-                        "DANGLING", "UNCLASSIFIED")},
+            "counts": {
+                s: report.count(s)
+                for s in (
+                    "PASS",
+                    "NO_FK",
+                    "FK_NOT_COMPOSITE",
+                    "PENDING_VALIDATE",
+                    "DANGLING",
+                    "UNCLASSIFIED",
+                )
+            },
             "findings": [f.__dict__ for f in report.findings],
         },
         ensure_ascii=False,
@@ -778,14 +801,16 @@ async def selftest() -> int:
     * S3 —— 把一条边的父表改成组织级父表，必须走组织级判定而不是误报 PASS。
     * S4 —— 豁免的前提一旦不成立，必须自动退回 DANGLING（证明豁免不是白名单）。
     """
-    admin = await lab.admin_conn(lab.DEFAULT_HOST, lab.DEFAULT_PORT,
-                                lab.DEFAULT_USER, lab.DEFAULT_PASSWORD)
+    admin = await lab.admin_conn(
+        lab.DEFAULT_HOST, lab.DEFAULT_PORT, lab.DEFAULT_USER, lab.DEFAULT_PASSWORD
+    )
     labdb = "ai_film_consistency_selftest"
     results: list[tuple[str, bool, str]] = []
     try:
         await lab.fresh_clone(admin, labdb, lab.DEFAULT_TEMPLATE)
-        conn = await lab.lab_conn(lab.DEFAULT_HOST, lab.DEFAULT_PORT,
-                                  lab.DEFAULT_USER, lab.DEFAULT_PASSWORD, labdb)
+        conn = await lab.lab_conn(
+            lab.DEFAULT_HOST, lab.DEFAULT_PORT, lab.DEFAULT_USER, lab.DEFAULT_PASSWORD, labdb
+        )
         try:
             # 回到「一致半边未修」的基线：撤掉批次四（若已存在）。
             rewound = await lab.rewind_to(conn, VERSIONS_DIR, keep=BASELINE_KEEP)
@@ -800,51 +825,70 @@ async def selftest() -> int:
                 ("shot_planning.shot_revisions", "shot_id"): "DANGLING",
             }
             got = {(f.table, f.column): f.status for f in report.findings}
-            bad = [f"{t}.{c} 期望 {s} 实得 {got.get((t, c), '缺失')}"
-                   for (t, c), s in must_fail.items() if got.get((t, c)) != s]
-            results.append((
-                "S0 修复前必须红且原因精确",
-                not bad and not report.ok,
-                f"回退 {len(rewound)} 层；FAIL {len(report.failed)} 条"
-                + ("；" + "；".join(bad) if bad else ""),
-            ))
+            bad = [
+                f"{t}.{c} 期望 {s} 实得 {got.get((t, c), '缺失')}"
+                for (t, c), s in must_fail.items()
+                if got.get((t, c)) != s
+            ]
+            results.append(
+                (
+                    "S0 修复前必须红且原因精确",
+                    not bad and not report.ok,
+                    f"回退 {len(rewound)} 层；FAIL {len(report.failed)} 条"
+                    + ("；" + "；".join(bad) if bad else ""),
+                )
+            )
 
             # S1：挖掉一条分类
             mutated = dict(CLASSIFICATION)
             mutated.pop(("asset_service.qc_reports", "asset_version_id"))
             r1 = await evaluate(conn, mutated)
-            hit = [f for f in r1.findings
-                   if f.table == "asset_service.qc_reports"
-                   and f.column == "asset_version_id"
-                   and f.status == "UNCLASSIFIED"]
-            results.append(("S1 未分类必须被点名", bool(hit),
-                            f"UNCLASSIFIED {r1.count('UNCLASSIFIED')} 条"))
+            hit = [
+                f
+                for f in r1.findings
+                if f.table == "asset_service.qc_reports"
+                and f.column == "asset_version_id"
+                and f.status == "UNCLASSIFIED"
+            ]
+            results.append(
+                ("S1 未分类必须被点名", bool(hit), f"UNCLASSIFIED {r1.count('UNCLASSIFIED')} 条")
+            )
 
             # S2：父表改成不存在的表
             mutated = dict(CLASSIFICATION)
             mutated[("asset_service.qc_reports", "asset_version_id")] = Edge(
-                "asset_service.no_such_table", "selftest")
+                "asset_service.no_such_table", "selftest"
+            )
             r2 = await evaluate(conn, mutated)
-            hit = [f for f in r2.findings
-                   if f.table == "asset_service.qc_reports"
-                   and f.column == "asset_version_id"
-                   and f.status == "DANGLING"]
-            results.append(("S2 目标表不存在必须报 DANGLING", bool(hit),
-                            "已命中" if hit else "未命中"))
+            hit = [
+                f
+                for f in r2.findings
+                if f.table == "asset_service.qc_reports"
+                and f.column == "asset_version_id"
+                and f.status == "DANGLING"
+            ]
+            results.append(
+                ("S2 目标表不存在必须报 DANGLING", bool(hit), "已命中" if hit else "未命中")
+            )
 
             # S3：改指组织级父表 —— 不能因为「父表没有 project_id」就误判 PASS
             mutated = dict(CLASSIFICATION)
             mutated[("asset_service.qc_reports", "asset_version_id")] = Edge(
-                "generation_execution.production_routes", "selftest")
+                "generation_execution.production_routes", "selftest"
+            )
             r3 = await evaluate(conn, mutated)
-            f3 = [f for f in r3.findings
-                  if f.table == "asset_service.qc_reports"
-                  and f.column == "asset_version_id"]
-            results.append((
-                "S3 组织级父表走组织级判定",
-                bool(f3) and f3[0].status == "NO_FK",
-                f3[0].status if f3 else "缺失",
-            ))
+            f3 = [
+                f
+                for f in r3.findings
+                if f.table == "asset_service.qc_reports" and f.column == "asset_version_id"
+            ]
+            results.append(
+                (
+                    "S3 组织级父表走组织级判定",
+                    bool(f3) and f3[0].status == "NO_FK",
+                    f3[0].status if f3 else "缺失",
+                )
+            )
 
             # ---- S4：豁免前提失效必须自动退回 ----
             # 豁免的全部价值在「前提一不成立就自己失效」。只证明它此刻生效、
@@ -852,7 +896,8 @@ async def selftest() -> int:
             # 这里在克隆库里凭空建一张 `gate_instances`（无契约的表），
             # 豁免的前提（契约无定义 ∧ 库中无表）立刻不成立，必须退回 DANGLING。
             base = {(f.table, f.column): f.status for f in report.findings}.get(
-                ("qc_governance.gate_decisions", "gate_instance_id"))
+                ("qc_governance.gate_decisions", "gate_instance_id")
+            )
             await conn.execute(
                 "CREATE TABLE qc_governance.gate_instances (entity_id varchar PRIMARY KEY)"
             )
@@ -861,12 +906,15 @@ async def selftest() -> int:
             finally:
                 await conn.execute("DROP TABLE qc_governance.gate_instances")
             f4 = {(f.table, f.column): f for f in r4.findings}.get(
-                ("qc_governance.gate_decisions", "gate_instance_id"))
-            results.append((
-                "S4 豁免前提失效必须退回 DANGLING",
-                base == "EXEMPT" and f4 is not None and f4.status == "DANGLING",
-                f"建表前={base} 建表后={f4.status if f4 else '缺失'}",
-            ))
+                ("qc_governance.gate_decisions", "gate_instance_id")
+            )
+            results.append(
+                (
+                    "S4 豁免前提失效必须退回 DANGLING",
+                    base == "EXEMPT" and f4 is not None and f4.status == "DANGLING",
+                    f"建表前={base} 建表后={f4.status if f4 else '缺失'}",
+                )
+            )
         finally:
             await conn.close()
     finally:
@@ -878,13 +926,16 @@ async def selftest() -> int:
     for name, ok, detail in results:
         print(f"  [{'OK' if ok else 'FAIL'}] {name} —— {detail}")
         all_ok = all_ok and ok
-    print(f"\n{'全部通过' if all_ok else '存在失败'}：{sum(1 for _, o, _ in results if o)}/{len(results)}")
+    print(
+        f"\n{'全部通过' if all_ok else '存在失败'}：{sum(1 for _, o, _ in results if o)}/{len(results)}"
+    )
     return 0 if all_ok else 1
 
 
 async def main_async(args: argparse.Namespace) -> int:
-    conn = await asyncpg.connect(host=args.host, port=args.port, user=args.user,
-                                 password=args.password, database=args.db)
+    conn = await asyncpg.connect(
+        host=args.host, port=args.port, user=args.user, password=args.password, database=args.db
+    )
     try:
         report = await evaluate(conn)
     finally:
@@ -895,8 +946,15 @@ async def main_async(args: argparse.Namespace) -> int:
     OUT_JSON.write_text(dump_json(report), encoding="utf-8")
 
     print(f"派生候选 {report.derived} 条；FAIL {len(report.failed)} 条")
-    for s in ("UNCLASSIFIED", "DANGLING", "NO_FK", "FK_NOT_COMPOSITE",
-              "PENDING_VALIDATE", "EXEMPT", "PASS"):
+    for s in (
+        "UNCLASSIFIED",
+        "DANGLING",
+        "NO_FK",
+        "FK_NOT_COMPOSITE",
+        "PENDING_VALIDATE",
+        "EXEMPT",
+        "PASS",
+    ):
         print(f"  {s:18s} {report.count(s)}")
     if report.failed:
         print("\n未通过的边：")
@@ -914,8 +972,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     p.add_argument("--user", default=lab.DEFAULT_USER)
     p.add_argument("--password", default=lab.DEFAULT_PASSWORD)
     p.add_argument("--note", default="")
-    p.add_argument("--selftest", action="store_true",
-                   help="在克隆库上回退批次四并证明闸门能 FAIL")
+    p.add_argument("--selftest", action="store_true", help="在克隆库上回退批次四并证明闸门能 FAIL")
     args = p.parse_args(list(argv) if argv is not None else None)
     if args.selftest:
         return asyncio.run(selftest())

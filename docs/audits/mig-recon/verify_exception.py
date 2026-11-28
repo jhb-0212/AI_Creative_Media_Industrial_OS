@@ -51,7 +51,7 @@ def asset_insert(eid: str, project: str = "proj-1", tone: str = "a") -> str:
         f"('{eid}', 'AssetVersion', 2, 1, 'GENERATED', 'asset_service', "
         f"'{TENANT}', '{ORG}', '{project}', now(), 't3x', now(), "
         f"'VIDEO', repeat('{tone}', 64), "
-        f"'{{\"bucket\":\"b\",\"key\":\"{eid}\"}}'::jsonb, '[]'::jsonb)"
+        f'\'{{"bucket":"b","key":"{eid}"}}\'::jsonb, \'[]\'::jsonb)'
     )
 
 
@@ -92,7 +92,7 @@ async def main() -> int:
     ap.add_argument("--host", default="localhost")
     ap.add_argument("--port", type=int, default=15444)
     ap.add_argument("--user", default="postgres")
-    ap.add_argument("--password", default="replay_super_pw")
+    ap.add_argument("--password", default="<ROTATED-2026-11-28>")
     ap.add_argument("--template", default="ai_film_industrial")
     ap.add_argument("--lab", default="t3x_lab")
     ap.add_argument("--migration", required=True)
@@ -223,7 +223,13 @@ async def main() -> int:
             )
             if body and "ownership_repair_allows" in body:
                 n_patched += 1
-        rec("S1", "结构", "13 个守卫均已注入接入点", n_patched == len(mig.GUARD_ORDER), f"{n_patched}/13")
+        rec(
+            "S1",
+            "结构",
+            "13 个守卫均已注入接入点",
+            n_patched == len(mig.GUARD_ORDER),
+            f"{n_patched}/13",
+        )
 
         fnrow = await conn.fetch(
             "SELECT p.proname, p.prosecdef, "
@@ -289,9 +295,16 @@ async def main() -> int:
             f"allows={pub_a} match={pub_m}",
         )
 
-        rols = await conn.fetchrow("SELECT rolcanlogin FROM pg_roles WHERE rolname='afs_data_repair'")
-        rec("S6", "结构", "专用角色存在且 NOLOGIN", bool(rols) and rols["rolcanlogin"] is False,
-            f"canlogin={rols['rolcanlogin'] if rols else None}")
+        rols = await conn.fetchrow(
+            "SELECT rolcanlogin FROM pg_roles WHERE rolname='afs_data_repair'"
+        )
+        rec(
+            "S6",
+            "结构",
+            "专用角色存在且 NOLOGIN",
+            bool(rols) and rols["rolcanlogin"] is False,
+            f"canlogin={rols['rolcanlogin'] if rols else None}",
+        )
 
         # ---------- 判定函数级 ----------
         old_json = (
@@ -398,8 +411,13 @@ async def main() -> int:
             expect_changed=1,
         )
         val = await conn.fetchval(f"SELECT project_id FROM {ASSETS} WHERE entity_id='av-1'")
-        rec("E1", "端到端", "类别 A（asset_versions）四条件满足 → 改成功且值真的变了",
-            ok and val == "proj-2", f"{d} now={val}")
+        rec(
+            "E1",
+            "端到端",
+            "类别 A（asset_versions）四条件满足 → 改成功且值真的变了",
+            ok and val == "proj-2",
+            f"{d} now={val}",
+        )
 
         ok, d = await probe(
             conn,
@@ -469,8 +487,13 @@ async def main() -> int:
             expect_changed=1,
         )
         gval = await conn.fetchval(f"SELECT project_id FROM {GATES} WHERE entity_id='gd-e2e'")
-        rec("E6", "端到端", "类别 B（gate_decisions 无条件 RAISE）四条件满足 → 改成功",
-            ok and gval == "proj-2", f"{d} now={gval}")
+        rec(
+            "E6",
+            "端到端",
+            "类别 B（gate_decisions 无条件 RAISE）四条件满足 → 改成功",
+            ok and gval == "proj-2",
+            f"{d} now={gval}",
+        )
 
         await conn.execute(map_insert(QCR, "qr-base", "TCK-OK"))
         ok, d = await probe(
@@ -480,8 +503,13 @@ async def main() -> int:
             expect_changed=1,
         )
         qval = await conn.fetchval(f"SELECT project_id FROM {QCR} WHERE qc_report_id='qr-base'")
-        rec("E7", "端到端", "键列为 qc_report_id 的表也能正确匹配 → 改成功",
-            ok and qval == "proj-2", f"{d} now={qval}")
+        rec(
+            "E7",
+            "端到端",
+            "键列为 qc_report_id 的表也能正确匹配 → 改成功",
+            ok and qval == "proj-2",
+            f"{d} now={qval}",
+        )
 
         ok, d = await probe(
             conn,
@@ -523,7 +551,9 @@ async def main() -> int:
         # ---------- 降级 ----------
         for sql in mig.downgrade_sqls():
             await conn.execute(sql)
-        rec("D0", "降级", f"执行 downgrade_sqls()（{len(mig.downgrade_sqls())} 条）", True, "无异常")
+        rec(
+            "D0", "降级", f"执行 downgrade_sqls()（{len(mig.downgrade_sqls())} 条）", True, "无异常"
+        )
 
         diff = []
         for schema, name in guards:
@@ -539,8 +569,13 @@ async def main() -> int:
             "SELECT to_regprocedure($1) IS NULL",
             "project_planning.ownership_repair_map_match(text,text,text)",
         )
-        rec("D2", "降级", "两个函数均已删除", gone_a is True and gone_m is True,
-            f"allows_null={gone_a} match_null={gone_m}")
+        rec(
+            "D2",
+            "降级",
+            "两个函数均已删除",
+            gone_a is True and gone_m is True,
+            f"allows_null={gone_a} match_null={gone_m}",
+        )
 
         gone_tb = await conn.fetchval("SELECT to_regclass($1) IS NULL", MAP)
         rec("D3", "降级", "映射表已删除", gone_tb is True, f"is_null={gone_tb}")
@@ -575,8 +610,13 @@ async def main() -> int:
                 await conn.execute(sql)
             rec("I1", "幂等", "重复升级被前置断言拒绝", False, "未报错")
         except asyncpg.PostgresError as exc:
-            rec("I1", "幂等", "重复升级被前置断言拒绝", exc.sqlstate == "P0001",
-                f"{exc.sqlstate}: {str(exc).splitlines()[0][:80]}")
+            rec(
+                "I1",
+                "幂等",
+                "重复升级被前置断言拒绝",
+                exc.sqlstate == "P0001",
+                f"{exc.sqlstate}: {str(exc).splitlines()[0][:80]}",
+            )
 
         for sql in mig.downgrade_sqls():
             await conn.execute(sql)
@@ -585,7 +625,11 @@ async def main() -> int:
     finally:
         await conn.close()
         admin = await asyncpg.connect(
-            host=args.host, port=args.port, user=args.user, password=args.password, database="postgres"
+            host=args.host,
+            port=args.port,
+            user=args.user,
+            password=args.password,
+            database="postgres",
         )
         try:
             await admin.execute(f'DROP DATABASE IF EXISTS "{args.lab}" WITH (FORCE)')
@@ -633,7 +677,11 @@ async def main() -> int:
     ]
     out_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
     out_json.write_text(
-        json.dumps({"at": ts, "passed": passed, "total": total, "results": results}, ensure_ascii=False, indent=2),
+        json.dumps(
+            {"at": ts, "passed": passed, "total": total, "results": results},
+            ensure_ascii=False,
+            indent=2,
+        ),
         encoding="utf-8",
     )
     print(f"写入 {out_md}\n写入 {out_json}")

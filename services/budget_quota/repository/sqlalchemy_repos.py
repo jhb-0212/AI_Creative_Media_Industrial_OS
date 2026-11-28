@@ -24,9 +24,7 @@ from services.project_planning.domain.enums import (
 # 结算类流水（RELEASE / REFUND）的取值集合：从领域枚举派生，不在此手写字符串。
 # 写死一份的下场是「加了新结算种类，累计口径静默漏算」——漏算不会报错，
 # 它只是让「累计结算」永远小于真实值。
-_SETTLEMENT_KIND_VALUES: tuple[str, ...] = tuple(
-    sorted(kind.value for kind in SETTLEMENT_KINDS)
-)
+_SETTLEMENT_KIND_VALUES: tuple[str, ...] = tuple(sorted(kind.value for kind in SETTLEMENT_KINDS))
 
 
 def _request_to_orm(req: ShotBudgetRequest) -> ShotBudgetRequestModel:
@@ -98,9 +96,7 @@ class SqlAlchemyShotBudgetRequestRepository:
         await self._session.flush()
         return request
 
-    async def save(
-        self, request: ShotBudgetRequest, expected_version: int
-    ) -> ShotBudgetRequest:
+    async def save(self, request: ShotBudgetRequest, expected_version: int) -> ShotBudgetRequest:
         await conditional_update(
             self._session,
             ShotBudgetRequestModel,
@@ -112,9 +108,7 @@ class SqlAlchemyShotBudgetRequestRepository:
 
     async def get_by_id(self, entity_id: str) -> ShotBudgetRequest | None:
         result = await self._session.execute(
-            select(ShotBudgetRequestModel).where(
-                ShotBudgetRequestModel.entity_id == entity_id
-            )
+            select(ShotBudgetRequestModel).where(ShotBudgetRequestModel.entity_id == entity_id)
         )
         model = result.scalar_one_or_none()
         return _request_to_domain(model) if model is not None else None

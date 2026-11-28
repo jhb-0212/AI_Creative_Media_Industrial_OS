@@ -137,9 +137,7 @@ def test_locked_cannot_revert_to_draft() -> None:
     s.request_lock("writer_001", "tr:req", SCRIPT_LOCK_REQUEST_ACTION)
     s.approve_lock("director_001", "tr:app", SCRIPT_LOCK_APPROVE_ACTION)
     with pytest.raises(DomainError):
-        s.transition_to(
-            ScriptStatus.DRAFT, audit_ref="revert", action=SCRIPT_LOCK_APPROVE_ACTION
-        )
+        s.transition_to(ScriptStatus.DRAFT, audit_ref="revert", action=SCRIPT_LOCK_APPROVE_ACTION)
 
 
 def test_superseded_is_terminal() -> None:
@@ -150,13 +148,9 @@ def test_superseded_is_terminal() -> None:
         action=SCRIPT_IMPORT_ACTION,
     )
     with pytest.raises(DomainError):
-        s.transition_to(
-            ScriptStatus.DRAFT, audit_ref="revive", action=SCRIPT_IMPORT_ACTION
-        )
+        s.transition_to(ScriptStatus.DRAFT, audit_ref="revive", action=SCRIPT_IMPORT_ACTION)
     with pytest.raises(DomainError):
-        s.transition_to(
-            ScriptStatus.LOCKED, audit_ref="revive", action=SCRIPT_IMPORT_ACTION
-        )
+        s.transition_to(ScriptStatus.LOCKED, audit_ref="revive", action=SCRIPT_IMPORT_ACTION)
 
 
 def test_to_dict_envelope() -> None:
@@ -171,17 +165,14 @@ def test_to_dict_envelope() -> None:
     assert "tenant_id" not in d
     assert d["requested_by"] is None
 
+
 def test_idempotency_key_reuse_with_different_content_conflicts() -> None:
     """P3-1：同 entity_id 不同内容必须 409，不能返回旧版本冒充成功。"""
     from packages.errors.error_codes import DomainError, ErrorRegistry
     from services.project_planning.service.script_service import _assert_same_request
 
     s = _make_script()
-    _assert_same_request(
-        s, project_id="proj_001", episode_ref="EP001", title="测试剧本"
-    )
+    _assert_same_request(s, project_id="proj_001", episode_ref="EP001", title="测试剧本")
     with pytest.raises(DomainError) as exc:
-        _assert_same_request(
-            s, project_id="proj_001", episode_ref="EP001", title="另一个标题"
-        )
+        _assert_same_request(s, project_id="proj_001", episode_ref="EP001", title="另一个标题")
     assert exc.value.error_code is ErrorRegistry.IDEMPOTENCY_CONFLICT

@@ -60,18 +60,14 @@ class ScriptRevision(Entity):
         ):
             value = getattr(self, name)
             if not value or not value.strip():
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
             if len(value) > max_len:
                 raise DomainError(
                     ErrorRegistry.VALIDATION_ERROR,
                     detail=f"{name} 长度超过上限 {max_len}",
                 )
 
-    def request_lock(
-        self, requested_by: str, audit_ref: str, action: str
-    ) -> ScriptRevision:
+    def request_lock(self, requested_by: str, audit_ref: str, action: str) -> ScriptRevision:
         """提交锁定申请（DRAFT→LOCK_PENDING），登记申请人真实主体。
 
         职责分离（红线）的前半：申请人 = 调用本动作的主体，写入 requested_by，
@@ -88,9 +84,7 @@ class ScriptRevision(Entity):
         self.requested_by = requested_by
         return self
 
-    def approve_lock(
-        self, approved_by: str, audit_ref: str, action: str
-    ) -> ScriptRevision:
+    def approve_lock(self, approved_by: str, audit_ref: str, action: str) -> ScriptRevision:
         """批准锁定（LOCK_PENDING→LOCKED），登记批准人真实主体。
 
         职责分离（红线）的后半：``approved_by`` 与申请人（``requested_by``）的
@@ -107,9 +101,7 @@ class ScriptRevision(Entity):
         self.transition_to(ScriptStatus.LOCKED, audit_ref, action)
         return self
 
-    def transition_to(
-        self, target: ScriptStatus, audit_ref: str, action: str
-    ) -> ScriptRevision:
+    def transition_to(self, target: ScriptStatus, audit_ref: str, action: str) -> ScriptRevision:
         """执行状态迁移：结构合法性 + 边所有权（31.5 / N-07）。
 
         本对象的三类动作分领五条边（申请/批准/取代），因此所有权判定在这里

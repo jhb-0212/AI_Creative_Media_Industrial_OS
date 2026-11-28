@@ -142,8 +142,7 @@ def build_locator(sha256: str, extension: str) -> str:
         raise ValueError(f"sha256 必须是 64 位小写十六进制：{sha256!r}")
     if extension not in ALLOWED_EXTENSIONS:
         raise ValueError(
-            f"扩展名 .{extension} 不在登记表里；"
-            f"已登记：{', '.join(sorted(ALLOWED_EXTENSIONS))}"
+            f"扩展名 .{extension} 不在登记表里；已登记：{', '.join(sorted(ALLOWED_EXTENSIONS))}"
         )
     return f"local://{digest[0:2]}/{digest[2:4]}/{digest}.{extension}"
 
@@ -230,9 +229,7 @@ _DIGEST_POS = _SEG2_POS + _SEGMENT_LEN + 1
 # 只在 SQL 侧使用的形态正则（不含派生关系，派生由下一个合取项负责）。
 _SQL_SHAPE_PATTERN = (
     rf"^local://[0-9a-f]{{{_SEGMENT_LEN}}}/[0-9a-f]{{{_SEGMENT_LEN}}}"
-    rf"/[0-9a-f]{{{_DIGEST_LEN}}}\.("
-    + "|".join(sorted(ALLOWED_EXTENSIONS))
-    + r")$"
+    rf"/[0-9a-f]{{{_DIGEST_LEN}}}\.(" + "|".join(sorted(ALLOWED_EXTENSIONS)) + r")$"
 )
 
 

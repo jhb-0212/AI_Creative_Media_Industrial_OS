@@ -103,9 +103,9 @@ class Exemption:
     """
 
     table: str
-    kind: str                 # "derived" 派生 / "root" 根
-    reason: str               # 为什么可以不算
-    precondition: str         # 机检：为什么现在仍然成立
+    kind: str  # "derived" 派生 / "root" 根
+    reason: str  # 为什么可以不算
+    precondition: str  # 机检：为什么现在仍然成立
 
 
 #: 豁免清单。新增条目必须同时给出 `precondition`，且该条件要能区分
@@ -178,9 +178,7 @@ async def _fetch_catalog(conn: asyncpg.Connection) -> dict[str, dict[str, bool]]
     return {r["tbl"]: {"project": r["has_project"], "org": r["has_org"]} for r in rows}
 
 
-async def _constraint_state(
-    conn: asyncpg.Connection, table: str, name: str
-) -> tuple[bool, bool]:
+async def _constraint_state(conn: asyncpg.Connection, table: str, name: str) -> tuple[bool, bool]:
     """返回 (存在, 已验证)。表本身不存在时也返回 (False, False)，不抛错。"""
     row = await conn.fetchrow(
         """
@@ -238,7 +236,9 @@ async def run(db: str, port: int, host: str) -> int:
             "覆盖",
             f"组织级表全部被纳入（{len(org_only)} 张）",
             not uncovered_org,
-            f"未覆盖：{_fmt(uncovered_org)}" if uncovered_org else f"台账 B/ROOT {len(org_level)} + 豁免",
+            f"未覆盖：{_fmt(uncovered_org)}"
+            if uncovered_org
+            else f"台账 B/ROOT {len(org_level)} + 豁免",
         )
 
         phantom_org = org_level - catalog.keys()
@@ -377,12 +377,16 @@ async def selftest(port: int, template: str) -> int:
         await admin.close()
 
     conn = await asyncpg.connect(
-        host=lab.DEFAULT_HOST, port=port, user="postgres",
-        password=lab.DEFAULT_PASSWORD, database=probe,
+        host=lab.DEFAULT_HOST,
+        port=port,
+        user="postgres",
+        password=lab.DEFAULT_PASSWORD,
+        database=probe,
     )
     try:
         _purge, _order, checks = await lab.prepare_pre_activation_baseline(
-            conn, Path(__file__).resolve().parents[3] / "data/migrations/pending/feat-ownership"  # noqa: ASYNC240 — CLI 启动期一次性路径解析，非并发热路径
+            conn,
+            Path(__file__).resolve().parents[3] / "data/migrations/pending/feat-ownership",  # noqa: ASYNC240 — CLI 启动期一次性路径解析，非并发热路径
         )
         baseline_ok = all(v.endswith("=0") for v in checks)
         print(f"[{'PASS' if baseline_ok else 'FAIL'}] S0  基线回退生效：{'; '.join(checks)}")

@@ -30,9 +30,7 @@ def test_targets_are_subset_of_declared_layers() -> None:
     assert set(module.mypy_targets()) <= set(LAYERS)
 
 
-def test_new_layer_with_code_is_picked_up(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_new_layer_with_code_is_picked_up(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """在派生根下新建一个有 .py 的层，必须自动出现——这是派生的意义所在。"""
     layers = ("packages", "agents", "brand_new_layer")
     for layer in layers:

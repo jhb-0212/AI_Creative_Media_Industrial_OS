@@ -17,6 +17,7 @@ import pytest
 
 from packages.shared.evidence_ports import ReportFacts
 from services.project_planning.domain.enums import QCTaskStatus
+from services.qc_governance.domain.qc_task import EnqueueOrigin
 from workers.qc.worker import QCInspection, QCWorker
 
 _TENANT = uuid4()
@@ -105,7 +106,7 @@ def _report_lookup(
 ):
     """报告核验器替身：只承认 ``known`` 里的 id，其余视为不存在。"""
 
-    async def lookup(qc_report_id: str, want_tenant):
+    async def lookup(qc_report_id: str, want_tenant, organization_id):
         if qc_report_id not in known:
             return None
         return ReportFacts(asset_version_id=asset_version_id, tenant_id=tenant_id)
@@ -139,8 +140,8 @@ async def _queued(service, generation_task_id="gen-1"):
         asset_version_id="asset-1",
         generation_task_id=generation_task_id,
         quality_profile_version="qp-1",
-        created_by="generation-worker",
         tenant_id=_TENANT,
+        origin=EnqueueOrigin(source="RELAY", operator_id="outbox-relay"),
         shot_id="shot-1",
     )
 
@@ -245,9 +246,7 @@ async def test_same_project_asset_passes_scope_guard_and_leaves_verified_evidenc
 
     insp = _inspector(_storage(tmp_path))
     task = type("T", (), {"project_id": "proj-1"})()
-    asset = _Asset(
-        project_id="proj-1", sha256="a" * 64, storage_ref=build_locator("a" * 64, "png")
-    )
+    asset = _Asset(project_id="proj-1", sha256="a" * 64, storage_ref=build_locator("a" * 64, "png"))
 
     assert_asset_within_task_scope(task, asset)  # 不抛即通过
 
@@ -268,9 +267,7 @@ async def test_integrity_checks_verify_content_hash(tmp_path) -> None:
 
     insp = _inspector(storage)
     task = type("T", (), {"project_id": "proj-1"})()
-    asset = _Asset(
-        project_id="proj-1", sha256=digest, storage_ref=stored.locator
-    )
+    asset = _Asset(project_id="proj-1", sha256=digest, storage_ref=stored.locator)
     findings = await insp._check(task, asset)
     assert all(f["passed"] for f in findings)
     content = next(f for f in findings if f["check"] == "content_verifiable")

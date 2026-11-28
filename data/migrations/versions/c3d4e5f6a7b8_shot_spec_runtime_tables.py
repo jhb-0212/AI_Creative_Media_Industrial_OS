@@ -55,6 +55,10 @@ from sqlalchemy.dialects import postgresql
 
 from packages.shared.db_grants import PROJECT_PLANNING, converge_statements
 from packages.shared.db_roles import domain_role
+from packages.shared.migration_constraints import (
+    drop_marked_constraint,
+    mark_created_constraint,
+)
 from packages.shared.rls import tenant_scope_predicate
 from packages.shared.status_constraint import status_check
 from services.project_planning.domain.enums import ShotSpecStatus
@@ -146,6 +150,7 @@ def _ensure_revision_unique_target() -> None:
     op.create_unique_constraint(
         _REVISION_UQ, "shot_revisions", ["project_id", "entity_id"], schema=_SCHEMA
     )
+    op.execute(mark_created_constraint("shot_revisions", _REVISION_UQ, _SCHEMA, revision))
 
 
 def _create_cut_points_function() -> None:
@@ -202,9 +207,7 @@ def upgrade() -> None:
         sa.Column("locked_dimensions", sa.String(512), nullable=False),
         # 同一修订至多一份规格（SHOTSPEC.CREATE 的审批要求）。
         sa.UniqueConstraint("shot_revision_id", name="uq_shot_spec_per_revision"),
-        sa.UniqueConstraint(
-            "project_id", "entity_id", name="uq_shot_specs_entity_project"
-        ),
+        sa.UniqueConstraint("project_id", "entity_id", name="uq_shot_specs_entity_project"),
         # 复合外键：跨项目绑定在库层即被拒（ACT-SPEC-NEG-002）。
         sa.ForeignKeyConstraint(
             ["project_id", "shot_revision_id"],
@@ -214,13 +217,9 @@ def upgrade() -> None:
             ],
             name="fk_shot_specs_revision",
         ),
-        sa.CheckConstraint(
-            "shot_spec_id = entity_id", name="ck_shot_specs_identity_single"
-        ),
+        sa.CheckConstraint("shot_spec_id = entity_id", name="ck_shot_specs_identity_single"),
         sa.CheckConstraint("duration_ms >= 1", name="ck_shot_specs_duration_positive"),
-        sa.CheckConstraint(
-            "fps_num >= 1 AND fps_den >= 1", name="ck_shot_specs_fps_positive"
-        ),
+        sa.CheckConstraint("fps_num >= 1 AND fps_den >= 1", name="ck_shot_specs_fps_positive"),
         sa.CheckConstraint(
             f"{_SCHEMA}.{_CUT_POINTS_FN}(cut_points_frames) "
             "AND cut_points_frames[array_length(cut_points_frames, 1)] "
@@ -246,8 +245,7 @@ def upgrade() -> None:
     # 4. 行级安全：表一诞生就带策略，不留「以后补」的口子。
     op.execute(f"ALTER TABLE {_SCHEMA}.{_TABLE} ENABLE ROW LEVEL SECURITY")
     op.execute(
-        f"CREATE POLICY tenant_isolation_{_TABLE} "
-        f"ON {_SCHEMA}.{_TABLE} " + _row_visibility(_TABLE)
+        f"CREATE POLICY tenant_isolation_{_TABLE} ON {_SCHEMA}.{_TABLE} " + _row_visibility(_TABLE)
     )
     op.execute(f"ALTER TABLE {_SCHEMA}.{_TABLE} FORCE ROW LEVEL SECURITY")
 
@@ -282,6 +280,15 @@ def _drop_table() -> None:
     # 表删掉之后函数才无引用者。顺序反了 PG 会以「被 CHECK 依赖」拒绝。
     op.execute(f"DROP FUNCTION IF EXISTS {_SCHEMA}.{_CUT_POINTS_FN}(integer[])")
 
-    # 刻意不删除 uq_shot_revisions_entity_project：ShotRevisionModel 本就声明了
-    # 它，删除会让降级后的库与领域模型不一致；而且它本身是正确的领域约束
-    # （「修订的同项目身份」），删了属反向破坏。
+    # WP-04/#37：父 revision 上没有 uq_shot_revisions_entity_project（P→D 实测残留）。
+    # 引用它的外键已随 shot_specs 等表删除，故放在最后；只删带本 revision 来源
+    # 标记的约束，更早 revision 真正存在的同名约束保留。
+    op.execute(
+        drop_marked_constraint(
+            "shot_revisions",
+            _REVISION_UQ,
+            _SCHEMA,
+            revision,
+            ("project_id", "entity_id"),
+        )
+    )

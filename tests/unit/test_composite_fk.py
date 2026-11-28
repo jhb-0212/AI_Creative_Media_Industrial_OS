@@ -38,9 +38,7 @@ async def client() -> AsyncClient:
     transport = ASGITransport(app=app)
     token = make_test_token()
     headers = {"Authorization": f"Bearer {token}"}
-    async with AsyncClient(
-        transport=transport, base_url="http://test", headers=headers
-    ) as c:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=headers) as c:
         yield c
 
 

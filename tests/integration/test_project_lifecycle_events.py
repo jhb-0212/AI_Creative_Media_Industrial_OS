@@ -28,9 +28,7 @@ async def admin_engine() -> AsyncIterator[AsyncEngine]:
         await engine.dispose()
 
 
-async def _event_count(
-    engine: AsyncEngine, event_type: str, aggregate_id: str
-) -> int:
+async def _event_count(engine: AsyncEngine, event_type: str, aggregate_id: str) -> int:
     async with engine.connect() as conn:
         return int(
             (

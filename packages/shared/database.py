@@ -81,9 +81,7 @@ def build_database_url(settings: Settings | None = None) -> str:
     （见下列构造器）；本函数保留给「以单一应用角色连接」的测试与工具。
     """
     cfg = _settings_or_default(settings)
-    return _build_url(
-        cfg.postgres_app_user, cfg.postgres_app_password.get_secret_value(), cfg
-    )
+    return _build_url(cfg.postgres_app_user, cfg.postgres_app_password.get_secret_value(), cfg)
 
 
 def build_migration_url(settings: Settings | None = None) -> str:
@@ -98,9 +96,7 @@ def build_migration_url(settings: Settings | None = None) -> str:
     「连库角色」与「进程身份」一致。
     """
     cfg = _settings_or_default(settings)
-    return _build_url(
-        cfg.postgres_user, cfg.postgres_password.get_secret_value(), cfg
-    )
+    return _build_url(cfg.postgres_user, cfg.postgres_password.get_secret_value(), cfg)
 
 
 def build_relay_database_url(settings: Settings | None = None) -> str:
@@ -112,8 +108,22 @@ def build_relay_database_url(settings: Settings | None = None) -> str:
     任何业务 schema 的写权限，也不持有事件业务内容的 UPDATE 权限。
     """
     cfg = _settings_or_default(settings)
+    return _build_url(cfg.postgres_relay_user, cfg.postgres_relay_password.get_secret_value(), cfg)
+
+
+def build_outbox_ops_database_url(settings: Settings | None = None) -> str:
+    """构造运维重放连接的异步 DSN（专用角色 outbox_ops_role）。
+
+    D6-9 的死信重放由运维主体执行：它要读事件、清死信标记三列、写 append-only
+    审计表。这三件事没有任何既有角色能同时做——relay 没有审计表 INSERT、
+    业务域没有 outbox 的 UPDATE，而给任何一方补权限都是权限倒退（relay 拿到
+    INSERT 就能伪造业务事件）。因此单开一个只够做这三件事的角色。
+    """
+    cfg = _settings_or_default(settings)
     return _build_url(
-        cfg.postgres_relay_user, cfg.postgres_relay_password.get_secret_value(), cfg
+        cfg.postgres_outbox_ops_user,
+        cfg.postgres_outbox_ops_password.get_secret_value(),
+        cfg,
     )
 
 
@@ -190,6 +200,47 @@ def build_qc_governance_database_url(settings: Settings | None = None) -> str:
     )
 
 
+def build_qc_maintenance_login_database_url(settings: Settings | None = None) -> str:
+    """构造维护登录身份 DSN（角色 ``qc_maintenance_login``，经 operator 成员继承）。
+
+    维护命令只能由这个登录身份调用：它不属于任何业务域角色，也没有 ``qc_tasks``
+    的写权限。把它单独成池而不是复用业务域引擎，是为了让「这池连接能做什么」
+    在代码里一眼可见——混进业务池等于让每个业务请求都带上维护能力。
+    """
+    cfg = _settings_or_default(settings)
+    return _build_url(
+        cfg.postgres_qc_maintenance_login_user,
+        cfg.postgres_qc_maintenance_login_password.get_secret_value(),
+        cfg,
+    )
+
+
+def create_qc_maintenance_engine(settings: Settings | None = None) -> AsyncEngine:
+    """维护命令专用引擎（独立连接池、独立身份）。"""
+    return _make_engine(build_qc_maintenance_login_database_url(settings))
+
+
+def build_qc_scheduler_database_url(settings: Settings | None = None) -> str:
+    """构造调度发现身份 DSN（角色 ``qc_scheduler``，WP-B）。
+
+    这一池只被允许调用零参发现函数（``enumerate_due_tasks()``）：它返回
+    「租户 + 待检条数」，不含任务内容。把发现与「领取/执行」拆成两个身份，
+    是为了让「知道有哪些租户有活」不再是「能读全库」的同义词——真要读任务，
+    必须落到 QC 池并在租户上下文里读。
+    """
+    cfg = _settings_or_default(settings)
+    return _build_url(
+        cfg.postgres_qc_scheduler_user,
+        cfg.postgres_qc_scheduler_password.get_secret_value(),
+        cfg,
+    )
+
+
+def create_qc_scheduler_engine(settings: Settings | None = None) -> AsyncEngine:
+    """调度发现专用引擎（独立连接池、独立身份）。"""
+    return _make_engine(build_qc_scheduler_database_url(settings))
+
+
 def _make_engine(url: str) -> AsyncEngine:
     """按给定 DSN 创建异步引擎（连接池参数为高并发预留）。"""
     return create_async_engine(
@@ -248,6 +299,16 @@ def create_relay_engine(settings: Settings | None = None) -> AsyncEngine:
     return _make_engine(build_relay_database_url(settings))
 
 
+def create_outbox_ops_engine() -> AsyncEngine:
+    """创建运维重放引擎（角色 outbox_ops_role）。
+
+    连接池与应用侧同参数，但**独立池**：运维动作与业务流量互不挤占连接；
+    更重要的是「这一池用的是哪个角色」在代码里一眼可见——把运维连接混进
+    业务域池，等于让所有业务请求都带上重放权限。
+    """
+    return _make_engine(build_outbox_ops_database_url())
+
+
 def create_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     """基于给定引擎构建会话工厂（共享同一批事务/刷新约定）。
 
@@ -289,6 +350,10 @@ async def probe_domain_databases(app: FastAPI) -> ReadinessResult:
         "production_planning_sessionmaker",
         "budget_quota_sessionmaker",
         "qc_governance_sessionmaker",
+        # D6-9：运维重放池同样要探活。它不是「业务池挂了才探」的附属品——
+        # 漏探的后果是凭据损坏时 /readyz 仍报 ready，重放端点变成 500，
+        # 而那正好发生在「需要处置死信」的时刻。
+        "outbox_ops_sessionmaker",
     ):
         label = name.removesuffix("_sessionmaker") + "_database"
         try:
@@ -306,12 +371,8 @@ async def probe_domain_databases(app: FastAPI) -> ReadinessResult:
             ).scalar_one_or_none()
     except Exception:
         # 版本表读的是 project 池：归因到它就够定位，不必再编一个 check 名。
-        logger.error(
-            "readiness_check_failed", check="schema_revision", exc_info=True
-        )
-        return ReadinessResult(
-            ready=False, checks={"project_planning_database": "down"}
-        )
+        logger.error("readiness_check_failed", check="schema_revision", exc_info=True)
+        return ReadinessResult(ready=False, checks={"project_planning_database": "down"})
     return ReadinessResult(ready=True, checks=checks, schema_revision=revision)
 
 
@@ -337,6 +398,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     production_engine = create_production_planning_engine()
     budget_engine = create_budget_quota_engine()
     qc_engine = create_qc_governance_engine()
+    ops_engine = create_outbox_ops_engine()
     project_sessionmaker = create_sessionmaker(project_engine)
     asset_sessionmaker = create_sessionmaker(asset_engine)
     app.state.project_planning_engine = project_engine
@@ -344,11 +406,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.production_planning_engine = production_engine
     app.state.budget_quota_engine = budget_engine
     app.state.qc_governance_engine = qc_engine
+    # D6-9：运维重放池（角色 outbox_ops_role）。单开一池而不是借用业务池，
+    # 是为了让「这条路径用哪个角色」在代码里一眼可见——借用等于让业务请求
+    # 顺带持有重放权限。
+    app.state.outbox_ops_engine = ops_engine
     app.state.project_planning_sessionmaker = project_sessionmaker
     app.state.asset_service_sessionmaker = asset_sessionmaker
     app.state.production_planning_sessionmaker = create_sessionmaker(production_engine)
     app.state.budget_quota_sessionmaker = create_sessionmaker(budget_engine)
     app.state.qc_governance_sessionmaker = create_sessionmaker(qc_engine)
+    app.state.outbox_ops_sessionmaker = create_sessionmaker(ops_engine)
     # 向后兼容别名：既有代码读 app.state.sessionmaker 时，落到
     # project_planning 域会话工厂（有 public.alembic_version 只读权限）。
     # /readyz 已不依赖此别名——池拆分后它显式探测两个域池（Codex P2）。
@@ -366,6 +433,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await verify_rls_enforcement(production_engine, app_env=settings.app_env)
     await verify_rls_enforcement(budget_engine, app_env=settings.app_env)
     await verify_rls_enforcement(qc_engine, app_env=settings.app_env)
+    # 运维池同样验：它以 NOBYPASSRLS 角色连库，若某环境把它配成超级用户，
+    # 「重放只能看见本租户的死信」这条保证会在无人察觉时失效。
+    await verify_rls_enforcement(ops_engine, app_env=settings.app_env)
     # 限流器与数据库同属「进程级基础设施」，生命周期统一在这里收口：
     # 漏关连接池比漏开更隐蔽，集中一处才不会各写一遍。
     app.state.rate_limiter = RateLimiter.from_settings()
@@ -388,5 +458,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             production_engine,
             budget_engine,
             qc_engine,
+            ops_engine,
         ):
             await domain_engine.dispose()

@@ -37,6 +37,82 @@ def relay_role_name() -> str:
     return get_settings().postgres_relay_user
 
 
+# 平台运维 → 配置字段。与 ``_DOMAIN_ROLE_FIELDS`` 分开的理由不是分类癖：
+# ``domain_role_names()`` 是「全部**业务域**角色」的口径（迁移、授权矩阵、
+# ACL 对账都按它取），把运维角色混进去会让「业务域角色」这个集合同时表示
+# 两种东西——它没有自有 schema，`business_tables()` 对它返回空集，
+# 于是「本域每张表都必须声明」这条判据对它变成永真式。
+_INFRA_ROLE_FIELDS: dict[str, str] = {
+    "outbox_ops": "postgres_outbox_ops_user",
+}
+
+
+def infra_role(infra: str) -> str:
+    """平台运维角色名（未知键直接报错，不返回空串）。"""
+    try:
+        field = _INFRA_ROLE_FIELDS[infra]
+    except KeyError:
+        raise LookupError(f"未知运维角色 {infra!r}；已知：{sorted(_INFRA_ROLE_FIELDS)}") from None
+    value: str = getattr(get_settings(), field)
+    return value
+
+
+def infra_roles() -> dict[str, str]:
+    """``运维键 -> 角色名`` 全量映射（授权矩阵与断言按它取用）。"""
+    return {infra: infra_role(infra) for infra in _INFRA_ROLE_FIELDS}
+
+
+# 维护四角色（WP-03）。它们不自带 schema、不进 ``DOMAINS``——把维护身份混进
+# 业务域集合会让「一域一角色」的覆盖判据对它们求值成永真式（同 ``INFRA_ROLES``
+# 的理由）。但维护身份也不是「运维角色」：运维清理投递事实，维护改的是业务
+# 状态且必须留工单，两者的授权面与审计义务都不同，所以单独一张表。
+_MAINTENANCE_ROLE_FIELDS: dict[str, str] = {
+    "owner": "postgres_qc_maintenance_owner_user",
+    "operator": "postgres_qc_maintenance_operator_user",
+    "login": "postgres_qc_maintenance_login_user",
+    # ``worker`` 是历史键：角色本身已退役（迁移 f2b3c4d5e6a7），但迁移
+    # e6a7b8c9d0e1 在 clean install 上仍要按它找到角色名并创建/删除。
+    # 保留键是为了让「历史可回放」，不代表这个身份还活着。
+    "worker": "postgres_qc_worker_user",
+}
+
+
+def maintenance_role(key: str) -> str:
+    """维护角色名（``owner`` / ``operator`` / ``login`` / ``worker``）。"""
+    try:
+        field = _MAINTENANCE_ROLE_FIELDS[key]
+    except KeyError:
+        raise LookupError(
+            f"未知维护角色 {key!r}；已知：{sorted(_MAINTENANCE_ROLE_FIELDS)}"
+        ) from None
+    value: str = getattr(get_settings(), field)
+    return value
+
+
+def maintenance_roles() -> dict[str, str]:
+    """``键 -> 角色名`` 全量映射（迁移、注册表断言与集成用例按它取用）。"""
+    return {key: maintenance_role(key) for key in _MAINTENANCE_ROLE_FIELDS}
+
+
+# 调度发现身份（WP-B）。它既不属维护四角色（不该能改数据），也不属业务域
+# （没有自有 schema）——单独一项而不是塞进上面两张表：塞进维护表会让
+# ``maintenance_roles()`` 这个集合同时表示「能维护」和「只能发现」两种身份，
+# 授权矩阵照它派生权限时就会把「发现」也授成「维护」。
+_SCHEDULER_ROLE_FIELDS: dict[str, str] = {
+    "discovery": "postgres_qc_scheduler_user",
+}
+
+
+def scheduler_role(key: str = "discovery") -> str:
+    """调度发现角色名（当前只有 ``discovery`` 一个身份）。"""
+    try:
+        field = _SCHEDULER_ROLE_FIELDS[key]
+    except KeyError:
+        raise LookupError(f"未知调度角色 {key!r}；已知：{sorted(_SCHEDULER_ROLE_FIELDS)}") from None
+    value: str = getattr(get_settings(), field)
+    return value
+
+
 # 业务域 → 配置字段。键就是 schema 名（DATA-1：一域一角色一 schema）。
 # 这张表存在的理由：调用方按**域**取角色（``domain_role("asset_service")``），
 # 而不是靠 ``domain_role_names()`` 的元组下标——下标用法一旦有人调整顺序，
@@ -59,9 +135,7 @@ def domain_role(domain: str) -> str:
     try:
         field = _DOMAIN_ROLE_FIELDS[domain]
     except KeyError:
-        raise LookupError(
-            f"未知业务域 {domain!r}；已知域：{sorted(_DOMAIN_ROLE_FIELDS)}"
-        ) from None
+        raise LookupError(f"未知业务域 {domain!r}；已知域：{sorted(_DOMAIN_ROLE_FIELDS)}") from None
     # 用带注解的中间变量而不是直接 return getattr(...)：字段名是运行期字符串，
     # getattr 的返回类型是 Any，直接返回会把「角色名是字符串」这个事实丢掉。
     value: str = getattr(get_settings(), field)
@@ -89,5 +163,10 @@ __all__ = [
     "domain_role",
     "domain_role_names",
     "domain_roles",
+    "infra_role",
+    "infra_roles",
+    "maintenance_role",
+    "maintenance_roles",
     "relay_role_name",
+    "scheduler_role",
 ]

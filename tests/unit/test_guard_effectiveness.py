@@ -200,6 +200,5 @@ def test_guard_catches_bad_state(state: BadState) -> None:
     )
     assert result.returncode != 0, f"[{state.label}] 坏状态下竟然全绿：\n{output[-800:]}"
     assert state.expected_test in output, (
-        f"[{state.label}] 期望 {state.expected_test} 报红，实际失败的是别的用例：\n"
-        f"{output[-800:]}"
+        f"[{state.label}] 期望 {state.expected_test} 报红，实际失败的是别的用例：\n{output[-800:]}"
     )

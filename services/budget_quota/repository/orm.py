@@ -87,9 +87,7 @@ class BudgetLedgerModel(Base, EntityMixin):
     idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
     approval_ref: Mapped[str] = mapped_column(String(128), nullable=False)
     source: Mapped[str] = mapped_column(String(128), nullable=False)
-    reservation_ref: Mapped[str] = mapped_column(
-        String(128), nullable=False, server_default=""
-    )
+    reservation_ref: Mapped[str] = mapped_column(String(128), nullable=False, server_default="")
 
 
 __all__ = ["SCHEMA_NAME", "BudgetLedgerModel", "ShotBudgetRequestModel"]

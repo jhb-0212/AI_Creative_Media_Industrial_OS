@@ -39,7 +39,9 @@ def test_project_defaults_to_draft() -> None:
 
 def test_valid_transition_draft_to_active() -> None:
     p = _make_project()
-    p.transition_to(ProjectStatus.ACTIVE, audit_ref="audit_001", action=PROJECT_STATUS_CHANGE_ACTION)
+    p.transition_to(
+        ProjectStatus.ACTIVE, audit_ref="audit_001", action=PROJECT_STATUS_CHANGE_ACTION
+    )
     assert p.status == ProjectStatus.ACTIVE
     assert p.entity_version == 2
 
@@ -49,26 +51,20 @@ def test_invalid_transition_is_rejected() -> None:
     p = _make_project()
     # DRAFT 不能直接跳 COMPLETED（未登记）
     with pytest.raises(DomainError, match="非法状态转移"):
-        p.transition_to(ProjectStatus.COMPLETED, audit_ref="audit_002", action=PROJECT_STATUS_CHANGE_ACTION)
+        p.transition_to(
+            ProjectStatus.COMPLETED, audit_ref="audit_002", action=PROJECT_STATUS_CHANGE_ACTION
+        )
 
 
 def test_terminal_state_cannot_be_revived() -> None:
     """终态不可原地复活（红线）。"""
     p = _make_project()
-    p.transition_to(
-        ProjectStatus.ACTIVE, audit_ref="a1", action=PROJECT_STATUS_CHANGE_ACTION
-    )
-    p.transition_to(
-        ProjectStatus.COMPLETED, audit_ref="a2", action=PROJECT_STATUS_CHANGE_ACTION
-    )
-    p.transition_to(
-        ProjectStatus.ARCHIVED, audit_ref="a3", action=PROJECT_STATUS_CHANGE_ACTION
-    )
+    p.transition_to(ProjectStatus.ACTIVE, audit_ref="a1", action=PROJECT_STATUS_CHANGE_ACTION)
+    p.transition_to(ProjectStatus.COMPLETED, audit_ref="a2", action=PROJECT_STATUS_CHANGE_ACTION)
+    p.transition_to(ProjectStatus.ARCHIVED, audit_ref="a3", action=PROJECT_STATUS_CHANGE_ACTION)
     assert p.status == ProjectStatus.ARCHIVED
     with pytest.raises(DomainError, match="非法状态转移"):
-        p.transition_to(
-            ProjectStatus.ACTIVE, audit_ref="a4", action=PROJECT_STATUS_CHANGE_ACTION
-        )
+        p.transition_to(ProjectStatus.ACTIVE, audit_ref="a4", action=PROJECT_STATUS_CHANGE_ACTION)
 
 
 @pytest.mark.parametrize(

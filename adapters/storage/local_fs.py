@@ -34,7 +34,9 @@ from pathlib import Path
 from adapters.storage.ports import (
     StorageIntegrityError,
     StorageLocatorError,
+    StorageObjectMissingError,
     StorageSizeLimitError,
+    StorageUnavailableError,
     StoredObject,
 )
 from packages.shared.storage_locator import (
@@ -69,14 +71,11 @@ class LocalFsObjectStorage:
     def root(self) -> Path:
         return self._root
 
-    async def put(
-        self, *, data: bytes, media_type: str, expected_sha256: str = ""
-    ) -> StoredObject:
+    async def put(self, *, data: bytes, media_type: str, expected_sha256: str = "") -> StoredObject:
         ext = self._ext_for(media_type)
         if len(data) > self._max_bytes:
             raise StorageSizeLimitError(
-                f"内容 {len(data)} 字节超出上限 {self._max_bytes}"
-                f"（media_type={media_type}）"
+                f"内容 {len(data)} 字节超出上限 {self._max_bytes}（media_type={media_type}）"
             )
         digest = hashlib.sha256(data).hexdigest()
         if expected_sha256 and expected_sha256.lower() != digest:
@@ -120,8 +119,7 @@ class LocalFsObjectStorage:
         ext = extension_for_media_type(media_type)
         if ext is None:
             raise StorageLocatorError(
-                f"未登记的 media_type={media_type}；"
-                f"已登记：{', '.join(sorted(EXT_BY_MEDIA_TYPE))}"
+                f"未登记的 media_type={media_type}；已登记：{', '.join(sorted(EXT_BY_MEDIA_TYPE))}"
             )
         return ext
 
@@ -146,8 +144,11 @@ class LocalFsObjectStorage:
         parsed, problem = parse_locator(locator)
         if parsed is None:
             raise StorageLocatorError(f"{problem}（应为 {LOCATOR_SHAPE}）")
-        return self._root / parsed.sha256[0:2] / parsed.sha256[2:4] / (
-            f"{parsed.sha256}.{parsed.extension}"
+        return (
+            self._root
+            / parsed.sha256[0:2]
+            / parsed.sha256[2:4]
+            / (f"{parsed.sha256}.{parsed.extension}")
         )
 
     def _write_atomically(self, target: Path, data: bytes) -> None:
@@ -170,7 +171,12 @@ class LocalFsObjectStorage:
         try:
             info = target.lstat()
         except FileNotFoundError as exc:
-            raise StorageIntegrityError(f"定位符对应的内容不存在：{locator}") from exc
+            # 「确定不存在」与「存在但损坏」是两种事实，恢复流程据此做不同决定
+            # （前者可放弃并重生成，后者放弃并记不可复用）。用专用子类表达。
+            raise StorageObjectMissingError(f"定位符对应的内容不存在：{locator}") from exc
+        except OSError as exc:
+            # 权限/IO 错误：无法判定对象是否存在，绝不能当成「不存在」。
+            raise StorageUnavailableError(f"读取 {locator} 失败（存储后端不可用）：{exc}") from exc
         if not os.path.isfile(target) or os.path.islink(target):
             # 内容寻址目录下的文件只由本进程创建；符号链接意味着根目录被外部改动，
             # 此时「读到什么」不由我们决定，必须拒绝而不是顺着链接读出去。
@@ -179,12 +185,13 @@ class LocalFsObjectStorage:
             raise StorageSizeLimitError(
                 f"已存内容 {info.st_size} 字节超出上限 {self._max_bytes}：{locator}"
             )
-        data = target.read_bytes()
+        try:
+            data = target.read_bytes()
+        except OSError as exc:
+            raise StorageUnavailableError(f"读取 {locator} 失败（存储后端不可用）：{exc}") from exc
         digest = hashlib.sha256(data).hexdigest()
         parsed, problem = parse_locator(locator)
         assert parsed is not None, problem  # 调用前已校验
         if digest != parsed.sha256:
-            raise StorageIntegrityError(
-                f"内容哈希与定位符不符（存储被篡改或损坏）：{locator}"
-            )
+            raise StorageIntegrityError(f"内容哈希与定位符不符（存储被篡改或损坏）：{locator}")
         return data

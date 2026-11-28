@@ -32,9 +32,7 @@ _IS_REVOKED = text(
 )
 
 
-async def is_token_revoked(
-    sessionmaker: async_sessionmaker[AsyncSession], jti: str
-) -> bool:
+async def is_token_revoked(sessionmaker: async_sessionmaker[AsyncSession], jti: str) -> bool:
     """查询 jti 是否在吊销表内（仅统计仍有效的吊销记录）。
 
     fail-closed（模块 docstring）：查询本身失败（数据库不可达 / 连接超时 /

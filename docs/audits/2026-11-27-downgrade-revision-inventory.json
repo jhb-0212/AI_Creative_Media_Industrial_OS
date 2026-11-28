@@ -1,0 +1,1589 @@
+{
+  "generated": true,
+  "rows": [
+    {
+      "chain_index": 0,
+      "revision": "8d8d59a91012",
+      "file": "8d8d59a91012_create_project_planning_projects_table.py",
+      "summary": "create project_planning.projects table",
+      "upgrade_ops": [
+        "execute",
+        "create_table"
+      ],
+      "downgrade_ops": [
+        "drop_table"
+      ],
+      "objects": [
+        "projects",
+        "projects"
+      ],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_table']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 1,
+      "revision": "e22d6fd3e8d3",
+      "file": "e22d6fd3e8d3_create_script_revisions_table.py",
+      "summary": "create script_revisions table",
+      "upgrade_ops": [
+        "create_table",
+        "create_index"
+      ],
+      "downgrade_ops": [
+        "drop_index",
+        "drop_table"
+      ],
+      "objects": [
+        "script_revisions",
+        "script_revisions"
+      ],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_table']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 2,
+      "revision": "facd8d42d07f",
+      "file": "facd8d42d07f_add_script_active_version_unique_index.py",
+      "summary": "add script active version unique index",
+      "upgrade_ops": [
+        "create_index"
+      ],
+      "downgrade_ops": [
+        "drop_index"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 3,
+      "revision": "0fcaf4db4573",
+      "file": "0fcaf4db4573_create_episodes_table.py",
+      "summary": "create episodes table",
+      "upgrade_ops": [
+        "create_table",
+        "create_index",
+        "create_index"
+      ],
+      "downgrade_ops": [
+        "drop_index",
+        "drop_index",
+        "drop_table"
+      ],
+      "objects": [
+        "episodes",
+        "ux_episode_ref_per_project",
+        "ux_episode_ref_per_project",
+        "episodes"
+      ],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_table']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 4,
+      "revision": "6a7b8c9d0e1f",
+      "file": "6a7b8c9d0e1f_add_script_episode_composite_fk.py",
+      "summary": "add composite foreign key script_revisions -> episodes",
+      "upgrade_ops": [
+        "drop_index",
+        "create_unique_constraint",
+        "create_foreign_key",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "drop_constraint",
+        "drop_constraint",
+        "create_index"
+      ],
+      "objects": [
+        "ux_episode_ref_per_project",
+        "fk_script_revisions_episode",
+        "fk_script_revisions_episode",
+        "ux_episode_ref_per_project"
+      ],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_constraint']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 5,
+      "revision": "7c8d9e0f1a2b",
+      "file": "7c8d9e0f1a2b_create_outbox_events_table.py",
+      "summary": "create outbox_events table",
+      "upgrade_ops": [
+        "execute",
+        "create_table",
+        "create_index",
+        "create_index"
+      ],
+      "downgrade_ops": [
+        "drop_index",
+        "drop_index",
+        "drop_table",
+        "execute"
+      ],
+      "objects": [
+        "outbox_events",
+        "ix_outbox_aggregate",
+        "ix_outbox_published",
+        "ix_outbox_published",
+        "ix_outbox_aggregate",
+        "outbox_events"
+      ],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_table']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 6,
+      "revision": "8f2a1b3c4d5e",
+      "file": "8f2a1b3c4d5e_add_tenant_id_and_rls.py",
+      "summary": "add tenant_id + requested_by columns and enable RLS",
+      "upgrade_ops": [
+        "add_column",
+        "add_column",
+        "execute",
+        "alter_column",
+        "create_index",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "drop_column",
+        "execute",
+        "execute",
+        "drop_index",
+        "drop_column"
+      ],
+      "objects": [
+        "script_revisions",
+        "script_revisions"
+      ],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_column']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 7,
+      "revision": "9e3b4c5d6e7f",
+      "file": "9e3b4c5d6e7f_create_app_role_and_grants.py",
+      "summary": "create application role and grant schema access (RLS enforcement)",
+      "upgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 8,
+      "revision": "b2c3d4e5f6a7",
+      "file": "b2c3d4e5f6a7_add_tenant_id_to_outbox_events.py",
+      "summary": "add tenant_id + RLS to outbox_events",
+      "upgrade_ops": [
+        "add_column",
+        "execute",
+        "alter_column",
+        "create_index",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "drop_index",
+        "drop_column"
+      ],
+      "objects": [],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_column']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 9,
+      "revision": "d4e5f6a7b8c9",
+      "file": "d4e5f6a7b8c9_restrict_outbox_grants.py",
+      "summary": "restrict outbox grants: 审计事件 append-only，撤销应用角色的 DELETE",
+      "upgrade_ops": [
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 10,
+      "revision": "e5f6a7b8c9d0",
+      "file": "e5f6a7b8c9d0_add_outbox_tenant_enumeration_function.py",
+      "summary": "add outbox tenant enumeration function: relay 的窄跨租户通道",
+      "upgrade_ops": [
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 11,
+      "revision": "f6a7b8c9d1e2",
+      "file": "f6a7b8c9d1e2_partition_outbox_events.py",
+      "summary": "partition outbox_events by occurred_at (monthly range partitions)",
+      "upgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 12,
+      "revision": "b8c9d1e2f3a4",
+      "file": "b8c9d1e2f3a4_create_maintenance_runs.py",
+      "summary": "create outbox.maintenance_runs (保留期维护的审计与新鲜度表)",
+      "upgrade_ops": [
+        "create_table",
+        "create_index"
+      ],
+      "downgrade_ops": [
+        "drop_index",
+        "drop_table"
+      ],
+      "objects": [
+        "ix_outbox_maintenance_runs_started",
+        "ix_outbox_maintenance_runs_started"
+      ],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_table']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 13,
+      "revision": "c1d2e3f4a5b6",
+      "file": "c1d2e3f4a5b6_create_asset_service_tables.py",
+      "summary": "create asset_service schema: asset_versions + qc_reports (+RLS/grants)",
+      "upgrade_ops": [
+        "execute",
+        "create_table",
+        "create_index",
+        "create_index",
+        "create_table",
+        "create_index",
+        "create_index",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "drop_table",
+        "drop_table",
+        "execute",
+        "execute"
+      ],
+      "objects": [
+        "asset_versions",
+        "ix_asset_service_asset_versions_tenant_id",
+        "ix_asset_service_asset_versions_type_sha256",
+        "qc_reports",
+        "ix_asset_service_qc_reports_asset_version_id",
+        "ix_asset_service_qc_reports_tenant_id",
+        "qc_reports",
+        "asset_versions"
+      ],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_table']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 14,
+      "revision": "b7c8d9e0f1a2",
+      "file": "b7c8d9e0f1a2_partition_protection_and_grant_baseline.py",
+      "summary": "outbox 分区保护 + 权限基线反转（默认零授权）",
+      "upgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 15,
+      "revision": "d1e2f3a4b5c6",
+      "file": "d1e2f3a4b5c6_asset_immutability_triggers.py",
+      "summary": "资产内容列不可变：用数据库触发器兜底（ADR-R11）",
+      "upgrade_ops": [
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 16,
+      "revision": "e2f3a4b5c6d7",
+      "file": "e2f3a4b5c6d7_qc_report_deviation_intent_ref.py",
+      "summary": "qc_reports 增加 deviation_intent_ref（对齐 QCReport 契约的既有字段）",
+      "upgrade_ops": [
+        "add_column"
+      ],
+      "downgrade_ops": [
+        "drop_column"
+      ],
+      "objects": [
+        "qc_reports",
+        "qc_reports"
+      ],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_column']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 17,
+      "revision": "f3a4b5c6d7e8",
+      "file": "f3a4b5c6d7e8_outbox_relay_retry_columns.py",
+      "summary": "Outbox relay 重试与死信字段（P2-2）",
+      "upgrade_ops": [
+        "add_column",
+        "add_column",
+        "add_column"
+      ],
+      "downgrade_ops": [
+        "drop_column",
+        "drop_column",
+        "drop_column"
+      ],
+      "objects": [
+        "outbox_events",
+        "outbox_events"
+      ],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_column']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 18,
+      "revision": "a4b5c6d7e8f9",
+      "file": "a4b5c6d7e8f9_cleanup_uow_test_events.py",
+      "summary": "清理 outbox 中的测试残留事件（P3-3）",
+      "upgrade_ops": [
+        "execute"
+      ],
+      "downgrade_ops": [],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "降级委托共享 helper（语句不在本文件），需人工核对 helper 是否带数据守卫",
+      "data_hints": []
+    },
+    {
+      "chain_index": 19,
+      "revision": "b5c6d7e8f9a0",
+      "file": "b5c6d7e8f9a0_revoke_maintenance_runs_from_app_role.py",
+      "summary": "收回 app_role 对 outbox.maintenance_runs 的数据权限（P3-5）",
+      "upgrade_ops": [
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 20,
+      "revision": "c6d7e8f9a0b1",
+      "file": "c6d7e8f9a0b1_create_auth_revoked_tokens.py",
+      "summary": "创建 auth.revoked_tokens（JWT jti 吊销表，P3-2）",
+      "upgrade_ops": [
+        "execute",
+        "create_table",
+        "create_index",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute"
+      ],
+      "objects": [
+        "ix_auth_revoked_tokens_expires_at"
+      ],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 21,
+      "revision": "a1b2c3d4e5f6",
+      "file": "a1b2c3d4e5f6_fix_outbox_backlog_exclude_dead.py",
+      "summary": "fix outbox tenant enumeration: 死信不再计入 backlog（审计复核 R2）",
+      "upgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "objects": [
+        "outbox.list_active_tenants",
+        "outbox.outbox_events"
+      ],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 22,
+      "revision": "9f1a2b3c4d5e6",
+      "file": "9f1a2b3c4d5e6_create_organizations_and_ownership_fk.py",
+      "summary": "create organizations + project/episode ownership foreign keys",
+      "upgrade_ops": [
+        "create_table",
+        "add_column",
+        "create_foreign_key",
+        "create_foreign_key"
+      ],
+      "downgrade_ops": [
+        "drop_constraint",
+        "drop_constraint",
+        "drop_column",
+        "drop_table"
+      ],
+      "objects": [
+        "organizations",
+        "projects",
+        "fk_projects_organization",
+        "fk_episodes_project",
+        "fk_episodes_project",
+        "fk_projects_organization",
+        "projects",
+        "organizations"
+      ],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_column', 'drop_constraint', 'drop_table']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 23,
+      "revision": "7a8b9c0d1e2f",
+      "file": "7a8b9c0d1e2f_create_outbox_relay_role.py",
+      "summary": "create outbox_relay_role and grant outbox minimal access (F03)",
+      "upgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 24,
+      "revision": "8f3b2c1d4e5a",
+      "file": "8f3b2c1d4e5a_split_domain_roles.py",
+      "summary": "按业务域拆分数据库角色：project_planning_role / asset_service_role（DATA-1）",
+      "upgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 25,
+      "revision": "ae8724980e0b",
+      "file": "ae8724980e0b_grant_outbox_partitions_to_domain_roles.py",
+      "summary": "grant outbox partitions to domain roles（修复 DATA-1/F03 拆角色后的分区授权缺口）",
+      "upgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 26,
+      "revision": "b9e1c2d3f4a5",
+      "file": "b9e1c2d3f4a5_relay_column_level_update.py",
+      "summary": "relay 列级 UPDATE 授权收口（审查 P1-01：事件业务内容不可篡改）",
+      "upgrade_ops": [
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 27,
+      "revision": "c1f2e3d4a5b6",
+      "file": "c1f2e3d4a5b6_revoke_app_role_outbox_write.py",
+      "summary": "回收 app_role 对 outbox 的写权限（审查 P1-02 / Review Thread R9）",
+      "upgrade_ops": [
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 28,
+      "revision": "d2e3f4a5b6c7",
+      "file": "d2e3f4a5b6c7_organization_tenant_ownership_fk.py",
+      "summary": "组织归属租户复合约束 + organizations RLS（审查 P1-03 / Review Thread R8）",
+      "upgrade_ops": [
+        "create_unique_constraint",
+        "drop_constraint",
+        "create_foreign_key",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "drop_constraint",
+        "create_foreign_key",
+        "drop_constraint"
+      ],
+      "objects": [
+        "uq_organizations_owner_tenant",
+        "fk_projects_organization",
+        "fk_projects_organization_tenant",
+        "fk_projects_organization_tenant",
+        "fk_projects_organization",
+        "uq_organizations_owner_tenant"
+      ],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_constraint']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 29,
+      "revision": "b3c4d5e6f7a8",
+      "file": "b3c4d5e6f7a8_asset_project_ownership.py",
+      "summary": "资产归属项目：asset_versions.project_id + 跨 schema 复合外键（SCOPE-3）",
+      "upgrade_ops": [
+        "create_unique_constraint",
+        "add_column",
+        "create_foreign_key",
+        "create_index",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "drop_index",
+        "drop_constraint",
+        "drop_column",
+        "drop_constraint"
+      ],
+      "objects": [
+        "asset_versions",
+        "asset_versions"
+      ],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_column', 'drop_constraint']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 30,
+      "revision": "c7d8e9f0a1b2",
+      "file": "c7d8e9f0a1b2_add_status_check_constraints.py",
+      "summary": "add status check constraints",
+      "upgrade_ops": [
+        "create_check_constraint"
+      ],
+      "downgrade_ops": [
+        "drop_constraint"
+      ],
+      "objects": [],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_constraint']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 31,
+      "revision": "d8e9f0a1b2c3",
+      "file": "d8e9f0a1b2c3_audit_status_transitions.py",
+      "summary": "新增审计 schema 与状态迁移事实表（ADR-R23 D2-a）",
+      "upgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 32,
+      "revision": "e9f0a1b2c3d4",
+      "file": "e9f0a1b2c3d4_organization_scope_rls.py",
+      "summary": "组织维度 RLS + FORCE（ADR-R24 D3a，核验报告 N-03）",
+      "upgrade_ops": [
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 33,
+      "revision": "e0f1a2b3c4d5",
+      "file": "e0f1a2b3c4d5_r16_domain_schemas.py",
+      "summary": "R16 三域预埋：production_planning / budget_quota / qc_governance 的空 schema + 专用角色",
+      "upgrade_ops": [
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 34,
+      "revision": "c1a2b3d4e5f6",
+      "file": "c1a2b3d4e5f6_least_privilege_business_schema.py",
+      "summary": "业务域角色的表级最小权限（DATA-6 / N-06 根治）",
+      "upgrade_ops": [
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "D-07：降级按冻结范围回滚授权，只碰自己 upgrade 动过的表",
+      "data_hints": []
+    },
+    {
+      "chain_index": 35,
+      "revision": "a13b0c1d2e3f",
+      "file": "a13b0c1d2e3f_scene_shot_rework_runtime_tables.py",
+      "summary": "Scene / Shot / ShotRevision / ShotBreakdownDraft / ReworkTask 建表（A13 / ADR-R28）",
+      "upgrade_ops": [
+        "create_table",
+        "create_index",
+        "create_index",
+        "create_table",
+        "create_index",
+        "create_index",
+        "create_index",
+        "create_table",
+        "create_index",
+        "create_index",
+        "create_index",
+        "create_table",
+        "create_index",
+        "create_index",
+        "create_index",
+        "create_index",
+        "create_table",
+        "create_index",
+        "create_index",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "drop_index",
+        "drop_index",
+        "drop_table",
+        "drop_index",
+        "drop_index",
+        "drop_index",
+        "drop_index",
+        "drop_table",
+        "drop_index",
+        "drop_index",
+        "drop_index",
+        "drop_table",
+        "drop_index",
+        "drop_index",
+        "drop_index",
+        "drop_table",
+        "drop_index",
+        "drop_index",
+        "drop_table",
+        "execute",
+        "execute"
+      ],
+      "objects": [
+        "rework_tasks",
+        "scenes",
+        "shots",
+        "shot_revisions",
+        "ux_shot_active_revision",
+        "shot_breakdown_drafts",
+        "shot_breakdown_drafts",
+        "ux_shot_active_revision",
+        "shot_revisions",
+        "shots",
+        "scenes",
+        "rework_tasks"
+      ],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_table']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 36,
+      "revision": "b1c2d3e4f5a6",
+      "file": "b1c2d3e4f5a6_shot_rework_basis_composite_fk.py",
+      "summary": "Shot 返工依据跨项目归属收口：单列外键升级为复合外键（P1-03）。",
+      "upgrade_ops": [
+        "execute",
+        "create_unique_constraint",
+        "drop_constraint",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "drop_constraint",
+        "create_foreign_key"
+      ],
+      "objects": [],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_constraint']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 37,
+      "revision": "c3d4e5f6a7b8",
+      "file": "c3d4e5f6a7b8_shot_spec_runtime_tables.py",
+      "summary": "ShotSpec 运行时落地：建表 + SS-3 库层约束 + 组织 RLS（A22）",
+      "upgrade_ops": [
+        "create_table",
+        "create_index",
+        "create_index",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "降级委托共享 helper（语句不在本文件），需人工核对 helper 是否带数据守卫",
+      "data_hints": []
+    },
+    {
+      "chain_index": 38,
+      "revision": "d7e8f9a0b1c2",
+      "file": "d7e8f9a0b1c2_constraint_pack_runtime_tables.py",
+      "summary": "ConstraintPack 运行时落地：建表 + 7.9 库层不变量 + 组织 RLS（A23）",
+      "upgrade_ops": [
+        "create_table",
+        "create_index",
+        "create_index",
+        "create_index",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "drop_index",
+        "drop_index",
+        "drop_index",
+        "drop_table",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_table']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 39,
+      "revision": "e8f9a0b1c2d3",
+      "file": "e8f9a0b1c2d3_r16_production_budget_tables.py",
+      "summary": "R16 生产链与预算对象运行时落地：建表 + RLS + 授权（过渡期 project_planning schema）",
+      "upgrade_ops": [
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "drop_index",
+        "drop_index",
+        "drop_table"
+      ],
+      "objects": [],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_table']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 40,
+      "revision": "f9a0b1c2d3e4",
+      "file": "f9a0b1c2d3e4_gate_decisions_table.py",
+      "summary": "Gate 决策记录落库：建表 + RLS + 授权（过渡期 project_planning schema）",
+      "upgrade_ops": [
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "drop_table"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "D-02 修复后降级只 DROP TABLE，索引随表删除（实测往返通过）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 41,
+      "revision": "a0b1c2d3e4f5",
+      "file": "a0b1c2d3e4f5_domain_split_r16.py",
+      "summary": "R16 三域拆分 cutover：五表出 project_planning，进各自 schema + 各自角色",
+      "upgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "create_table",
+        "execute",
+        "create_index",
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "R16 cutover 结构搬迁，降级重建旧表；D-02 组合往返实测通过",
+      "data_hints": []
+    },
+    {
+      "chain_index": 42,
+      "revision": "d5e6f7a8b9c0",
+      "file": "d5e6f7a8b9c0_generation_lease.py",
+      "summary": "GenerationTask 异步租约：RUNNING 状态 + 租约三列（Phase 2 §1）",
+      "upgrade_ops": [
+        "add_column",
+        "add_column",
+        "add_column",
+        "drop_constraint",
+        "create_check_constraint"
+      ],
+      "downgrade_ops": [
+        "drop_constraint",
+        "create_check_constraint",
+        "drop_column",
+        "drop_column",
+        "drop_column"
+      ],
+      "objects": [],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_column', 'drop_constraint']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 43,
+      "revision": "e6f7a8b9c0d1",
+      "file": "e6f7a8b9c0d1_budget_ledger_settlement.py",
+      "summary": "BudgetLedger 释放/冲销：reservation_ref + 受控 transaction_kind（Phase 2 §2）",
+      "upgrade_ops": [
+        "add_column",
+        "create_index",
+        "create_check_constraint"
+      ],
+      "downgrade_ops": [
+        "drop_constraint",
+        "drop_index",
+        "drop_column"
+      ],
+      "objects": [],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_column', 'drop_constraint']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 44,
+      "revision": "f1a2b3c4d5e6",
+      "file": "f1a2b3c4d5e6_qc_tasks.py",
+      "summary": "QC 待检队列落库：qc_governance.qc_tasks + RLS + 授权（Phase 3）。",
+      "upgrade_ops": [
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "drop_index",
+        "drop_index",
+        "drop_index",
+        "drop_table"
+      ],
+      "objects": [],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_table']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 45,
+      "revision": "a2b3c4d5e6f7",
+      "file": "a2b3c4d5e6f7_generation_product_refs.py",
+      "summary": "GenerationTask 登记产物引用：asset_version_id / quality_profile_version。",
+      "upgrade_ops": [
+        "add_column",
+        "add_column"
+      ],
+      "downgrade_ops": [
+        "drop_column",
+        "drop_column"
+      ],
+      "objects": [],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_column']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 46,
+      "revision": "c4d5e6f7a8b9",
+      "file": "c4d5e6f7a8b9_budget_ledger_settlement_guard.py",
+      "summary": "账本结算不变量：RELEASE 累计 + REFUND 累计 ≤ RESERVE（P1-05）",
+      "upgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 47,
+      "revision": "b8c9d0e1f2a3",
+      "file": "b8c9d0e1f2a3_shared_schema_usage_for_r16_domains.py",
+      "summary": "补齐各域角色对共享 schema 的 USAGE（授权面缺口）",
+      "upgrade_ops": [
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 48,
+      "revision": "c9d0e1f2a3b4",
+      "file": "c9d0e1f2a3b4_domain_project_tenant_fk.py",
+      "summary": "补齐 13 张域表的租户复合归属外键（D2 出证发现的归属缺口）",
+      "upgrade_ops": [
+        "execute",
+        "execute",
+        "drop_constraint"
+      ],
+      "downgrade_ops": [
+        "drop_constraint",
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_constraint']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 49,
+      "revision": "d0e1f2a3b4c5",
+      "file": "d0e1f2a3b4c5_storage_ref_controlled_locator.py",
+      "summary": "asset_versions.storage_ref：自由 JSON 引用 → 受控内容寻址定位符（P1-07 / #179）",
+      "upgrade_ops": [
+        "execute",
+        "alter_column",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "alter_column"
+      ],
+      "objects": [],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['alter_column']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 50,
+      "revision": "e1f2a3b4c5d6",
+      "file": "e1f2a3b4c5d6_asset_registration_saga_schema.py",
+      "summary": "资产登记 Saga 的库表与约束（ADR-R42 / C1、C2、C4、C5）。",
+      "upgrade_ops": [
+        "create_unique_constraint",
+        "create_unique_constraint",
+        "create_table",
+        "create_table",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "add_column",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "drop_column",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "drop_table",
+        "drop_constraint",
+        "drop_table",
+        "drop_constraint"
+      ],
+      "objects": [
+        "artifact_manifests",
+        "asset_registration_receipts",
+        "asset_service.reject_receipt_truncate",
+        "production_routes",
+        "production_routes",
+        "asset_registration_receipts",
+        "artifact_manifests"
+      ],
+      "data_class": "B 数据前置条件",
+      "auto_downgrade": "guarded",
+      "basis": "ck_generation_tasks_status 的 VALIDATE 在 `AWAITING_ASSET_REGISTRATION` 在途行存在时失败（实测）",
+      "data_hints": [
+        "upgrade:RAISE EXCEPTION"
+      ]
+    },
+    {
+      "chain_index": 51,
+      "revision": "f1a2b3c4d5e7",
+      "file": "f1a2b3c4d5e7_t2_idempotency_fingerprint.py",
+      "summary": "R42 T2 幂等冲突指纹（PR-F）。",
+      "upgrade_ops": [
+        "add_column",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "drop_column"
+      ],
+      "objects": [],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_column']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 52,
+      "revision": "e4f5a6b7c8d9",
+      "file": "e4f5a6b7c8d9_audit_approval_signatures.py",
+      "summary": "累积式会签签署事实表（ADR-R45 D2b）",
+      "upgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 53,
+      "revision": "a7b8c9d0e1f2",
+      "file": "a7b8c9d0e1f2_artifact_manifest_media_type.py",
+      "summary": "PR-G：ArtifactManifest 增加 media_type 落盘事实。",
+      "upgrade_ops": [
+        "add_column",
+        "execute",
+        "alter_column"
+      ],
+      "downgrade_ops": [
+        "drop_column"
+      ],
+      "objects": [],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_column']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 54,
+      "revision": "c5d6e7f8a9b0",
+      "file": "c5d6e7f8a9b0_dead_letter_replays.py",
+      "summary": "D6-9 死信人工重放：outbox.dead_letter_replays + outbox_ops_role（append-only）。",
+      "upgrade_ops": [
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "drop_index",
+        "drop_index",
+        "drop_table"
+      ],
+      "objects": [],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_table']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 55,
+      "revision": "e7f8a9b0c1d2",
+      "file": "e7f8a9b0c1d2_artifact_manifest_abandoned_status.py",
+      "summary": "修复：artifact_manifests 的 status CHECK 未包含 ABANDONED。",
+      "upgrade_ops": [
+        "drop_constraint",
+        "create_check_constraint"
+      ],
+      "downgrade_ops": [
+        "drop_constraint",
+        "create_check_constraint"
+      ],
+      "objects": [],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_constraint']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 56,
+      "revision": "f8a9b0c1d2e3",
+      "file": "f8a9b0c1d2e3_dead_letter_replay_result_single_value.py",
+      "summary": "收窄 outbox.dead_letter_replays.result 的允许集合到单值 SUCCEEDED。",
+      "upgrade_ops": [
+        "execute",
+        "drop_constraint",
+        "create_check_constraint"
+      ],
+      "downgrade_ops": [
+        "drop_constraint",
+        "create_check_constraint"
+      ],
+      "objects": [],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_constraint']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 57,
+      "revision": "f9b0c1d2e3f4",
+      "file": "f9b0c1d2e3f4_add_outbox_dead_letter_index.py",
+      "summary": "新增死信列表查询的部分索引（``ix_outbox_dead_letter``）。",
+      "upgrade_ops": [
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 58,
+      "revision": "a8b9c0d1e2f3",
+      "file": "a8b9c0d1e2f3_qc_lease_generation_and_projection.py",
+      "summary": "QC 门禁整改：租约代次 + 同事务调度投影（WP-01 / WP-02 的库层）。",
+      "upgrade_ops": [
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "drop_table",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "E 有损数据变更",
+      "auto_downgrade": "manual",
+      "basis": "降级含 ['drop_table']：升级后写入的数据会丢失（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 59,
+      "revision": "e6a7b8c9d0e1",
+      "file": "e6a7b8c9d0e1_maintenance_identities.py",
+      "summary": "维护身份四角色 + 会话身份守卫 + SECDEF 函数收紧（WP-03 的身份层）。",
+      "upgrade_ops": [
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 60,
+      "revision": "f8c9d0e1a2b3",
+      "file": "f8c9d0e1a2b3_maintenance_work_orders.py",
+      "summary": "维护工单 + 审计账本 + 三个只读维护命令（WP-A 第一阶段）。",
+      "upgrade_ops": [
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 61,
+      "revision": "b4c5d6e7f8a9",
+      "file": "b4c5d6e7f8a9_repair_tenant_task.py",
+      "summary": "修复命令：授权范围内的单任务原子投影重建（WP-A.2）。",
+      "upgrade_ops": [
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 62,
+      "revision": "a5b6c7d8e9f0",
+      "file": "a5b6c7d8e9f0_qc_scheduler_identity.py",
+      "summary": "调度发现身份：``qc_scheduler`` 只能调用零参发现函数（WP-B）。",
+      "upgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "downgrade_ops": [
+        "execute",
+        "execute",
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 63,
+      "revision": "b6c7d8e9f0a1",
+      "file": "b6c7d8e9f0a1_qc_organization_scope.py",
+      "summary": "QC 组织归属随事实传递（WP-D 的库层）。",
+      "upgrade_ops": [],
+      "downgrade_ops": [
+        "execute",
+        "execute"
+      ],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "只有授权/策略/索引类动作（初判，待签字）",
+      "data_hints": []
+    },
+    {
+      "chain_index": 64,
+      "revision": "f2b3c4d5e6a7",
+      "file": "f2b3c4d5e6a7_qc_worker_identity_retirement.py",
+      "summary": "退役 ``qc_worker``：它是空壳登录身份，Worker 真正连库用的是 ``qc_governance_role``。",
+      "upgrade_ops": [
+        "execute"
+      ],
+      "downgrade_ops": [],
+      "objects": [],
+      "data_class": "A 无数据要求",
+      "auto_downgrade": "auto",
+      "basis": "降级委托共享 helper（语句不在本文件），需人工核对 helper 是否带数据守卫",
+      "data_hints": []
+    }
+  ]
+}

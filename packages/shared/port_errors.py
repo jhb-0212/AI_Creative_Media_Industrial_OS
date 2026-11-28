@@ -109,17 +109,14 @@ class ReferentialIntegrityError(RepositoryContractError):
     一致性问题藏在幂等语义后面。
     """
 
-    def __init__(
-        self, entity_id: str, *, constraint: str = "", sqlstate: str = ""
-    ) -> None:
+    def __init__(self, entity_id: str, *, constraint: str = "", sqlstate: str = "") -> None:
         self.entity_id = entity_id
         self.constraint = constraint
         self.sqlstate = sqlstate
         detail = f" SQLSTATE={sqlstate}" if sqlstate else ""
         suffix = f" 约束={constraint}" if constraint else ""
         super().__init__(
-            f"实体 {entity_id} 违反引用完整性{detail}{suffix}："
-            "引用关系或取值不成立，不可按幂等处理"
+            f"实体 {entity_id} 违反引用完整性{detail}{suffix}：引用关系或取值不成立，不可按幂等处理"
         )
 
 
@@ -176,14 +173,10 @@ def classify_write_error(
     if state == UNIQUE_VIOLATION_SQLSTATE:
         return DuplicateEntityError(entity_id, constraint=constraint)
     if state.startswith(_INTEGRITY_CLASS_PREFIX):
-        return ReferentialIntegrityError(
-            entity_id, constraint=constraint, sqlstate=state
-        )
+        return ReferentialIntegrityError(entity_id, constraint=constraint, sqlstate=state)
     if state == INSUFFICIENT_PRIVILEGE_SQLSTATE:
         if _is_rls_rejection(text):
-            return ReferentialIntegrityError(
-                entity_id, constraint=constraint, sqlstate=state
-            )
+            return ReferentialIntegrityError(entity_id, constraint=constraint, sqlstate=state)
         # 缺表/序列/函数授权：部署缺陷，交给上层按 5xx 暴露，不伪装成业务失败。
         return None
     if state:
@@ -196,18 +189,14 @@ def classify_write_error(
     return ReferentialIntegrityError(entity_id, constraint=constraint)
 
 
-def translate_write_error(
-    exc: BaseException, *, entity_id: str, constraint: str = ""
-) -> NoReturn:
+def translate_write_error(exc: BaseException, *, entity_id: str, constraint: str = "") -> NoReturn:
     """在 ``except`` 块里调用：翻译成端口契约异常，**判不出来就原样抛。**
 
     设计成一个总是抛出的函数（而不是「返回 ``None`` 让调用方再 raise」），是为了
     让适配器只写一行、且不可能「忘了上抛」——把「未知失败必须冒泡」这条纪律
     写进调用形态里，而不是写进注释里等人遵守。
     """
-    translated = classify_write_error(
-        exc, entity_id=entity_id, constraint=constraint
-    )
+    translated = classify_write_error(exc, entity_id=entity_id, constraint=constraint)
     if translated is None:
         raise exc
     raise translated from exc

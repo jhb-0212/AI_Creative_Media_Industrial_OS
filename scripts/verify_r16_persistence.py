@@ -156,15 +156,15 @@ async def _run() -> None:
 
         # 5. 回读校验
         async with unit_of_work(maker, read_only=True) as uow:
-            route_back = await SqlAlchemyProductionRouteRepository(
-                uow.session
-            ).get_by_id(route.entity_id)
+            route_back = await SqlAlchemyProductionRouteRepository(uow.session).get_by_id(
+                route.entity_id
+            )
             task_back = await SqlAlchemyGenerationTaskRepository(uow.session).get_by_id(
                 task.entity_id
             )
-            req_back = await SqlAlchemyShotBudgetRequestRepository(
-                uow.session
-            ).get_by_id(request.entity_id)
+            req_back = await SqlAlchemyShotBudgetRequestRepository(uow.session).get_by_id(
+                request.entity_id
+            )
             ledger_rows = (
                 await uow.session.execute(
                     text(
@@ -183,9 +183,7 @@ async def _run() -> None:
         assert task_back is not None and task_back.status.value == "SUCCEEDED"
         assert req_back is not None and req_back.status.value == "APPROVED"
         assert (
-            len(ledger_rows) == 1
-            and ledger_rows[0][0] == 1000
-            and ledger_rows[0][1] == "RESERVE"
+            len(ledger_rows) == 1 and ledger_rows[0][0] == 1000 and ledger_rows[0][1] == "RESERVE"
         )
         assert ledger_rows[0][2] == f"shot-budget:{request.request_id}"
         assert gate_back is not None and gate_back.decision == "APPROVED"

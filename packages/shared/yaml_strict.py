@@ -44,9 +44,7 @@ class StrictSafeLoader(yaml.SafeLoader):
 
     source: str = "<string>"
 
-    def construct_mapping(
-        self, node: yaml.MappingNode, deep: bool = False
-    ) -> dict[Any, Any]:
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
         seen: dict[tuple[str, str], int] = {}
         for key_node, _value_node in node.value:
             # merge key（<<: *anchor）是有意的继承语义，不是重复声明。

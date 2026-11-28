@@ -19,6 +19,7 @@ Revision ID: 8f2a1b3c4d5e
 Revises: 7c8d9e0f1a2b
 Create Date: 2026-11-13
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -49,8 +50,7 @@ def upgrade() -> None:
     # 2. 回填存量数据：历史数据归属单一默认租户。
     for table in _TABLES:
         op.execute(
-            f"UPDATE {SCHEMA}.{table} SET tenant_id = '{_DEFAULT_TENANT}' "
-            f"WHERE tenant_id IS NULL"
+            f"UPDATE {SCHEMA}.{table} SET tenant_id = '{_DEFAULT_TENANT}' WHERE tenant_id IS NULL"
         )
 
     # 3. 收紧 tenant_id 为 NOT NULL + 建索引（RLS 隔离键，查询频繁）。

@@ -119,16 +119,12 @@ def parse_requested(event: OutboxEvent) -> RegistrationRequested:
 
 def parse_result(event: OutboxEvent) -> RegistrationResult:
     if event.event_type == "ASSET_REGISTRATION_COMPLETED":
-        p = cast(
-            AssetRegistrationCompletedPayload, _parse(event, event.event_type)
-        )
+        p = cast(AssetRegistrationCompletedPayload, _parse(event, event.event_type))
         return RegistrationResult(
             event.tenant_id, p.generation_task_id, p.asset_version_id, "", True
         )
     if event.event_type == "ASSET_REGISTRATION_REJECTED":
-        rejected = cast(
-            AssetRegistrationRejectedPayload, _parse(event, event.event_type)
-        )
+        rejected = cast(AssetRegistrationRejectedPayload, _parse(event, event.event_type))
         return RegistrationResult(
             event.tenant_id,
             rejected.generation_task_id,
@@ -146,12 +142,8 @@ def _receipt_entity_id(tenant_id: UUID, generation_task_id: str) -> str:
     ).hex
 
 
-def _asset_entity_id(
-    tenant_id: UUID, generation_task_id: str, digest: str
-) -> str:
-    return uuid5(
-        NAMESPACE_URL, f"asset-registration:{tenant_id}:{generation_task_id}:{digest}"
-    ).hex
+def _asset_entity_id(tenant_id: UUID, generation_task_id: str, digest: str) -> str:
+    return uuid5(NAMESPACE_URL, f"asset-registration:{tenant_id}:{generation_task_id}:{digest}").hex
 
 
 async def _record_conflict(
@@ -200,9 +192,7 @@ async def _record_conflict(
     writer = SqlAlchemyOutboxWriter(session)
     writer.record(
         aggregate_type="AssetRegistrationReceipt",
-        aggregate_id=_receipt_entity_id(
-            request.tenant_id, request.generation_task_id
-        ),
+        aggregate_id=_receipt_entity_id(request.tenant_id, request.generation_task_id),
         tenant_id=request.tenant_id,
         event_type="ASSET_REGISTRATION_CONFLICT",
         payload=stamp_event_payload(
@@ -212,9 +202,7 @@ async def _record_conflict(
                 "tenant_id": str(request.tenant_id),
                 "expected_fingerprint": expected,
                 "observed_fingerprint": fingerprint,
-                "observed": {
-                    name: str(value) for name, value in canonical.items()
-                },
+                "observed": {name: str(value) for name, value in canonical.items()},
             }
         ),
     )
@@ -249,9 +237,7 @@ def build_asset_registration_handlers(
             if task is None:
                 raise ReceiptEventError("登记请求的来源生成任务不存在")
             if task.status is not GenerationTaskStatus.AWAITING_ASSET_REGISTRATION:
-                raise ReceiptEventError(
-                    f"来源任务状态为 {task.status.value}，不是等待登记态"
-                )
+                raise ReceiptEventError(f"来源任务状态为 {task.status.value}，不是等待登记态")
             if task.project_id != request.project_id or task.tenant_id != request.tenant_id:
                 raise ReceiptEventError("登记请求的项目/租户与来源任务不一致")
             manifest = await repo.get_manifest_by_task_attempt(
@@ -264,8 +250,11 @@ def build_asset_registration_handlers(
             if (
                 manifest.locator != request.locator
                 or manifest.sha256 != request.sha256
+                or manifest.media_type != request.media_type
             ):
-                raise ReceiptEventError("登记请求的 locator/sha256 与产物意图不一致")
+                # media_type 与 locator 扩展名双射，但事件载荷可被篡改；落盘意图里
+                # 的 media_type 是 T0 固化事实，逐字比对才能挡住「换类型不换定位符」。
+                raise ReceiptEventError("登记请求的 locator/sha256/media_type 与产物意图不一致")
             # 质量策略取冻结任务，不信事件自报（D7）。其余字段都已与上源事实核验过，
             # 这一份规范化输入既是指纹来源，也是冲突证据里的 observed 值。
             frozen_quality_profile = task.quality_profile_version or ""
@@ -296,7 +285,10 @@ def build_asset_registration_handlers(
                     await session.commit()
                     return
                 await _record_conflict(
-                    session, request, canonical, fingerprint,
+                    session,
+                    request,
+                    canonical,
+                    fingerprint,
                     expected=existing.registration_fingerprint,
                 )
                 await session.commit()
@@ -310,9 +302,7 @@ def build_asset_registration_handlers(
             asset_id = _asset_entity_id(
                 request.tenant_id, request.generation_task_id, request.sha256
             )
-            asset_type = (
-                extension_for_media_type(request.media_type) or "bin"
-            ).upper()
+            asset_type = (extension_for_media_type(request.media_type) or "bin").upper()
             service = AssetService(
                 SqlAlchemyAssetRepository(session),
                 SqlAlchemyQCReportRepository(session),
@@ -346,9 +336,7 @@ def build_asset_registration_handlers(
 
             completed = not rejected_reason
             receipt = AssetRegistrationReceipt(
-                entity_id=_receipt_entity_id(
-                    request.tenant_id, request.generation_task_id
-                ),
+                entity_id=_receipt_entity_id(request.tenant_id, request.generation_task_id),
                 created_by=_SERVICE_ID,
                 tenant_id=request.tenant_id,
                 generation_task_id=request.generation_task_id,
@@ -376,7 +364,10 @@ def build_asset_registration_handlers(
                     raise
                 if concurrent.registration_fingerprint != fingerprint:
                     await _record_conflict(
-                        session, request, canonical, fingerprint,
+                        session,
+                        request,
+                        canonical,
+                        fingerprint,
                         expected=concurrent.registration_fingerprint,
                     )
                 await session.commit()

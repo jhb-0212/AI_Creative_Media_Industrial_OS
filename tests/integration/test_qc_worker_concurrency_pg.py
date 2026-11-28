@@ -29,6 +29,7 @@ from packages.shared.database import (
 )
 from packages.shared.outbox_writer import SqlAlchemyOutboxWriter
 from services.project_planning.domain.enums import QCTaskStatus
+from services.qc_governance.domain.qc_task import EnqueueOrigin
 from services.qc_governance.repository.qc_task_repo import SqlAlchemyQCTaskRepository
 from services.qc_governance.service.qc_task_service import QCTaskService
 from tests.conftest import set_test_scope
@@ -63,9 +64,7 @@ async def _seed_project(admin_sessionmaker, *, tenant: uuid.UUID, suffix: str) -
     return project_id
 
 
-async def _enqueue(
-    *, tenant: uuid.UUID, project_id: str, suffix: str
-) -> str:
+async def _enqueue(*, tenant: uuid.UUID, project_id: str, suffix: str) -> str:
     async with _qc_sm()() as session:
         await set_test_scope(session, tenant_id=tenant)
         service = QCTaskService(
@@ -76,8 +75,8 @@ async def _enqueue(
             asset_version_id=f"av-{suffix}",
             generation_task_id=f"gen-{suffix}",
             quality_profile_version=f"qp-{suffix}",
-            created_by="pg-concurrency-test",
             tenant_id=tenant,
+            origin=EnqueueOrigin(source="RELAY", operator_id="outbox-relay"),
             shot_id=f"shot-{suffix}",
             qc_task_id=f"qc-{suffix}",
         )
@@ -104,7 +103,8 @@ async def _read_row(admin_sessionmaker, task_id: str) -> Any:
         return (
             await session.execute(
                 text(
-                    "SELECT status, lease_owner, lease_expires_at, attempt_count "
+                    "SELECT status, lease_owner, lease_expires_at, attempt_count, "
+                    "lease_generation "
                     "FROM qc_governance.qc_tasks WHERE entity_id = :id"
                 ),
                 {"id": task_id},
@@ -170,8 +170,7 @@ async def test_skip_locked_bypasses_row_held_by_uncommitted_claim(
         pending = asyncio.create_task(
             session.execute(
                 text(
-                    "SELECT entity_id FROM qc_governance.qc_tasks "
-                    "WHERE entity_id = :id FOR UPDATE"
+                    "SELECT entity_id FROM qc_governance.qc_tasks WHERE entity_id = :id FOR UPDATE"
                 ),
                 {"id": task_id},
             )
@@ -210,9 +209,7 @@ async def test_two_workers_claim_distinct_tasks_without_blocking(
             candidate = await repo.next_claimable_for_claim()
             assert candidate is not None
             service = QCTaskService(repo, SqlAlchemyOutboxWriter(session))
-            await service.claim(
-                task_id=candidate.entity_id, worker_id=name, lease_seconds=60
-            )
+            await service.claim(task_id=candidate.entity_id, worker_id=name, lease_seconds=60)
             await session.commit()
             claimed[name] = candidate.entity_id
 
@@ -303,13 +300,13 @@ async def test_expired_lease_blocks_old_worker_renew_and_finish(
     suffix = uuid.uuid4().hex[:10]
     project_id = await _seed_project(admin_sessionmaker, tenant=tenant, suffix=suffix)
     task_id = await _enqueue(tenant=tenant, project_id=project_id, suffix=suffix)
-    await _claim(task_id, tenant=tenant, worker_id="qc-A", lease=60)
+    claimed = await _claim(task_id, tenant=tenant, worker_id="qc-A", lease=60)
+    stale_generation = claimed.lease_generation
 
     async with admin_sessionmaker() as session:
         await session.execute(
             text(
-                "UPDATE qc_governance.qc_tasks "
-                "SET lease_expires_at = :past WHERE entity_id = :id"
+                "UPDATE qc_governance.qc_tasks SET lease_expires_at = :past WHERE entity_id = :id"
             ),
             {"past": datetime.now(UTC) - timedelta(seconds=5), "id": task_id},
         )
@@ -321,7 +318,12 @@ async def test_expired_lease_blocks_old_worker_renew_and_finish(
             SqlAlchemyQCTaskRepository(session), SqlAlchemyOutboxWriter(session)
         )
         with pytest.raises(DomainError):
-            await service.renew(task_id=task_id, worker_id="qc-A", lease_seconds=60)
+            await service.renew(
+                task_id=task_id,
+                worker_id="qc-A",
+                expected_lease_generation=stale_generation,
+                lease_seconds=60,
+            )
         await session.rollback()
 
     async with _qc_sm()() as session:
@@ -334,6 +336,7 @@ async def test_expired_lease_blocks_old_worker_renew_and_finish(
             await service.finish(
                 task_id=task_id,
                 worker_id="qc-A",
+                expected_lease_generation=stale_generation,
                 result="PASSED",
                 qc_report_id="report-late",
             )
@@ -354,8 +357,7 @@ async def test_concurrent_reclaim_only_one_succeeds(admin_sessionmaker) -> None:
     async with admin_sessionmaker() as session:
         await session.execute(
             text(
-                "UPDATE qc_governance.qc_tasks "
-                "SET lease_expires_at = :past WHERE entity_id = :id"
+                "UPDATE qc_governance.qc_tasks SET lease_expires_at = :past WHERE entity_id = :id"
             ),
             {"past": datetime.now(UTC) - timedelta(seconds=5), "id": task_id},
         )
@@ -405,13 +407,13 @@ async def test_late_finish_after_reclaim_rejected(admin_sessionmaker) -> None:
     suffix = uuid.uuid4().hex[:10]
     project_id = await _seed_project(admin_sessionmaker, tenant=tenant, suffix=suffix)
     task_id = await _enqueue(tenant=tenant, project_id=project_id, suffix=suffix)
-    await _claim(task_id, tenant=tenant, worker_id="qc-A", lease=60)
+    claimed_a = await _claim(task_id, tenant=tenant, worker_id="qc-A", lease=60)
+    stale_generation = claimed_a.lease_generation
 
     async with admin_sessionmaker() as session:
         await session.execute(
             text(
-                "UPDATE qc_governance.qc_tasks "
-                "SET lease_expires_at = :past WHERE entity_id = :id"
+                "UPDATE qc_governance.qc_tasks SET lease_expires_at = :past WHERE entity_id = :id"
             ),
             {"past": datetime.now(UTC) - timedelta(seconds=5), "id": task_id},
         )
@@ -434,6 +436,7 @@ async def test_late_finish_after_reclaim_rejected(admin_sessionmaker) -> None:
             await service.finish(
                 task_id=task_id,
                 worker_id="qc-A",
+                expected_lease_generation=stale_generation,
                 result="PASSED",
                 qc_report_id="report-late",
             )

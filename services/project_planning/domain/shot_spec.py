@@ -153,9 +153,7 @@ class ShotSpec(Entity):
         # 空值等于一份无法定位的规格。
         for name in ("shot_spec_id", "project_id", "shot_revision_id"):
             if not getattr(self, name).strip():
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
         # 描述性字段只约束长度上限。契约对它们只给了 ``type: string``（无
         # minLength）：DRAFT 阶段「尚未决定」「无尺寸变化」都可以是空串，在这里
         # 要求非空等于用一个契约没有的格式拒绝合法输入——与 locked_dimensions
@@ -188,9 +186,7 @@ class ShotSpec(Entity):
                     detail=f"{name} 必须是整数（禁用浮点帧率），实际为 {value!r}",
                 )
         if self.duration_ms < 1:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="duration_ms 必须为正整数"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="duration_ms 必须为正整数")
         if self.fps_num < 1 or self.fps_den < 1:
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,
@@ -204,9 +200,7 @@ class ShotSpec(Entity):
             fps_den=self.fps_den,
         )
 
-    def transition_to(
-        self, target: ShotSpecStatus, audit_ref: str, action: str
-    ) -> ShotSpec:
+    def transition_to(self, target: ShotSpecStatus, audit_ref: str, action: str) -> ShotSpec:
         """执行状态迁移：结构 + 所有权 + 终态证据。
 
         锁定必须带齐「锁定维度」——没有维度的 LOCKED 只是把状态改成了 LOCKED，

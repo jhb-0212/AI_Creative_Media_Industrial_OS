@@ -92,8 +92,7 @@ async def _assert_waiting_on_lock(admin_sessionmaker, pid: int, label: str) -> N
             row = (
                 await observer.execute(
                     text(
-                        "SELECT wait_event_type, wait_event FROM pg_stat_activity "
-                        "WHERE pid = :pid"
+                        "SELECT wait_event_type, wait_event FROM pg_stat_activity WHERE pid = :pid"
                     ),
                     {"pid": pid},
                 )
@@ -112,9 +111,7 @@ async def test_archiving_blocks_a_concurrent_entering_of_production(
 ) -> None:
     """归档方持排他锁期间，子对象侧取不到共享锁；解锁后看到的是已归档。"""
     tenant = uuid.uuid4()
-    scene_id, _ = await _seed(
-        admin_sessionmaker, tenant=tenant, suffix=uuid.uuid4().hex[:8]
-    )
+    scene_id, _ = await _seed(admin_sessionmaker, tenant=tenant, suffix=uuid.uuid4().hex[:8])
 
     async with db_sessionmaker() as session_a, db_sessionmaker() as session_b:
         await set_test_scope(session_a, tenant_id=tenant)
@@ -140,9 +137,7 @@ async def test_archiving_blocks_a_concurrent_entering_of_production(
             SqlAlchemySceneRepository(session_b).lock_for_child_write(scene_id)
         )
         # 等真实锁证据，而不是「睡 0.2s 看协程完没完」。
-        await _assert_waiting_on_lock(
-            admin_sessionmaker, blocked_pid, "子对象侧共享锁"
-        )
+        await _assert_waiting_on_lock(admin_sessionmaker, blocked_pid, "子对象侧共享锁")
         assert not pending.done(), "已进入锁等待却仍完成：等锁语义异常"
 
         # 5. 归档提交 → 子对象侧醒来，必须看到已归档（EvalPlanQual 后读到新版本）。
@@ -160,9 +155,7 @@ async def test_entering_production_blocks_a_concurrent_archive(
 ) -> None:
     """反向：镜头侧持共享锁期间，归档方取不到排他锁；解锁后能看到在产镜头。"""
     tenant = uuid.uuid4()
-    scene_id, shot_id = await _seed(
-        admin_sessionmaker, tenant=tenant, suffix=uuid.uuid4().hex[:8]
-    )
+    scene_id, shot_id = await _seed(admin_sessionmaker, tenant=tenant, suffix=uuid.uuid4().hex[:8])
 
     async with db_sessionmaker() as session_a, db_sessionmaker() as session_b:
         await set_test_scope(session_a, tenant_id=tenant)
@@ -193,7 +186,5 @@ async def test_entering_production_blocks_a_concurrent_archive(
         in_production = await SqlAlchemyShotRepository(session_b).has_with_status(
             scene_id, ShotStatus.IN_PRODUCTION
         )
-        assert in_production is True, (
-            "归档方解锁后仍看不到已提交的在产镜头：判定会放行非法归档"
-        )
+        assert in_production is True, "归档方解锁后仍看不到已提交的在产镜头：判定会放行非法归档"
         await session_b.rollback()

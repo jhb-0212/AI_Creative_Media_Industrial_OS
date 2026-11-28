@@ -104,9 +104,7 @@ async def _create_task(
     async with _prod_sm()() as session:
         await set_test_scope(session, tenant_id=tenant)
         outbox = SqlAlchemyOutboxWriter(session)
-        route_service = ProductionRouteService(
-            SqlAlchemyProductionRouteRepository(session), outbox
-        )
+        route_service = ProductionRouteService(SqlAlchemyProductionRouteRepository(session), outbox)
         await route_service.select_route(
             project_id=project_id,
             shot_id=f"shot-{suffix}",
@@ -158,18 +156,14 @@ async def _backend_pid(session: AsyncSession) -> int:
     return int((await session.execute(text("SELECT pg_backend_pid()"))).scalar_one())
 
 
-async def _assert_waiting_on_lock(
-    admin_sessionmaker, pid: int, label: str
-) -> None:
+async def _assert_waiting_on_lock(admin_sessionmaker, pid: int, label: str) -> None:
     """从 pg_stat_activity 实读目标后端确实进入 Lock 等待。"""
     deadline = time.monotonic() + _LOCK_WAIT_TIMEOUT
     async with admin_sessionmaker() as observer:
         while time.monotonic() < deadline:
             row = (
                 await observer.execute(
-                    text(
-                        "SELECT wait_event_type FROM pg_stat_activity WHERE pid = :pid"
-                    ),
+                    text("SELECT wait_event_type FROM pg_stat_activity WHERE pid = :pid"),
                     {"pid": pid},
                 )
             ).first()
@@ -292,9 +286,7 @@ async def test_two_workers_claim_distinct_tasks_without_blocking(
             candidate = await repo.next_claimable_for_claim()
             assert candidate is not None
             service = GenerationService(repo, SqlAlchemyOutboxWriter(session))
-            await service.claim(
-                task_id=candidate.entity_id, worker_id=name, lease_seconds=60
-            )
+            await service.claim(task_id=candidate.entity_id, worker_id=name, lease_seconds=60)
             await session.commit()
             claimed[name] = candidate.entity_id
 
@@ -433,9 +425,7 @@ async def test_expired_lease_blocks_old_worker_renew_and_finish(
             SqlAlchemyOutboxWriter(session),
         )
         with pytest.raises(DomainError):
-            await service.renew(
-                task_id=task_id, worker_id="worker-A", lease_seconds=60
-            )
+            await service.renew(task_id=task_id, worker_id="worker-A", lease_seconds=60)
         await session.rollback()
 
     async with _prod_sm()() as session:

@@ -47,6 +47,7 @@ RESTRICTIVE 与其他策略是 **AND** 关系。于是「把某行的 ``organiza
 Revision ID: e3f4a5b6c7d8
 Revises: d2e3f4a5b6c7
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -72,8 +73,18 @@ SCOPED_POLICIES: tuple[tuple[str, str, str, str], ...] = (
     ("project_planning", "episodes", "project_scope_episodes", "entity_id"),
     ("project_planning", "script_revisions", "project_scope_script_revisions", "entity_id"),
     ("generation_execution", "generation_tasks", "project_scope_generation_tasks", "entity_id"),
-    ("generation_execution", "shot_route_selections", "project_scope_shot_route_selections", "entity_id"),
-    ("generation_execution", "production_routes", "organization_scope_production_routes", "entity_id"),
+    (
+        "generation_execution",
+        "shot_route_selections",
+        "project_scope_shot_route_selections",
+        "entity_id",
+    ),
+    (
+        "generation_execution",
+        "production_routes",
+        "organization_scope_production_routes",
+        "entity_id",
+    ),
     ("shot_planning", "shot_drafts", "project_scope_shot_drafts", "entity_id"),
     ("shot_planning", "shot_revisions", "project_scope_shot_revisions", "entity_id"),
     ("shot_planning", "shot_specs", "project_scope_shot_specs", "entity_id"),

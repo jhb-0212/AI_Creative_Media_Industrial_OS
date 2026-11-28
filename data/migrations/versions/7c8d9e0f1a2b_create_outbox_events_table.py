@@ -10,6 +10,7 @@ Revision ID: 7c8d9e0f1a2b
 Revises: 6a7b8c9d0e1f
 Create Date: 2026-11-13
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

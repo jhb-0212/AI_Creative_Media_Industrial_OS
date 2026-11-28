@@ -52,10 +52,7 @@ class _FakeLedgerRepo:
         self, *, reservation_ref: str, transaction_kind: str
     ) -> BudgetLedger | None:
         for row in self.rows.values():
-            if (
-                row.reservation_ref == reservation_ref
-                and row.transaction_kind == transaction_kind
-            ):
+            if row.reservation_ref == reservation_ref and row.transaction_kind == transaction_kind:
                 return row
         return None
 

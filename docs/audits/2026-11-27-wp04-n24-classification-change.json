@@ -1,0 +1,72 @@
+{
+  "record": "WP-04 #24 双向可逆性分类变更记录",
+  "date": "2026-11-27",
+  "authority": "项目 Owner 明确执行授权：可将 #24 分类从 unproven_blocking 改为 no_restore_proven，范围仅限分类与证据更新，不含提交/推送/合并/正式环境操作",
+  "revision": "8f3b2c1d4e5a",
+  "revision_label": "#24 拆域身份迁移（pilot）",
+  "change": {
+    "from": "unproven_blocking",
+    "to": "no_restore_proven"
+  },
+  "preserved_original_block": {
+    "original_class": "unproven_blocking",
+    "original_reason": "降级按角色↔自家 schema 配对：交叉默认权限与 public schema USAGE 未撤，#24 态实测残留 3 条本库依赖；集群级依赖另计（D-08）",
+    "original_evidence": "docs/audits/2026-11-27-wp04-s1-s3-and-d08-evidence.md §6.6",
+    "note": "原始阻断结论与证据文件保持原样，不删除、不改写；本条仅追加解除依据"
+  },
+  "defect_found": {
+    "summary": "downgrade 对 app_role 使用宽泛 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA，超出父态（7a8b9c0d1e2f）实际窄权限",
+    "over_granted_objects": [
+      "public.organizations",
+      "asset_service.asset_versions",
+      "asset_service.qc_reports"
+    ],
+    "observed_symptom": "D 相对 P 产生额外写权限，矩阵判为 restore_required，diff_groups=['acl']"
+  },
+  "remediation": {
+    "approach": "按父态实测权限逐表还原，不再使用 ALL TABLES 宽泛授权",
+    "parent_state_grants": {
+      "asset_service.asset_versions": ["INSERT", "SELECT", "UPDATE"],
+      "asset_service.qc_reports": ["INSERT", "SELECT"],
+      "project_planning.episodes": ["DELETE", "INSERT", "SELECT", "UPDATE"],
+      "project_planning.projects": ["DELETE", "INSERT", "SELECT", "UPDATE"],
+      "project_planning.script_revisions": ["DELETE", "INSERT", "SELECT", "UPDATE"],
+      "auth.revoked_tokens": ["SELECT"],
+      "public.alembic_version": ["SELECT"],
+      "public.organizations": [],
+      "sequences": []
+    }
+  },
+  "verification": {
+    "reversibility": "P -> upgrade -> downgrade -> D 身份面快照差异 0，diff_groups=[]，no_restore_proven",
+    "evidence": [
+      "docs/audits/2026-11-27-wp04-n24-triage.json",
+      "docs/audits/2026-11-27-wp04-f3-p41-verification.md §8"
+    ],
+    "post_downgrade_local_db": {
+      "domain_roles_present": true,
+      "pg_shdepend_rows": 0,
+      "schema_usage": false,
+      "nspacl_mentions": 0,
+      "table_relacl_mentions": 0,
+      "pg_default_acl_rows": 0
+    },
+    "multi_database_isolation": "A 库 upgrade/downgrade exit 0/0 后角色仍在、A 快照 0|false|true；B 库 13|true|false 前后一致；A 再 upgrade exit 0"
+  },
+  "scope_boundary": {
+    "scope": "current database / migration-managed authorization surface",
+    "cluster_wide_zero_authorization_verified": false,
+    "statement": "本库、本 migration 管理面内父态授权与降级态授权一致；不表示集群级身份依赖或授权已全部清零，其他数据库中的角色依赖记录仍保留"
+  },
+  "non_claims": [
+    "不代表集群内所有退役角色已物理删除",
+    "不代表所有数据库中的历史角色依赖已清零",
+    "不代表正式环境已完成迁移",
+    "不代表已提交、推送、合并或部署"
+  ],
+  "references": {
+    "matrix": "scripts/reversibility_matrix.py CLASSIFIED['8f3b2c1d4e5a']",
+    "snapshot_entry": "docs/audits/2026-11-27-wp04-bidirectional-snapshot.json revision=8f3b2c1d4e5a",
+    "adr": "docs/adr/ADR-R46-data-constrained-downgrade.md 附录 A.4 / A.5"
+  }
+}

@@ -88,15 +88,11 @@ def _create_table() -> None:
         sa.Column("decided_by", sa.String(64), nullable=False),
         sa.Column("decided_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("gate_instance_id", sa.String(64), nullable=False, server_default=""),
-        sa.Column(
-            "constraint_snapshot_id", sa.String(128), nullable=False, server_default=""
-        ),
+        sa.Column("constraint_snapshot_id", sa.String(128), nullable=False, server_default=""),
         sa.Column("entry_criteria", sa.String(500), nullable=False, server_default=""),
         sa.Column("reason_code", sa.String(64), nullable=False, server_default=""),
         sa.Column("comment", sa.String(500), nullable=False, server_default=""),
-        sa.Column(
-            "required_artifacts", sa.String(500), nullable=False, server_default=""
-        ),
+        sa.Column("required_artifacts", sa.String(500), nullable=False, server_default=""),
         sa.Column("evidence_refs", JSONB, nullable=False, server_default="[]"),
         sa.Column("reviewers", JSONB, nullable=False, server_default="[]"),
         sa.Column("ruleset_version", sa.Integer(), nullable=False, server_default="1"),
@@ -134,8 +130,7 @@ def _create_indexes() -> None:
 def _enable_rls() -> None:
     op.execute(f"ALTER TABLE {_SCHEMA}.{_TABLE} ENABLE ROW LEVEL SECURITY")
     op.execute(
-        f"CREATE POLICY tenant_isolation_{_TABLE} ON {_SCHEMA}.{_TABLE} "
-        f"{_project_visibility()}"
+        f"CREATE POLICY tenant_isolation_{_TABLE} ON {_SCHEMA}.{_TABLE} {_project_visibility()}"
     )
     op.execute(f"ALTER TABLE {_SCHEMA}.{_TABLE} FORCE ROW LEVEL SECURITY")
 
@@ -150,21 +145,29 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """回滚：撤策略、关 RLS、删表。
+
+    为什么不逐条 ``DROP INDEX``（D-02）
+    这里的三个索引由本迁移 upgrade 建在 ``gate_decisions`` 上，索引随表存在，
+    ``DROP TABLE`` 会连索引一起删——逐条删是**冗余**，而冗余在这条链上会变成
+    错误：后面的 ``a0b1c2d3e4f5``（R16 域拆分 cutover）把这张表搬走时是
+    「先删旧表、再在新 schema 重建」，降级时又反过来重建回 ``project_planning``。
+    所以本迁移降级时面对的索引名**不是**自己 upgrade 时那一组：
+
+    | 场景 | 表上的索引名 |
+    | --- | --- |
+    | 升到 ``f9a0b1c2d3e4`` 就降级（未过 a0b1） | ``ix_project_planning_gate_decisions_<列>``（本迁移建） |
+    | 从 head 降级（已过 a0b1） | 由 ``a0b1`` 的降级重建，多列索引带全部列名 |
+    | 当前 head 上实际存在 | ``ix_qc_governance_gate_decisions_<列>`` |
+
+    按名字删只能命中其中一种，另外两种必然 ``does not exist``。真实集群实测：
+    ``head → 7a8b9c0d1e2f`` 死在第 40 位，报
+    ``index "ix_project_planning_gate_decisions_gate_key" does not exist``。
+
+    也不允许改成 ``DROP INDEX IF EXISTS``：那会把"名字算错"变成"静默跳过"，
+    下次真少了一个索引也没人知道。正确做法是把索引交给拥有它的表——删表即删索引，
+    名字对不对都不用迁移来猜。
+    """
     op.execute(f"DROP POLICY IF EXISTS tenant_isolation_{_TABLE} ON {_SCHEMA}.{_TABLE}")
     op.execute(f"ALTER TABLE {_SCHEMA}.{_TABLE} DISABLE ROW LEVEL SECURITY")
-    op.drop_index(
-        op.f(f"ix_project_planning_{_TABLE}_gate_key"),
-        table_name=_TABLE,
-        schema=_SCHEMA,
-    )
-    op.drop_index(
-        op.f(f"ix_project_planning_{_TABLE}_project_id"),
-        table_name=_TABLE,
-        schema=_SCHEMA,
-    )
-    op.drop_index(
-        op.f(f"ix_project_planning_{_TABLE}_tenant_id"),
-        table_name=_TABLE,
-        schema=_SCHEMA,
-    )
     op.drop_table(_TABLE, schema=_SCHEMA)

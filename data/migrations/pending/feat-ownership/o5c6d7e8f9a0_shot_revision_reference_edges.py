@@ -56,9 +56,7 @@ def upgrade_sqls() -> list[str]:
     sqls: list[str] = []
     for name, table in TARGET_KEYS:
         cols = ", ".join(("entity_id", *OWNERSHIP_COLS))
-        sqls.append(
-            f"ALTER TABLE {table} ADD CONSTRAINT {_key_name(name)} UNIQUE ({cols})"
-        )
+        sqls.append(f"ALTER TABLE {table} ADD CONSTRAINT {_key_name(name)} UNIQUE ({cols})")
     for constraint, column, target in EDGES:
         cols = ", ".join((column, *OWNERSHIP_COLS))
         ref = ", ".join(("entity_id", *OWNERSHIP_COLS))

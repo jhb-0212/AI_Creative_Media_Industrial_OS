@@ -62,9 +62,7 @@ shot_router = APIRouter(prefix="/shots", tags=["shot-management"])
 draft_router = APIRouter(prefix="/shot-drafts", tags=["shot-breakdown-draft"])
 rework_router = APIRouter(prefix="/rework-tasks", tags=["rework-task"])
 shot_spec_router = APIRouter(prefix="/shot-specs", tags=["shot-spec"])
-constraint_pack_router = APIRouter(
-    prefix="/constraint-packs", tags=["constraint-pack"]
-)
+constraint_pack_router = APIRouter(prefix="/constraint-packs", tags=["constraint-pack"])
 
 _SceneResponse = contract_model("Scene")
 _ShotResponse = contract_model("Shot")
@@ -815,9 +813,7 @@ async def get_constraint_pack(
     return pack.to_dict()
 
 
-@constraint_pack_router.post(
-    "/{entity_id}/lock", response_model=_ConstraintPackResponse
-)
+@constraint_pack_router.post("/{entity_id}/lock", response_model=_ConstraintPackResponse)
 async def lock_constraint_pack(
     entity_id: str,
     body: LockConstraintPackRequest,
@@ -857,9 +853,7 @@ class ChangeConstraintPackStatusRequest(BaseModel):
     superseding_pack_ref: str = Field("", max_length=128)
 
 
-@constraint_pack_router.post(
-    "/{entity_id}/status", response_model=_ConstraintPackResponse
-)
+@constraint_pack_router.post("/{entity_id}/status", response_model=_ConstraintPackResponse)
 async def change_constraint_pack_status(
     entity_id: str,
     body: ChangeConstraintPackStatusRequest,

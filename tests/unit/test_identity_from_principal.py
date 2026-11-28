@@ -340,9 +340,7 @@ def _client(subject: str, roles: list[str]) -> AsyncClient:
     )
 
 
-async def _read_lease(
-    sessionmaker: async_sessionmaker, task_id: str
-) -> tuple[str, str]:
+async def _read_lease(sessionmaker: async_sessionmaker, task_id: str) -> tuple[str, str]:
     """回读任务状态与租约持有者（业务角色 + 测试作用域）。"""
     async with sessionmaker() as session:
         await set_test_scope(session)

@@ -86,9 +86,7 @@ def test_union_projection_keeps_all_roles_for_display() -> None:
     """展示投影仍能列出全部角色，但不再声称它们同属一个席位。"""
     text = "交付负责人+内部 QC/权利职责"
 
-    assert parse_allowed_principals(text) == frozenset(
-        {"交付负责人", "内部 QC", "权利职责"}
-    )
+    assert parse_allowed_principals(text) == frozenset({"交付负责人", "内部 QC", "权利职责"})
     # 关键差异：投影里没有「交付负责人+内部 QC」这种假角色名。
     assert not any("+" in role for role in parse_allowed_principals(text))
 

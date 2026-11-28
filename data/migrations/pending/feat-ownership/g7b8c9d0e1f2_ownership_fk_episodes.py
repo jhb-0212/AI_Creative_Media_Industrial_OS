@@ -194,9 +194,7 @@ def downgrade_steps() -> list[Step]:
 
 #: 由本迁移创建、需在 VALIDATE 阶段逐一核验的外键。
 #: 与 `a9b8.OWNERSHIP_FKS` + `f8a9.OWNERSHIP_FKS` 拼起来才是全量 18 条。
-OWNERSHIP_FKS: tuple[tuple[str, str], ...] = tuple(
-    (f"{s}.{t}", _fk_project(t)) for s, t in BATCH3
-)
+OWNERSHIP_FKS: tuple[tuple[str, str], ...] = tuple((f"{s}.{t}", _fk_project(t)) for s, t in BATCH3)
 
 
 def upgrade() -> None:

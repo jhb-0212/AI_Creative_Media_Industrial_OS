@@ -99,8 +99,7 @@ def test_nested_same_name_is_not_flagged(tmp_path: Path) -> None:
     _write(
         tmp_path,
         "services/x.py",
-        "def outer():\n    def build(): return 1\n    return build\n"
-        "def build(): return 2\n",
+        "def outer():\n    def build(): return 1\n    return build\ndef build(): return 2\n",
     )
     assert [f for f in mr.check_static(tmp_path) if f.rule == "D2 同名顶层定义"] == []
 
@@ -141,7 +140,9 @@ def test_registered_directories_are_not_flagged(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 # 编排器 fail-closed
 # --------------------------------------------------------------------------- #
-def test_external_check_records_nonzero_exit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_external_check_records_nonzero_exit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """被编排的检查器返回非零时，必须记为发现（fail-closed，不吞错）。"""
 
     class FakeCompleted:
@@ -319,7 +320,8 @@ def subprocess_run_stdout(root: Path, *args: str) -> str:
 def test_main_exit_code_two_when_only_blocked(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     """只有 BLOCKED-ENV（无代码缺陷）时，main 必须返回 2，绝不返回 0/PASS。"""
     monkeypatch.setattr(
-        mr, "run_all",
+        mr,
+        "run_all",
         lambda *_a, **_k: [
             mr.Finding("G5 远端基线", "fetch", "BLOCKED-ENV: no channel", blocked=True)
         ],
@@ -332,10 +334,13 @@ def test_main_exit_code_two_when_only_blocked(monkeypatch: pytest.MonkeyPatch, c
     assert "[PASS]" not in out
 
 
-def test_main_exit_code_one_when_code_fault_present(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+def test_main_exit_code_one_when_code_fault_present(
+    monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
     """代码缺陷 + 环境阻塞并存时，main 返回 1（代码缺陷优先）。"""
     monkeypatch.setattr(
-        mr, "run_all",
+        mr,
+        "run_all",
         lambda *_a, **_k: [
             mr.Finding("D1 字典重复键", "x.py:1", "bug"),
             mr.Finding("G5 远端基线", "fetch", "BLOCKED-ENV", blocked=True),
@@ -345,4 +350,3 @@ def test_main_exit_code_one_when_code_fault_present(monkeypatch: pytest.MonkeyPa
     assert mr.main() == 1
     out = capsys.readouterr().out
     assert "[FAIL]" in out and "[BLOCKED-ENV]" in out
-

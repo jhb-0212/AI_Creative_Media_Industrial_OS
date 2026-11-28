@@ -147,9 +147,7 @@ def downgrade() -> None:
     而是一个只在 catalog 上层面上「有约束」的混合态。
     """
     for schema, table, superseded in _TARGETS:
-        op.drop_constraint(
-            _fk_name(table), table, schema=schema, type_="foreignkey"
-        )
+        op.drop_constraint(_fk_name(table), table, schema=schema, type_="foreignkey")
         if superseded is None:
             continue
         op.execute(
@@ -161,6 +159,4 @@ def downgrade() -> None:
             NOT VALID
             """
         )
-        op.execute(
-            f"ALTER TABLE {schema}.{table} VALIDATE CONSTRAINT {superseded}"
-        )
+        op.execute(f"ALTER TABLE {schema}.{table} VALIDATE CONSTRAINT {superseded}")

@@ -72,9 +72,7 @@ def _project(entity_id: str = "proj_001", status: ProjectStatus = ProjectStatus.
     )
 
 
-def _episode(
-    entity_id: str = "ep_001", status: EpisodeStatus = EpisodeStatus.DRAFT
-) -> Episode:
+def _episode(entity_id: str = "ep_001", status: EpisodeStatus = EpisodeStatus.DRAFT) -> Episode:
     return Episode(
         entity_id=entity_id,
         project_id="proj_001",
@@ -130,9 +128,7 @@ class _FakeEpisodeRepository(EpisodeRepository):
     async def get_by_id(self, entity_id: str) -> Episode | None:
         return self._store.get(entity_id)
 
-    async def get_by_project_ref(
-        self, project_id: str, episode_ref: str
-    ) -> Episode | None:
+    async def get_by_project_ref(self, project_id: str, episode_ref: str) -> Episode | None:
         for ep in self._store.values():
             if ep.project_id == project_id and ep.episode_ref == episode_ref:
                 return ep

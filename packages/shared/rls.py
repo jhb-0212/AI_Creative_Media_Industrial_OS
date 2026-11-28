@@ -52,9 +52,7 @@ def tenant_scope_predicate(column: str = "tenant_id") -> str:
     ``NULLIF(current_setting(...), '')`` 把「未定义」与「空串」都归一为 NULL，
     避免 ``''::uuid`` 转换错误；``x = NULL`` 恒为 NULL → 无行可见。
     """
-    return (
-        f"{column} = NULLIF(current_setting('{RLS_TENANT_SETTING}', true), '')::uuid"
-    )
+    return f"{column} = NULLIF(current_setting('{RLS_TENANT_SETTING}', true), '')::uuid"
 
 
 def organization_scope_predicate(column: str = "organization_id") -> str:
@@ -90,9 +88,7 @@ async def set_tenant_context(session: AsyncSession, tenant_id: object) -> None:
     )
 
 
-async def set_organization_context(
-    session: AsyncSession, organization_id: object | None
-) -> None:
+async def set_organization_context(session: AsyncSession, organization_id: object | None) -> None:
     """在当前事务内设置 RLS 组织上下文（SET LOCAL）。
 
     ``organization_id`` 为 None 时显式写入空串：``NULLIF(...,'')`` 归一为 NULL，
@@ -101,7 +97,10 @@ async def set_organization_context(
     """
     await session.execute(
         text("SELECT set_config(:key, :value, true)"),
-        {"key": RLS_ORGANIZATION_SETTING, "value": "" if organization_id is None else str(organization_id)},
+        {
+            "key": RLS_ORGANIZATION_SETTING,
+            "value": "" if organization_id is None else str(organization_id),
+        },
     )
 
 
@@ -221,9 +220,7 @@ async def probe_rls_enforcement(engine: AsyncEngine) -> RlsEnforcement:
         owned_without_force: list[str] = []
         enabled = 0
         for schema, table in _RLS_PROBE_TABLES:
-            info = (
-                await conn.execute(_TABLE_SQL, {"schema": schema, "table": table})
-            ).first()
+            info = (await conn.execute(_TABLE_SQL, {"schema": schema, "table": table})).first()
             if info is None:
                 continue
             if not info.rls_enabled:
@@ -257,9 +254,7 @@ async def verify_rls_enforcement(engine: AsyncEngine, *, app_env: str) -> None:
     problems = enforcement.problems()
     if not problems:
         return
-    message = (
-        f"RLS 未对连接角色 {enforcement.role} 生效：" + "；".join(problems)
-    )
+    message = f"RLS 未对连接角色 {enforcement.role} 生效：" + "；".join(problems)
     if app_env == "production":
         raise RuntimeError(message + "。生产环境拒绝以该角色启动业务进程。")
     # 关键字参数就是字段：structlog 不接受 stdlib 的 extra={...}，
@@ -270,6 +265,7 @@ async def verify_rls_enforcement(engine: AsyncEngine, *, app_env: str) -> None:
         problems=problems,
         app_env=app_env,
     )
+
 
 __all__ = [
     "RLS_ORGANIZATION_SETTING",

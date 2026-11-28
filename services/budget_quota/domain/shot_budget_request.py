@@ -61,9 +61,7 @@ class ShotBudgetRequest(Entity):
             "requested_by",
         ):
             if _blank(getattr(self, name)):
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
         for name, max_len in (
             ("request_id", 64),
             ("project_id", 64),
@@ -87,9 +85,7 @@ class ShotBudgetRequest(Entity):
                 detail=f"amount_limit 必须是整数，实际为 {self.amount_limit!r}",
             )
         if self.amount_limit < 0:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="amount_limit 不能为负"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="amount_limit 不能为负")
 
     def transition_to(
         self,

@@ -34,6 +34,7 @@ D-10.3 要求 2 写「``project_tier`` 取专用值」。但冻结契约
 Revision ID: c1d2e3f4a5b7
 Revises: b0c9d8e7f6a5
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

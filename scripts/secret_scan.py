@@ -30,8 +30,18 @@ ROOT = Path(__file__).resolve().parents[1]
 # 不交付/不扫描的目录（与 merge_readiness.IGNORE_DIRS 同口径，派生自文件系统约定）。
 SKIP_DIRS = frozenset(
     {
-        ".git", ".venv", "venv", "__pycache__", ".mypy_cache", ".pytest_cache",
-        ".ruff_cache", "node_modules", "dist", "artifacts", "backups", ".yamltest",
+        ".git",
+        ".venv",
+        "venv",
+        "__pycache__",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        "node_modules",
+        "dist",
+        "artifacts",
+        "backups",
+        ".yamltest",
     }
 )
 
@@ -112,7 +122,9 @@ def scan(root: Path = ROOT, *, check_allowlist: bool = True) -> list[str]:
     if check_allowlist:
         for rel, snippet, reason in ALLOWLIST:
             target = root / rel
-            if not target.exists() or snippet not in target.read_text(encoding="utf-8", errors="ignore"):
+            if not target.exists() or snippet not in target.read_text(
+                encoding="utf-8", errors="ignore"
+            ):
                 problems.append(
                     f"[FAIL] 密钥豁免已失效（陈旧豁免不得静默保留）：{rel} 找不到 {snippet[:40]!r}；理由={reason}"
                 )

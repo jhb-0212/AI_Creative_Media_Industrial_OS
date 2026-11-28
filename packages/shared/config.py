@@ -21,8 +21,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 #   relay              —— Outbox 投递进程：完全不碰身份密钥。
 #   outbox_maintenance —— Outbox 运维 CLI：用 postgres 超级用户做 DDL。
 #   identity           —— 身份签发服务：持私钥（+公钥）签发令牌。
+#   qc_maintenance     —— 维护命令进程：只持维护登录身份，不碰任何业务域口令。
 ProcessRole = Literal[
-    "api", "relay", "outbox_maintenance", "identity", "generation", "qc"
+    "api",
+    "relay",
+    "outbox_maintenance",
+    "identity",
+    "generation",
+    "qc",
+    "qc_maintenance",
 ]
 
 # 数据库角色配置项：环境变量名 → Settings 字段名（单一事实源）。
@@ -36,7 +43,15 @@ _ROLE_FIELD_BY_ENV: dict[str, str] = {
     "POSTGRES_BUDGET_QUOTA_USER": "postgres_budget_quota_user",
     "POSTGRES_QC_GOVERNANCE_USER": "postgres_qc_governance_user",
     "POSTGRES_RELAY_USER": "postgres_relay_user",
+    "POSTGRES_OUTBOX_OPS_USER": "postgres_outbox_ops_user",
     "POSTGRES_APP_USER": "postgres_app_user",
+    # WP-03 维护四角色（迁移 c9d0e1f2a3b4 创建）。
+    "POSTGRES_QC_MAINTENANCE_OWNER_USER": "postgres_qc_maintenance_owner_user",
+    "POSTGRES_QC_MAINTENANCE_OPERATOR_USER": "postgres_qc_maintenance_operator_user",
+    "POSTGRES_QC_MAINTENANCE_LOGIN_USER": "postgres_qc_maintenance_login_user",
+    "POSTGRES_QC_WORKER_USER": "postgres_qc_worker_user",
+    # WP-B 调度发现身份（迁移 a5b6c7d8e9f0 创建）。
+    "POSTGRES_QC_SCHEDULER_USER": "postgres_qc_scheduler_user",
 }
 
 
@@ -76,6 +91,12 @@ class Settings(BaseSettings):
     # 角色连接，使「Relay 越界写业务表」在数据库层被拒绝，而非依赖代码自觉。
     postgres_relay_user: str = "outbox_relay_role"
     postgres_relay_password: SecretStr = SecretStr("relay_dev_password")
+    # Outbox 运维角色（D6-9 死信人工重放）。与 relay 刻意分开：relay 只改投递
+    # 元数据、无 outbox_events INSERT（否则可伪造任意业务事件），运维还要写
+    # append-only 审计表。两个权限面合到一个角色，等于让「投递」顺带获得
+    # 「伪造事件」或让「运维」顺带获得「投递」的能力。
+    postgres_outbox_ops_user: str = "outbox_ops_role"
+    postgres_outbox_ops_password: SecretStr = SecretStr("outbox_ops_dev_password")
     # 业务域角色（DATA-1 模块级角色隔离）。project_planning 与 asset_service
     # 各自独立角色 + 独立连接池，业务 schema 写权限严格隔离；共享基础设施
     # （outbox 写 / auth 读）两角色按需持有。迁移 8f3b2c1d4e5a 创建这些角色。
@@ -86,13 +107,33 @@ class Settings(BaseSettings):
     # R16 三域拆分（迁移 a0b1c2d3e4f5 创建）：生产链 / 预算额度 / 质检治理。
     # 一域一角色一 schema 一连接池；跨域写越界在数据库层被拒绝，而不是靠代码自觉。
     postgres_production_planning_user: str = "production_planning_role"
-    postgres_production_planning_password: SecretStr = SecretStr(
-        "production_planning_dev_password"
-    )
+    postgres_production_planning_password: SecretStr = SecretStr("production_planning_dev_password")
     postgres_budget_quota_user: str = "budget_quota_role"
     postgres_budget_quota_password: SecretStr = SecretStr("budget_quota_dev_password")
     postgres_qc_governance_user: str = "qc_governance_role"
     postgres_qc_governance_password: SecretStr = SecretStr("qc_governance_dev_password")
+    # 维护四角色（WP-03 / 迁移 c9d0e1f2a3b4）。四者刻意不是「一个角色加权限」：
+    #   owner     —— 维护对象的属主，只持有对象、不登录、不 BYPASSRLS；
+    #   operator  —— 维护权限组，只作为成员关系的目标，不登录；
+    #   login     —— 人的维护身份，唯一可登录的维护角色，operator 的成员；
+    #   qc_worker —— 常规质检 Worker 的**历史**壳身份，已于 2026-11-27 退役
+    #               （迁移 f2b3c4d5e6a7）。它本来就不是 operator 成员，
+    #               也从未被任何进程连接；Worker 实际连的是 qc_governance 域池。
+    #               配置键保留只为回放 e6a7b8c9d0e1（clean install 仍会读它）。
+    # 之所以要 4 个而不是 2 个：权限组的成员关系是可审计事实（谁属于 operator），
+    # 而「谁能登录」是可连接事实——合到一个角色上，这两件事就再也分不开。
+    postgres_qc_maintenance_owner_user: str = "qc_maintenance_owner"
+    postgres_qc_maintenance_operator_user: str = "qc_maintenance_operator"
+    postgres_qc_maintenance_login_user: str = "qc_maintenance_login"
+    postgres_qc_maintenance_login_password: SecretStr = SecretStr("qc_maintenance_dev_password")
+    postgres_qc_worker_user: str = "qc_worker"
+    postgres_qc_worker_password: SecretStr = SecretStr("qc_worker_dev_password")
+    # 调度发现身份（WP-B / 迁移 a5b6c7d8e9f0）：唯一可登录、且**只能**调用
+    # 零参发现函数 ``enumerate_due_tasks()`` 的身份。它不读投影、不读业务表、
+    # 不做维护——「全域发现」是「全域授权」的反面，混成一个角色就等于把
+    # 「知道有哪些租户待检」变成「能读全库」。
+    postgres_qc_scheduler_user: str = "qc_scheduler"
+    postgres_qc_scheduler_password: SecretStr = SecretStr("qc_scheduler_dev_password")
 
     # Redis（可能内嵌口令，按密钥处理，repr 不落明文）
     redis_url: SecretStr = SecretStr("redis://localhost:16379/0")
@@ -232,14 +273,13 @@ class Settings(BaseSettings):
             ),
             ("postgres_budget_quota_password", "POSTGRES_BUDGET_QUOTA_PASSWORD"),
             ("postgres_qc_governance_password", "POSTGRES_QC_GOVERNANCE_PASSWORD"),
+            # D6-9：API 持有运维连接池（受权重放端点），口令必须显式提供；
+            # 缺省时以仓库里的开发口令连生产库 = 静默降级，必须 fail-closed。
+            ("postgres_outbox_ops_password", "POSTGRES_OUTBOX_OPS_PASSWORD"),
             ("identity_public_key_pem", "IDENTITY_PUBLIC_KEY_PEM"),
         ),
-        "relay": (
-            ("postgres_relay_password", "POSTGRES_RELAY_PASSWORD"),
-        ),
-        "outbox_maintenance": (
-            ("postgres_password", "POSTGRES_PASSWORD"),
-        ),
+        "relay": (("postgres_relay_password", "POSTGRES_RELAY_PASSWORD"),),
+        "outbox_maintenance": (("postgres_password", "POSTGRES_PASSWORD"),),
         # KEYS-3：identity 签发方是独立进程，只持私钥并对外提供 JWKS——
         # 它不连接数据库（workers/identity 零 DB import），因此不要求任何
         # postgres 口令；app_role 仅作为遗留兼容路径由测试/工具显式使用。
@@ -260,6 +300,19 @@ class Settings(BaseSettings):
         "qc": (
             ("postgres_qc_governance_password", "POSTGRES_QC_GOVERNANCE_PASSWORD"),
             ("postgres_asset_service_password", "POSTGRES_ASSET_SERVICE_PASSWORD"),
+            # WP-B：QC Worker 进程新增调度发现池。它虽然是「只能发现」的身份，
+            # 仍然是一份可登录凭证——缺省时拿仓库里的开发口令去连生产库，
+            # 就是「看起来隔离了、实际共享口令」的静默降级，必须 fail-closed。
+            ("postgres_qc_scheduler_password", "POSTGRES_QC_SCHEDULER_PASSWORD"),
+        ),
+        # 维护命令进程：只有维护登录身份一份凭证——它不连 qc_governance
+        # （读不到任务表）、不连 asset_service（不登记报告）、也不做发现。
+        # 故意不给它业务域口令：多给一份就是多一条「顺手读一下」的路径。
+        "qc_maintenance": (
+            (
+                "postgres_qc_maintenance_login_password",
+                "POSTGRES_QC_MAINTENANCE_LOGIN_PASSWORD",
+            ),
         ),
     }
 
@@ -358,13 +411,9 @@ class Settings(BaseSettings):
         )
         for name, threshold, recovery in circuits:
             if threshold < 0:
-                raise ValueError(
-                    f"{name}熔断阈值不能为负（0 表示关闭熔断）：{threshold}"
-                )
+                raise ValueError(f"{name}熔断阈值不能为负（0 表示关闭熔断）：{threshold}")
             if threshold > 0 and recovery <= 0:
-                raise ValueError(
-                    f"{name}熔断已开启（阈值 {threshold}）但冷却期 <= 0：{recovery}"
-                )
+                raise ValueError(f"{name}熔断已开启（阈值 {threshold}）但冷却期 <= 0：{recovery}")
         if self.readiness_cache_ttl_seconds < 0:
             raise ValueError(
                 "READINESS_CACHE_TTL_SECONDS 不能为负（0 表示不缓存）："
@@ -406,12 +455,11 @@ DEVELOPMENT_DEFAULT_PASSWORDS: dict[str, str] = {
     "postgres_relay_password": "relay_dev_password",
     "postgres_project_planning_password": "project_planning_dev_password",
     "postgres_asset_service_password": "asset_service_dev_password",
+    "postgres_outbox_ops_password": "outbox_ops_dev_password",
 }
 
 
-def reject_development_default_password(
-    settings: Settings, field_name: str, env_name: str
-) -> None:
+def reject_development_default_password(settings: Settings, field_name: str, env_name: str) -> None:
     """生产环境拒绝以开发默认口令创建/同步数据库角色（迁移层守卫）。
 
     建角色的迁移（9e3b4c5d6e7f / 7a8b9c0d1e2f / 8f3b2c1d4e5a）经裸

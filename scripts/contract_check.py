@@ -28,6 +28,10 @@
     allowed_states 与转移边、枚举注册表、Schema 的 status.enum、status 字段分类台账、
     别名/跨域标记层、已实现对象的 Domain Enum 与数据库 CHECK 全部逐值对齐。
     （旧版只比对象名不比状态集，于是三处状态集合可以各自漂移而全绿。）
+13. `[V-BLOCKED]` 阻塞清单（contracts/phase0/verification_blocks.yaml）：
+    状态取值合法、计数一致、引用的文档真实存在、解除项必须指到真实台账修订且
+    证据文档里能查到该修订 id。判据实现在 scripts/verification_blocks.py，
+    与 CLI `--check` 同源——清单不能有一套「脚本认为对」和一套「闸门认为对」。
 
 设计要点（不屎山代码）：
 - 状态值与转移边一律结构化（allowed_states / transitions / guards.transition）；
@@ -120,9 +124,7 @@ def load_yaml_mapping(path: Path) -> dict[str, Any]:
 # 为什么集中在这里而不是各测试各写一份：此前 5 个契约测试各自硬编码
 # {SCHEMA, RUNTIME_PENDING}。A13 交付需要第三档时，五处会同时变红，而"修法"
 # 是各改一遍——一份事实五个副本，下一次必然分叉，且分叉后没有任何闸门发现。
-INVARIANT_LEVELS: frozenset[str] = frozenset(
-    {"SCHEMA", "RUNTIME_ENFORCED", "RUNTIME_PENDING"}
-)
+INVARIANT_LEVELS: frozenset[str] = frozenset({"SCHEMA", "RUNTIME_ENFORCED", "RUNTIME_PENDING"})
 
 _STATE_MACHINE_SOURCES: dict[str, tuple[str, str]] = {
     "Project": ("services.project_planning.domain.state_machine", "ALLOWED_TRANSITIONS"),
@@ -367,6 +369,9 @@ def check_action_openapi_consistency() -> bool:
 # 2. 每个 ACTIVE action 必须落在 implemented 或 not_implemented（缺口必须留痕）；
 # 3. not_implemented 必须写原因，且不得与 implemented 重叠；
 # 4. 运行时多出来的端点必须登记（新端点不能悄悄绕过契约）。
+# 5. implemented 允许 mechanism: in_process —— 真的实现了但没有 HTTP 入口的动作
+#    （如 relay 内直调服务的自动入队）。它必须写明 module 与 reason，且不得
+#    同时声明 route；否则「已实现」与「未实现」二选一都会逼出假声明。
 LEDGER_PATH = CONTRACTS / "runtime" / "action_implementations.yaml"
 # 系统端点不是业务 action，不参与契约覆盖（探针与指标不属 Action Registry）。
 # 必须写成 "METHOD /path" 与运行时端点集合同构，否则会被误判为未登记端点。
@@ -424,6 +429,35 @@ def check_runtime_contract_coverage() -> bool:
     ok = True
 
     for key, entry in implemented.items():
+        mechanism = str(entry.get("mechanism", "http"))
+        if mechanism == "in_process":
+            # 为什么允许「已实现但没有 HTTP 端点」：台账原先只认 route，于是
+            # 「真的实现了、但没有对外 HTTP 入口」的动作无处可放，只能二选一地
+            # 说谎——记进 implemented 就得编一个 route，记进 not_implemented
+            # 就得说它没实现。自动 QC 入队正是这个形态：GENERATION_SUCCEEDED
+            # 由 relay 消费后直调 QCTaskService，根本不经过 HTTP。
+            # 允许 in_process 的前提是**信息不减少**：必须写清实现在哪、为什么
+            # 没有 HTTP 面，且不得同时声明 route（否则又回到「声明与事实不符」）。
+            if str(entry.get("route", "")).strip():
+                print(
+                    f"[FAIL] {key} 声明 in_process，却同时登记 route="
+                    f"{entry.get('route')!r}（二者互斥）"
+                )
+                ok = False
+            if not str(entry.get("module", "")).strip():
+                print(f"[FAIL] {key} 声明 in_process，必须写明实现所在模块")
+                ok = False
+            if not str(entry.get("reason", "")).strip():
+                print(f"[FAIL] {key} 声明 in_process，必须说明为何没有 HTTP 端点")
+                ok = False
+            if key not in active:
+                print(f"[FAIL] {key} 不是 ACTIVE action，不应出现在 implemented")
+                ok = False
+            continue
+        if mechanism != "http":
+            print(f"[FAIL] {key} 的 mechanism={mechanism!r} 不合法（只支持 http / in_process）")
+            ok = False
+            continue
         route = str(entry.get("route", ""))
         if route not in runtime:
             print(f"[FAIL] {key} 声明已实现，但运行时没有端点 {route!r}")
@@ -454,7 +488,9 @@ def check_runtime_contract_coverage() -> bool:
         print(f"[FAIL] 台账登记了非 ACTIVE 的 action: {sorted(stale)}")
         ok = False
 
-    registered = {str(v.get("route", "")) for v in implemented.values()} | _NON_ACTION_PATHS
+    registered = {
+        str(v.get("route", "")) for v in implemented.values() if v.get("route")
+    } | _NON_ACTION_PATHS
     # 同一动作的第二个入口（如「选择」动作下的撤销治理边）：台账用 `extra_routes`
     # 显式列出，否则运行时端点会因为只比对主 route 而被判成「未登记」——那会逼着
     # 实现方为同一条准入凭据另造一个动作键，恰好是状态机边所有权要消除的形态。
@@ -466,9 +502,14 @@ def check_runtime_contract_coverage() -> bool:
         ok = False
 
     if ok:
+        in_process = sum(
+            1 for v in implemented.values() if str(v.get("mechanism", "http")) == "in_process"
+        )
         print(
             f"[PASS] 运行时 ↔ 契约覆盖：ACTIVE {len(active)} 个"
-            f"（已实现 {len(implemented)} / 登记未实现 {len(not_implemented)}）"
+            f"（HTTP 已实现 {len(implemented) - in_process}"
+            f" / 进程内实现 {in_process}"
+            f" / 登记未实现 {len(not_implemented)}）"
         )
     return ok
 
@@ -502,11 +543,7 @@ def _schema_exemptions() -> dict[str, str]:
         return {}
     data = load_yaml_mapping(RESOURCE_EXEMPTIONS_PATH)
     raw = data.get("exemptions") or {}
-    return {
-        str(name): str(reason).strip()
-        for name, reason in raw.items()
-        if str(reason).strip()
-    }
+    return {str(name): str(reason).strip() for name, reason in raw.items() if str(reason).strip()}
 
 
 def missing_resource_schemas(
@@ -564,10 +601,7 @@ def check_implemented_resource_schemas() -> bool:
     # 变成真正的「假绿后门」——所以冗余豁免必须删除（审查 N4）。
     redundant = sorted(set(exemptions) & defs)
     if redundant:
-        print(
-            f"[FAIL] 豁免台账包含**已有对象 schema** 的条目（冗余豁免必须删除）: "
-            f"{redundant}"
-        )
+        print(f"[FAIL] 豁免台账包含**已有对象 schema** 的条目（冗余豁免必须删除）: {redundant}")
         return False
 
     # 豁免台账本身也要防呆：豁免了不存在的实现动作 = 过期条目，会掩盖真实缺口。
@@ -595,9 +629,7 @@ RESOURCE_GAPS_PATH = CONTRACTS / "runtime" / "resource_schema_gaps.yaml"
 RESOURCE_GAP_REQUIRED_FIELDS = ("referenced_by", "reason", "contract_ref", "unblocks_when")
 
 
-def _active_resource_refs(
-    active: set[str], resource_types: dict[str, str]
-) -> dict[str, set[str]]:
+def _active_resource_refs(active: set[str], resource_types: dict[str, str]) -> dict[str, set[str]]:
     """resource_type → 引用它的 ACTIVE action 集合（组合类型按 / 拆开）。"""
     refs: dict[str, set[str]] = {}
     for key in active:
@@ -721,9 +753,7 @@ def check_permission_matrix() -> bool:
             )
             return False
         if action_matrix.get("actions"):
-            print(
-                "[FAIL] action_matrix 声明为派生视图，但仍保存 actions 副本（重复事实源）"
-            )
+            print("[FAIL] action_matrix 声明为派生视图，但仍保存 actions 副本（重复事实源）")
             return False
         expected_total = len(ar.get("actions", []))
         declared_total = action_matrix.get("total")
@@ -733,9 +763,7 @@ def check_permission_matrix() -> bool:
                 f"条目数 {expected_total} 不符"
             )
             return False
-        print(
-            f"[PASS] Permission Matrix 为派生视图（无重复维护）：覆盖 {expected_total} 个 action"
-        )
+        print(f"[PASS] Permission Matrix 为派生视图（无重复维护）：覆盖 {expected_total} 个 action")
         return True
 
     action_keys: list[str] = []
@@ -779,10 +807,7 @@ def check_permission_matrix() -> bool:
                 f"{sorted(only_in_ar)}"
             )
         if only_in_pm:
-            print(
-                f"[FAIL] permission_matrix 含未注册 Action 的权限条目: "
-                f"{sorted(only_in_pm)}"
-            )
+            print(f"[FAIL] permission_matrix 含未注册 Action 的权限条目: {sorted(only_in_pm)}")
         return False
 
     print(f"[PASS] Permission Matrix 结构完整：覆盖 {len(ar_set)} 个 action")
@@ -793,9 +818,7 @@ def check_permission_matrix() -> bool:
 # Schema 对象完整性（结构 + 运行时字段一致性）
 # --------------------------------------------------------------------------- #
 SCHEMA_PATH = CONTRACTS / "schemas" / "object_schemas.schema.json"
-_VALID_JSON_TYPES = frozenset(
-    {"object", "array", "string", "integer", "number", "boolean", "null"}
-)
+_VALID_JSON_TYPES = frozenset({"object", "array", "string", "integer", "number", "boolean", "null"})
 
 # 已实现且可序列化的资源：用真实领域对象的 to_dict() 与契约定义双向比对。
 # 只列"有运行时序列化器"的对象；PHASE_GATED 对象的覆盖由资源缺口台账负责。
@@ -1048,9 +1071,7 @@ def check_schema_objects() -> bool:
             required = []
         missing_required = [r for r in required if r not in properties]
         if missing_required:
-            print(
-                f"[FAIL] 定义 {name} 的 required 含未声明属性: {missing_required}"
-            )
+            print(f"[FAIL] 定义 {name} 的 required 含未声明属性: {missing_required}")
             ok = False
 
         for prop_name, prop_spec in properties.items():
@@ -1060,25 +1081,14 @@ def check_schema_objects() -> bool:
                 continue
             shape_keys = ("type", "$ref", "anyOf", "oneOf", "allOf", "enum", "const")
             if not any(key in prop_spec for key in shape_keys):
-                print(
-                    f"[FAIL] {name}.{prop_name} 缺少形状（type/$ref/enum/...），"
-                    "无法校验类型"
-                )
+                print(f"[FAIL] {name}.{prop_name} 缺少形状（type/$ref/enum/...），无法校验类型")
                 ok = False
             prop_type = prop_spec.get("type")
             if prop_type is not None:
-                declared_types = (
-                    prop_type if isinstance(prop_type, list) else [prop_type]
-                )
-                invalid = [
-                    item
-                    for item in declared_types
-                    if item not in _VALID_JSON_TYPES
-                ]
+                declared_types = prop_type if isinstance(prop_type, list) else [prop_type]
+                invalid = [item for item in declared_types if item not in _VALID_JSON_TYPES]
                 if invalid:
-                    print(
-                        f"[FAIL] {name}.{prop_name} 的 type 非法: {invalid!r}"
-                    )
+                    print(f"[FAIL] {name}.{prop_name} 的 type 非法: {invalid!r}")
                     ok = False
             ref = prop_spec.get("$ref")
             if isinstance(ref, str):
@@ -1094,10 +1104,7 @@ def check_schema_objects() -> bool:
     for resource_name, _source in _RESOURCE_SERIALIZERS.items():
         spec = definitions.get(resource_name)
         if not isinstance(spec, dict):
-            print(
-                f"[FAIL] 已实现对象 {resource_name} 在契约中无定义"
-                "（定义被删 = 契约失效）"
-            )
+            print(f"[FAIL] 已实现对象 {resource_name} 在契约中无定义（定义被删 = 契约失效）")
             ok = False
             continue
         instance = factories.get(resource_name)
@@ -1112,15 +1119,12 @@ def check_schema_objects() -> bool:
         extra = sorted(runtime_keys - declared)
         if extra:
             print(
-                f"[FAIL] {resource_name} 响应出现契约未声明字段: {extra}"
-                "（私有字段泄漏或字段漂移）"
+                f"[FAIL] {resource_name} 响应出现契约未声明字段: {extra}（私有字段泄漏或字段漂移）"
             )
             ok = False
         missing = sorted(required - runtime_keys)
         if missing:
-            print(
-                f"[FAIL] {resource_name} 响应缺少契约 required 字段: {missing}"
-            )
+            print(f"[FAIL] {resource_name} 响应缺少契约 required 字段: {missing}")
             ok = False
         runtime_checked += 1
 
@@ -1155,9 +1159,7 @@ def _field_signature(spec: dict[str, Any]) -> dict[str, str]:
             signature[field] = f"ref:{prop_spec['$ref'].rsplit('/', 1)[-1]}"
         elif "type" in prop_spec:
             t = prop_spec["type"]
-            signature[field] = (
-                "|".join(t) if isinstance(t, list) else str(t)
-            )
+            signature[field] = "|".join(t) if isinstance(t, list) else str(t)
         elif "enum" in prop_spec:
             signature[field] = "enum"
         elif "const" in prop_spec:
@@ -1237,16 +1239,11 @@ def check_schema_field_evolution() -> bool:
             ok = False
         for changed in sorted(cur_fields & base_fields):
             if cur[changed] != base[changed]:
-                print(
-                    f"[FAIL] {name}.{changed} 类型变化："
-                    f"{base[changed]} → {cur[changed]}"
-                )
+                print(f"[FAIL] {name}.{changed} 类型变化：{base[changed]} → {cur[changed]}")
                 ok = False
 
     if ok:
-        print(
-            f"[PASS] 字段级契约演进：{len(current)} 个对象字段签名与台账一致"
-        )
+        print(f"[PASS] 字段级契约演进：{len(current)} 个对象字段签名与台账一致")
     return ok
 
 
@@ -1265,9 +1262,7 @@ def write_schema_field_signatures() -> None:
         yaml.safe_dump(body, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
-    print(
-        f"[PASS] 已重写字段签名台账：{len(current)} 个对象"
-    )
+    print(f"[PASS] 已重写字段签名台账：{len(current)} 个对象")
 
 
 # --------------------------------------------------------------------------- #
@@ -1455,8 +1450,7 @@ def check_contract_amendments() -> bool:
         actual = signature.get(field_name)
         if actual is None:
             print(
-                f"[FAIL] amendments[{index}] 指向已删除字段 "
-                f"{object_name}.{field_name}（陈旧登记）"
+                f"[FAIL] amendments[{index}] 指向已删除字段 {object_name}.{field_name}（陈旧登记）"
             )
             ok = False
             continue
@@ -1501,16 +1495,19 @@ def check_implemented_permission_wiring() -> bool:
             print(f"[FAIL] {key} 台账登记的模块不存在: {module_rel}")
             ok = False
             continue
+        if str(entry.get("mechanism", "http")) == "in_process":
+            # 没有 HTTP 端点 ⇒ 没有 require_role 可挂，强行要求只会逼出假依赖。
+            # 这类动作的触发面是 outbox 事件：由业务域同事务写入，只能由 relay
+            # 角色（仅有 outbox 的 SELECT/UPDATE，无业务写权限）消费。也就是说
+            # 「谁能触发它」由数据库权限决定，不由路由依赖决定——比 require_role
+            # 更硬，因为它绕不过去。模块存在性仍在上一步被校验。
+            continue
         source = module_path.read_text(encoding="utf-8")
         # 两种授权依赖都算「接上了」，且 require_resource_role 是更强的那个：
         # 它在动作级 RBAC/Capability 之外还判定资源归属（AUTH-1 的资源输入）。
         # 只认 require_role 会让资源级改造被误判为「没挂授权」。
         # 允许换行/缩进（资源级依赖参数较多，动作键常在下一行）。
-        wired = bool(
-            re.search(
-                rf'require_(?:resource_)?role\(\s*"{re.escape(key)}"', source
-            )
-        )
+        wired = bool(re.search(rf'require_(?:resource_)?role\(\s*"{re.escape(key)}"', source))
         if not wired:
             print(
                 f"[FAIL] {key} 在 {module_rel} 中没有挂 require_role"
@@ -1520,9 +1517,7 @@ def check_implemented_permission_wiring() -> bool:
             ok = False
 
     if ok:
-        print(
-            f"[PASS] 已实现 action 的授权落点：{len(implemented)} 个动作均已挂 require_role"
-        )
+        print(f"[PASS] 已实现 action 的授权落点：{len(implemented)} 个动作均已挂 require_role")
     return ok
 
 
@@ -1567,9 +1562,7 @@ def _declared_state_gaps() -> dict[str, dict[str, dict[str, object]]]:
 _STATE_TOKEN_RE = re.compile(r"^[A-Z][A-Z0-9_]{2,}$")
 
 
-def _reachable_states(
-    edges: set[tuple[str, str]], initial: str | None = None
-) -> set[str]:
+def _reachable_states(edges: set[tuple[str, str]], initial: str | None = None) -> set[str]:
     """从初始状态出发，沿实现转移边求可达闭包。
 
     ``initial`` 来自契约的 ``initial_state``。为什么必须支持它：Shot 的
@@ -1621,26 +1614,20 @@ def check_state_reachability() -> bool:
         states = {str(s) for s in entry.get("allowed_states") or []}
         edges = _load_impl_transitions(module_path, var_name)
         initial = entry.get("initial_state")
-        reachable = _reachable_states(
-            edges, str(initial) if initial is not None else None
-        )
+        reachable = _reachable_states(edges, str(initial) if initial is not None else None)
         obj_gaps = declared.get(obj_name) or {}
         checked += 1
 
         undeclared = (states - reachable) - set(obj_gaps)
         if undeclared:
-            print(
-                f"[FAIL] {obj_name} 有契约状态在运行时不可达且未登记债务: {sorted(undeclared)}"
-            )
+            print(f"[FAIL] {obj_name} 有契约状态在运行时不可达且未登记债务: {sorted(undeclared)}")
             ok = False
         for state, detail in obj_gaps.items():
             if state not in states:
                 print(f"[FAIL] {obj_name} 登记的缺口状态 {state!r} 不在契约 states 里")
                 ok = False
             elif state in reachable:
-                print(
-                    f"[FAIL] {obj_name} 缺口状态 {state!r} 其实已可达——陈旧债务必须删条目"
-                )
+                print(f"[FAIL] {obj_name} 缺口状态 {state!r} 其实已可达——陈旧债务必须删条目")
                 ok = False
             missing = [
                 key
@@ -1653,9 +1640,7 @@ def check_state_reachability() -> bool:
         gap_count += len(obj_gaps)
 
     if ok:
-        print(
-            f"[PASS] 状态可达性：{checked} 个已实现状态机；显式登记不可达 {gap_count} 项"
-        )
+        print(f"[PASS] 状态可达性：{checked} 个已实现状态机；显式登记不可达 {gap_count} 项")
     return ok
 
 
@@ -1799,9 +1784,7 @@ def check_transition_entry_gaps() -> bool:
                 ok = False
                 continue
             missing = [
-                key
-                for key in _TRANSITION_DEBT_REQUIRED
-                if not str(detail.get(key, "")).strip()
+                key for key in _TRANSITION_DEBT_REQUIRED if not str(detail.get(key, "")).strip()
             ]
             if missing:
                 print(f"[FAIL] {obj_name} 边 {label} 的转移入口债务缺字段: {missing}")
@@ -1879,8 +1862,10 @@ def guard_problems(obj_name: str, entry: dict, definition: dict) -> list[str]:
             continue
 
         edge = guard["transition"]
-        if not isinstance(edge, dict) or set(edge) != {"from", "to"} or not all(
-            isinstance(edge.get(k), str) and edge[k].strip() for k in ("from", "to")
+        if (
+            not isinstance(edge, dict)
+            or set(edge) != {"from", "to"}
+            or not all(isinstance(edge.get(k), str) and edge[k].strip() for k in ("from", "to"))
         ):
             problems.append(
                 f"{obj_name}.guards[{idx}].transition 必须是 {{from, to}} 结构化边"
@@ -1902,9 +1887,7 @@ def guard_problems(obj_name: str, entry: dict, definition: dict) -> list[str]:
             continue
         unknown = [f for f in fields if f not in properties]
         if unknown:
-            problems.append(
-                f"{obj_name}.guards[{idx}] 引用了 schema 未声明的字段: {unknown}"
-            )
+            problems.append(f"{obj_name}.guards[{idx}] 引用了 schema 未声明的字段: {unknown}")
 
     return problems
 
@@ -1956,8 +1939,7 @@ def check_state_machine_guards() -> bool:
 
     if ok:
         print(
-            f"[PASS] 状态机守卫：{object_count} 个对象 / {guard_count} 条守卫"
-            "的转移与字段全部可校验"
+            f"[PASS] 状态机守卫：{object_count} 个对象 / {guard_count} 条守卫的转移与字段全部可校验"
         )
     return ok
 
@@ -2006,9 +1988,7 @@ def _planning_tables() -> dict[str, Any]:
 
     metadata = orm.ProjectModel.metadata
     return {
-        table.name: table
-        for table in metadata.tables.values()
-        if table.schema == _PLANNING_SCHEMA
+        table.name: table for table in metadata.tables.values() if table.schema == _PLANNING_SCHEMA
     }
 
 
@@ -2063,8 +2043,7 @@ def check_child_creation_freeze_coverage() -> bool:
             continue
         if table not in referenced:
             problems.append(
-                f"{table!r} 被登记为冻结容器，但已没有子表引用它"
-                "（归属关系变了，映射需要同步）"
+                f"{table!r} 被登记为冻结容器，但已没有子表引用它（归属关系变了，映射需要同步）"
             )
             continue
         if not lifecycle.frozen_states:
@@ -2160,25 +2139,20 @@ def frozen_state_problems(entry: dict[str, Any], lifecycle: Any) -> list[str]:
     declared = entry.get(_FROZEN_STATES_FIELD)
     if not isinstance(declared, list):
         return [
-            f"{object_name} 的 {_FROZEN_STATES_FIELD} 必须是列表，"
-            f"实际是 {type(declared).__name__}"
+            f"{object_name} 的 {_FROZEN_STATES_FIELD} 必须是列表，实际是 {type(declared).__name__}"
         ]
 
     problems: list[str] = []
     labels: list[str] = []
     for item in declared:
         if not isinstance(item, str) or not item.strip():
-            problems.append(
-                f"{object_name} 的 {_FROZEN_STATES_FIELD} 含非字符串或空值：{item!r}"
-            )
+            problems.append(f"{object_name} 的 {_FROZEN_STATES_FIELD} 含非字符串或空值：{item!r}")
             continue
         labels.append(item.strip())
 
     duplicated = sorted({label for label in labels if labels.count(label) > 1})
     if duplicated:
-        problems.append(
-            f"{object_name} 的 {_FROZEN_STATES_FIELD} 有重复项：{duplicated}"
-        )
+        problems.append(f"{object_name} 的 {_FROZEN_STATES_FIELD} 有重复项：{duplicated}")
 
     allowed = {str(state) for state in (entry.get("allowed_states") or [])}
     unknown = sorted(set(labels) - allowed) if allowed else []
@@ -2335,16 +2309,12 @@ def reference_target_problems(definitions: dict[str, Any]) -> list[str]:
         if targets is None:
             continue
         if not isinstance(targets, dict) or not targets:
-            problems.append(
-                f"{name}.x-afs-reference-targets 必须是非空「字段 → 对象」映射"
-            )
+            problems.append(f"{name}.x-afs-reference-targets 必须是非空「字段 → 对象」映射")
             continue
         properties = spec.get("properties") or {}
         for field, target in targets.items():
             if field not in properties:
-                problems.append(
-                    f"{name}.x-afs-reference-targets 声明了不存在字段: {field}"
-                )
+                problems.append(f"{name}.x-afs-reference-targets 声明了不存在字段: {field}")
             if not isinstance(target, str) or not target.strip():
                 problems.append(f"{name}.{field} 的引用目标必须是非空字符串")
                 continue
@@ -2558,9 +2528,7 @@ def taxonomy_problems(
             continue
         if cls == CLASS_LIFECYCLE:
             if name not in sm_states:
-                problems.append(
-                    f"{name} 被登记为 lifecycle，但 state_machines 没有它的状态机"
-                )
+                problems.append(f"{name} 被登记为 lifecycle，但 state_machines 没有它的状态机")
             continue
         if cls == CLASS_ENVELOPE_ONLY:
             basis = str(entry.get("basis", "")).strip()
@@ -2591,9 +2559,7 @@ def taxonomy_problems(
         if missing:
             problems.append(f"{name} 标为 lifecycle_gap 却缺债务字段: {missing}")
         if name in sm_states:
-            problems.append(
-                f"{name} 标为 lifecycle_gap，但状态机已经登记——陈旧债务必须改分类"
-            )
+            problems.append(f"{name} 标为 lifecycle_gap，但状态机已经登记——陈旧债务必须改分类")
     return problems
 
 
@@ -2721,9 +2687,7 @@ def alias_layer_problems(layers: dict[str, Any], sm_states: dict[str, set[str]])
                 "（别名必须有落点）"
             )
         if name in all_states:
-            problems.append(
-                f"别名 {name} 与某个权威状态同名：展示投影不得占用权威状态值"
-            )
+            problems.append(f"别名 {name} 与某个权威状态同名：展示投影不得占用权威状态值")
 
     for mark in layers.get("cross_domain_marks") or []:
         if not isinstance(mark, dict):
@@ -2785,9 +2749,7 @@ def schema_gap_problems(
         if name not in sm_states and name not in text_only:
             problems.append(f"schema_gaps 登记的 {name} 不是状态机对象（陈旧条目）")
         elif name in definitions:
-            problems.append(
-                f"{name} 已有 object schema，schema_gaps 条目已陈旧，必须删除"
-            )
+            problems.append(f"{name} 已有 object schema，schema_gaps 条目已陈旧，必须删除")
         debt = [f for f in DEBT_FIELDS if not str(entry.get(f, "")).strip()]
         if debt:
             problems.append(f"schema_gaps.{name} 缺字段: {debt}")
@@ -2835,16 +2797,16 @@ def field_authority_problems(
             continue
         props = spec.get("properties") or {}
         authoritative = [str(v).strip() for v in entry.get("authoritative_fields") or []]
-        non_authoritative = [
-            str(v).strip() for v in entry.get("non_authoritative_fields") or []
-        ]
+        non_authoritative = [str(v).strip() for v in entry.get("non_authoritative_fields") or []]
         if not authoritative or any(not v for v in authoritative):
             problems.append(f"field_authority.{name} 缺 authoritative_fields")
         if len(set(authoritative)) != len(authoritative):
             problems.append(f"field_authority.{name} 的 authoritative_fields 有重复")
         overlap = set(authoritative) & set(non_authoritative)
         if overlap:
-            problems.append(f"field_authority.{name} 把同一字段既当权威又当非权威: {sorted(overlap)}")
+            problems.append(
+                f"field_authority.{name} 把同一字段既当权威又当非权威: {sorted(overlap)}"
+            )
         for field in set(authoritative) | set(non_authoritative):
             if field not in props:
                 problems.append(f"field_authority.{name} 引用了 schema 不存在的字段 {field}")
@@ -2951,9 +2913,7 @@ def field_value_set_problems(
             if obj and field:
                 pending.add((obj, field))
     for obj, field in sorted(pending & set(declared)):
-        problems.append(
-            f"{obj}.{field} 已裁定值集，却仍留在 status_layers 待裁定区（陈旧债务）"
-        )
+        problems.append(f"{obj}.{field} 已裁定值集，却仍留在 status_layers 待裁定区（陈旧债务）")
     for obj, auth_fields in sorted(authority_entries.items()):
         for field in sorted(auth_fields - {"status"}):
             if (obj, field) not in declared and (obj, field) not in pending:
@@ -3051,9 +3011,7 @@ def runtime_status_problems(sm_states: dict[str, set[str]]) -> list[str]:
             continue
         want = status_check_sql(expected)
         constraints = [
-            c
-            for c in table.constraints
-            if getattr(c, "name", "") == f"ck_{table.name}_status"
+            c for c in table.constraints if getattr(c, "name", "") == f"ck_{table.name}_status"
         ]
         if not constraints:
             problems.append(
@@ -3101,9 +3059,7 @@ def check_status_enum_consistency() -> bool:
         if isinstance(e, dict) and str(e.get("basis", "")).strip() == "status_split"
     }
     problems += field_authority_problems(FIELD_AUTHORITY_PATH, definitions, split_objects)
-    problems += field_value_set_problems(
-        FIELD_VALUE_SETS_PATH, definitions, layers
-    )
+    problems += field_value_set_problems(FIELD_VALUE_SETS_PATH, definitions, layers)
     problems += alias_layer_problems(layers, sm_states)
     problems += schema_gap_problems(
         taxonomy.get("schema_gaps"),
@@ -3133,16 +3089,13 @@ def check_status_enum_consistency() -> bool:
     envelope = sum(1 for c in classes.values() if c == CLASS_ENVELOPE_ONLY)
     gaps = sum(1 for c in classes.values() if c == CLASS_LIFECYCLE_GAP)
     total_states = sum(len(v) for v in sm_states.values())
-    total_edges = sum(
-        len(o.get("transitions") or []) for o in sm_objects if isinstance(o, dict)
-    )
+    total_edges = sum(len(o.get("transitions") or []) for o in sm_objects if isinstance(o, dict))
     print(
         f"[PASS] 状态枚举一致：{len(sm_states)} 个状态机对象 / {total_states} 个状态 / "
         f"{total_edges} 条转移；status 字段分类 {lifecycle} lifecycle + {envelope} 占位 + "
         f"{gaps} 缺口；{len(_STATUS_ENUM_SOURCES)} 个已实现对象的枚举与 CHECK 与契约一致"
     )
     return True
-
 
 
 def _load_strict_event_payloads() -> tuple[dict[str, Any], str, dict[str, str]]:
@@ -3215,17 +3168,13 @@ def check_event_catalog() -> bool:
         gap_data = load_yaml_mapping(EVENT_GAPS_PATH)
         gaps = gap_data.get("gaps") or {}
         for action_key, detail in gaps.items():
-            missing = [
-                f for f in _EVENT_GAP_REQUIRED if not (detail or {}).get(f)
-            ]
+            missing = [f for f in _EVENT_GAP_REQUIRED if not (detail or {}).get(f)]
             if missing:
                 print(f"[FAIL] 事件缺口 {action_key} 登记缺字段: {missing}")
                 ok = False
 
     registry = load_yaml_mapping(ACTION_REGISTRY_PATH)
-    actions = {
-        str(a.get("action_key")): a for a in (registry.get("actions") or []) if a
-    }
+    actions = {str(a.get("action_key")): a for a in (registry.get("actions") or []) if a}
     ledger = load_yaml_mapping(LEDGER_PATH)
     implemented = set((ledger.get("implemented") or {}).keys())
 
@@ -3241,18 +3190,12 @@ def check_event_catalog() -> bool:
             continue
         if audit_event in declared:
             if action_key in gaps:
-                print(
-                    f"[FAIL] 事件缺口 {action_key} 已能发出 {audit_event}，"
-                    "陈旧债务必须删条目"
-                )
+                print(f"[FAIL] 事件缺口 {action_key} 已能发出 {audit_event}，陈旧债务必须删条目")
                 ok = False
             continue
         gap = gaps.get(action_key)
         if gap is None:
-            print(
-                f"[FAIL] 动作 {action_key} 声明的 audit_event {audit_event} "
-                "既未登记也未登记缺口"
-            )
+            print(f"[FAIL] 动作 {action_key} 声明的 audit_event {audit_event} 既未登记也未登记缺口")
             ok = False
         elif str(gap.get("audit_event", "")).strip() != audit_event:
             print(
@@ -3270,9 +3213,7 @@ def check_event_catalog() -> bool:
     # 只校验「有登记」不够——模型字段集合漂移会让 extra=forbid 拒绝合法事件，
     # 或让未知字段被放行；这里用两侧实读字段集合做双向判定。
     try:
-        payload_models, payload_version, declared_versions = (
-            _load_strict_event_payloads()
-        )
+        payload_models, payload_version, declared_versions = _load_strict_event_payloads()
     except ImportError as exc:  # pragma: no cover - 环境缺依赖时应显式失败
         print(f"[FAIL] 事件载荷模型不可导入: {exc}")
         return False
@@ -3306,9 +3247,7 @@ def check_event_catalog() -> bool:
         ok = False
 
     drifted = {
-        name: version
-        for name, version in declared_versions.items()
-        if version != payload_version
+        name: version for name, version in declared_versions.items() if version != payload_version
     }
     if drifted:
         print(f"[FAIL] 载荷模型的 schema_version 字面量与常量不一致: {drifted}")
@@ -3419,13 +3358,9 @@ def check_security_boundary() -> bool:
     data = load_yaml_mapping(SECURITY_BOUNDARY_PATH)
     ok = True
 
-    missing_sections = [
-        s for s in _SECURITY_BOUNDARY_SECTIONS if s not in data
-    ]
+    missing_sections = [s for s in _SECURITY_BOUNDARY_SECTIONS if s not in data]
     if missing_sections:
-        print(
-            f"[FAIL] security_boundary.yaml 缺少边界分区: {missing_sections}"
-        )
+        print(f"[FAIL] security_boundary.yaml 缺少边界分区: {missing_sections}")
         ok = False
 
     registry = _assertion_registry()
@@ -3438,30 +3373,23 @@ def check_security_boundary() -> bool:
     for section in _SECURITY_BOUNDARY_SECTIONS:
         invariants = data.get(section, {}).get("invariants")
         if not isinstance(invariants, list):
-            print(
-                f"[FAIL] security_boundary.yaml 的 {section}.invariants 必须是列表"
-            )
+            print(f"[FAIL] security_boundary.yaml 的 {section}.invariants 必须是列表")
             ok = False
             continue
 
         for inv in invariants:
             if not isinstance(inv, dict):
-                print(
-                    f"[FAIL] {section} 存在非映射的不变量条目: {inv!r}"
-                )
+                print(f"[FAIL] {section} 存在非映射的不变量条目: {inv!r}")
                 ok = False
                 continue
             total_invariants += 1
 
             inv_id = str(inv.get("id", "")).strip()
             missing_fields = [
-                f for f in _SECURITY_BOUNDARY_INVARIANT_REQUIRED
-                if not str(inv.get(f, "")).strip()
+                f for f in _SECURITY_BOUNDARY_INVARIANT_REQUIRED if not str(inv.get(f, "")).strip()
             ]
             if missing_fields:
-                print(
-                    f"[FAIL] {section}/{inv_id or '?'} 不变量缺字段: {missing_fields}"
-                )
+                print(f"[FAIL] {section}/{inv_id or '?'} 不变量缺字段: {missing_fields}")
                 ok = False
 
             if inv_id in seen_ids:
@@ -3505,9 +3433,7 @@ def check_security_boundary() -> bool:
                     print(f"[FAIL] {inv_id} 为 debt 但缺少 debt 子块")
                     ok = False
                     continue
-                missing = [
-                    k for k in _DEBT_REQUIRED if not str(debt.get(k, "")).strip()
-                ]
+                missing = [k for k in _DEBT_REQUIRED if not str(debt.get(k, "")).strip()]
                 if missing:
                     print(f"[FAIL] {inv_id} 债务登记缺字段: {missing}")
                     ok = False
@@ -3520,9 +3446,7 @@ def check_security_boundary() -> bool:
                     print(f"[FAIL] {inv_id} 为 partial 但缺少 partial 子块")
                     ok = False
                     continue
-                missing = [
-                    k for k in _PARTIAL_REQUIRED if not str(part.get(k, "")).strip()
-                ]
+                missing = [k for k in _PARTIAL_REQUIRED if not str(part.get(k, "")).strip()]
                 if missing:
                     print(f"[FAIL] {inv_id} 半满足登记缺字段: {missing}")
                     ok = False
@@ -3583,10 +3507,7 @@ def check_security_boundary() -> bool:
             verified_count += 1
 
     if not _ci_runs_full_test_suite():
-        print(
-            "[FAIL] CI 未执行 `pytest tests`：runtime_evidence 指向的测试没有被运行，"
-            "证据链断裂"
-        )
+        print("[FAIL] CI 未执行 `pytest tests`：runtime_evidence 指向的测试没有被运行，证据链断裂")
         ok = False
 
     if ok:
@@ -3692,11 +3613,7 @@ def check_proposal_status() -> bool:
     counts: dict[str, int] = dict.fromkeys(_PROPOSAL_STATUSES, 0)
     for path in files:
         # 报告路径：仓库内用相对路径，测试传入临时目录时用绝对路径（不因位置崩）。
-        rel = (
-            path.relative_to(ROOT).as_posix()
-            if path.is_relative_to(ROOT)
-            else str(path)
-        )
+        rel = path.relative_to(ROOT).as_posix() if path.is_relative_to(ROOT) else str(path)
         meta = _read_front_matter(path)
         if meta is None:
             print(f"[FAIL] {rel} 缺少 YAML front-matter（状态必须机器可读）")
@@ -3876,6 +3793,33 @@ def check_phase_map_against_baseline() -> bool:
         )
     return ok
 
+
+# --------------------------------------------------------------------------- #
+# [V-BLOCKED] 阻塞清单（单一事实源）
+# --------------------------------------------------------------------------- #
+def check_verification_blocks() -> bool:
+    """阻塞清单自身的判据（与 CLI ``scripts/verification_blocks.py --check`` 同源）。
+
+    为什么闸门要管一份「文档清单」：它的价值全在「能被信任」。一份引用了不存在
+    文档、或声称已解除却指不到裁决的清单，读起来和真的没有区别——两者都是几行
+    YAML。判据放在同一个模块里，保证脚本与闸门不会各有一套口径。
+    """
+    from scripts.verification_blocks import check_registry, load_registry
+
+    problems = check_registry(load_registry())
+    if problems:
+        for problem in problems:
+            print(f"[FAIL] 阻塞清单：{problem}")
+        return False
+    registry = load_registry()
+    counts = registry["counts"]
+    print(
+        f"[PASS] 阻塞清单：{counts['total']} 条"
+        f"（blocked {counts['blocked']} / lifted {counts['lifted']}）"
+    )
+    return True
+
+
 def main() -> int:
     ok = True
     yaml_files = list(CONTRACTS.rglob("*.yaml")) + list(CONTRACTS.rglob("*.yml"))
@@ -3911,6 +3855,7 @@ def main() -> int:
         ok &= check_event_catalog()
         ok &= check_security_boundary()
         ok &= check_proposal_status()
+        ok &= check_verification_blocks()
     except ValueError as exc:
         # 契约文件缺失/为空/非映射时，load_yaml_mapping 统一抛 ValueError；
         # 这是脚本级致命错误（契约损坏无法继续校验），在此统一兜底报红。

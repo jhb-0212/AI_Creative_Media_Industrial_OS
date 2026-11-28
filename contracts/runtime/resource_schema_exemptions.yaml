@@ -13,11 +13,18 @@
 # 4. **已有 schema 的类型不得再登记豁免**（冗余豁免 = 台账语义失真；
 #    一旦某天 serializer 探针被移除，它就会变成真正的「假绿后门」）。
 #
-# 当前状态（2026-11-16 复核 N4 后）：仅 1 条。
+# 当前状态（2026-11-24）：2 条。
 # Project / Episode / ScriptRevision 已进入 object_schemas.schema.json，
 # 旧豁免条目已删除——留着只会和实际契约互相矛盾。
+# OutboxEvent 是运维基础设施类型（事件总线），不是 C.3 领域对象：正文没有它的
+# 字段口径，重放动作的对象是「投递状态」而不是业务聚合。
 
 version: 1
 
 exemptions:
   ScriptLock: "锁定不是独立对象，而是 ScriptRevision 上的审批关系（requested_by/status），动作输出仍是 ScriptRevision"
+  OutboxEvent: >-
+    平台级投递基础设施（outbox.outbox_events 按 occurred_at 分区），不是 C.3 领域对象：
+    正文无字段口径，也没有机器可读定义，为它发明 schema 等于凭空创造契约正文。
+    重放动作的输入是 event_id + reason（事件身份由调用方给出，不由对象schema 描述），
+    效果是把事件从死信态移出并交回正常 claim——事件内容不可变、不可重建。

@@ -47,7 +47,13 @@ def build_report_lookup(session: Any) -> ReportLookup:
     会让排障无法区分真实越权与真实缺失。
     """
 
-    async def lookup(qc_report_id: str, tenant_id: Any) -> ReportFacts | None:
+    async def lookup(
+        qc_report_id: str, tenant_id: Any, organization_id: Any = None
+    ) -> ReportFacts | None:
+        # ``organization_id`` 在这里被**刻意忽略**：API 侧的会话已由
+        # ``get_asset_tenant_uow`` 注入租户 + 组织上下文，本函数若再设一次
+        # 就多了一个注入点（正是本模块开头反对的事）。Worker / CLI 侧的组织
+        # 上下文则由它们在各自的进程入口设置后调用本函数。
         report = await SqlAlchemyQCReportRepository(session).get_by_id(qc_report_id)
         if report is None:
             return None

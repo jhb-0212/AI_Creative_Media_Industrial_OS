@@ -102,9 +102,7 @@ def test_ten_second_ntsc_clip_loses_the_fractional_frame() -> None:
         ([0, 8, 12, 30], "超出镜头帧数 30"),
     ],
 )
-def test_ss3_rejections_are_distinguishable(
-    cut_points: list[int], expected: str
-) -> None:
+def test_ss3_rejections_are_distinguishable(cut_points: list[int], expected: str) -> None:
     with pytest.raises(DomainError) as exc:
         assert_cut_points_within_duration(
             cut_points,

@@ -41,7 +41,7 @@ def test_parse_results_are_cached() -> None:
         ("", "解析结果不是映射"),  # 空文件
         ("- a\n- b\n", "解析结果不是映射"),  # 顶层是 list
         ("actions: null\n", "必须是列表"),  # actions 非列表
-        ("actions: [\"not-a-map\"]\n", "非映射条目"),  # 条目非 dict
+        ('actions: ["not-a-map"]\n', "非映射条目"),  # 条目非 dict
     ],
 )
 def test_corrupt_registry_raises_domain_error(
@@ -64,4 +64,3 @@ def test_corrupt_registry_raises_domain_error(
 
     action_registry._load_registry.cache_clear()
     tmp.unlink(missing_ok=True)
-

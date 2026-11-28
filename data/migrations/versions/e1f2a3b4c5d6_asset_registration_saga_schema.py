@@ -137,7 +137,7 @@ def _project_fk(table: str) -> sa.ForeignKeyConstraint:
 
 def _indexes(schema: str, table: str) -> tuple[sa.Index, ...]:
     # tenant_id 索引名必须与 EntityMixin 的 index=True 自动生成名逐字一致
-    #（含 schema 前缀），否则 alembic check 会把同一列报成「缺一个索引」。
+    # （含 schema 前缀），否则 alembic check 会把同一列报成「缺一个索引」。
     return (
         sa.Index(f"ix_{table}_project_id", "project_id"),
         sa.Index(f"ix_{schema}_{table}_tenant_id", "tenant_id"),
@@ -147,7 +147,9 @@ def _indexes(schema: str, table: str) -> tuple[sa.Index, ...]:
 
 def _enable_rls(schema: str, table: str) -> None:
     op.execute(f"ALTER TABLE {schema}.{table} ENABLE ROW LEVEL SECURITY")
-    op.execute(f"CREATE POLICY tenant_isolation_{table} ON {schema}.{table} {_visibility(schema, table)}")
+    op.execute(
+        f"CREATE POLICY tenant_isolation_{table} ON {schema}.{table} {_visibility(schema, table)}"
+    )
     op.execute(f"ALTER TABLE {schema}.{table} FORCE ROW LEVEL SECURITY")
 
 
@@ -182,20 +184,15 @@ def upgrade() -> None:
         sa.Column("sha256", sa.String(64), nullable=False),
         sa.Column("attempt_id", sa.String(64), nullable=False),
         sa.UniqueConstraint(
-            "generation_task_id", "attempt_id",
+            "generation_task_id",
+            "attempt_id",
             name="uq_artifact_manifests_task_attempt",
         ),
-        sa.UniqueConstraint(
-            "project_id", "entity_id", name="uq_artifact_manifests_entity_project"
-        ),
+        sa.UniqueConstraint("project_id", "entity_id", name="uq_artifact_manifests_entity_project"),
         _project_fk("artifact_manifests"),
         _task_fk("fk_artifact_manifests_generation_task"),
-        sa.CheckConstraint(
-            status_check_sql(_MANIFEST_STATUSES), name=_MANIFEST_STATUS_CK
-        ),
-        sa.CheckConstraint(
-            sql_locator_check("locator"), name=_MANIFEST_LOCATOR_CK
-        ),
+        sa.CheckConstraint(status_check_sql(_MANIFEST_STATUSES), name=_MANIFEST_STATUS_CK),
+        sa.CheckConstraint(sql_locator_check("locator"), name=_MANIFEST_LOCATOR_CK),
         *_indexes(_GEN, "artifact_manifests"),
         schema=_GEN,
     )
@@ -209,24 +206,23 @@ def upgrade() -> None:
         sa.Column("asset_version_id", sa.String(64), nullable=True),
         sa.Column("message", sa.String(512), nullable=True),
         sa.UniqueConstraint(
-            "tenant_id", "generation_task_id",
+            "tenant_id",
+            "generation_task_id",
             name="uq_asset_registration_receipts_tenant_task",
         ),
         sa.UniqueConstraint(
-            "project_id", "entity_id",
+            "project_id",
+            "entity_id",
             name="uq_asset_registration_receipts_entity_project",
         ),
         _project_fk("asset_registration_receipts"),
         _task_fk("fk_asset_registration_receipts_generation_task"),
         sa.ForeignKeyConstraint(
             ["project_id", "asset_version_id"],
-            [f"{_ASSET}.asset_versions.project_id",
-             f"{_ASSET}.asset_versions.entity_id"],
+            [f"{_ASSET}.asset_versions.project_id", f"{_ASSET}.asset_versions.entity_id"],
             name="fk_asset_registration_receipts_asset_version",
         ),
-        sa.CheckConstraint(
-            status_check_sql(_RECEIPT_STATUSES), name=_RECEIPT_STATUS_CK
-        ),
+        sa.CheckConstraint(status_check_sql(_RECEIPT_STATUSES), name=_RECEIPT_STATUS_CK),
         sa.CheckConstraint(
             "status <> 'COMPLETED' OR (asset_version_id IS NOT NULL AND asset_version_id <> '')",
             name=_RECEIPT_COMPLETION_CK,
@@ -309,7 +305,35 @@ def upgrade() -> None:
         op.execute(statement)
 
 
+_INFLIGHT_TASK_STATUS = "AWAITING_ASSET_REGISTRATION"
+
+
+def _assert_no_inflight_tasks() -> None:
+    """降级前置守卫（ADR-R46 §8 裁决 3）。
+
+    隐式的 ``VALIDATE`` 失败仍是第二道防线；这里把它提前到任何破坏性 DDL 之前，
+    让失败可读、可测试，并且不会降到一半才炸。错误文案含机器可检索前缀
+    ``[DOWNGRADE_BLOCKED:e1f2a3b4c5d6]``，供 CI/运维按 revision 定位。
+    """
+    count = (
+        op.get_bind()
+        .execute(
+            sa.text(f"SELECT count(*) FROM {_GEN_TASKS} WHERE status = :status"),
+            {"status": _INFLIGHT_TASK_STATUS},
+        )
+        .scalar_one()
+    )
+    if count:
+        raise RuntimeError(
+            f"[DOWNGRADE_BLOCKED:e1f2a3b4c5d6] 在途任务状态不满足降级要求："
+            f"{count} 条 generation_tasks 仍为 {_INFLIGHT_TASK_STATUS}。"
+            " 处置：先让这些任务收敛（完成登记或显式置为 FAILED），再重跑 downgrade；"
+            " 不得直接改 status 绕过。"
+        )
+
+
 def downgrade() -> None:
+    _assert_no_inflight_tasks()
     # 恢复旧状态 CHECK；此时任何 AWAITING_ASSET_REGISTRATION 行都会让
     # VALIDATE 失败——这是正确行为：要回退必须先把在途任务处置完。
     op.execute(f"ALTER TABLE {_GEN_TASKS} DROP CONSTRAINT IF EXISTS {_TASKS_STATUS_CK}")

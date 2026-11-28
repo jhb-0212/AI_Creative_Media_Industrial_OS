@@ -43,9 +43,7 @@ def test_single_subject_signing_all_seats_is_rejected() -> None:
         seats=SEATS,
     )
     assert verdict.complete is False
-    assert any("same-person" in p and "降级" in p for p in verdict.problems), (
-        verdict.problems
-    )
+    assert any("same-person" in p and "降级" in p for p in verdict.problems), verdict.problems
 
 
 def test_missing_seat_is_rejected() -> None:

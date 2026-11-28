@@ -120,7 +120,7 @@ Get-NetTCPConnection -LocalPort 15432 -State Listen
 report_id = qc_report_id or uuid.uuid4().hex
 existing = await self._qc_reports.get_by_id(report_id)
 if existing is not None:
-    return asset, existing          # ← 没有校验 existing.asset_version_id == asset_version_id
+    return asset, existing  # ← 没有校验 existing.asset_version_id == asset_version_id
 ```
 
 **运行时复现（内存 fake，与生产同一段用例代码）**

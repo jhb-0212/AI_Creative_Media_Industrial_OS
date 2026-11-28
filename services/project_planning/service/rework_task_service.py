@@ -65,9 +65,7 @@ class ReworkTaskService:
         # 被任意填写 owner 绕过。认领制：谁创建谁执行，复核必须由另一主体完成。
         created_by = created_by.strip()
         if not created_by:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="created_by 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="created_by 不能为空")
         stripped = {
             "project_id": project_id.strip(),
             "issue_id": issue_id.strip(),
@@ -80,9 +78,7 @@ class ReworkTaskService:
         }
         for name, value in stripped.items():
             if not value:
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
 
         project = await self._project_repository.get_by_id(stripped["project_id"])
         if project is None:
@@ -123,16 +119,12 @@ class ReworkTaskService:
             ) from exc
         except DuplicateEntityError as exc:
             existing = (
-                await self._repository.get_by_id(entity_id)
-                if entity_id is not None
-                else None
+                await self._repository.get_by_id(entity_id) if entity_id is not None else None
             )
             if existing is not None:
                 _assert_same_request(existing, stripped)
                 return existing
-            raise DomainError(
-                ErrorRegistry.INTERNAL_ERROR, detail="返工任务写入冲突"
-            ) from exc
+            raise DomainError(ErrorRegistry.INTERNAL_ERROR, detail="返工任务写入冲突") from exc
 
         self._outbox_writer.record(
             aggregate_type="ReworkTask",
@@ -155,9 +147,7 @@ class ReworkTaskService:
     async def get_task(self, entity_id: str) -> ReworkTask:
         task = await self._repository.get_by_id(entity_id)
         if task is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"返工任务不存在: {entity_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"返工任务不存在: {entity_id}")
         return task
 
     async def change_status(
@@ -170,14 +160,10 @@ class ReworkTaskService:
     ) -> ReworkTask:
         changed_by = changed_by.strip()
         if not changed_by:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="changed_by 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="changed_by 不能为空")
         task = await self._repository.get_by_id(entity_id)
         if task is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"返工任务不存在: {entity_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"返工任务不存在: {entity_id}")
 
         # 职责分离只在关闭这一步要求：VERIFYING→CLOSED 必须有复核人，
         # 且复核人不得是返工执行人本人（7.6）。其它转移由动作权限约束。

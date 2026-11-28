@@ -135,9 +135,7 @@ class _FakeEpisodeRepository(EpisodeRepository):
     async def get_by_id(self, entity_id: str) -> Episode | None:
         return None
 
-    async def get_by_project_ref(
-        self, project_id: str, episode_ref: str
-    ) -> Episode | None:
+    async def get_by_project_ref(self, project_id: str, episode_ref: str) -> Episode | None:
         if (project_id, episode_ref) not in self._owned:
             return None
         return Episode(

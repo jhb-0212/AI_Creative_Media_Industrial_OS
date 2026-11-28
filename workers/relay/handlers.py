@@ -31,7 +31,7 @@ relay 以 ``outbox_relay_role`` 连接，只持有 outbox schema 的 SELECT + UP
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 from uuid import UUID
 
@@ -43,10 +43,17 @@ from packages.shared.event_payloads import (
 )
 from packages.shared.logging import get_logger
 from packages.shared.rls import set_tenant_context
+from services.production_planning.repository.generation_facts_lookup import (
+    build_generation_facts_lookup,
+)
 from services.project_planning.repository.sqlalchemy_outbox_writer import (
     SqlAlchemyOutboxWriter,
 )
+from services.qc_governance.domain.qc_task import EnqueueOrigin
 from services.qc_governance.repository.qc_task_repo import SqlAlchemyQCTaskRepository
+from services.qc_governance.repository.task_projection_repo import (
+    SqlAlchemyTaskProjectionRepository,
+)
 from services.qc_governance.service.qc_task_service import QCTaskService
 from workers.relay.asset_registration import build_asset_registration_handlers
 from workers.relay.consumer import EventHandler, OutboxEvent
@@ -64,6 +71,11 @@ class GenerationSucceeded:
     quality_profile_version: str
     project_id: str
     shot_id: str
+    # 组织归属（``None`` = 租户级项目）。它**不**在 ``GENERATION_SUCCEEDED``
+    # 载荷里——事件契约（``payload_schema_version: 1``）已冻结，改载荷等于先
+    # 实现后补契约。组织由 relay 从事件来源行（``generation_tasks``）读出，
+    # 见 ``make_sql_enqueue``。
+    organization_id: UUID | None = None
 
 
 class MalformedEventError(ValueError):
@@ -101,12 +113,16 @@ async def enqueue_idempotently(service: Any, request: GenerationSucceeded) -> bo
     """把一次成功幂等地转成 QC 待检项。返回是否真的新建了待检项。
 
     幂等有两条判据，缺一不可：先查（便宜快路径）与唯一约束（并发兜底）。
-    ``QCTaskService.enqueue`` 内部已做先查；并发下两个 relay 副本可能都通过
-    先查，此时唯一约束冲突会被收敛成 ``IDEMPOTENCY_CONFLICT``。这里把它翻译
+    ``QCTaskService.enqueue`` 内部已做先查，并把唯一键冲突翻译成
+    ``IDEMPOTENCY_CONFLICT``（仓储层 SAVEPOINT + 端口契约翻译——此前那里只有
+    裸 flush，撞键会以 500 冒出来，本函数的收敛分支根本走不到）。这里把它翻译
     成「已入队 = 投递成功」，其余 DomainError 照常上抛。
 
     反面：把 ``IDEMPOTENCY_CONFLICT`` 当失败，会让重复投递的事件被反复重试直到
     进死信；把其它错误当成功，会让真正入队失败的产物永久失检。
+
+    ``source="RELAY"`` 让自动入队与人工恢复在同一条事件流里可区分——两者共用
+    同一个唯一键与同一段创建代码，表里长得一样，只有载荷能说明来路。
     """
     try:
         await service.enqueue(
@@ -115,8 +131,9 @@ async def enqueue_idempotently(service: Any, request: GenerationSucceeded) -> bo
             asset_version_id=request.asset_version_id,
             generation_task_id=request.generation_task_id,
             quality_profile_version=request.quality_profile_version,
-            created_by="outbox-relay",
             tenant_id=request.tenant_id,
+            origin=EnqueueOrigin(source="RELAY", operator_id="outbox-relay"),
+            organization_id=request.organization_id,
         )
     except DomainError as exc:
         if exc.error_code is ErrorRegistry.IDEMPOTENCY_CONFLICT:
@@ -132,17 +149,53 @@ async def enqueue_idempotently(service: Any, request: GenerationSucceeded) -> bo
 EnqueueFn = Callable[[GenerationSucceeded], Awaitable[bool]]
 
 
-def make_sql_enqueue(qc_sessionmaker: Any) -> EnqueueFn:
-    """生产用入队实现：QC 角色独立会话，事务提交后才算入队成功。"""
+def make_sql_enqueue(
+    qc_sessionmaker: Any, production_planning_sessionmaker: Any | None = None
+) -> EnqueueFn:
+    """生产用入队实现：QC 角色独立会话，事务提交后才算入队成功。
+
+    组织归属从事件来源行读
+    ----------------------
+    QC 的产物读回与报告核验受组织面 RLS 约束，而 QC Worker 没有 Principal。
+    组织只能作为**事实**从 ``generation_tasks.organization_id`` 读出来随任务
+    落库；把它塞进事件载荷需要改冻结契约，而把它「按项目现查」需要组织上下文
+    ——正是这里缺的东西。
+
+    未注入生产会话时组织按 ``None`` 处理（只能服务租户级项目）：这只在测试与
+    纯内存装配下成立，生产装配必须提供会话（``workers/relay/__main__.py`` 已
+    提供）。宁可让测试显式说明「租户级」，也不猜。
+    """
+
+    async def _organization_of(request: GenerationSucceeded) -> UUID | None:
+        if production_planning_sessionmaker is None:
+            return request.organization_id
+        async with production_planning_sessionmaker() as session:
+            await set_tenant_context(session, request.tenant_id)
+            facts = await build_generation_facts_lookup(session)(
+                request.generation_task_id, request.project_id, request.tenant_id
+            )
+        if facts is None:
+            # 事件存在 ⟺ 终态已提交，拿不到来源行就是发出方违约。此时**不**
+            # 入队：没有组织归属的待检项在组织级项目上会永远无法终结。
+            raise MalformedEventError(
+                "GENERATION_SUCCEEDED 的来源生成任务不可见，"
+                f"无法确定组织归属: generation_task_id={request.generation_task_id} "
+                f"project_id={request.project_id}"
+            )
+        return facts.organization_id
 
     async def enqueue(request: GenerationSucceeded) -> bool:
+        organization_id = await _organization_of(request)
         async with qc_sessionmaker() as session:
             await set_tenant_context(session, request.tenant_id)
             service = QCTaskService(
                 SqlAlchemyQCTaskRepository(session),
                 SqlAlchemyOutboxWriter(session),
+                projection=SqlAlchemyTaskProjectionRepository(session),
             )
-            created = await enqueue_idempotently(service, request)
+            created = await enqueue_idempotently(
+                service, replace(request, organization_id=organization_id)
+            )
             # 幂等跳过时也提交：本事务没有新写入，提交只是释放连接与行锁。
             await session.commit()
             return created
@@ -173,7 +226,15 @@ def build_handlers(
     """
     handlers: dict[str, EventHandler] = {}
     if qc_sessionmaker is not None:
-        handlers.update(build_generation_handlers(make_sql_enqueue(qc_sessionmaker)))
+        handlers.update(
+            build_generation_handlers(
+                # 组织归属必须从生产会话读来源行；缺会话时退回租户级口径。
+                make_sql_enqueue(
+                    qc_sessionmaker,
+                    production_planning_sessionmaker=production_planning_sessionmaker,
+                )
+            )
+        )
     if production_planning_sessionmaker is not None and asset_sessionmaker is not None:
         handlers.update(
             build_asset_registration_handlers(

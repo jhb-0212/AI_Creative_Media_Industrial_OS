@@ -93,23 +93,17 @@ def can_transition_asset(source: AssetStatus, target: AssetStatus) -> bool:
     return ASSET_LIFECYCLE.edge_for(source, target) is not None
 
 
-def assert_transition_asset(
-    source: AssetStatus, target: AssetStatus
-) -> Transition[AssetStatus]:
+def assert_transition_asset(source: AssetStatus, target: AssetStatus) -> Transition[AssetStatus]:
     """校验转移结构合法性，未登记则拒绝（31.5）。不含准入守卫。"""
     return ASSET_LIFECYCLE.assert_registered(source, target)
 
 
-def edge_for(
-    source: AssetStatus, target: AssetStatus
-) -> Transition[AssetStatus] | None:
+def edge_for(source: AssetStatus, target: AssetStatus) -> Transition[AssetStatus] | None:
     """取指定的边（未登记返回 None，由调用方按「不可达」处理）。"""
     return ASSET_LIFECYCLE.edge_for(source, target)
 
 
-def edge_owned_by(
-    source: AssetStatus, target: AssetStatus, action: str
-) -> Transition[AssetStatus]:
+def edge_owned_by(source: AssetStatus, target: AssetStatus, action: str) -> Transition[AssetStatus]:
     """取边并校验所有权：不属于该动作的边，对该动作不可达。
 
     这是 P1-02 的结构性修法：``change_status`` 请求 ``APPROVED`` 时不看证据、
@@ -122,9 +116,7 @@ def edge_owned_by(
     return ASSET_LIFECYCLE.edge_owned_by(source, target, action)
 
 
-def next_edge_owned_by(
-    source: AssetStatus, action: str
-) -> Transition[AssetStatus] | None:
+def next_edge_owned_by(source: AssetStatus, action: str) -> Transition[AssetStatus] | None:
     """从当前状态出发、由指定动作拥有的下一条边（审批链逐跳推进用）。"""
     return ASSET_LIFECYCLE.next_edge_owned_by(source, action)
 

@@ -43,9 +43,7 @@ class RegistrationFingerprintInput(TypedDict):
 
 # 指纹覆盖的字段集合从 TypedDict 派生：新增维度只改一处，字段清单与
 # canonical 输入不可能各说各话（清单漏项会让冲突维度被静默洗成幂等）。
-FINGERPRINT_FIELDS: tuple[str, ...] = tuple(
-    RegistrationFingerprintInput.__annotations__
-)
+FINGERPRINT_FIELDS: tuple[str, ...] = tuple(RegistrationFingerprintInput.__annotations__)
 
 
 def compute_registration_fingerprint(
@@ -73,9 +71,7 @@ def compute_registration_fingerprint(
     # 断言覆盖集合与声明一致：新增字段忘了加进 canonical 会在这里暴露，
     # 而不是静默产出「缺一个维度」的指纹（那种指纹会让不同请求碰撞成相同）。
     assert tuple(canonical) == FINGERPRINT_FIELDS
-    payload = json.dumps(
-        canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-    )
+    payload = json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 

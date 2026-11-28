@@ -47,8 +47,12 @@ def na(cond, backend, name, detail):
 
 def new_adapter(name, url, bucket=None, **kw):
     return S3ObjectStorage(
-        endpoint_url=url, bucket=bucket or f"poc-tech04-{name.lower()}",
-        access_key=KEY, secret_key=SEC, max_bytes=10 * 1024 * 1024, **kw
+        endpoint_url=url,
+        bucket=bucket or f"poc-tech04-{name.lower()}",
+        access_key=KEY,
+        secret_key=SEC,
+        max_bytes=10 * 1024 * 1024,
+        **kw,
     )
 
 
@@ -58,18 +62,33 @@ async def port_and_locator(name, url):
     # 候选 Adapter 满足 Port 三方法、无 delete
     methods = {m for m in ("put", "get", "exists") if hasattr(a, m)}
     no_delete = not hasattr(a, "delete")
-    record("①", name, "Port 三方法/无 delete", methods == {"put", "get", "exists"} and no_delete,
-           f"methods={sorted(methods)} has_delete={not no_delete}")
+    record(
+        "①",
+        name,
+        "Port 三方法/无 delete",
+        methods == {"put", "get", "exists"} and no_delete,
+        f"methods={sorted(methods)} has_delete={not no_delete}",
+    )
     # locator 语法与生产一致：build/parse 往返
     digest = hashlib.sha256(b"tech04").hexdigest()
     loc = build_locator(digest, "png")
     parsed, _problem = parse_locator(loc)
-    record("①", name, "locator 复用生产定义", parsed is not None and parsed.sha256 == digest,
-           f"locator={loc[:28]}... parse_ok={parsed is not None}")
+    record(
+        "①",
+        name,
+        "locator 复用生产定义",
+        parsed is not None and parsed.sha256 == digest,
+        f"locator={loc[:28]}... parse_ok={parsed is not None}",
+    )
     # 非法定位符（前两段与哈希不符）被拒
     bad = "local://ff/ee/" + digest + ".png"
-    record("①", name, "非法定位符拒绝", parse_locator(bad)[0] is None,
-           "前两段与哈希不符 -> parse 拒绝（防『语法合法但永远读不到』）")
+    record(
+        "①",
+        name,
+        "非法定位符拒绝",
+        parse_locator(bad)[0] is None,
+        "前两段与哈希不符 -> parse 拒绝（防『语法合法但永远读不到』）",
+    )
 
 
 async def put_get(name, url):
@@ -78,11 +97,21 @@ async def put_get(name, url):
     data = b"TECH04 content-addressing probe " + str(time.time()).encode()
     obj = await a.put(data=data, media_type="image/png")
     digest = hashlib.sha256(data).hexdigest()
-    record("③", name, "put 返回受控定位符", obj.sha256 == digest and obj.locator.startswith("local://"),
-           f"sha256_match={obj.sha256 == digest} locator={obj.locator[:24]}...")
+    record(
+        "③",
+        name,
+        "put 返回受控定位符",
+        obj.sha256 == digest and obj.locator.startswith("local://"),
+        f"sha256_match={obj.sha256 == digest} locator={obj.locator[:24]}...",
+    )
     got = await a.get(obj.locator)
-    record("③", name, "get 完整读取+哈希复核", got == data,
-           f"bytes_in={len(data)} bytes_out={len(got)} match={got == data}")
+    record(
+        "③",
+        name,
+        "get 完整读取+哈希复核",
+        got == data,
+        f"bytes_in={len(data)} bytes_out={len(got)} match={got == data}",
+    )
     record("③", name, "exists 命中", await a.exists(obj.locator) is True, "head_object -> True")
     # 防覆盖：同一 locator（同样内容、正确 SHA）再 put 必须被条件写入挡下。
     # 关键：必须用与首次完全相同的内容且不传错误 expected_sha256，
@@ -94,20 +123,30 @@ async def put_get(name, url):
         overwritten = False
     except Exception as e:
         overwritten = f"WRONG_EXC:{type(e).__name__}"
-    record("③", name, "条件写入防覆盖", overwritten is False,
-           f"同内容重复 put（同 key）-> overwritten={overwritten}，"
-           f"由 IfNoneMatch=* 挡下而非哈希守卫")
+    record(
+        "③",
+        name,
+        "条件写入防覆盖",
+        overwritten is False,
+        f"同内容重复 put（同 key）-> overwritten={overwritten}，由 IfNoneMatch=* 挡下而非哈希守卫",
+    )
     # expected_sha256 不符必须拒
     try:
-        await a.put(data=b"another content", media_type="image/png",
-                    expected_sha256="0" * 64)
+        await a.put(data=b"another content", media_type="image/png", expected_sha256="0" * 64)
         sha_guard = False
     except StorageIntegrityError:
         sha_guard = True
-    record("③", name, "上游声明 SHA 不符拒绝", sha_guard, "expected_sha256 mismatch -> IntegrityError")
+    record(
+        "③", name, "上游声明 SHA 不符拒绝", sha_guard, "expected_sha256 mismatch -> IntegrityError"
+    )
     # 大小超限（用极小上限的 adapter）
-    tiny = S3ObjectStorage(endpoint_url=url, bucket=f"poc-tech04-{name.lower()}",
-                           access_key=KEY, secret_key=SEC, max_bytes=4)
+    tiny = S3ObjectStorage(
+        endpoint_url=url,
+        bucket=f"poc-tech04-{name.lower()}",
+        access_key=KEY,
+        secret_key=SEC,
+        max_bytes=4,
+    )
     try:
         await tiny.put(data=b"12345", media_type="image/png")
         size_guard = False
@@ -122,8 +161,13 @@ async def put_get(name, url):
         ext_guard = True
     record("③", name, "媒体类型白名单", ext_guard, "application/x-sh -> LocatorError")
     # 非法 locator 的 exists 返回 False 而非抛错
-    record("③", name, "exists 非法 locator 返回 False",
-           await a.exists("not-a-locator") is False, "invalid locator -> False (port contract)")
+    record(
+        "③",
+        name,
+        "exists 非法 locator 返回 False",
+        await a.exists("not-a-locator") is False,
+        "invalid locator -> False (port contract)",
+    )
 
 
 async def multipart(name, url):
@@ -138,8 +182,12 @@ async def multipart(name, url):
         status = v.get("Status", "Unversioned")
         record("④", name, "版本策略可查询", True, f"Versioning.Status={status}")
     except ClientError as e:
-        na("④", name, "版本策略可查询",
-           f"get_bucket_versioning 不支持 code={e.response['Error']['Code']}")
+        na(
+            "④",
+            name,
+            "版本策略可查询",
+            f"get_bucket_versioning 不支持 code={e.response['Error']['Code']}",
+        )
         status = "N/A"
     # 创建一个 multipart upload 然后 abort，确认无残留 part
     try:
@@ -154,9 +202,13 @@ async def multipart(name, url):
             still_exists = True
         except ClientError:
             still_exists = False
-        record("④", name, "Multipart 中断+部分对象清理",
-               parts_before == 1 and not still_exists,
-               f"part_before={parts_before} abort后upload仍存在={still_exists}")
+        record(
+            "④",
+            name,
+            "Multipart 中断+部分对象清理",
+            parts_before == 1 and not still_exists,
+            f"part_before={parts_before} abort后upload仍存在={still_exists}",
+        )
     except ClientError as e:
         code = e.response["Error"]["Code"]
         na("④", name, "Multipart 中断+部分对象清理", f"multipart 不支持 code={code}")
@@ -174,12 +226,16 @@ async def fault_injection(name, url):
         net_ok = True
     except Exception as e:
         net_ok = f"WRONG_EXC:{type(e).__name__}"
-    record("⑤", name, "网络中断->S3StorageError", net_ok is True,
-           f"dead endpoint -> {net_ok}")
+    record("⑤", name, "网络中断->S3StorageError", net_ok is True, f"dead endpoint -> {net_ok}")
 
     # 权限拒绝：用错误密钥
-    denied = S3ObjectStorage(endpoint_url=url, bucket=f"poc-tech04-{name.lower()}",
-                             access_key="wrong", secret_key="wrong", max_bytes=1024)
+    denied = S3ObjectStorage(
+        endpoint_url=url,
+        bucket=f"poc-tech04-{name.lower()}",
+        access_key="wrong",
+        secret_key="wrong",
+        max_bytes=1024,
+    )
     try:
         await denied.put(data=b"x", media_type="image/png")
         perm_ok = False
@@ -187,8 +243,7 @@ async def fault_injection(name, url):
         perm_ok = True
     except Exception as e:
         perm_ok = f"WRONG_EXC:{type(e).__name__}"
-    record("⑤", name, "权限拒绝->S3StorageError", perm_ok is True,
-           f"bad credentials -> {perm_ok}")
+    record("⑤", name, "权限拒绝->S3StorageError", perm_ok is True, f"bad credentials -> {perm_ok}")
 
     # 对象缺失：合法但不存在的 locator -> get 抛 IntegrityError
     a = new_adapter(name, url)
@@ -205,8 +260,9 @@ async def fault_injection(name, url):
     obj = await a.put(data=data, media_type="image/jpeg")
     key = a._key_for(obj.locator)
     try:
-        a.client.put_object(Bucket=f"poc-tech04-{name.lower()}", Key=key,
-                            Body=b"TAMPERED", ContentType="image/jpeg")
+        a.client.put_object(
+            Bucket=f"poc-tech04-{name.lower()}", Key=key, Body=b"TAMPERED", ContentType="image/jpeg"
+        )
         # 直写绕过 If-None-Match，模拟后端被篡改
         try:
             await a.get(obj.locator)
@@ -215,14 +271,20 @@ async def fault_injection(name, url):
             hash_ok = True
     except ClientError as e:
         hash_ok = f"PUT_TAMPER_BLOCKED:{e.response['Error']['Code']}"
-    record("⑤", name, "Hash不匹配->IntegrityError", hash_ok is True,
-           f"tampered object -> {hash_ok}")
+    record(
+        "⑤", name, "Hash不匹配->IntegrityError", hash_ok is True, f"tampered object -> {hash_ok}"
+    )
 
     # 服务恢复：换回好 adapter，put/get 正常
     rec = await a.put(data=b"after-recovery-" + str(time.time()).encode(), media_type="image/png")
     rec_got = await a.get(rec.locator)
-    record("⑤", name, "服务恢复后可用", rec_got.startswith(b"after-recovery"),
-           f"post-fault put/get ok={rec_got.startswith(b'after-recovery')}")
+    record(
+        "⑤",
+        name,
+        "服务恢复后可用",
+        rec_got.startswith(b"after-recovery"),
+        f"post-fault put/get ok={rec_got.startswith(b'after-recovery')}",
+    )
 
 
 async def no_formal_asset_ref(name, url):
@@ -238,12 +300,17 @@ async def no_formal_asset_ref(name, url):
 
     tree = ast.parse(inspect.getsource(ports_mod))
     port_cls = next(
-        (n for n in ast.walk(tree)
-         if isinstance(n, ast.ClassDef) and n.name == "ObjectStoragePort"), None
+        (
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.ClassDef) and n.name == "ObjectStoragePort"
+        ),
+        None,
     )
     bodies_are_stub = False
     if port_cls is not None:
         funcs = [n for n in port_cls.body if isinstance(n, (ast.AsyncFunctionDef, ast.FunctionDef))]
+
         # 方法体形如 [docstring(Constant str), Ellipsis(Constant)]：
         # 所有语句都必须是 Constant 表达式（文档字符串或 ...），
         # 一旦出现 Call/Assign/Return/Import 等行为节点即判为有实现。
@@ -254,12 +321,22 @@ async def no_formal_asset_ref(name, url):
             )
 
         bodies_are_stub = bool(funcs) and all(is_stub(f) for f in funcs)
-    record("⑥", name, "Port 不写资产台账", bodies_are_stub,
-           f"ObjectStoragePort 方法体全为 stub(Ellipsis)={bodies_are_stub}，"
-           f"无实现体故不落库（AST 派生，非文本搜索）")
+    record(
+        "⑥",
+        name,
+        "Port 不写资产台账",
+        bodies_are_stub,
+        f"ObjectStoragePort 方法体全为 stub(Ellipsis)={bodies_are_stub}，"
+        f"无实现体故不落库（AST 派生，非文本搜索）",
+    )
     # 取证脚本只 put 到专用桶（bucket 名带 poc- 前缀）
-    record("⑥", name, "隔离桶命名", f"poc-tech04-{name.lower()}".startswith("poc-"),
-           f"bucket=poc-tech04-{name.lower()} 与正式 assets/uploads 桶隔离")
+    record(
+        "⑥",
+        name,
+        "隔离桶命名",
+        f"poc-tech04-{name.lower()}".startswith("poc-"),
+        f"bucket=poc-tech04-{name.lower()} 与正式 assets/uploads 桶隔离",
+    )
 
 
 async def run_backend(name, url):
@@ -282,12 +359,23 @@ async def main():
     # 条件⑦：对比两后端，不以 API 兼容单独判 PASS
     sea = [r for r in RESULTS if r[1] == "SeaweedFS" and r[3] is False]
     rust = [r for r in RESULTS if r[1] == "RustFS" and r[3] is False]
-    comparable = ({(r[0], r[2]) for r in RESULTS if r[1] == "SeaweedFS"}
-                  == {(r[0], r[2]) for r in RESULTS if r[1] == "RustFS"})
-    record("⑦", "对比", "同矩阵可比性", comparable,
-           f"两后端执行相同用例集={comparable}; SeaweedFS FAIL={len(sea)} RustFS FAIL={len(rust)}")
-    record("⑦", "对比", "不以API兼容单独判PASS", True,
-           "七项含安全语义(防覆盖/哈希/权限/无delete)，非仅 put/get 连通")
+    comparable = {(r[0], r[2]) for r in RESULTS if r[1] == "SeaweedFS"} == {
+        (r[0], r[2]) for r in RESULTS if r[1] == "RustFS"
+    }
+    record(
+        "⑦",
+        "对比",
+        "同矩阵可比性",
+        comparable,
+        f"两后端执行相同用例集={comparable}; SeaweedFS FAIL={len(sea)} RustFS FAIL={len(rust)}",
+    )
+    record(
+        "⑦",
+        "对比",
+        "不以API兼容单独判PASS",
+        True,
+        "七项含安全语义(防覆盖/哈希/权限/无delete)，非仅 put/get 连通",
+    )
 
     print("\n==== SUMMARY ====")
     passed = sum(1 for r in RESULTS if r[3] is True)

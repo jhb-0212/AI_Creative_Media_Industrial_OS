@@ -27,7 +27,9 @@ def test_require_accepts_only_authoritative_value() -> None:
     assert require_quality_profile(f"  {UNIFIED_HIGH_QUALITY}  ") == UNIFIED_HIGH_QUALITY
 
 
-@pytest.mark.parametrize("bad", ["", "   ", "qp-v1", "UNIFIED_HIGH_QUALITY@v2", "SUPPORTING_ASSET_QUALITY"])
+@pytest.mark.parametrize(
+    "bad", ["", "   ", "qp-v1", "UNIFIED_HIGH_QUALITY@v2", "SUPPORTING_ASSET_QUALITY"]
+)
 def test_require_rejects_empty_or_unknown(bad: str) -> None:
     with pytest.raises(DomainError):
         require_quality_profile(bad)

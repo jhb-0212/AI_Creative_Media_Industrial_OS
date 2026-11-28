@@ -193,7 +193,9 @@ def test_proposal_without_state_machine_is_reported() -> None:
         {**e, "class": "lifecycle"} if e["object"] == "CreativeProposal" else e
         for e in _taxonomy()["objects"]
     ]
-    sm_states = cc.state_machine_states([o for o in _sm_objects() if o["object"] != "CreativeProposal"])
+    sm_states = cc.state_machine_states(
+        [o for o in _sm_objects() if o["object"] != "CreativeProposal"]
+    )
     problems = cc.taxonomy_problems(objects, sm_states, _definitions())
     assert any("CreativeProposal" in p and "没有它的状态机" in p for p in problems), problems
 
@@ -217,9 +219,7 @@ def test_simplifying_proposal_states_breaks_derived_files(
         if entry["object"] == "CreativeProposal":
             entry["allowed_states"] = ["DRAFT", "PENDING", "APPROVED", "REJECTED"]
     tampered = tmp_path / "state_machines.yaml"
-    tampered.write_text(
-        yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8"
-    )
+    tampered.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
     monkeypatch.setattr(gs, "STATE_MACHINES", tampered)
     problems = gs.drift_problems()
     assert problems, "把正文六值简化为三态后派生文件仍被判一致，闸门失明"

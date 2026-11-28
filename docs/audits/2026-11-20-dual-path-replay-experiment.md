@@ -215,8 +215,8 @@ ACL 层同样吻合（表/序列显式授权，`grantee` 维度）：
 
 ```bash
 # 1) 建 4 个一次性实例（各自独立集群）
-docker run -d --name afs-replay-main -e POSTGRES_PASSWORD=replay_super_pw -e POSTGRES_DB=ai_film_industrial -p 15441:5432 postgres:16
-docker run -d --name afs-replay-feat -e POSTGRES_PASSWORD=replay_super_pw -e POSTGRES_DB=ai_film_industrial -p 15442:5432 postgres:16
+docker run -d --name afs-replay-main -e POSTGRES_PASSWORD=<ROTATED-2026-11-28> -e POSTGRES_DB=ai_film_industrial -p 15441:5432 postgres:16
+docker run -d --name afs-replay-feat -e POSTGRES_PASSWORD=<ROTATED-2026-11-28> -e POSTGRES_DB=ai_film_industrial -p 15442:5432 postgres:16
 
 # 2) 固定提交的 worktree（避免工作区污染）
 git worktree add --detach /tmp/afs-replay/main 5352d197
@@ -225,7 +225,7 @@ git worktree add --detach /tmp/afs-replay/feat 59b13af7
 # 3) 重放（环境变量须含非默认口令）
 cd /tmp/afs-replay/main && \
   POSTGRES_HOST=localhost POSTGRES_PORT=15441 POSTGRES_DB=ai_film_industrial \
-  POSTGRES_USER=postgres POSTGRES_PASSWORD=replay_super_pw \
+  POSTGRES_USER=postgres POSTGRES_PASSWORD=<ROTATED-2026-11-28> \
   POSTGRES_APP_PASSWORD=replay_app_pw POSTGRES_RELAY_PASSWORD=replay_relay_pw \
   POSTGRES_PROJECT_PLANNING_PASSWORD=replay_pp_pw POSTGRES_ASSET_SERVICE_PASSWORD=replay_as_pw \
   PYTHONPATH=/tmp/afs-replay/main python -m alembic -c alembic.ini upgrade head

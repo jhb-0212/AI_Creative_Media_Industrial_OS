@@ -1,5 +1,26 @@
 # pending/feat-ownership —— 归属约束补齐（**【2026-11-20 已在 integration 分支激活】**）
 
+> ## ⚠ 2026-11-26 处置结论：**不合并，保留为历史设计存档**
+>
+> 本目录的 15 个迁移源**不会**进入 main 链，`versions/` 也不得复制它们。三条理由：
+>
+> 1. **目标已被取代**。这套设计的核心是「用专用角色做审计与数据修复 + 临时 RLS 绕过」
+>    （`afs_audit` / `afs_data_repair` + `pg_has_role` 表达式 + quarantine 策略）。WP-D
+>    改走另一条路：组织归属作为**事实**随生成 → relay → QC 链路下传，隔离由既有策略
+>    与复合外键承担，不新增可绕 RLS 的身份。同一问题已有更窄的解法，再叠一套等于两套
+>    事实源。
+> 2. **它的身份已退役**。`afs_audit` / `afs_data_repair` 于 2026-11-26 在集群级 DROP；
+>    三个实验库（`ai_film_industrial` / `t5_lab` / `lab_rework_tasks`）里的
+>    `audit_quarantine_scope`、`repair_row_scope` 与 43 / 38 / 43 条
+>    `quarantine_restrictive_*` 策略已随之移除，授权已撤销。**库内数据未动**，若将来
+>    真要复活这套设计，按本目录迁移重放即可重建策略与授权。
+> 3. **合并成本高于收益**。`d2e3f4a5b6c7`、`f8a9b0c1d2e3` 两个 revision id 与 main 链
+>    撞车，合并前必须整体重编号；之后还要重跑 15 个迁移 + 37 项受控例外验收，而它
+>    要解决的问题已在 WP-D 里验收过（真 PG + 真 JWT 的组织级全链路闭环）。
+>
+> 下文「当前状态」各表是 **2026-11-20 当时**的验收记录，保留作历史证据，不再代表现状。
+> 本目录仍在 alembic 扫描范围之外，不参与 `alembic upgrade head`。
+
 ## 当前状态（先看这一节）
 
 | 项 | 状态 |

@@ -75,9 +75,7 @@ def _assert_report_owner(report: QCReport, asset_version_id: str) -> None:
         )
 
 
-def _same_content(
-    existing: AssetVersion, sha256: str, asset_type: str, project_id: str
-) -> bool:
+def _same_content(existing: AssetVersion, sha256: str, asset_type: str, project_id: str) -> bool:
     """判定既有资产与待登记内容是否一致（幂等判定的单一事实源）。
 
     同时比对 sha256、asset_type 与 project_id：
@@ -236,9 +234,7 @@ class AssetService:
         """登记 QC 证据；若资产仍在 GENERATED，首个报告将其推入 TECHNICAL_QC。"""
         asset = await self._assets.get_by_id(asset_version_id)
         if asset is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"资产版本不存在: {asset_version_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"资产版本不存在: {asset_version_id}")
         if asset.status not in _REPORTABLE_STATES:
             raise DomainError(
                 ErrorRegistry.STATE_TRANSITION_DENIED,
@@ -299,9 +295,7 @@ class AssetService:
         if asset.status is AssetStatus.GENERATED:
             # 同一张边表：这条边属于 QC.REPORT.CREATE，且以「报告已登记」为准入
             # （因此该边无附加守卫——报告本身即证据，否则规则会自锁）。
-            edge = edge_owned_by(
-                AssetStatus.GENERATED, AssetStatus.TECHNICAL_QC, QC_REPORT_ACTION
-            )
+            edge = edge_owned_by(AssetStatus.GENERATED, AssetStatus.TECHNICAL_QC, QC_REPORT_ACTION)
             # 计数在此处真实测量：报告已写入同一事务，得到的正是「推进时刻的证据数」。
             # 不传默认 0——那会在事件里写下一个假事实（明明刚登记了一份报告）。
             await self._advance(
@@ -346,15 +340,11 @@ class AssetService:
         """
         approved_by = principal.subject_id.strip()
         if not approved_by:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="approved_by 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="approved_by 不能为空")
 
         asset = await self._assets.get_by_id(asset_version_id)
         if asset is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"资产版本不存在: {asset_version_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"资产版本不存在: {asset_version_id}")
 
         first_edge = next_edge_owned_by(asset.status, APPROVE_ACTION)
         if first_edge is None:
@@ -421,15 +411,11 @@ class AssetService:
         """
         changed_by = changed_by.strip()
         if not changed_by:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="changed_by 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="changed_by 不能为空")
 
         asset = await self._assets.get_by_id(asset_version_id)
         if asset is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"资产版本不存在: {asset_version_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"资产版本不存在: {asset_version_id}")
 
         edge = edge_owned_by(asset.status, target_status, STATUS_CHANGE_ACTION)
         context = await self._guard_context(asset, (edge,), changed_by)
@@ -455,14 +441,9 @@ class AssetService:
     ) -> GuardContext:
         """按边的需要取齐外部事实（只有 QC 计数需要一次查库）。"""
         needs_qc = any(
-            guard.needs_qc_count
-            for edge in edges
-            if edge is not None
-            for guard in edge.guards
+            guard.needs_qc_count for edge in edges if edge is not None for guard in edge.guards
         )
-        count = (
-            await self._qc_reports.count_by_asset(asset.entity_id) if needs_qc else 0
-        )
+        count = await self._qc_reports.count_by_asset(asset.entity_id) if needs_qc else 0
         return GuardContext(actor=actor, qc_report_count=count)
 
     async def _advance(
@@ -587,9 +568,7 @@ class AssetService:
         """
         asset = await self._assets.get_by_id(asset_version_id)
         if asset is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"资产版本不存在: {asset_version_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"资产版本不存在: {asset_version_id}")
         return asset
 
 

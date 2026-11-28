@@ -67,7 +67,7 @@ domains:
   - { id: shot_planning,        schema: shot_planning,    runtime_role: svc_shot_planning,        legacy_role: null }
   - { id: generation_execution, schema: generation_execution, runtime_role: svc_generation_execution, legacy_role: null }
   - { id: asset_service,        schema: asset_service,    runtime_role: svc_asset,                 legacy_role: asset_service_role }
-  - { id: qc_governance,        schema: qc_governance,    runtime_role: svc_qc_governance,        legacy_role: null }
+  - { id: qc_governance,        schema: qc_governance,    runtime_role: svc_qc_governance,        legacy_role: qc_governance_role }
   - { id: workflow,             schema: workflow,         runtime_role: svc_workflow,              legacy_role: null }
   - { id: outbox_relay,         schema: outbox,           runtime_role: svc_outbox_relay,          legacy_role: outbox_relay_role }
   - { id: identity,             schema: auth,             runtime_role: svc_identity,              legacy_role: null }
@@ -97,6 +97,39 @@ roles:
       attributes: [NOCREATEROLE, NOCREATEDB, NOSUPERUSER, NOBYPASSRLS]
       owner_membership: none
       capabilities: [read_only_diagnostics, process_ops]
+    # 维护四角色（WP-03，迁移 c9d0e1f2a3b4 创建）。四者分开登记而不是合成一条
+    # 「维护身份」：可登录性、权限组成员关系、对象属主是三种可审计事实。
+    qc_maintenance_owner:
+      name: qc_maintenance_owner
+      login: false
+      attributes: [NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE]
+      owner_membership: none
+    qc_maintenance_operator:
+      name: qc_maintenance_operator
+      login: false
+      attributes: [NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE]
+      owner_membership: none
+    qc_maintenance_login:
+      name: qc_maintenance_login
+      login: true
+      attributes: [NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE]
+      owner_membership: { mode: group_member, group: qc_maintenance_operator, admin: false }
+    # qc_worker 已于 2026-11-27 退役（迁移 f2b3c4d5e6a7，集群级 DROP），不再登记。
+    # 退役理由：它不是任何进程的连接身份——QC Worker 连的是 qc_governance 域池
+    # （qc_governance_role / asset_service_role），零 DSN、零依赖、零成员关系。
+    # 「Worker 不能维护」的判据因此改打在 qc_governance_role 上（见
+    # tests/integration/test_qc_maintenance_identities_pg.py）。配置键
+    # postgres_qc_worker_* 保留：历史迁移 e6a7b8c9d0e1 在 clean install 上仍要读它。
+    # afs_audit / afs_data_repair 已于 2026-11-26 在集群级退役（DROP ROLE），
+    # 因此不再登记：本表只承载「存在的角色」，已消失的身份留在提交历史与
+    # scripts/retire_legacy_roles.py 的取证输出里。
+    # 退役记录：二者是 pending/feat-ownership 未合并设计的审计 / 修复身份，
+    # 三个实验库（ai_film_industrial / t5_lab / lab_rework_tasks）曾各挂
+    # 95 / 86 / 95 条 pg_shdepend 依赖（audit_quarantine_scope、repair_row_scope
+    # 与 43 / 38 / 43 条含 pg_has_role(..., 'afs_data_repair') 的
+    # quarantine_restrictive_* 策略）。先逐库删策略、DROP OWNED BY 撤授权，
+    # 再 --check（零引用）→ --drop。这些策略的定义仍可从
+    # data/migrations/pending/feat-ownership 重放，删除可重建。
 
 # --------------------------------------------------------------------------- #
 # 4. 权限矩阵现状（DD-2：本轮不接管，避免与冻结的历史迁移输入形成双事实源）
@@ -313,6 +346,24 @@ exceptions:
     observed_search_path: "pg_catalog, outbox"
     observed_public_execute: true
 
+  - object: industrial.audit.function.assert_signature_event_exists()
+    kind: SECURITY_DEFINER
+    reason: "SECURITY DEFINER 校验签署指向的事件存在（当前实现）"
+    owner: platform-security
+    unblocks_when: "触发器内联校验后移除"
+    expires_at: "2027-01-01"
+    execute_roles: [svc_asset, svc_project_planning]
+    effective_owner: afs_owner
+    observed_owner: postgres
+    search_path: "pg_catalog, pg_temp"
+    accessed_resources: [industrial.outbox.table.outbox_events]
+    privilege_scope: "仅 existence 判定，不返回业务内容"
+    security_test: "tests/integration/test_secdef_no_cross_tenant.py"
+    public_execute: false
+    # 迁移 c9d0e1f2a3b4 已 REVOKE PUBLIC；GRANT 给 svc_* 等它们被创建后由 IP-4 执行。
+    observed_search_path: "pg_catalog, outbox"
+    observed_public_execute: false
+
 # --------------------------------------------------------------------------- #
 # 7. 显式债务（未覆盖范围与接管条件）—— 不得用「没写」冒充「已覆盖」
 # --------------------------------------------------------------------------- #
@@ -335,3 +386,7 @@ debt:
     what: "未来 outbox 分区无策略"
     reason: "分区按月动态创建，静态文件无法枚举；FORCE RLS 下无策略 = 零行（fail-closed，但功能不可用）"
     unblocks_when: "partition_guard 从本文件的 outbox 策略派生新分区策略（单事实源），而非在矩阵里再列一遍"
+  - id: AUTHZ-7
+    what: "迁移执行者仍是 postgres 超级用户（2026-11-27 复核：不变；已裁定不在本分支关闭）"
+    reason: "三条实测叠在一起：①PG16 上非超管 + CREATEROLE 在第一条 ALTER ROLE 即 permission denied（PG16 取消了隐式 ADMIN），要让 afs_migrator 顶替就得给它对全部运行时角色的 ADMIN，等于用「可自授任意角色」换掉「超级用户」，权限面没变小；②即便给了 ADMIN 也没用——实测「非超管 + 目标角色 ADMIN」执行 ALTER ROLE ... NOSUPERUSER 仍被拒（Only roles with the SUPERUSER attribute may change the SUPERUSER attribute），即迁移里那种「幂等再断言一遍属性」的写法**本身只有超管能跑**，这条不是权限额度问题，只能靠把语句搬走（回归用例 tests/integration/test_identity_bootstrap_boundary_pg.py 锁住该边界，同用例证明同一执行者改 LOGIN/PASSWORD 是允许的，避免误读成「非超管什么都不能改」）；③角色与授权 DDL 分散在 42 个迁移、238 处动作（scripts/audit_identity_ddl.py 盘点：建角色 9 / 改角色 9 / 授权 54 / 撤权 61 / 默认权限 24 / 策略 47 / 属主 9 / 建 schema 9 / DDL 生成器调用 16），clean install 依赖它们按序执行。把角色 DDL 抽到 bootstrap 必须重写整条链与对应 downgrade，再重算授权回放的期望集——那是「重建时间胶囊」，不是功能分支里能顺手做的事。当前的控制手段是：超管只存在于 CI/部署侧，应用侧一律非超管且启动期由 verify_rls_enforcement 断言 rolsuper=f / rolbypassrls=f"
+    unblocks_when: "独立分支「重建迁移链」：bootstrap 脚本持 ADMIN 建角色与授权（声明来自 db_roles / db_grants），历史迁移改写为纯结构 DDL，CI 以非超管执行 upgrade→downgrade→upgrade 往返并全绿。触发条件：一旦出现「非 CI 人员持有超管口令」的部署面，本条按 P0 处理，不再挂账。进度（refactor/identity-bootstrap）：第一步已落地——packages/shared/role_specs.py 成为角色属性唯一声明，scripts/verify_role_attributes.py 做声明 vs pg_roles 漂移闸门（20 个身份全绿）；第三点五步已落地——packages/shared/identity_bootstrap.py + scripts/bootstrap_identity.py 提供 roles（迁移前建身份）/ grants（迁移后收敛授权）两阶段，实测在 head 库上两阶段各连跑两遍无报错、属性闸门全绿、305 条授权收敛后 ACL 相关用例全过；本轮同时把 8 个 svc_* 占位角色声明为 NOLOGIN（零授权、无代码或配置引用、无口令字段，与已退役 qc_worker 同类风险面，R16 启用时改一处声明即可）；剩余第二步（迁移链改写）与第三步（非超管执行者）依赖属主权限模型裁定：afs_migrator 以 SET（非 ADMIN）成员身份进入 owner 角色执行 DDL，与注册表已登记的 migration_executor 目标态一致"

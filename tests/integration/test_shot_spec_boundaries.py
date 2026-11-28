@@ -104,9 +104,7 @@ async def _chain(admin_sessionmaker, *, tag: str, tenant) -> dict[str, str]:
     return ids
 
 
-async def test_shot_specs_are_invisible_across_tenants(
-    db_sessionmaker, admin_sessionmaker
-) -> None:
+async def test_shot_specs_are_invisible_across_tenants(db_sessionmaker, admin_sessionmaker) -> None:
     """跨租户读为 0、本租户读为 1（组织维度经父项目存在性传递）。"""
     tenant_a = uuid.uuid4()
     tenant_b = uuid.uuid4()

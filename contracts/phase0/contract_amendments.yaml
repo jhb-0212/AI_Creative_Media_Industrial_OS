@@ -1940,6 +1940,515 @@ amendments:
       - 'ApprovalSignature 三态状态机为所有者裁定，registration_status=PENDING_PHASE1_REVIEW，待 Phase 1 验收固化。'
       - 'G-C 计数断言测试中的写死 55 改为派生（判据不写死计数），G-C 销项事实由 LIFECYCLE_ADDED 在册断言继续证明。'
 
+  - id: 'V205-R15-A36'
+    title: '产物意图的崩溃恢复与 media_type 事实化（ADR-R42 PR-G 补齐）'
+    retroactive: false
+    recorded_at: '2026-11-24'
+    discovered_by: '2026-11-24 外部代码审查报告（基线 dadbb17c）§五 R42 PREPARED 恢复缺口；ADR-R42 :94「失败恢复的权威依据是持久化事实」'
+    reason: >-
+      审查报告列出 PR-G 四项缺口：PREPARED 崩溃恢复未实现、manifest 未持久化 media_type、
+      无「放弃」终态、治理授权未对账。前三项是同一根因的三个面：产物意图只活在 Worker 内存里，
+      T0 提交后崩溃就变成不可判定的孤儿行——既不能证明对象已写入（没有 media_type，
+      「是不是同一产物」不可判定），也没有终态表达「已放弃」。后果是重启后一律重新调模型，
+      产物重复计费，PREPARED 行永久悬挂。A35 与 V205-R42-T2-FINGERPRINT 两条修订都显式写了
+      「不做 PREPARED 恢复（PR-G）」，本条目即时销项。
+      三件事一并做到事实层：① ArtifactManifest 增加 media_type（NOT NULL，按 locator 扩展名
+      回填），T0 校验 locator 与 media_type 双射、T1/T2/T3 全链路比对，使「同一产物」成为
+      可判定命题；② 新增 ABANDONED 终态与 PREPARED→ABANDONED 边（owner 为
+      GENERATION_PROCESS_ACTION，frozen_states 含 STORED_VERIFIED 与 ABANDONED），放弃必须
+      带 audit_ref 证据且不删除意图行——放弃本身是可审计事实，不是清理动作；③ 恢复入口按
+      存储事实三态区分：确定不存在（StorageObjectMissingError）与已损坏（StorageIntegrityError）
+      放弃并重生成，暂不可用（StorageUnavailableError）不放弃、报告失败留待重试。第三态是
+      本条目最关键的判据：把一次 I/O 抖动判成「对象没了」会永久丢失已付费产物，比崩溃本身更贵。
+      恢复路径沿用原 attempt_id 走 T2，不重复调用模型，也不新建第二个 manifest。
+      第四项（治理授权对账）不改契约，落在 docs/audits/2026-11-24-r42-authorization-reconciliation.md：
+      澄清 ADR 的「不激活实现」是文件自身范围声明而非禁止实施，并汇总已落纸的授权事实
+      （A35 的 approved_by / source_commits）。C7 / D6 两个口径仍待 Owner 签署，不在本条目内改代码。
+    adr: 'docs/adr/ADR-R42-asset-registration-saga.md'
+    approved_by: '继承 A35 业主设计裁决（2026-11-23：AssetRegistrar 升级为 Outbox 异步 Saga、T0–T3 四阶段）；本批为审查整改，未新增动作/Schema/状态机对象'
+    approved_at: '2026-11-24'
+    source_commits:
+      - '02a94c289b2be7f1d4cf25d16e44e767d31787da'
+    counts_after:
+      actions: 105
+      openapi_operations: 105
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - 'C7 手动 QC 入队端点未补来源核验：持有 QC.TASK.ENQUEUE 可为不存在的资产、或自报 quality_profile_version 建 QC 任务，与 C7（只消费登记完成事件）和 C4（口径创建时冻结）同时冲突。裁定建议见 2026-11-24-r42-authorization-reconciliation.md §4.1，签署前不改。'
+      - 'D6 死信人工重放仍无代码入口，workers/relay/consumer.py 三处注释声称「可人工重放」。这是「用注释声明能力」的口径缺口，按建议应以受权重放 + append-only 审计事件补齐（同文档 §4.2）；当前为显式挂账，不改写措辞掩盖。'
+      - 'ABANDONED 只覆盖 PREPARED。STORED_VERIFIED 之后的放弃（例如资产域永久拒绝后清理产物意图）刻意不开新边：终态上加边会让「已存储」与「已放弃」两个事实互相污染。'
+      - 'media_type 的取值集由实现层 EXT_BY_MEDIA_TYPE 双射约束（png/jpg/webp/mp4/webm/wav/bin），契约只约束非空字符串。新增媒体类型须同改双射与回填口径，否则 T0 直接拒绝——这是刻意的 fail-closed，不是遗漏。'
+      - 'abandon() 的 audit_ref 只校验非空，不校验指向的审计事件真实存在（跨域引用无物理外键）。当前调用点唯一（executor._abandon_intent），风险面窄。'
+  - id: 'V205-R42-C7B'
+    title: 'C7 人工 QC 入队恢复入口的专项席位与来源核验（ADR-R42 C7 实现补齐）'
+    retroactive: false
+    recorded_at: '2026-11-24'
+    discovered_by: '2026-11-24 外部代码审查报告（基线 dadbb17c）§六 C7 遗留；docs/audits/2026-11-24-r42-authorization-reconciliation.md §4.1；docs/proposals/r42-remaining-acceptance-c7-d6.md §1'
+    reason: >-
+      C7-b 不是新需求，而是契约违约。action_registry.yaml 早在 QC.TASK.ENQUEUE 上写死两条约束：
+      「仅在生成终态且携带产物引用时入队」「同一生成任务不得重复入队」。运行时的 POST /qc-tasks
+      两条都没做——project_id 与 quality_profile_version 直接取自请求体，既不核验任务是否终态、
+      是否携带已登记产物引用，也不核验项目/租户归属；同时该端点对「生成 Worker/受信调度服务」
+      与人工操作者不区分席位，使人工路径可以绕开 C7（只消费登记完成事件）与 C4（口径创建时冻结）。
+      契约里早于实现写明的 negative_test_id ACT-QC-NEG-002 一直没有对应真实用例：tests/permission
+      自述「仅校验契约本身，不依赖运行时」，所以「有编号」长期被误当成「有测试」。
+      补齐方式是新增独立动作 QC.TASK.RECOVER 承载人工恢复，而不是放宽 QC.TASK.ENQUEUE 的席位：
+      后者的席位本就是自动入队主体，改宽会让自动路径的最小权限一起放宽；且自动入队实际不经 HTTP
+      （GENERATION_SUCCEEDED → relay 直调 QCTaskService），与「HTTP 端点」本就不同源，
+      把两个主体塞进一个动作正是错位的来源。拆开之后每条约束各自可判，人工入口也能单独赋权与审计。
+      幂等事实不新建机制：uq_qc_governance_qc_tasks_generation_task UNIQUE(generation_task_id)
+      已在库层保证「同一生成任务至多一个有效 QC 任务」，自动路径已用它做并发兜底；人工入口接入
+      同一唯一键即可，再加幂等表或分布式锁属于为满足判据叠加重复层。
+      跨域归属核验不能同 Session：qc_governance_role 对 production_planning 无任何表授权，
+      须按域各开连接（复用既有的 production_planning 租户 UoW），不能以请求体字段替代权威事实。
+      本条目只登记契约面，实现批次须在 Owner 正式签署后启动——按 P4「不得以建议或合并替代授权」，
+      2026-11-24 的六项判据属工程审查基线，不是签署。
+    adr: 'docs/adr/ADR-R42-asset-registration-saga.md'
+    approved_by: '工程审查建议（2026-11-24 S2 裁决：保留端点 + 补来源核验，六项判据 C7-1~C7-6，载于 docs/proposals/r42-remaining-acceptance-c7-d6.md）；Owner 正式签署待补，签署前不得进入实现批次'
+    approved_at: '2026-11-24'
+    additions:
+      actions:
+        - action_key: 'QC.TASK.RECOVER'
+          why: '人工恢复入队入口。与自动入队分离后，专项席位、权威归属核验、生命周期约束可各自验收；共用 UNIQUE(generation_task_id) 幂等事实，不产生重复有效 QC 任务'
+    source_commits:
+      - '54aa49ff1721d660f3ccdc11672986f846ddd1eb'
+    counts_after:
+      actions: 106
+      openapi_operations: 106
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - '实现未落地：QC.TASK.RECOVER 在 action_implementations.yaml 登记为 not_implemented，POST /qc-tasks 现有行为未变。缺口没有消除，只是第一次被契约命名并可判定——持有 QC.TASK.ENQUEUE 的调用者仍可为不存在的资产、或自报 quality_profile_version 建 QC 任务。'
+      - '操作者/原因/来源无事件承载：audit_event 暂指 QC_TASK_QUEUED，因为恢复成功后产生的就是正常 QUEUED 事实；但 C7-6 要求的操作者与原因无处落。实现批次须新增独立事件或扩展载荷，那本身是一次契约修订，须另行登记，不得先实现后补契约。'
+      - 'QC.TASK.ENQUEUE 的 implemented.route 登记为 POST /qc-tasks，与自动入队实际路径（relay 直调 service）不同源。本条目不改：implemented 台账要求 route 必须是真实 HTTP 端点，非 HTTP 入口无处登记，改它须先改闸门能力。这是既有的契约表达缺口，不是本批引入。'
+      - 'C7-5 的并发验收未做：库层唯一键成立是必要条件，不是充分条件。人工与自动两条路径同时入队的真实并发用例尚不存在，实现批次须补（含撞唯一键映射为 409，而不是 500 或静默成功）。'
+      - 'Owner 签署未落纸：approved_by 记录的是工程审查基线。按 P4，签署缺失时本条目只证明「契约已登记」，不证明「实施已获批」。'
+  - id: 'V205-R42-C7B-IMPL'
+    title: 'C7-b 人工恢复入口实施——六项判据落地（A37 的 Owner 签署与实施记录）'
+    retroactive: false
+    recorded_at: '2026-11-24'
+    discovered_by: 'docs/audits/2026-11-24-r42-authorization-reconciliation.md §11.1（Owner 签署）；docs/proposals/r42-remaining-acceptance-c7-d6.md §5（D-1/D-2/D-3 裁决）'
+    reason: >-
+      A37 只登记契约面，并按 P4 明确写了「签署缺失时只证明契约已登记，不证明实施已获批」。
+      本条目是它的实施侧闭环，同时是签署事实的落纸处：Owner 于 2026-11-24 明确签署 A37，
+      并采纳三项裁决（D-1 新增 QC.TASK.RECOVER、D-2 入口形态为受权 REST 端点、
+      D-3 outbox.dead_letter_replays 不登记为契约对象）。签署后 C7-b 不再是「提议中的改造」，
+      而是「已获批的实现批次」，本条目记录它落到了哪一步、哪几条判据可被机器判定。
+      为什么另立条目而不回填 A37 的 approved_by：历史条目一旦落纸即冻结，事后改写会让
+      「签署发生在何时」与「条目写于何时」无法区分，签署凭空获得追溯力；同理也不能把本批
+      提交塞进 A37 的 source_commits——那条要指契约面提交 54aa49f，两段式登记的意义正是
+      让「契约先于实现」这一步在历史里留下痕迹。所以 A37 正文一字不动，签署事实记在这里。
+      实施要点（为什么是这些做法，而不是加校验）：
+      ① 身份只取 Principal 的 QC.TASK.RECOVER 专项席位，请求体收敛为服务端可判定所需的
+      三个字段（generation_task_id / project_id / reason，extra=forbid），asset_version_id 与
+      quality_profile_version 再出现即 422——自报的事实不是事实；
+      ② 归属与生命周期只取数据库：跨域读经中立端口（packages/shared/generation_ports.py）+
+      生产域适配器 + 组合根装配，不给 qc_governance_role 补 production_planning 授权，
+      那等于永久拆掉域边界；顺序固定为「读事实 → 授权 → 写」，因为归属判定对象只能是库里的
+      project_id，且授权必须先于任何写入；
+      ③ 幂等复用 uq_qc_governance_qc_tasks_generation_task，不新增幂等表或分布式锁；
+      仓储 add() 由裸 flush 改为 SAVEPOINT + translate_write_error，23505 翻译成
+      DuplicateEntityError → IDEMPOTENCY_CONFLICT(409)——原先并发重复投递会以 500 出现，
+      relay 重试到死信，而入队其实早已成功，事实与响应相反；
+      ④ 事件载荷补 source / operator_id / reason 并登记为 payload_required；EnqueueOrigin
+      值对象取代散落的 created_by 字符串，MANUAL 必填 reason，构造期 fail-closed；
+      ⑤ 闸门能力扩展而非为单个动作开豁免：implemented 台账新增 mechanism: in_process
+      （强制 module + reason、不得同时声明 route、必须 ACTIVE，授权落点检查跳过它，
+      因为其触发面由 outbox 事件与 relay 角色数据库权限决定，比 require_role 更硬），
+      使「真的实现却无 HTTP 面」的自动入队不必再借用 POST /qc-tasks 的门牌号。
+    adr: 'docs/adr/ADR-R42-asset-registration-saga.md'
+    approved_by: 'Owner 正式签署（2026-11-24 会话原话「可以，签署，按最优的来」），签署对象为 A37 的 C7-1~C7-6 六项判据与 D-1/D-2/D-3 三项裁决'
+    approved_at: '2026-11-24'
+    source_commits:
+      - 'b876105f4c13d7c872d74a0543f93a81469ab849'
+    counts_after:
+      actions: 106
+      openapi_operations: 106
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - 'P2 仍未签署：本批不追认 02a94c2 的 media_type 回填与 ABANDONED 终态，该两项的实施合法性仍为 [V-BLOCKED]。签署只能由 Owner 单独说一句，不能从 C7-b 的签署里推断——若推断成立，闸门就退化成口号。'
+      - 'D6-9 未开始：OUTBOX.DEAD_LETTER.REPLAY 需独立契约登记（actions 106→107）、新表 outbox.dead_letter_replays 与新角色 outbox_ops_role，不在本批范围内。'
+      - 'C7-3 用「SUCCEEDED + 非空产物引用」作为「产物已登记」的等价事实，不另读资产回执表：T3 只能从回执进入，多读一次只多一个 TOCTOU 窗口。若将来存在非回执路径进入 T3，该等价失效，须重新评估本条。'
+      - 'mechanism: in_process 只能证明「登记方声称无 HTTP 面」，无法证明「确实无 HTTP 面」：闸门能拦「同时又写了 route」，拦不住有人为一个有端点的动作登记 in_process 以逃避授权落点检查，那一步仍需代码评审。'
+      - '人工恢复的 reason 只校验非空与 ≤200 字符，不校验其真实性，也不与审计事件做语义关联；「为什么恢复」目前是操作者自述，不是可验证事实。'
+  - id: 'V205-R42-D69'
+    title: 'D6-9 受权死信重放的契约登记（OUTBOX.DEAD_LETTER.REPLAY）'
+    retroactive: false
+    recorded_at: '2026-11-24'
+    discovered_by: 'ADR-R42 D6 表第 9 行（死信与人工处置）；docs/audits/2026-11-24-r42-authorization-reconciliation.md §4.2/§8.3/§11.2；docs/proposals/r42-remaining-acceptance-c7-d6.md §3（八项判据）'
+    reason: >-
+      D6-9 的需求早已授权（ADR-R42 D6 表第 9 行要求「多次重试仍无法恢复 → 死信与人工处置」），
+      未裁决的只是实现方案。2026-11-24 Owner 裁决 D-2「入口形态取受权 REST 端点」、
+      D-3「运维台账 dead_letter_replays 不登记为契约对象」，并指示开始实施。
+      本条目登记这次实施所必需的契约面：新增动作 OUTBOX.DEAD_LETTER.REPLAY（actions 106→107）。
+      为什么必须先登记再实施：死信「可人工重放」这句话此前只存在于
+      workers/relay/consumer.py 的三处注释里——注释声明能力、代码没有入口，
+      读者据此会误判运维可行性。契约先行让缺口第一次可被机器判定（not_implemented
+      带 reason），实施随后的提交再把它改成 implemented；两段分开，谁批准了什么、
+      什么时候做到哪一步，都能从历史里读出来。
+      三处刻意的表达选择：
+      ① resource_type 写 OutboxEvent 并在 resource_schema_gaps 登记债务，而不是给
+      事件总线凭空补一份 object_schemas 定义——正文没有 outbox 事件的字段口径，
+      补 schema 等于创造契约正文；实施批次按「运维基础设施类型」登记豁免，届时删债务。
+      ② audit_event 写的是表名（outbox.dead_letter_replays），不是事件名。审计载体是
+      append-only 运维表：重放由运维主体执行，而 outbox_relay_role 对 outbox_events
+      只有 SELECT + 三列 UPDATE、无 INSERT；为它补 INSERT 等于允许伪造任意业务事件，
+      是权限倒退而非复用 T2 的 outbox 先例。实施批次按 event_emission_gaps 登记
+      「载体是表，不是事件总线」——这是契约表达缺口，如实挂账，不用事件名掩盖。
+      ③ 不新增「直接投递」旁路：重放只清死信标记（dead_lettered_at / next_attempt_at /
+      attempts 三列）并交回正常 claim → handler → ack；复制新事件会绕过 event_id 幂等，
+      直调 handler 会绕过 claim、退避与租户隔离。
+    adr: 'docs/adr/ADR-R42-asset-registration-saga.md'
+    approved_by: '需求授权：ADR-R42 D6 表第 9 行 + V205-R15-A35（2026-11-23）；实现方案：Owner 2026-11-24 裁决 D-2（受权 REST 端点）/D-3（运维台账不登记为契约对象）；实施启动：Owner 2026-11-24 会话指令「开始」'
+    approved_at: '2026-11-24'
+    additions:
+      actions:
+        - action_key: 'OUTBOX.DEAD_LETTER.REPLAY'
+          why: '死信人工处置的唯一入口。只把事件从死信态移出并交回正常领取，不复制事件、不直调处理器；审计落 append-only 运维表，因此不需要也不允许运维主体持有 outbox_events INSERT。'
+    source_commits:
+      - '2342f9e8e348cffaea7a1d4f8c1fbb0581ba703e'
+    counts_after:
+      actions: 107
+      openapi_operations: 107
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - '实现未落地：OUTBOX.DEAD_LETTER.REPLAY 在 action_implementations.yaml 登记为 not_implemented。消费者注释里的「可人工重放」此刻仍是注释承诺而非能力，缺口只是第一次被契约命名并可判定。'
+      - '审计载体不是事件总线：本动作发不出事件，audit_event 指向运维表 outbox.dead_letter_replays。这是契约表达缺口（字段语义假设「审计=事件」），实施批次按 event_emission_gaps 显式登记，不改 event_catalog 计数。'
+      - '运维角色刻意不持有 outbox_events INSERT：因此重放不可能「顺手补一条补偿事件」。若将来业务上需要重放通知，那是业务域自己的事件，必须由业务域在自身事务里写，不是运维动作的副作用。'
+      - 'P2（media_type / ABANDONED 追认）与本条目无关且仍未签署，[V-BLOCKED] 不变。'
+  - id: 'V205-R42-D69-IMPL'
+    title: 'D6-9 受权死信重放实施——八项判据落地（端点 + append-only 审计表 + outbox_ops_role）'
+    retroactive: false
+    recorded_at: '2026-11-24'
+    discovered_by: 'docs/proposals/r42-remaining-acceptance-c7-d6.md §8（实施结果）；docs/audits/2026-11-24-r42-authorization-reconciliation.md §12'
+    reason: >-
+      D69 只登记契约面，并明文写了「实现未落地」这条残余风险。本条目是它的实施侧闭环：
+      八项判据逐条落地，「可人工重放」从注释承诺变成有审计的动作。不回填 D69 的
+      source_commits，因为那条要指契约面提交 2342f9e——两段式登记的意义正是让
+      「契约先于实现」在历史里留下痕迹；也不改 D69 的 residual_risks，历史条目落纸即冻结，
+      事后把「实现未落地」抹掉会让「哪一步在何时做到」不可考。所以 D69 一字不动，实施记在这里。
+      实施要点（为什么是这些做法，而不是加校验层）：
+      ① 权限边界下沉到库：outbox_ops_role 只有 SELECT outbox_events + UPDATE
+      (attempts, dead_lettered_at, next_attempt_at) + dead_letter_replays 的 SELECT/INSERT。
+      刻意不给 outbox_events INSERT（那等于允许运维主体伪造任意业务事件），刻意不给
+      published_at 的写权限（投递时间只能由真正投递成功的 relay 写）。这三条若只写在
+      service 里，任何拿到该角色口令的代码都能让失败事件看起来「已投递」。
+      ② append-only 两层：授权层无 UPDATE/DELETE + 触发器层拒绝 UPDATE/DELETE/TRUNCATE。
+      只有授权层时，超级用户或将来误配的角色仍能改写历史；只有触发器层时，「能不能写」
+      不再由 GRANT 表达。两层同时存在，才既拦得住也说得清。
+      ③ 授权矩阵扩出 INFRA_ROLES/INFRA_ROLE_GRANTS 而非把运维角色塞进 DOMAINS：
+      DOMAINS 的语义是「一域一角色一自有 schema」，运维角色没有自有 schema，塞进去会让
+      「本域每张 ORM 表都必须声明」这条判据对它求值成空集——看起来通过，实际把判据变成
+      永真式。收敛实现与域角色共用 _grants_converge，规则逐字相同（分成两份后，
+      「运维角色忘了撤默认权限」只能靠人比对两段代码）。
+      ④ 动态分区不进静态矩阵：分区名按月生成，授权由 partition_guard 生成，列清单从矩阵
+      派生（ops_replay_update_columns），不存第二份；现存分区由迁移补齐，未来分区由
+      outbox_maintenance.create_partition 逐条授予。
+      ⑤ 重放语义：只清死信三列并交回正常 claim，不复制新事件（event_id 是业务幂等支点）、
+      不直调 handler（绕过 claim/退避/租户隔离）、不写 published_at。
+      三处与基线（提案 §3）的偏差，理由见提案 §8.2，此处只记结论：
+      审计顺序改为「锁行 → 条件清标记 → 写审计」同事务（append-only 使「先写 IN_FLIGHT
+      再改写终值」不可实现，而重放前事实在锁行时已入内存，不会丢）；D6-3 的「handler 已注册」
+      改为「事件类型在契约全集内」（handler 注册表活在 relay 进程，API 拿不到也不该拿到）；
+      D6-6 的 rowcount 改为 RETURNING（同语义，证据更直接）。
+    adr: 'docs/adr/ADR-R42-asset-registration-saga.md'
+    approved_by: '需求授权：ADR-R42 D6 表第 9 行 + V205-R15-A35（2026-11-23）；方案裁决：Owner 2026-11-24 D-2/D-3（见 V205-R42-D69）；实施启动：Owner 2026-11-24 会话指令「开始」。本条目只记录实施事实，不新增授权。'
+    approved_at: '2026-11-24'
+    source_commits:
+      - 'dff7aaa63b3f590e5a996086699939ae11c3e808'
+    counts_after:
+      actions: 107
+      openapi_operations: 107
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - 'result 的 FAILED 枚举当前不可达：接受后的重放是同事务全有或全无，不存在「已受理但失败」的中间态。CHECK 保留两个值是为了将来出现多步重放时不必改表；但此刻读代码的人容易误以为失败路径漏写了——这一点已写进提案 §8.2 与 §8.4。'
+      - '观测面缺失：没有「重放次数 / 死信存量」指标，排障只能查表。加指标需先定口径（按事件类型？按操作者？），不属于本批判据。'
+      - '本批只有写入口（重放），没有死信查询端点；「可查」仍靠只读 SQL。加 GET 端点需要新的只读动作与席位登记，不能假装已由平台提供。'
+      - 'D6-3 以契约全集替代 handler 注册表：契约内类型若恰好无 handler，重放不会丢事件（relay 对无处理器事件不 ack），但会让积压上涨到报警——这是可接受的降级，不是等价物。'
+      - '分区授权依赖两条路径（迁移补现存分区 + outbox_maintenance.create_partition 建未来分区）。若有人不走 create_partition 手工建分区，该分区没有运维授权，那个月的死信无法重放，且只在实际重放时暴露。'
+      - 'P2（media_type / ABANDONED 追认）与本条目无关且仍未签署，[V-BLOCKED] 不变。'
+  - id: 'V205-R42-P2-RATIFY'
+    title: 'P2 追认：PR-G-2 media_type 事实化 / PR-G-3 ABANDONED 终态（Owner 2026-11-25 裁决）'
+    retroactive: true
+    recorded_at: '2026-11-25'
+    discovered_by: 'docs/audits/2026-11-24-r42-authorization-reconciliation.md §9.4（把 P2 收窄至 2 条并给出四要素模板）；本次 Owner 裁决原文见同文 §13'
+    reason: >-
+      本条目是 §9.4「关闭 P2 的最小动作」的执行结果，只补授权凭据，不改任何契约内容。
+      为什么必须是 retroactive: true——两项实施（02a94c2）早于本授权一天落地，按台账第 34 行
+      的纪律「事后追认不等于当时合规」，必须如实标注，不能回填成当时的授权。
+      为什么另立条目而不改 A36 的 approved_by——A36 正文与「继承 A35」的记载是历史事实，
+      改写它会让「授权发生在何时」与「条目写于何时」无法区分；同理不能把 02a94c2 塞进
+      A35/A36 的 source_commits，那两条指向各自的落地提交。所以 A36 一字未动，
+      读台账时须把本条与 A36 合并读，否则会误以为 A36 的授权范围本就包含这两项。
+      为什么只授两项而不整批追认 PR-G——PR-G-1（PREPARED 恢复）已有 A35 的 C2 明文授权，
+      PR-G-4 是文档对账，都不缺授权凭据；缺的只有两项，追认必须窄到缺口本身，
+      否则一次签字会把「已授权事项」也重新签一遍，反而模糊了原先的授权边界。
+      追认的技术理由（Owner 2026-11-25 裁决）：① media_type 与 locator、sha256 一起构成
+      产物身份，必须是 T0 持久化事实；受控扩展名映射可确定性回填，无法映射时 NOT NULL
+      收紧失败而非猜测填充，符合 fail-closed。② ABANDONED 语义受限：仅 PREPARED 可放弃、
+      归属 GENERATION_PROCESS_ACTION、须带审计引用、保留原意图行、STORED_VERIFIED 不得放弃，
+      存储暂时不可用不会被误判为放弃。③ 撤销这两项不是「删两个字段和一个枚举值」，
+      而要重设恢复期的媒体类型事实与失败意图终态，会破坏 PR-G 恢复链条的一致性。
+      边界（写死，不外扩）：不授权未来同类字段/状态的扩充，不扩大到整个 PR-G，
+      不重复授权 C7-b 与 D6-9。
+      本条目不改变 [V-BLOCKED]：追认只关闭「授权证据缺口」，技术验收是否通过属另一件事，
+      须另行复核（代码、契约派生、迁移升降级、真实 PostgreSQL、恢复故障场景）后才可解除。
+    adr: 'docs/adr/ADR-R42-asset-registration-saga.md'
+    approved_by: 'Owner 裁决（2026-11-25 原话「我选 A：追认 media_type 和 ABANDONED 两项，不选择 B 隔离回退」），授权对象为 PR-G-2 / PR-G-3 两项'
+    approved_at: '2026-11-25'
+    source_commits:
+      - '02a94c289b2be7f1d4cf25d16e44e767d31787da'
+    counts_after:
+      actions: 107
+      openapi_operations: 107
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - '追认不等于技术验收：本条只关闭授权证据缺口，[V-BLOCKED] 不解除。解除须另行复核代码、契约派生、迁移升级与降级、真实 PostgreSQL 测试与恢复故障场景，且复核结果单独落纸。'
+      - 'A36 仍写着 `approved_by` = 继承 A35（历史条目冻结）。台账读者若只看 A36，会得出「media_type / ABANDONED 在 A35 字面范围内」的错误结论——必须与本条合并读。'
+      - '`audit_ref` 的强制力弱于文本表述：`ArtifactManifest.abandon(audit_ref)` 只是必填位置参数，`_advance_version` 直接赋值、不校验非空，`abandon("")` 会被接受并落一个空审计引用。「必须有证据」目前靠调用方纪律与状态机边界，不是字段级约束。'
+      - '`media_type` 回填按小写扩展名精确匹配（SQL 的 LIKE 区分大小写）且只覆盖 7 种受控类型；历史数据若含 .gif / .mov / .PNG 等，该行保持 NULL，随后 ALTER COLUMN … NOT NULL 失败。fail-closed 成立，但报错只是 NOT NULL 违例、不指出具体 locator，排障需人工比对全表。'
+      - '本次追认不构成预授权：将来再出现同族字段或新终态，仍须单独裁决；不得以「P2 已追认」为由扩展本条范围。'
+      - '「保留原意图行」由状态机表达（终态冻结、放弃不删行），但 `artifact_manifests` 不是 append-only 表：既无授权层无 DELETE，也无拒绝删除的触发器，超级用户或直连 DDL 仍可删行。'
+  - id: 'V205-R42-P2-BLOCK-LIFT'
+    title: 'P2 [V-BLOCKED] 解除：技术复核通过，五项已知差额继续挂账（Owner 2026-11-25 裁决）'
+    retroactive: false
+    recorded_at: '2026-11-25'
+    discovered_by: 'docs/audits/2026-11-25-p2-release-review.md §4（八项判据逐项附可复跑命令）、§5（五项已知差额）'
+    reason: >-
+      本条登记的是**状态变更**，不是契约变更：不新增、不删除任何 Action / Schema 对象 / 状态机，
+      计数仍为 107/107/99/56，运行时行为未改一行。
+      为什么可以解除：复核记录 §4 的八项判据全部实际运行并通过——代码、契约派生、迁移升级与降级
+      （含 -2 深度往返）、真实 PostgreSQL 行为、恢复故障场景、状态机边界、闸门。
+      判据是「复核已做且通过」，而不是「代码已合并」：P2 的实施在 02a94c2 就已合并，当时仍为
+      [V-BLOCKED]；可见「已合并」从来不是解除理由，这正是 P4「不得凭已合并证明已获批」要守的线。
+      为什么另立条目而不改 V205-R42-P2-RATIFY：台账纪律是「只能追加、不得改写历史条目」。
+      该条 residual_risks 第 1 条至今写着「[V-BLOCKED] 不解除」——那是复核执行前的正确表述，
+      冻结不回改。代价是台账必须两条合并读，该代价已写入本条残余风险，而不是留给读者自觉。
+      复核推翻了复核方自己上一轮的判断：上一轮结论是「主要实现已完成，剩余是挂账」，实际
+      ABANDONED 在真实库上不可写（迁移漏同步 ck_artifact_manifests_status，ORM 三值 / 库里两值），
+      两条生产放弃路径必然失败。解除依据是修复（e7f8a9b0c1d2）之后的判据，不是修复之前的——
+      若沿用上一轮结论直接解除，解除的就是一个假象。
+      解除范围写死，不外扩：只解 PR-G-2（media_type 事实化）/ PR-G-3（ABANDONED 终态）两项的
+      [V-BLOCKED]。§5 的五项已知差额不因解除而销项；TC-1~TC-5 技术选型、上游「实施是否获单独
+      授权」等其它 [V-BLOCKED] 各有其裁决路径，本条一字未涉；也不构成对未来同类字段/状态的预授权。
+    adr: 'docs/adr/ADR-R42-asset-registration-saga.md'
+    approved_by: 'Owner 裁决（2026-11-25 原话「解除」）。解除的对象是 P2 的阻塞状态，技术依据为 docs/audits/2026-11-25-p2-release-review.md §4；本条不新增任何业务授权'
+    approved_at: '2026-11-25'
+    source_commits:
+      - '5442e0aa9ab390e6978caf95ec7a96f6aeaa4c52'
+    counts_after:
+      actions: 107
+      openapi_operations: 107
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - '解除不等于销项：复核记录 §5 的五项差额继续挂账，本条不改变其中任何一项——audit_ref 无非空校验、artifact_manifests 非 append-only、ArtifactManifest 状态机条目仍为 PENDING_PHASE1_REVIEW、CI 往返深度靠人工同步、偶发 ACL 红灯根因未定位。'
+      - '台账合并读成本：P2-RATIFY 的「[V-BLOCKED] 不解除」与 C7B-IMPL / D69 的「P2 未签署，[V-BLOCKED] 不变」均为历史原文，冻结不回改。只读单条会得出「仍阻塞」的错误结论，必须与 P2-RATIFY、本条串读。'
+      - '解除的是 P2 这一项，不是 [V-BLOCKED] 这个标记本身：TC-1~TC-5 技术选型（PostgreSQL 18 / Valkey / Temporal / S3 / 目录形态）与上游「实施是否获单独授权」等条目各自维持原状态，不因本条解冻。'
+      - '不构成预授权：将来再出现同族字段、新终态，或又一次「迁移加了列却没同步 CHECK 约束」，仍须单独复核与单独裁决，不得以「P2 已解除」为由沿用本次结论。'
+      - '偶发 ACL 红灯（test_append_only_tables_reject_row_mutation 单次失败、后续多轮全绿）根因未定位，不销项。它与 P2 解除无因果关系，不得据本条把它当作已闭环。'
+      - '「已修复」的判定要看 alembic_version 是否到达 e7f8a9b0c1d2，而不是看代码里有没有 ABANDONED：约束由迁移下发，未执行到该版本的环境里 ck_artifact_manifests_status 仍是两值，手工改约束属禁止项。'
+  - id: 'V205-R42-D69-RESIDUAL-CLOSURE'
+    title: 'D6-9 三项残余风险收口：死信查询端点 / 重放指标 / result 枚举收窄（Owner 2026-11-25 授权）'
+    retroactive: false
+    recorded_at: '2026-11-25'
+    discovered_by: 'V205-R42-D69-IMPL residual_risks 第 1/2/3 条；复核记录 docs/audits/2026-11-25-p2-release-review.md §9'
+    reason: >-
+      本条登记的是 D69-IMPL 三条残余风险的收口，其中第 3 条（无死信查询端点）需要新增契约动作，
+      因此是一次**契约变更**：Action 107→108、OpenAPI 107→108；Schema 99、状态机 56 不变。
+      三项与处置理由：
+      ① result 收窄为单值 SUCCEEDED（迁移 f8a9b0c1d2e3）。建表时保留 FAILED 的理由是「将来多步重放
+      不必改表」，但本实现的重放是单事务「锁行 → 条件清标记 → 写审计」，任何拒绝都在写之前以
+      DomainError 发生，事务提交即全有、回滚即全无，FAILED 是任何路径都写不进去的值。保留它的代价
+      不是多一个值，而是让读代码的人以为失败路径漏写了去补一条分支——而补不了：审计表 append-only，
+      「先占位再改写终值」不可实现。为让一个枚举值可达而破坏 append-only，是把判据迁就枚举。
+      ② 观测面补「重放次数」：outbox_dead_letter_replays_total{event_type}，只在提交成功之后 +1。
+      台账原文说「没有重放次数 / 死信存量指标」，其中「死信存量」当时就已过时（outbox_relay_dead 早已
+      存在），缺的只是处置动作的次数。口径写死：只计成功（拒绝路径的证据在结构化日志与 4xx 指标里），
+      唯一标签 event_type（契约有限集），不打 operator（人员维度单调增长且不该用于阈值）。配告警
+      OutboxDeadLettersPresent（outbox_relay_dead > 0 持续 30m，warning）：死信不会自愈。
+      ③ 新增只读动作 OUTBOX.DEAD_LETTER.READ（GET /outbox/dead-letters）。只读独立席位：查询用于
+      **定位**，重放才是**处置**，合并会让「只想看看有哪些死信」也必须持有处置权。只返回运维元数据
+      （event_id / event_type / attempts / dead_lettered_at / occurred_at），不返回 payload——payload
+      有业务数据与跨域引用，整批吐到运维列表等于把「可读运维元数据」放大成「可读业务事件内容」。
+      键集分页 (dead_lettered_at, event_id) 倒序 + 游标而非 OFFSET：死信是正在被处置的队列，翻页
+      期间行会消失，OFFSET 会因此漏行；只按时间做锚点则会在「同一时刻批量进死信」时跨页丢行。
+      游标非法（含无时区时间）一律 422，不吞成空页——空页等于告诉运维「没有更多了」。
+      配部分索引 ix_outbox_dead_letter（迁移 f9b0c1d2e3f4）：死信占全表极小比例，普通复合索引会让
+      每次事件写入都为极少数行付维护代价；索引建在父表上，分区索引自动级联到已有与未来分区。
+      同时 runbook 的手工 SQL 重放段落已删除并替换为端点调用——那段 SQL 不落任何审计，留着手册
+      等于教人绕过 D6-9 的审计链。
+      另登记 [V-BLOCKED] 阻塞清单（contracts/phase0/verification_blocks.yaml + scripts/verification_blocks.py，
+      已接入 contract_check 第 13 项）：此前「还有哪些阻塞」只能靠 grep 五份审计文档再靠人脑合并，
+      而历史条目按 append-only 冻结后，同一事项在文档里同时存在「当时阻塞」与「后来解除」两种原文。
+      清单只收明确标注 [V-BLOCKED] 的事项（8 条：blocked 7 / lifted 1），刻意不收 P2 复核记录 §5 的
+      五项差额——那是挂账不是阻塞，混进来会让「阻塞」同时指两件事。
+      为什么两段式：本条与实施分两个提交。实施提交在前（4de236a...），登记提交在后并引用它，
+      与 V205-R42-D69 → V205-R42-D69-IMPL 同一口径。理由不是洁癖：source_commits 必须指向一个
+      真实存在的落地提交，而提交无法引用自身哈希。
+    adr: 'docs/adr/ADR-R42-asset-registration-saga.md'
+    approved_by: 'Owner 2026-11-25 会话指令「全做」。授权范围为当轮明确列出的三个可选项：① 死信观测指标与死信查询端点；② FAILED 枚举可达性；③ [V-BLOCKED] 阻塞清单的机器可查单一事实源。不含其它动作新增、字段扩充或状态机变更，也不构成对未来同类动作的预授权'
+    approved_at: '2026-11-25'
+    additions:
+      actions:
+        - action_key: 'OUTBOX.DEAD_LETTER.READ'
+          why: '死信处置的只读定位入口，与 REPLAY 分开登记的理由是权限：查询用于找到要处置的事件，重放才是处置；并成一个动作会让「只想看看有哪些死信」也必须持有处置权。只返回运维元数据（不返回 payload），租户范围只来自 Principal，分页有上限且用游标。'
+    source_commits:
+      - '4de236a14108d72f12a976b2aa23fbd5158c5ad2'
+    counts_after:
+      actions: 108
+      openapi_operations: 108
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - '新增动作是本次授权的具体标的，不是「运维类端点可以随手加」的先例：再加只读或写端点，仍须单独登记动作与席位，并说明为什么不能并入既有动作。'
+      - '查询端点只覆盖「当前库里的死信」。分区被摘除归档后（保留期维护），那些死信的事件元数据已不在主库，端点查不到——归档文件才是那部分事实的载体，不要据此认为「历史上没有进过死信」。'
+      - '重放计数器在进程内聚合：多副本各自计数、由 Prometheus 汇总；进程重启归零。它回答「处置动作发生了多少次」，不回答「处置过哪些事件」——后者看 outbox.dead_letter_replays 审计表。'
+      - 'result 收窄为单值后，若将来真的出现多步重放（先受理、后成功/失败），必须同时加值与给出失败路径，不能只把值加回去：一个允许却不可达的值正是本轮要消灭的东西。'
+      - '台账合并读成本：D69-IMPL 的 residual_risks 第 1/2/3 条仍是当时的正确表述（冻结不回改），只读那条会得出「三项都没做」的结论，必须与本条串读。'
+      - '阻塞清单的完整性靠两层保障：判据只保证「引用的东西存在、状态与字段不矛盾」，不保证「没有漏登记某个新阻塞」；后者靠 tests/unit/test_verification_blocks.py 的关键 id 白名单。新增一条阻塞时两处都要改，这个成本是刻意的。'
+  - id: 'V205-R44-TC-DECISION-BLOCK-LIFT'
+    title: 'TC-1~TC-5 决策阻塞解除：ADR-R44 七项裁决签署后清单未同步（补登记 Owner 2026-11-23 裁决）'
+    retroactive: true
+    recorded_at: '2026-11-25'
+    discovered_by: 'docs/audits/2026-11-25-tc-decision-block-reconciliation.md（对账记录）、docs/adr/ADR-R44-technology-and-infrastructure-baseline.md §4 / §9.1、docs/architecture/technology-decision-matrix.md'
+    reason: >-
+      本条登记的是**清单状态同步**，不是契约变更，也不是技术裁决：不新增/删除任何 Action、
+      Schema 对象、状态机，计数仍为 108/108/99/56；不改 ADR-R44 正文，不改技术决策矩阵，
+      不改任何技术栈配置。
+      为什么标 retroactive: true：裁决发生在 2026-11-23（提交 b6ab0aa，ADR-R44 PROPOSED → DECIDED），
+      本条是 2026-11-25 对既有裁决的**补登记**。事后追认不等于当时合规，也不等于当时清单是对的——
+      事实正相反：清单在 2026-11-23 之后仍把 TC-1~TC-5 记为「等 Owner 裁定其一」，属于治理台账未同步，
+      这两天里任何依据清单判断「还有 7 条阻塞」的结论都是错的。
+      为什么可以解除：五条的 unblocks_when 写的都是「Owner 在选项中裁定其一」，而 ADR-R44 §4 的裁决栏
+      逐项落在这些选项内——TC-1 (b) 仅新流程引入 Temporal / R42 不迁；TC-2 (b) 先做 PG18.7 全链 PoC、
+      验证前继续 PG16；TC-3 (b) 独立 Valkey PoC、保留 redis-py、不切生产默认；TC-4 (a) 经现有
+      Storage Port 增量接入 S3；TC-5 (a) 独立领域与 Schema、归属链不变。解除条件是「Owner 裁定」，
+      不是「裁定后再由复核方批准」，所以阻塞在签署时即已消失。
+      解除的**只是决策层**。清单此前把两层压进一条 gap，本条把它拆开：LIFTED 条目必须带
+      lifted_scope = DECISION 与 remaining_gate，写明「仍未解除的执行门槛」及其权威出处（ADR §4 执行约束栏）。
+      现行技术栈一项未变（PG16 / Redis 7 / local:// / Outbox Saga / 无 Temporal 服务 / 无独立 Broker），
+      PoC/立项状态仍全部 NOT RUN——NOT RUN 不是 PASS，本次解除不把它变成 PASS。
+      为什么这不构成 S1 的签署证据：ADR-R44 §9.1 的签署范围原文明确列出「不在本次范围：R42 实施授权口径
+      （BOOT-01 登记的 BLOCKED 项，仍待 Owner 单独裁决）」，决策矩阵签署信息同句；P2 解除条目亦声明不覆盖。
+      三处独立证据一致，故 V-BLOCK-R42-IMPLEMENTATION-AUTH 维持 BLOCKED，一字未动。
+      为什么另立条目而不改既有条目：台账纪律是只能追加。V205-R42-D69-RESIDUAL-CLOSURE 的 reason 里
+      「8 条：blocked 7 / lifted 1」是该条登记当时的正确表述，冻结不回改；代价是台账须串读，已写入残余风险。
+    adr: 'docs/adr/ADR-R44-technology-and-infrastructure-baseline.md'
+    approved_by: 'Owner 2026-11-23 会话指令「TC-1~7 七项是最优状态就签署」，采纳 ADR-R44 七项推荐裁决（签署记录见该 ADR §9.1）。本条仅同步 TC-1~TC-5 的决策阻塞状态，不含 TC-6/TC-7（清单未登记这两项），不构成技术栈切换授权，不覆盖 R42 实施授权口径（S1）'
+    approved_at: '2026-11-23'
+    source_commits:
+      - 'b6ab0aa9f564b1efddbfad4f3ba2b753e529aa61'
+    counts_after:
+      actions: 108
+      openapi_operations: 108
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - '解除的是决策阻塞，不是执行门槛：TC-2/3/4 的 PoC 与 TC-5 的 SHOT-01 仍为 NOT RUN，切换前四道门槛（[E5] 运行证据 / 独立 ADR 修订 + Owner 签署 / 冻结清单重签 / 不与领域重构同 PR）一条未过。把本条读成「可以改生产配置」即违反 ADR-R44 §4.1。'
+      - 'remaining_gate 是索引不是权威：权威在 ADR-R44 §4 的「执行约束」栏与 §5 的 PoC 门槛。两处若出现分歧，以 ADR 为准并修正清单，不得反向用清单去改 ADR。'
+      - '台账合并读成本：V205-R42-D69-RESIDUAL-CLOSURE 的 reason 写着「8 条：blocked 7 / lifted 1」，是 2026-11-25 登记当时的正确表述，冻结不回改；只读该条会得出「仍有 7 条阻塞」。当前正确计数为 8 条：blocked 2 / lifted 6，以 verification_blocks.yaml 与对账记录为准。'
+      - '不覆盖 S1：V-BLOCK-R42-IMPLEMENTATION-AUTH 维持 BLOCKED，等 Owner 明确认可「ADR-R42 正文保持历史原文、实施状态以两份对账记录为事实源」；「有条件认可」不得被本条或 P2 条目写成无条件认可。'
+      - '不预授权未来同类条目：凡 lifted_scope = DECISION 的解除，必须在 ADR 中存在已签署的裁决栏，且 lifted_by 指到真实台账修订、lift_evidence 文档提到该 id（判据已强制）。不得以「TC 已经这么做过」为由跳过裁决直接标 LIFTED。'
+      - '引用计数不是判据：AFS-P0-FREEZE-2026-11-13-01 的「引用 17 处」口径为「git grep、只数 tracked 文件、排除写该句的文档自身」，在 cd2a7ec 上可精确复现（19-2）；HEAD 为 20 行 / 7 文件。该数字随审计增长单调上升（其中 3 行正是记录本事项带来的），故清单改登记 as_of_commit + 命令，不再用裸数字当断言。真正的缺口是「原件 0 份」。'
+
+  - id: 'V205-P0-FREEZE-RESOLUTION-REGISTER'
+    title: '原始冻结决议入仓：AFS-P0-FREEZE-2026-11-13-01 登记为冻结附件，[V-BLOCKED] 解除（Owner 选路径 A）'
+    retroactive: true
+    recorded_at: '2026-11-25'
+    discovered_by: 'docs/audits/2026-11-25-freeze-resolution-origin-investigation.md §2（证物清单与指纹）、§3（与仓库证据对照）'
+    reason: >-
+      本条登记的是**入仓与状态变更**，不是契约变更：不新增/删除任何 Action、Schema 对象、状态机，
+      计数仍为 108/108/99/56；不改基线正文，不改十一类产物，冻结面新增的只是一份治理附件。
+      原件此前并非不存在，而是从未入仓：它一直在仓库父目录（项目工作区），游离于版本控制之外，
+      于是「引用 20 处、原件 0 份」。本条的落地动作是把该文件逐字节复制进
+      docs/baseline/Phase0-冻结评审决议.md（21327 字节，sha256 05eb0c99…），并在
+      frozen_inventory.yaml 的 attachments 段登记，由 freeze_manifest 逐次复核。
+      为什么标 retroactive: true：决议签署于 2026-11-13（项目 owner 敬宏波，签署栏确认 C1—C4
+      当日关闭），本条是 2026-11-25 的补登记。补登记不等于当时合规——事实是这份决议在项目管理上
+      一直有效，但在工程证据链上是缺席的：任何 clone 仓库的人都无法核验它。
+      为什么登记为「附件」而不是塞进十一类：31.11 的十一类是契约产物，其名称全集要参与
+      「基线 ∪ 修订 == 实际」的判定；把决议塞进去会把十一类变成十二类，并让名称全集开始吃进
+      非契约文件。附件层只锁字节与哈希，不参与名称全集。
+      解除的范围写死：只解 V-BLOCK-ORIGINAL-FREEZE-RESOLUTION 一项。S1（R42 实施授权口径）
+      与其它 [V-BLOCKED] 各有裁决路径，本条一字未涉；也不构成「以后任何文件都能自称原件入仓」
+      的先例——入仓必须由 Owner 指定，且必须能指到签署栏。
+    adr: 'docs/baseline/Phase0-冻结评审决议.md'
+    approved_by: 'Owner 2026-11-25 选择处置路径 A（入仓并登记冻结面）；决议本身的签署为项目 owner 敬宏波 2026-11-13（见该件第八节签署栏）。本条只把既有签署件纳入工程证据链，不新增任何技术或业务授权'
+    approved_at: '2026-11-13'
+    source_commits:
+      - 'f7c172fa09f488a7c9cb46758d349f48484489b8'
+    # 冻结附件的要求侧：本条批准哪一份文件进入冻结面，以及批准的是哪一版。
+    # 为什么要有这一侧：frozen_inventory.attachments 是**登记侧**，可以整段删除，
+    # 而删掉之后「要求」也一起消失——闸门看到的就是「本来就没有附件」。要求必须
+    # 住在另一处（已批准修订），删登记才会与「批准仍在」对不上而报红。
+    # 为什么连字节与哈希一起写：只写路径，挡不住「换文件、改登记、重签清单」的
+    # 连贯操作；写下批准时的指纹，换内容就必须连已批准修订一起改，那是另一回事。
+    frozen_attachments:
+      - path: 'docs/baseline/Phase0-冻结评审决议.md'
+        bytes: 21327
+        sha256: '05eb0c99385426ae7405c05aa908eb9fd0685b83853f7831b713594182f30aab'
+    counts_after:
+      actions: 108
+      openapi_operations: 108
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - '决议自称封存的基线（468816 字节 / sha256 66ec66d8…）在本机与 git 全历史中均已不存在，2026-11-13 的冻结哈希链无法重算。本条只锁「决议正文未变」，不得被读成「当初冻结的产物仍可复核」。'
+      - '入仓件与原件同哈希，但两者都不带数字签名：能证明「与 owner 确认过的那一版一致」的只有签署栏文字与旁证（三份配套件时间序列、与仓库契约状态吻合）。要密码学证明须另做签署件摘要存证，本轮未做。'
+      - '附件已补上要求侧但仍不是 append-only 保护对象：删掉 frozen_inventory.attachments 段会与本条 frozen_attachments 对不上而报红；换掉文件内容须连本条的指纹一起改。真正挡不住的只剩「显式修改本条已批准修订」——那是 governance diff，靠 code review 与 Owner 裁决，不靠闸门。'
+      - '要求侧只做单向（批准 → 必须登记）：登记先落、修订后落是两段式登记的固有顺序（source_commits 不能指向自身），反过来要求「每条登记都必须已有批准」会让中间那次提交必然为红。反向的「偷加附件」由清单哈希与 review 兜，闸门不假装能兜住。'
+      - '台账合并读成本：V205-R42-D69-RESIDUAL-CLOSURE 的 reason 与 V205-R44-TC-DECISION-BLOCK-LIFT 的 reason 均写于本条之前，其中的「blocked 7 / lifted 1」「blocked 2 / lifted 6」是各自登记当时的正确表述，冻结不回改；当前正确计数以 verification_blocks.yaml 为准。'
+      - '同日两次解除（上午 TC-1~TC-5、下午本项）会让 2026-11-25 的对账记录出现三种计数。各记录都已标注其时点，串读顺序为：TC 对账记录 §7（blocked 2/lifted 6）→ 原件调查记录 §8（blocked 1/lifted 7）。'
+
+  - id: 'V205-R42-S1-AUTHORIZATION-ACK'
+    title: 'S1 正式认可：R42 实施授权口径由 Owner 明确认可，[V-BLOCKED] 解除（三层记录口径，不含新授权）'
+    retroactive: false
+    recorded_at: '2026-11-25'
+    discovered_by: 'docs/audits/2026-11-25-r42-s1-authorization-ack.md §2（P1–P4 四项前置的当前落点）、docs/audits/2026-11-24-r42-authorization-reconciliation.md §9（三层分列与逐项清单）'
+    reason: >-
+      本条登记的是**治理口径的认可与状态变更**，不是契约变更：不新增、不删除任何 Action /
+      Schema 对象 / 状态机，计数仍为 108/108/99/56；不改 ADR-R42 正文一字，不改技术栈，
+      不改运行时行为。
+      为什么此前一直 BLOCKED：2026-11-24 §8.1 把解除定成四条可核验前置（P1 三层分列 /
+      P2 授权可追溯 / P3 代码测试证据 / P4 不得以合并反推授权），并只给出「有条件认可」。
+      P1/P2 由同一记录 §9 补齐（三层表 + 逐项清单），P3/P4 早已成立，但 Owner 在条件补齐后
+      未再明确表态——缺的从来不是证据，是一句话。本条就是那一句话的落点。
+      认可的表述（逐字，见该记录 §1）：ADR-R42 正文保持历史原文不动；R42 实施状态以
+      2026-11-23 实施对账 + 2026-11-24 授权对账为事实源；该认可只确认原始架构决策 / 后续
+      实施授权 / 实际实施状态三层的记录口径。
+      范围写死，不外扩：只解 V-BLOCK-R42-IMPLEMENTATION-AUTH 一项。不构成对未列事项的追认，
+      不新增技术与业务授权，不预授权未来变更；PR-G-2、PR-G-3 的追认范围仍以
+      V205-R42-P2-RATIFY 为准，本条不改变其边界。R42 之外的工作不因本条获得任何授权。
+      为什么是 lifted_scope = DECISION 而不是 ALL：解除的是「等 Owner 一句明确认可」，
+      这一句到了；但清单 §9.2 逐项表之外的实施仍需各自授权，故条目内保留 remaining_gate。
+      写成 ALL 等于宣称「R42 整体放行」，那是这个认可没有说过的话。
+      为什么另立条目而不改既有条目：台账纪律是只能追加。V205-R42-P2-RATIFY 的 residual_risks
+      写着「[V-BLOCKED] 不解除」，2026-11-24 记录 §8.1 的标题写着「有条件认可，[V-BLOCKED]
+      不变」——都是各自当时的正确表述，冻结不回改。代价是台账与审计记录必须串读，已写入残余风险。
+    adr: 'docs/adr/ADR-R42-asset-registration-saga.md'
+    approved_by: 'Owner 2026-11-25 明确认可（原话逐字存于 docs/audits/2026-11-25-r42-s1-authorization-ack.md §1）：认可的是三层记录口径，不构成对未列事项的追认、不新增技术或业务授权、不预授权未来变更'
+    approved_at: '2026-11-25'
+    source_commits:
+      - '2a3f1dc'
+    counts_after:
+      actions: 108
+      openapi_operations: 108
+      schema_objects: 99
+      state_machines: 56
+    residual_risks:
+      - '认可的是记录口径，不是「R42 全部实施已获授权」：授权范围就是 2026-11-24 记录 §9.2 的逐项表，表外项不在其中；表外若已有实施，仍须逐项追认（PR-G-2 / PR-G-3 就是这么补的）。'
+      - '不得把本条读成预授权：新的技术或业务变更、同族字段与状态的新增，仍须单独复核与单独裁决。'
+      - 'P4 仍然成立且方向不可反：L3（实施事实）不产生 L2（授权）效力；「代码已合并」在任何时候都不是「已获批」的证据。'
+      - '台账与审计记录合并读成本：V205-R42-P2-RATIFY 的「[V-BLOCKED] 不解除」、2026-11-24 记录 §8.1 的「有条件认可，[V-BLOCKED] 不变」、V205-R44-TC-DECISION-BLOCK-LIFT 的「S1 维持 BLOCKED」均为历史原文，冻结不回改。只读单条会得出「仍阻塞」的错误结论，必须与 2026-11-25-s1 认可记录串读。'
+      - '同日第三次计数变化：2026-11-25 先是 TC-1~TC-5（blocked 2/lifted 6）、再是原件入仓（blocked 1/lifted 7）、晚为本条（blocked 0/lifted 8）。三份记录各标时点，当前状态以 verification_blocks.yaml 为准。'
+      - '清单首次没有仍阻塞条目，不等于治理风险归零：P2 §5 的四项已知差额（audit_ref 非空校验、artifact_manifests 非 append-only、状态机条目 PENDING_PHASE1_REVIEW、偶发 ACL 红灯根因）是挂账而非 [V-BLOCKED]，不因本条转变性质。'
+
 # 可追溯性债务：这些历史修订的 source_commits 为空，无法指到落地提交。
 #
 # 为什么挂账而不是补齐：补齐只能靠事后推断，而推断出的「落地提交」本身就是伪造证据——

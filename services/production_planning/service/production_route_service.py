@@ -97,9 +97,7 @@ class ProductionRouteService:
 
         route = await self._repository.get_by_id(entity_id)
         if route is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"生产路线不存在: {entity_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"生产路线不存在: {entity_id}")
 
         await advance_status(
             route,

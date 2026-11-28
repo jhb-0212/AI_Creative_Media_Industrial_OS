@@ -59,9 +59,7 @@ def test_readyz_fails_closed_when_project_pool_unavailable(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """project 池不可用必须 503（fail-closed），不能把流量放进来变成 500。"""
-    monkeypatch.setattr(
-        app.state, "project_planning_sessionmaker", _broken_sessionmaker
-    )
+    monkeypatch.setattr(app.state, "project_planning_sessionmaker", _broken_sessionmaker)
     resp = client.get("/readyz")
     assert resp.status_code == 503
     body = resp.json()
@@ -100,9 +98,7 @@ def catalog_open(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_error_catalog_returns_known_code(
-    client: TestClient, catalog_open: None
-) -> None:
+def test_error_catalog_returns_known_code(client: TestClient, catalog_open: None) -> None:
     resp = client.get("/errors/AUTH_SCOPE_DENIED")
     assert resp.status_code == 200
     body = resp.json()
@@ -111,9 +107,7 @@ def test_error_catalog_returns_known_code(
     assert body["http_status"] == 403
 
 
-def test_error_catalog_unknown_code_returns_404(
-    client: TestClient, catalog_open: None
-) -> None:
+def test_error_catalog_unknown_code_returns_404(client: TestClient, catalog_open: None) -> None:
     resp = client.get("/errors/UNKNOWN_CODE")
     assert resp.status_code == 404
     assert resp.json()["error_code"] == "NOT_FOUND"
@@ -139,12 +133,8 @@ def test_error_catalog_requires_matching_internal_token(
     )
 
     assert client.get("/errors/AUTH_SCOPE_DENIED").status_code == 404
-    wrong = client.get(
-        "/errors/AUTH_SCOPE_DENIED", headers={"X-Internal-Token": "guess"}
-    )
+    wrong = client.get("/errors/AUTH_SCOPE_DENIED", headers={"X-Internal-Token": "guess"})
     assert wrong.status_code == 404
-    ok = client.get(
-        "/errors/AUTH_SCOPE_DENIED", headers={"X-Internal-Token": "internal-secret"}
-    )
+    ok = client.get("/errors/AUTH_SCOPE_DENIED", headers={"X-Internal-Token": "internal-secret"})
     assert ok.status_code == 200
     assert ok.json()["code"] == "AUTH_SCOPE_DENIED"

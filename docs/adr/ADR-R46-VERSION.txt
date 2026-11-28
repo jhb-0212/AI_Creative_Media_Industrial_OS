@@ -1,0 +1,120 @@
+ADR-R46 版本索引（append-only，只追加不修改）
+================================================================================
+用途
+--------------------------------------------------------------------------------
+本文件是 ADR-R46 的唯一版本指认处。把「版本指纹」从正文里拿出来，
+避免「改了正文 → 正文里写的哈希失效 → 没人知道哪份是真的」这类自相矛盾。
+正文不得内嵌自身哈希。
+
+规则（三条，不可协商；承继 ADR-R40-VERSION.txt / ADR-R44-VERSION.txt / ADR-R45-VERSION.txt）
+--------------------------------------------------------------------------------
+R1  只追加。任何一行一旦写入，不得修改、不得删除。发现记错只追加
+    「CORRECTION」更正行，写明被更正行号与原因。
+R2  正文不内嵌自身哈希。ADR 正文只写「指纹见本文件」。
+R3  哈希必须带口径：
+      - git blob SHA1：git 对仓库内字节计算（core.autocrlf=true 下归一化为 LF）；
+      - 文件 SHA-256：工作区磁盘字节（Windows 上受 core.autocrlf=true 影响可能为 CRLF）。
+    两者不得混用，也不得只给其中一个而不说明是哪个。
+
+现行有效文本
+--------------------------------------------------------------------------------
+  v1.0  docs/adr/ADR-R46-data-constrained-downgrade.md
+
+条目
+--------------------------------------------------------------------------------
+VER-0001
+  version       : v1.0
+  path          : docs/adr/ADR-R46-data-constrained-downgrade.md
+  status        : DECIDED（D4-9 三项裁决 R1/R2/R3 由项目所有者 2026-11-28 签署）
+  date          : 2026-11-28
+  lines         : 321
+  bytes         : 23961
+  sha256_disk   : 469ed631594c3f6feb8be0089cca0d32987358acd2bb66301496bf480eae0691
+  git_blob_sha1 : cc708e8e914e24ec3e10375fe7574ea3b369c5b3
+  git_tracked   : no（签署发生于隔离证据工作树 strip-impl，非 git 仓库；指纹采集于工作区字节，
+                  归一化为 LF 后计算 git_blob_sha1。纳入仓库后须重新采集并追加 VER-0002，
+                  不得原地改写本行）
+  fingerprint_scope : 仅 ADR 正文；不含本 VERSION 文件
+  recorded_at   : 2026-11-28
+  signed_by     : Project Owner（本项目所有者）
+  decision_ref  : D4-9（2026-11-28）；裁决记录见正文附录 B
+  scope         : 附录 A（A.1–A.7）与 D4-9 三项裁决；正文 §8 三项待裁决点不在本次签署范围
+  evidence      : runs/2026-11-28/strip-sweep.results.json（25/25 no_restore_proven, diff_groups=[]）
+                  docs/audits/2026-11-28-wp04-strip-checklist.md（5 revision 逐项核验）
+                  docs/audits/2026-11-28-wp04-classification-change.json（分类变更与历史保留）
+                  docs/audits/2026-11-28-identity-migration-inventory.json（40 revisions 有身份动作）
+                  docs/audits/2026-11-28-wp04-bidirectional-snapshot.json（25 条，0 差异）
+                  docs/audits/2026-11-28-wp04-reversibility-matrix.json（asymmetric 23, blocking []）
+                  runs/2026-11-28/gate3b-*.log（Registry clean=true / DDL PASS / Matrix exit 0）
+  note          : 采集顺序「内容定稿 → 一致性校验 → 采集 → 登记」。
+                  校验：正文内嵌自身哈希=0；A.2.2 为 Owner 逐字文本；A.2/A.3/A.4–A.7 与
+                  D4-9 裁决一致；正文 §8 已标注不在签署范围；附录 B 载明签署边界。
+                  本签署不代替 A.6.6 正式变更授权；不改生产库、不执行集群角色退役、不提交/推送/合并。
+
+VER-0002
+  version       : v1.1（自本条起现行有效文本为 v1.1；v1.0/VER-0001 仍是其签署时点的独立文本，不得混用）
+  path          : docs/adr/ADR-R46-data-constrained-downgrade.md
+  status        : DECIDED（§8 三项待裁决点由项目所有者 2026-11-28 追加裁决，记录于正文附录 C）
+  date          : 2026-11-28
+  lines         : 405
+  bytes         : 29791
+  sha256_disk   : d1b9b4a5bdca143357d6351dc6de0d72254c7902c71e890c1fe5a93eb4088f73
+  git_blob_sha1 : 60d1744ab37779bf55a75f1af0dc4c2b140f7bba
+  git_tracked   : no（隔离证据工作树 ci-tree，未提交；采集前已将正文归一化为 LF，避免 CRLF/LF 混排
+                  导致同一文本两个指纹）
+  fingerprint_scope : 仅 ADR 正文（含附录 A/B/C）；不含本 VERSION 文件
+  recorded_at   : 2026-11-28
+  signed_by     : Project Owner（本项目所有者）
+  decision_ref  : §8 三项（附录 C.1 双签 / C.2 guarded-manual 一致性断言 / C.3 e1f2 显式守卫与结构化文案）
+  scope         : 仅 §8 三项与附录 C；**不溯及** VER-0001 的签署范围声明，不改附录 A/B 任何条款
+  evidence      : tests/unit/test_downgrade_guard_e1f2a3b4c5d6.py → 6 passed（runs/2026-11-28/guard-test3.log）
+                  tests/unit/test_downgrade_modes.py              → 4 passed（runs/2026-11-28/modes-test.log）
+                  data/migrations/downgrade_modes.json            → manual=[] / unsupported=[]（默认 guarded）
+                  runs/2026-11-28/adr-ver2-fingerprint.log、gates-after-adrc.log、
+                  registry-after-adrc.log（clean=true）、adrc-win-pytest.log、linux6-pytest.log
+  note          : 采集顺序「内容定稿 → 一致性校验 → 归一化 LF → 采集 → 登记」。
+                  校验：正文内嵌自身哈希=0；VER-0001 的 sha256 469ed631… 仍对应 v1.0 文本，
+                  v1.1 为独立文本，两者不得互相替代。
+
+CORRECTION（VER-0002 的 evidence 路径）
+  corrected_line : VER-0002.evidence 中 'linux6-pytest.log'
+  corrected_to   : 'linux7-junit.xml / linux7-pytest.log（定稿补丁 d4-full-v3.patch 上的复跑；1650 / 0 失败 / 1 跳过）'
+  reason         : VER-0002 登记后，补丁与 checklist 定稿导致复跑编号前移（linux6→linux7）；
+                   代码与用例集合未变，计数一致，故仅更正证据文件名，不新增版本号
+  recorded_at    : 2026-11-28
+[VER-0003] 2026-11-28 v1.2 追加附录 D（空壳资产受控退役 R1）
+  bytes 33074 / lines 462 / sha256 d0d447d77ac6f2af52a23ce5521deee2b1c94ec155b06222d024e386b788e778 / blob_sha1 4e3fc0380ce2a625ff7c11120b1c8b6b28956aa2
+  变更范围：新增附录 D；正文与附录 A/B/C 未改动文本
+
+CORRECTION（VER-0003 的状态与指纹）
+  corrected_line : VER-0003 单行（无 status / signed_by / scope 字段）
+  corrected_to   : 附录 D 状态由 DECIDED 改为 PROPOSED（待签）；正文头部 Status 明确标注
+                   「A/B/C 已签、附录 D 未签」。修订后指纹见 VER-0004
+  reason         : 附录 D 原文以「项目所有者指令」自证 DECIDED，但 VERSION 台账中没有对应
+                   的签署条目（无 signed_by / scope / decision_ref）——条款不能由实现方替
+                   签署方下结论。另：D.2/D.3/D.4 仍描述加固前形态（md5 单一判据、按谓词
+                   删除），与 2026-11-28 审查后的实现不符，须同步后重新采集
+  recorded_at    : 2026-11-28
+
+[VER-0004] 2026-11-28 v1.3 附录 D 状态回正 + 处置条款与实现对齐
+  version       : v1.3（自本条起现行有效文本为 v1.3；v1.0/v1.1/v1.2 是各自时点的独立文本，
+                  不得混用，也不得用本条指纹替代它们）
+  path          : docs/adr/ADR-R46-data-constrained-downgrade.md
+  status        : PROPOSED（附录 D）；附录 A/B/C 仍为 VER-0001 / VER-0002 记载的 DECIDED
+  date          : 2026-11-28
+  lines         : 486
+  bytes         : 35449
+  sha256_disk   : d82dc79fd04c5903ac9de173fc0161c7d2093894358761543f6072e80729bdfa
+  git_blob_sha1 : 841400284aadeed89c0f8a4723b1633a087b1714
+  git_tracked   : no（采集于工作树 ci-tree 修改后字节；正文为 LF，disk 与 LF 归一化后 sha256 一致）
+  fingerprint_scope : 仅 ADR 正文；不含本 VERSION 文件
+  recorded_at   : 2026-11-28
+  signed_by     : （空）——本条不构成签署，只登记「提案文本」的字节指纹
+  decision_ref  : 2026-11-28 代码与框架审查（阻断项 ③：ADR 自证 DECIDED）
+  scope         : 附录 D 状态行 + D.1–D.5 措辞；A/B/C 文本未改
+  evidence      : runs/2026-11-28/remediate-lab3.log（加固后处置路径的端到端证据）
+                  runs/2026-11-28/remediate-postmigration-guard.log（迁移后阶段守卫拒绝执行）
+                  runs/2026-11-28/adr-v13-fp.txt（本次指纹采集原始输出）
+  note          : 签署动作只能由项目所有者完成：追加含 signed_by / scope / decision_ref 的
+                  条目，并把附录 D 的状态行改为 DECIDED。实现方不得代签，也不得再以
+                  「正文写 DECIDED」代替台账条目。

@@ -154,8 +154,7 @@ def upgrade() -> None:
     # 全表校验。存量已在上方逐行确认可转换，因此 VALIDATE 必然通过——若它
     # 失败，说明转换与判定不一致，这种分叉必须在这里暴露而不是留到线上。
     op.execute(
-        f"ALTER TABLE {_TABLE} ADD CONSTRAINT {_CONSTRAINT} "
-        f"CHECK ({_CHECK_EXPRESSION}) NOT VALID"
+        f"ALTER TABLE {_TABLE} ADD CONSTRAINT {_CONSTRAINT} CHECK ({_CHECK_EXPRESSION}) NOT VALID"
     )
     op.execute(f"ALTER TABLE {_TABLE} VALIDATE CONSTRAINT {_CONSTRAINT}")
 

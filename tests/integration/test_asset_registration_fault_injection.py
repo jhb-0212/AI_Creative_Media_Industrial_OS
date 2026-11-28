@@ -19,11 +19,18 @@ RLS 会把越权写静默过滤成 0 行。
 
 测试自造全部前置行，每个场景用新的 task id（回执 append-only，不能靠清理重跑）；
 fixture 在 finally 复位在途任务，避免污染 CI 的 `downgrade -1`。
+
+**只跑真实 relay 的那个用例必须换租户**：`OutboxRelay.drain_tenant` 是「一个租户
+领一批（默认 100 条，按 occurred_at 升序）」。共用主租户时，本用例刚写入的事件会
+被历史积压挤到批次之外——于是它测的不再是「反复失败是否进死信」，而是「这批是否
+恰好轮到我」。故该用例走 ``relay_tenant``：专用租户 + 前后清空，领到的恰好是它
+自己写的这条事件，判据可以写成精确值而不是 ``>=``。
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
@@ -57,15 +64,20 @@ from workers.relay.asset_registration import (
 from workers.relay.consumer import EventHandler, OutboxEvent
 
 _TENANT = UUID("00000000-0000-0000-0000-000000000043")
+# 只跑真实 OutboxRelay 的用例独占的租户：与主租户分开，才能断言「本轮领到的
+# 恰好是本用例写入的事件」（见模块 docstring）。
+_RELAY_TENANT = UUID("00000000-0000-0000-0000-0000000000de")
 _DIGEST = "e" * 64
 _LOCATOR = build_locator(_DIGEST, "png")
+
+
 # 确定性资产 id：与 workers.relay.asset_registration._asset_entity_id 同公式。
 # 测试独立重算，不从被测模块导入——否则「实现改了公式」与「测试跟着改」会一起
 # 漂移，失去对「资产 ID 必须确定性派生」这条不变量的独立校验。
-def _asset_id(task_id: str, digest: str = _DIGEST) -> str:
+def _asset_id(task_id: str, digest: str = _DIGEST, tenant: UUID = _TENANT) -> str:
     return uuid5(
         NAMESPACE_URL,
-        f"asset-registration:{_TENANT}:{task_id}:{digest}",
+        f"asset-registration:{tenant}:{task_id}:{digest}",
     ).hex
 
 
@@ -96,7 +108,12 @@ async def asset_sm() -> AsyncIterator[object]:
         await engine.dispose()
 
 
-async def _seed(admin_engine: AsyncEngine, *, status: str = "RUNNING") -> dict[str, object]:
+async def _seed(
+    admin_engine: AsyncEngine,
+    *,
+    status: str = "RUNNING",
+    tenant: UUID = _TENANT,
+) -> dict[str, object]:
     """造一个带租约的在途任务；每个场景用新 id，避免 append-only 冲突。"""
     run = uuid4()
     project_id = f"fi-proj-{run}"
@@ -113,7 +130,7 @@ async def _seed(admin_engine: AsyncEngine, *, status: str = "RUNNING") -> dict[s
                 "VALUES (:pid, 'Project', 205, 1, 'DRAFT', 'project_planning', "
                 " :tid, :now, 'fault-injector', :now, '故障注入', 'B', NULL)"
             ),
-            {"pid": project_id, "tid": _TENANT, "now": now},
+            {"pid": project_id, "tid": tenant, "now": now},
         )
         await conn.execute(
             sa.text(
@@ -131,7 +148,7 @@ async def _seed(admin_engine: AsyncEngine, *, status: str = "RUNNING") -> dict[s
             ),
             {
                 "eid": task_entity,
-                "tid": _TENANT,
+                "tid": tenant,
                 "now": now,
                 "status": status,
                 "task_id": task_id,
@@ -141,6 +158,7 @@ async def _seed(admin_engine: AsyncEngine, *, status: str = "RUNNING") -> dict[s
             },
         )
     return {
+        "tenant": tenant,
         "project_id": project_id,
         "task_id": task_id,
         "task_entity": task_entity,
@@ -148,14 +166,19 @@ async def _seed(admin_engine: AsyncEngine, *, status: str = "RUNNING") -> dict[s
     }
 
 
-@pytest.fixture
-async def seed(admin_engine: AsyncEngine) -> AsyncIterator[dict[str, object]]:
-    data = await _seed(admin_engine)
+@asynccontextmanager
+async def _in_flight_task(
+    admin_engine: AsyncEngine, *, tenant: UUID = _TENANT
+) -> AsyncIterator[dict[str, object]]:
+    """置备一个在途任务，退出时复位其状态。
+
+    复位是硬要求：CI 在 pytest 之后跑 `downgrade -1`，旧 CHECK 不接受
+    AWAITING_ASSET_REGISTRATION。夹具与用例共用这一份实现，避免两处漂移。
+    """
+    data = await _seed(admin_engine, tenant=tenant)
     try:
         yield data
     finally:
-        # 失败路径也必须复位在途状态：CI 在 pytest 之后跑 `downgrade -1`，
-        # 旧 CHECK 不接受 AWAITING_ASSET_REGISTRATION。
         async with admin_engine.begin() as conn:
             await conn.execute(
                 sa.text(
@@ -168,13 +191,38 @@ async def seed(admin_engine: AsyncEngine) -> AsyncIterator[dict[str, object]]:
             )
 
 
+@pytest.fixture
+async def seed(admin_engine: AsyncEngine) -> AsyncIterator[dict[str, object]]:
+    async with _in_flight_task(admin_engine) as data:
+        yield data
+
+
+@pytest.fixture
+async def relay_seed(admin_engine: AsyncEngine) -> AsyncIterator[dict[str, object]]:
+    """给「真实 relay 死信」用例用的独立租户种子。
+
+    进用例前先清空该租户事件：`drain_tenant` 只领一批，残留事件会把本用例的
+    事件挤出批次，让判据退化成「批次里恰好有我」。
+    """
+    async with admin_engine.begin() as conn:
+        await conn.execute(
+            sa.text("DELETE FROM outbox.outbox_events WHERE tenant_id = :t"),
+            {"t": _RELAY_TENANT},
+        )
+    async with _in_flight_task(admin_engine, tenant=_RELAY_TENANT) as data:
+        yield data
+
+
 async def _count(admin_engine: AsyncEngine, sql: str, params: dict[str, object]) -> int:
     async with admin_engine.connect() as conn:
         return int(await conn.scalar(sa.text(sql), params) or 0)
 
 
 async def _outbox(
-    admin_engine: AsyncEngine, event_type: str, task_id: str
+    admin_engine: AsyncEngine,
+    event_type: str,
+    task_id: str,
+    tenant: UUID = _TENANT,
 ) -> OutboxEvent:
     async with admin_engine.connect() as conn:
         row = (
@@ -186,7 +234,7 @@ async def _outbox(
                     "AND payload->>'generation_task_id' = :task "
                     "ORDER BY occurred_at DESC LIMIT 1"
                 ),
-                {"etype": event_type, "tid": _TENANT, "task": task_id},
+                {"etype": event_type, "tid": tenant, "task": task_id},
             )
         ).one()
     return OutboxEvent(
@@ -200,14 +248,13 @@ async def _outbox(
     )
 
 
-async def _prepare_and_confirm(
-    prod_sm: object, seed: dict[str, object]
-) -> None:
+async def _prepare_and_confirm(prod_sm: object, seed: dict[str, object]) -> None:
     """T0 + T1：落 PREPARED 再确认 STORED_VERIFIED，发登记请求事件。"""
+    tenant = seed["tenant"]
     task_entity = str(seed["task_entity"])
     attempt_id = str(seed["attempt_id"])
     async with prod_sm() as session:  # type: ignore[operator]
-        await set_tenant_context(session, _TENANT)
+        await set_tenant_context(session, tenant)
         service = GenerationService(
             SqlAlchemyGenerationTaskRepository(session), SqlAlchemyOutboxWriter(session)
         )
@@ -216,11 +263,12 @@ async def _prepare_and_confirm(
             worker_id="worker-fi",
             locator=_LOCATOR,
             sha256=_DIGEST,
+            media_type="image/png",
             attempt_id=attempt_id,
         )
         await session.commit()
     async with prod_sm() as session:  # type: ignore[operator]
-        await set_tenant_context(session, _TENANT)
+        await set_tenant_context(session, tenant)
         service = GenerationService(
             SqlAlchemyGenerationTaskRepository(session), SqlAlchemyOutboxWriter(session)
         )
@@ -249,7 +297,7 @@ async def test_storage_failure_keeps_prepared_evidence_no_registration(
     task_id = str(seed["task_id"])
     task_entity = str(seed["task_entity"])
     async with prod_sm() as session:  # type: ignore[operator]
-        await set_tenant_context(session, _TENANT)
+        await set_tenant_context(session, seed["tenant"])
         service = GenerationService(
             SqlAlchemyGenerationTaskRepository(session), SqlAlchemyOutboxWriter(session)
         )
@@ -258,37 +306,50 @@ async def test_storage_failure_keeps_prepared_evidence_no_registration(
             worker_id="worker-fi",
             locator=_LOCATOR,
             sha256=_DIGEST,
+            media_type="image/png",
             attempt_id=str(seed["attempt_id"]),
         )
         await session.commit()
 
     # T1 未确认（对象写入失败）：意图停在 PREPARED，状态仍在 RUNNING。
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM production_planning.artifact_manifests "
-        "WHERE status='PREPARED' AND generation_task_id=:task",
-        {"task": task_id},
-    ) == 1
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM production_planning.generation_tasks "
-        "WHERE entity_id=:eid AND status='RUNNING'",
-        {"eid": task_entity},
-    ) == 1
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM production_planning.artifact_manifests "
+            "WHERE status='PREPARED' AND generation_task_id=:task",
+            {"task": task_id},
+        )
+        == 1
+    )
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM production_planning.generation_tasks "
+            "WHERE entity_id=:eid AND status='RUNNING'",
+            {"eid": task_entity},
+        )
+        == 1
+    )
     # 没有登记请求、没有回执、没有资产——失败没有被误报成登记成功。
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM outbox.outbox_events "
-        "WHERE event_type='ASSET_REGISTRATION_REQUESTED' "
-        "AND payload->>'generation_task_id' = :task",
-        {"task": task_id},
-    ) == 0
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM asset_service.asset_registration_receipts "
-        "WHERE generation_task_id=:task",
-        {"task": task_id},
-    ) == 0
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM outbox.outbox_events "
+            "WHERE event_type='ASSET_REGISTRATION_REQUESTED' "
+            "AND payload->>'generation_task_id' = :task",
+            {"task": task_id},
+        )
+        == 0
+    )
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM asset_service.asset_registration_receipts "
+            "WHERE generation_task_id=:task",
+            {"task": task_id},
+        )
+        == 0
+    )
 
 
 async def test_tampered_request_payload_is_auditable_conflict(
@@ -316,23 +377,32 @@ async def test_tampered_request_payload_is_auditable_conflict(
         await handlers["ASSET_REGISTRATION_REQUESTED"](tampered)
 
     # 拒绝后没有任何跨域写入：无资产、无回执、任务仍停在等待态。
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM asset_service.asset_versions WHERE entity_id=:aid",
-        {"aid": _asset_id(task_id)},
-    ) == 0
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM asset_service.asset_registration_receipts "
-        "WHERE generation_task_id=:task",
-        {"task": task_id},
-    ) == 0
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM production_planning.generation_tasks "
-        "WHERE generation_task_id=:task AND status='AWAITING_ASSET_REGISTRATION'",
-        {"task": task_id},
-    ) == 1
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM asset_service.asset_versions WHERE entity_id=:aid",
+            {"aid": _asset_id(task_id)},
+        )
+        == 0
+    )
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM asset_service.asset_registration_receipts "
+            "WHERE generation_task_id=:task",
+            {"task": task_id},
+        )
+        == 0
+    )
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM production_planning.generation_tasks "
+            "WHERE generation_task_id=:task AND status='AWAITING_ASSET_REGISTRATION'",
+            {"task": task_id},
+        )
+        == 1
+    )
 
 
 async def test_transient_asset_service_failure_has_no_reject_receipt(
@@ -366,24 +436,33 @@ async def test_transient_asset_service_failure_has_no_reject_receipt(
         monkeypatch.undo()
 
     # 基础设施故障没有留下任何「永久拒绝」事实。
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM asset_service.asset_registration_receipts "
-        "WHERE generation_task_id=:task",
-        {"task": task_id},
-    ) == 0
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM asset_service.asset_versions WHERE entity_id=:aid",
-        {"aid": _asset_id(task_id)},
-    ) == 0
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM asset_service.asset_registration_receipts "
+            "WHERE generation_task_id=:task",
+            {"task": task_id},
+        )
+        == 0
+    )
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM asset_service.asset_versions WHERE entity_id=:aid",
+            {"aid": _asset_id(task_id)},
+        )
+        == 0
+    )
     # 任务仍是等待态：没有被错误推进到 FAILED。
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM production_planning.generation_tasks "
-        "WHERE generation_task_id=:task AND status='AWAITING_ASSET_REGISTRATION'",
-        {"task": task_id},
-    ) == 1
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM production_planning.generation_tasks "
+            "WHERE generation_task_id=:task AND status='AWAITING_ASSET_REGISTRATION'",
+            {"task": task_id},
+        )
+        == 1
+    )
 
 
 async def test_permanent_conflict_writes_reject_receipt_and_fails_task(
@@ -420,7 +499,7 @@ async def test_permanent_conflict_writes_reject_receipt_and_fails_task(
             ),
             {
                 "id": aid,
-                "tid": _TENANT,
+                "tid": seed["tenant"],
                 "now": now,
                 "pid": project_id,
                 "sha": other_digest,
@@ -434,50 +513,68 @@ async def test_permanent_conflict_writes_reject_receipt_and_fails_task(
     # 永久冲突被 handler 捕获为拒绝回执，不向上抛（与基础设施故障相反）。
     await handlers["ASSET_REGISTRATION_REQUESTED"](requested)
 
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM asset_service.asset_registration_receipts "
-        "WHERE generation_task_id=:task AND status='REJECTED' "
-        "AND message LIKE '%已存在且内容不同%'",
-        {"task": task_id},
-    ) == 1
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM outbox.outbox_events "
-        "WHERE event_type='ASSET_REGISTRATION_REJECTED' "
-        "AND payload->>'generation_task_id' = :task",
-        {"task": task_id},
-    ) == 1
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM asset_service.asset_registration_receipts "
+            "WHERE generation_task_id=:task AND status='REJECTED' "
+            "AND message LIKE '%已存在且内容不同%'",
+            {"task": task_id},
+        )
+        == 1
+    )
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM outbox.outbox_events "
+            "WHERE event_type='ASSET_REGISTRATION_REJECTED' "
+            "AND payload->>'generation_task_id' = :task",
+            {"task": task_id},
+        )
+        == 1
+    )
     # 拒绝回执的 asset_version_id 必须为空（不能指向一个并不存在的新资产）。
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM asset_service.asset_registration_receipts "
-        "WHERE generation_task_id=:task AND (asset_version_id IS NULL OR asset_version_id='')",
-        {"task": task_id},
-    ) == 1
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM asset_service.asset_registration_receipts "
+            "WHERE generation_task_id=:task AND (asset_version_id IS NULL OR asset_version_id='')",
+            {"task": task_id},
+        )
+        == 1
+    )
 
     # T3 消费拒绝事件 → Generation 转 FAILED。
     rejected = await _outbox(admin_engine, "ASSET_REGISTRATION_REJECTED", task_id)
     await handlers["ASSET_REGISTRATION_REJECTED"](rejected)
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM production_planning.generation_tasks "
-        "WHERE entity_id=:eid AND status='FAILED'",
-        {"eid": task_entity},
-    ) == 1
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM outbox.outbox_events WHERE event_type='GENERATION_FAILED' "
-        "AND payload->>'generation_task_id' = :task",
-        {"task": task_id},
-    ) == 1
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM production_planning.generation_tasks "
+            "WHERE entity_id=:eid AND status='FAILED'",
+            {"eid": task_entity},
+        )
+        == 1
+    )
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM outbox.outbox_events WHERE event_type='GENERATION_FAILED' "
+            "AND payload->>'generation_task_id' = :task",
+            {"task": task_id},
+        )
+        == 1
+    )
     # 成功事件绝不能被写出。
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM outbox.outbox_events WHERE event_type='GENERATION_SUCCEEDED' "
-        "AND payload->>'generation_task_id' = :task",
-        {"task": task_id},
-    ) == 0
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM outbox.outbox_events WHERE event_type='GENERATION_SUCCEEDED' "
+            "AND payload->>'generation_task_id' = :task",
+            {"task": task_id},
+        )
+        == 0
+    )
 
 
 async def test_receipt_result_event_contradiction_is_rejected(
@@ -508,18 +605,24 @@ async def test_receipt_result_event_contradiction_is_rejected(
         await handlers["ASSET_REGISTRATION_COMPLETED"](forged)
 
     # 任务仍停在等待态，没有被伪造事件推进。
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM production_planning.generation_tasks "
-        "WHERE generation_task_id=:task AND status='AWAITING_ASSET_REGISTRATION'",
-        {"task": task_id},
-    ) == 1
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM outbox.outbox_events WHERE event_type='GENERATION_SUCCEEDED' "
-        "AND payload->>'generation_task_id' = :task",
-        {"task": task_id},
-    ) == 0
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM production_planning.generation_tasks "
+            "WHERE generation_task_id=:task AND status='AWAITING_ASSET_REGISTRATION'",
+            {"task": task_id},
+        )
+        == 1
+    )
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM outbox.outbox_events WHERE event_type='GENERATION_SUCCEEDED' "
+            "AND payload->>'generation_task_id' = :task",
+            {"task": task_id},
+        )
+        == 0
+    )
 
 
 async def test_retry_recovers_after_transient_failure_without_second_asset(
@@ -555,12 +658,15 @@ async def test_retry_recovers_after_transient_failure_without_second_asset(
         with pytest.raises(ConnectionError):
             await handlers["ASSET_REGISTRATION_REQUESTED"](requested)
         # 失败落空：没有回执。
-        assert await _count(
-            admin_engine,
-            "SELECT count(*) FROM asset_service.asset_registration_receipts "
-            "WHERE generation_task_id=:task",
-            {"task": task_id},
-        ) == 0
+        assert (
+            await _count(
+                admin_engine,
+                "SELECT count(*) FROM asset_service.asset_registration_receipts "
+                "WHERE generation_task_id=:task",
+                {"task": task_id},
+            )
+            == 0
+        )
         # 重投成功。
         await handlers["ASSET_REGISTRATION_REQUESTED"](requested)
         # 再次重投：幂等，不新建。
@@ -568,41 +674,53 @@ async def test_retry_recovers_after_transient_failure_without_second_asset(
     finally:
         monkeypatch.undo()
 
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM asset_service.asset_registration_receipts "
-        "WHERE generation_task_id=:task AND status='COMPLETED'",
-        {"task": task_id},
-    ) == 1
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM asset_service.asset_versions WHERE entity_id=:aid",
-        {"aid": _asset_id(task_id)},
-    ) == 1
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM asset_service.asset_registration_receipts "
+            "WHERE generation_task_id=:task AND status='COMPLETED'",
+            {"task": task_id},
+        )
+        == 1
+    )
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM asset_service.asset_versions WHERE entity_id=:aid",
+            {"aid": _asset_id(task_id)},
+        )
+        == 1
+    )
 
     # 消费完成事件 → 终态资产 ID 来自回执。
     completed = await _outbox(admin_engine, "ASSET_REGISTRATION_COMPLETED", task_id)
     await handlers["ASSET_REGISTRATION_COMPLETED"](completed)
     await handlers["ASSET_REGISTRATION_COMPLETED"](completed)
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM production_planning.generation_tasks "
-        "WHERE entity_id=:eid AND status='SUCCEEDED' AND asset_version_id=:aid",
-        {"eid": task_entity, "aid": _asset_id(task_id)},
-    ) == 1
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM outbox.outbox_events WHERE event_type='GENERATION_SUCCEEDED' "
-        "AND payload->>'generation_task_id' = :task",
-        {"task": task_id},
-    ) == 1
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM production_planning.generation_tasks "
+            "WHERE entity_id=:eid AND status='SUCCEEDED' AND asset_version_id=:aid",
+            {"eid": task_entity, "aid": _asset_id(task_id)},
+        )
+        == 1
+    )
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM outbox.outbox_events WHERE event_type='GENERATION_SUCCEEDED' "
+            "AND payload->>'generation_task_id' = :task",
+            {"task": task_id},
+        )
+        == 1
+    )
 
 
 async def test_repeated_failure_reaches_dead_letter_and_keeps_event(
     admin_engine: AsyncEngine,
     prod_sm: object,
     asset_sm: object,
-    seed: dict[str, object],
+    relay_seed: dict[str, object],
     monkeypatch: pytest.MonkeyPatch,
     relay_sessionmaker: object,
 ) -> None:
@@ -611,11 +729,14 @@ async def test_repeated_failure_reaches_dead_letter_and_keeps_event(
     用真实 OutboxRelay + max_attempts=1 跑一轮，注入持续的基础设施异常使
     T2 handler 一直失败。断言事件被打死信标记、attempts 累加、未 ack，
     且事件行仍可查（投递放弃本身是可审计事实）。
+
+    走 ``relay_seed`` 的独立租户：该租户内只有本用例写的这一条事件，所以
+    「本轮领到几条」是可精确判定的，判据不掺其它用例的历史积压。
     """
     from workers.relay.consumer import OutboxRelay
 
-    task_id = str(seed["task_id"])
-    await _prepare_and_confirm(prod_sm, seed)
+    task_id = str(relay_seed["task_id"])
+    await _prepare_and_confirm(prod_sm, relay_seed)
 
     async def always_down(self: AssetService, **kwargs: object) -> object:
         raise ConnectionError("simulated: asset service permanently down")
@@ -627,31 +748,41 @@ async def test_repeated_failure_reaches_dead_letter_and_keeps_event(
         max_attempts=1,
     )
     try:
-        stats = await relay.drain_tenant(_TENANT)
+        stats = await relay.drain_tenant(_RELAY_TENANT)
     finally:
         monkeypatch.undo()
 
-    # 至少一个事件失败并进入死信（本租户可能有其它历史未投递事件，故用 >=）。
-    assert stats.failed >= 1
-    assert stats.dead_lettered >= 1
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM outbox.outbox_events "
-        "WHERE event_type='ASSET_REGISTRATION_REQUESTED' "
-        "AND payload->>'generation_task_id' = :task "
-        "AND dead_lettered_at IS NOT NULL AND published_at IS NULL",
-        {"task": task_id},
-    ) == 1
+    # 本租户只有一条事件，且它必须是一次失败并进入死信——精确值，不是 >=。
+    assert stats.failed == 1
+    assert stats.dead_lettered == 1
+    assert stats.delivered == 0
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM outbox.outbox_events "
+            "WHERE event_type='ASSET_REGISTRATION_REQUESTED' "
+            "AND payload->>'generation_task_id' = :task "
+            "AND dead_lettered_at IS NOT NULL AND published_at IS NULL",
+            {"task": task_id},
+        )
+        == 1
+    )
     # 死信不等于「登记成功」：没有回执、没有资产、任务仍等待。
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM asset_service.asset_registration_receipts "
-        "WHERE generation_task_id=:task",
-        {"task": task_id},
-    ) == 0
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM production_planning.generation_tasks "
-        "WHERE generation_task_id=:task AND status='AWAITING_ASSET_REGISTRATION'",
-        {"task": task_id},
-    ) == 1
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM asset_service.asset_registration_receipts "
+            "WHERE generation_task_id=:task",
+            {"task": task_id},
+        )
+        == 0
+    )
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM production_planning.generation_tasks "
+            "WHERE generation_task_id=:task AND status='AWAITING_ASSET_REGISTRATION'",
+            {"task": task_id},
+        )
+        == 1
+    )

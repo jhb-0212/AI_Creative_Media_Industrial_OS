@@ -107,9 +107,7 @@ class SceneService:
             ("created_by", created_by),
         ):
             if not value:
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
         if (episode_id is None) == (episode_ref is None):
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,
@@ -172,13 +170,9 @@ class SceneService:
             if entity_id is not None:
                 existing = await self._repository.get_by_id(entity_id)
                 if existing is not None:
-                    _assert_same_request(
-                        existing, project_id, episode.entity_id, scene_code
-                    )
+                    _assert_same_request(existing, project_id, episode.entity_id, scene_code)
                     return existing
-                taken = await self._repository.get_by_project_code(
-                    project_id, scene_code
-                )
+                taken = await self._repository.get_by_project_code(project_id, scene_code)
                 if taken is not None:
                     raise DomainError(
                         ErrorRegistry.IDEMPOTENCY_CONFLICT,
@@ -188,9 +182,7 @@ class SceneService:
                         ),
                     ) from exc
             else:
-                taken = await self._repository.get_by_project_code(
-                    project_id, scene_code
-                )
+                taken = await self._repository.get_by_project_code(project_id, scene_code)
                 if taken is not None:
                     if taken.episode_id == episode.entity_id:
                         return taken
@@ -201,9 +193,7 @@ class SceneService:
                             f"（SC-3：项目内唯一，占用者 episode_id={taken.episode_id}）"
                         ),
                     ) from exc
-            raise DomainError(
-                ErrorRegistry.INTERNAL_ERROR, detail="场次写入冲突"
-            ) from exc
+            raise DomainError(ErrorRegistry.INTERNAL_ERROR, detail="场次写入冲突") from exc
 
         self._outbox_writer.record(
             aggregate_type="Scene",
@@ -256,9 +246,7 @@ class SceneService:
         """
         project = await self._project_repository.get_by_id_for_child_write(project_id)
         if project is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"项目不存在: {project_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"项目不存在: {project_id}")
 
         if episode_ref is not None:
             episode = await self._episode_repository.get_by_project_ref_for_child_write(
@@ -274,9 +262,7 @@ class SceneService:
         # episode_id 寻址：先定位业务键，再带锁读权威行。
         probe = await self._episode_repository.get_by_id(episode_id or "")
         if probe is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"集数不存在: {episode_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"集数不存在: {episode_id}")
         if probe.project_id != project_id:
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,
@@ -293,21 +279,15 @@ class SceneService:
         return project, episode, None
 
     @staticmethod
-    def _assert_ancestors_open_for_child_write(
-        project: Project, episode: Episode
-    ) -> None:
+    def _assert_ancestors_open_for_child_write(project: Project, episode: Episode) -> None:
         """逐级判定父链未冻结——不是只判直接父。
 
         Project 归档后其下 Episode 仍可能是 ACTIVE（历史数据或先归档上层的
         时序），只判 Episode 会让「上层已封存、下层还在长」悄悄成立。判定从
         生命周期对象派生，与 SCRIPT.IMPORT / EPISODE.CREATE 共用同一规则。
         """
-        PROJECT_LIFECYCLE.assert_child_creation_allowed(
-            project.status, child_object="Scene"
-        )
-        EPISODE_LIFECYCLE.assert_child_creation_allowed(
-            episode.status, child_object="Scene"
-        )
+        PROJECT_LIFECYCLE.assert_child_creation_allowed(project.status, child_object="Scene")
+        EPISODE_LIFECYCLE.assert_child_creation_allowed(episode.status, child_object="Scene")
 
     async def get_scene(self, entity_id: str) -> Scene:
         scene = await self._repository.get_by_id(entity_id)
@@ -325,9 +305,7 @@ class SceneService:
     ) -> Scene:
         changed_by = changed_by.strip()
         if not changed_by:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="changed_by 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="changed_by 不能为空")
         scene = await self._repository.get_by_id(entity_id)
         if scene is None:
             raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"场次不存在: {entity_id}")
@@ -338,9 +316,7 @@ class SceneService:
             scene.status, target_status
         )
         if child_precondition is not None:
-            scene = await self._lock_and_assert_no_shot_in_production(
-                scene, child_precondition
-            )
+            scene = await self._lock_and_assert_no_shot_in_production(scene, child_precondition)
 
         await advance_status(
             scene,
@@ -381,15 +357,9 @@ class SceneService:
             )
         locked = await self._repository.lock_for_archive(scene.entity_id)
         if locked is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"场次不存在: {scene.entity_id}"
-            )
-        if await shots.has_with_status(
-            locked.entity_id, ShotStatus(precondition.forbidden_status)
-        ):
-            raise DomainError(
-                ErrorRegistry.STATE_TRANSITION_DENIED, detail=precondition.message
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"场次不存在: {scene.entity_id}")
+        if await shots.has_with_status(locked.entity_id, ShotStatus(precondition.forbidden_status)):
+            raise DomainError(ErrorRegistry.STATE_TRANSITION_DENIED, detail=precondition.message)
         return locked
 
 

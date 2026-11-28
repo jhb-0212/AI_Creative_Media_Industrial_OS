@@ -10,6 +10,7 @@
 - 逐段用「规范化后的行集合」对比，输出 仅PG16 / 仅PG18 的行。
   业务实体集合应完全相等；不等即回退（FAIL）。
 """
+
 from __future__ import annotations
 
 import re
@@ -51,10 +52,7 @@ def normalize_row(row: str, section: str) -> str | None:
         return None
     # 段5/7/8 ACL：规范化 owner 的 m 权限位（PG18 MAINTAIN）。
     # 只处理 grantor 为 postgres 的 owner 条目：形如 postgres=arwdDxtm/postgres
-    cols = [
-        re.sub(r"(postgres=[a-z]*Dxt)m(/postgres)", r"\1\2", c)
-        for c in cols
-    ]
+    cols = [re.sub(r"(postgres=[a-z]*Dxt)m(/postgres)", r"\1\2", c) for c in cols]
     # 规范化列间空白
     return " | ".join(cols)
 

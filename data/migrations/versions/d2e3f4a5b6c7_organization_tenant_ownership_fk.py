@@ -25,6 +25,7 @@ Revision ID: d2e3f4a5b6c7
 Revises: c1f2e3d4a5b6
 Create Date: 2026-11-18
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -55,9 +56,7 @@ def upgrade() -> None:
 
     # 2. projects 的 organization 外键升级为复合外键（含 tenant_id）。
     #    先删旧的单列外键 fk_projects_organization，再建复合外键。
-    op.drop_constraint(
-        "fk_projects_organization", "projects", schema=SCHEMA, type_="foreignkey"
-    )
+    op.drop_constraint("fk_projects_organization", "projects", schema=SCHEMA, type_="foreignkey")
     op.create_foreign_key(
         "fk_projects_organization_tenant",
         "projects",
@@ -84,10 +83,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """回滚：删 RLS + 复合外键 + 复合唯一约束，恢复单列外键。"""
-    op.execute(
-        f"DROP POLICY IF EXISTS tenant_isolation_organizations "
-        f"ON {SCHEMA}.organizations"
-    )
+    op.execute(f"DROP POLICY IF EXISTS tenant_isolation_organizations ON {SCHEMA}.organizations")
     op.execute(f"ALTER TABLE {SCHEMA}.organizations DISABLE ROW LEVEL SECURITY")
 
     op.drop_constraint(

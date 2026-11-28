@@ -34,13 +34,23 @@ _TENANT = uuid.UUID("00000000-0000-0000-0000-000000000091")
 
 
 class _Task:
-    def __init__(self, *, entity_id: str, tenant_id: uuid.UUID, asset_version_id: str,
-                 project_id: str, quality_profile_version: str) -> None:
+    def __init__(
+        self,
+        *,
+        entity_id: str,
+        tenant_id: uuid.UUID,
+        asset_version_id: str,
+        project_id: str,
+        quality_profile_version: str,
+    ) -> None:
         self.entity_id = entity_id
         self.tenant_id = tenant_id
         self.asset_version_id = asset_version_id
         self.project_id = project_id
         self.quality_profile_version = quality_profile_version
+        # 领域对象一定有这个属性（租户级项目为 None）；替身也要有，否则测的是
+        # 「替身缺字段」而不是检测器行为。
+        self.organization_id = None
 
 
 async def _seed_asset(
@@ -82,14 +92,18 @@ async def _read_report(
 ) -> dict[str, Any] | None:
     async with admin_sessionmaker() as session:
         row = (
-            await session.execute(
-                text(
-                    "SELECT qc_report_id, findings FROM asset_service.qc_reports "
-                    "WHERE asset_version_id = :aid"
-                ),
-                {"aid": asset_id},
+            (
+                await session.execute(
+                    text(
+                        "SELECT qc_report_id, findings FROM asset_service.qc_reports "
+                        "WHERE asset_version_id = :aid"
+                    ),
+                    {"aid": asset_id},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         return dict(row) if row is not None else None
 
 

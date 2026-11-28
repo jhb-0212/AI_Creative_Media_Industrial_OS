@@ -48,6 +48,7 @@ depends_on: str | Sequence[str] | None = None
 _SCHEMAS = ("project_planning", "outbox", "asset_service")
 _ALEMBIC_VERSION = "public.alembic_version"
 
+
 # 旧状态（downgrade 用）：9e3b4c5d6e7f 给 project_planning/outbox 的默认权限是
 # INSERT/SELECT/UPDATE/DELETE；asset_service 由 c1d2e3f4a5b6 补成同样四项。
 def _restore_default_grants() -> list[str]:
@@ -107,9 +108,7 @@ def upgrade() -> None:
 
     # 3. append-only：证据与版本表不接受应用的整行删改。
     op.execute(f"REVOKE DELETE ON asset_service.asset_versions FROM {app_role_name()}")
-    op.execute(
-        f"REVOKE UPDATE, DELETE ON asset_service.qc_reports FROM {app_role_name()}"
-    )
+    op.execute(f"REVOKE UPDATE, DELETE ON asset_service.qc_reports FROM {app_role_name()}")
 
     # 4. 让 /readyz 能读到 schema revision（只读元数据，不涉业务）。
     op.execute(f"GRANT SELECT ON {_ALEMBIC_VERSION} TO {app_role_name()}")
@@ -128,3 +127,10 @@ def downgrade() -> None:
     for partition in _outbox_partitions():
         for statement in unprotect_partition_statements(partition):
             op.execute(statement)
+
+    # WP-04/#14：父 revision 的 outbox 默认权限是 arw（无 DELETE）。
+    # ``_restore_default_grants`` 沿用旧口径写成了 arwd，等于降级态多给出
+    # DELETE；按父态精确收回，不接受"补回了一条 GRANT"就当成功。
+    op.execute(
+        f"ALTER DEFAULT PRIVILEGES IN SCHEMA outbox REVOKE DELETE ON TABLES FROM {app_role_name()}"
+    )

@@ -3510,7 +3510,11 @@ paths:
       tags:
         - QCTask
       summary: QC.TASK.ENQUEUE（资源 QCTask，风险 MEDIUM）
-      description: 生成终态入队；缺产物引用或同一生成任务重复入队时拒绝。
+      description: >-
+        生成终态入队；缺产物引用或同一生成任务重复入队时拒绝。
+        运行时没有对外的 HTTP 入口（见 action_implementations.yaml 的 mechanism:
+        in_process）：本动作由 relay 消费 GENERATION_SUCCEEDED 后直调
+        QCTaskService 完成，人工入口另见 qc.task.recover。
       x-afs-action-key: QC.TASK.ENQUEUE
       x-afs-scope: project/shot/asset_version
       x-afs-risk-level: MEDIUM
@@ -3570,6 +3574,166 @@ paths:
           description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
         '422':
           description: 请求信封或载荷校验失败
+  /actions/qc.task.recover:
+    post:
+      operationId: qc.task.recover
+      tags:
+        - QCTask
+      summary: QC.TASK.RECOVER（资源 QCTask，风险 HIGH）
+      description: 人工恢复入队；须权威事实核验归属与生命周期，与自动入队共用幂等事实。
+      x-afs-action-key: QC.TASK.RECOVER
+      x-afs-scope: project/shot/asset_version
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 运维恢复操作者（人工入队专项席位）
+      x-afs-audit-event: QC_TASK_QUEUED
+      x-afs-negative-test: ACT-QC-NEG-004
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已受理；审计事件与幂等键回执
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '409':
+          description: 幂等键冲突（同一生成任务已有有效 QC 任务）
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/outbox.dead_letter.replay:
+    post:
+      operationId: outbox.dead_letter.replay
+      tags:
+        - Outbox
+      summary: OUTBOX.DEAD_LETTER.REPLAY（资源 OutboxEvent，风险 HIGH）
+      description: >-
+        受权死信重放：把一条已放弃投递的事件移出死信态并交回正常领取，
+        不改写事件内容、不复制新事件、不直调处理器。审计载体是 append-only
+        运维表 outbox.dead_letter_replays（运维主体对事件总线只有读与投递状态
+        列级写，不允许写业务事件）。
+      x-afs-action-key: OUTBOX.DEAD_LETTER.REPLAY
+      x-afs-scope: tenant
+      x-afs-risk-level: HIGH
+      x-afs-token-required: true
+      x-afs-allowed-principals: 消息总线运维操作者
+      x-afs-audit-event: outbox.dead_letter_replays
+      x-afs-negative-test: ACT-OUTBOX-NEG-001
+      x-afs-status: ACTIVE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionRequestEnvelope'
+      responses:
+        '200':
+          description: 已移出死信态；返回 replay_id 与重放前失败次数
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionAccepted'
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '404':
+          description: 原始事件不存在或不在本租户内（RLS 使跨租户不可见）
+        '409':
+          description: 事件不在死信态（未死信 / 已投递 / 并发已被他人重放）
+        '422':
+          description: 请求信封或载荷校验失败
+  /actions/outbox.dead_letter.read:
+    get:
+      operationId: outbox.dead_letter.read
+      tags:
+        - Outbox
+      summary: OUTBOX.DEAD_LETTER.READ（资源 OutboxEvent，风险 LOW）
+      description: >-
+        只读列举已放弃投递的事件（按进入死信时间倒序，游标分页），用于运维定位
+        要处置的事件，是重放的前置定位手段。只返回运维元数据，不返回事件 payload；
+        不产生任何状态变更，不构成处置授权。租户范围只来自 Principal。
+      x-afs-action-key: OUTBOX.DEAD_LETTER.READ
+      x-afs-scope: tenant
+      x-afs-risk-level: LOW
+      x-afs-token-required: true
+      x-afs-allowed-principals: 消息总线运维操作者
+      x-afs-audit-event: OUTBOX_DEAD_LETTER_READ
+      x-afs-negative-test: ACT-OUTBOX-NEG-002
+      x-afs-status: ACTIVE
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: 页大小；服务端另有硬上限，超限按 422 拒绝
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: event_type
+          in: query
+          required: false
+          description: 按事件类型过滤；不校验是否仍在事件契约内（历史类型可能已下线）
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 64
+        - name: cursor
+          in: query
+          required: false
+          description: 上一页返回的 next_cursor，原样回传；格式非法按 422 拒绝
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+      responses:
+        '200':
+          description: 一页死信；next_cursor 为空表示没有下一页
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - items
+                  - next_cursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - event_id
+                        - event_type
+                        - attempts
+                        - dead_lettered_at
+                        - occurred_at
+                      properties:
+                        event_id:
+                          type: string
+                          format: uuid
+                        event_type:
+                          type: string
+                        attempts:
+                          type: integer
+                        dead_lettered_at:
+                          type: string
+                          format: date-time
+                        occurred_at:
+                          type: string
+                          format: date-time
+                  next_cursor:
+                    type: string
+                    nullable: true
+        '403':
+          description: Capability Token 越权或角色不允许（见 x-afs-allowed-principals）
+        '422':
+          description: limit / cursor / event_type 参数校验失败
 components:
   schemas:
     ActionRequestEnvelope:

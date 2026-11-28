@@ -1,0 +1,734 @@
+{
+  "method": "P(parent) -> alembic upgrade(target) -> U 快照 -> alembic downgrade(parent) -> D 快照；规范化 ACL（aclexplode+acldefault）、pg_toast OID 抖动剔除；diff 字段来自实测结果文件，未做任何人工改写",
+  "run_at": "2026-11-28",
+  "run_env": {
+    "runtime": "Docker",
+    "container": "wp04-verify-15444",
+    "image": "postgres:16@sha256:63e83b5a3dc36a917dccb76fe1bd2ac51f1ec9c1deb47ff20d4f04233bf6eae9",
+    "server_version": "16.16-1.pgdg13+1",
+    "host_port": "15444",
+    "code_tree": "strip-impl (311530c + D4 strip)",
+    "evidence_grade": "NEW-MACHINE / 2026-11-28"
+  },
+  "scope": "矩阵中全部 asymmetric revision（strip 后重跑）",
+  "source_results": "D:/WP04-evidence/runs/2026-11-28/strip-sweep.results.json",
+  "generator": "docs/audits/2026-11-28-wp04_build_snapshot_v2.py（结构化实测结果直转）",
+  "results": [
+    {
+      "revision": "8f3b2c1d4e5a",
+      "parent": "7a8b9c0d1e2f",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "+DEFACL asset_service:S:postgres",
+          "+DEFACL asset_service:r:postgres",
+          "+DEFACL project_planning:S:postgres",
+          "+DEFACL project_planning:r:postgres",
+          "~NS asset_service: app_role=USAGE,postgres=CREATE,postgres=USAGE -> asset_service_role=USAGE,postgres=CREATE,postgres=USAGE",
+          "~NS auth: app_role=USAGE,postgres=CREATE,postgres=USAGE -> asset_service_role=USAGE,postgres=CREATE,postgres=USAGE,project_planning_role=USAGE",
+          "~NS outbox: app_role=USAGE,outbox_relay_role=USAGE,postgres=CREATE,postgres=USAGE -> app_role=USAGE,asset_service_role=USAGE,outbox_relay_role=USAGE,postgres=CREATE,postgres=USAGE,project_planning_role=USAGE",
+          "~NS project_planning: app_role=USAGE,postgres=CREATE,postgres=USAGE -> postgres=CREATE,postgres=USAGE,project_planning_role=USAGE",
+          "~asset_service.asset_versions: app_role=INSERT,app_role=SELECT,app_role=UPDATE,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE -> asset_service_role=INSERT,asset_service_role=SELECT,asset_service_role=UPDATE,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE",
+          "~asset_service.qc_reports: app_role=INSERT,app_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE -> asset_service_role=INSERT,asset_service_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE",
+          "~auth.revoked_tokens: app_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE -> asset_service_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=SELECT",
+          "~outbox.maintenance_runs_id_seq: app_role=SELECT,app_role=USAGE,outbox_relay_role=USAGE,postgres=SELECT,postgres=UPDATE,postgres=USAGE -> app_role=SELECT,app_role=USAGE,asset_service_role=USAGE,outbox_relay_role=USAGE,postgres=SELECT,postgres=UPDATE,postgres=USAGE,project_planning_role=USAGE",
+          "~outbox.outbox_events: app_role=INSERT,app_role=SELECT,app_role=UPDATE,outbox_relay_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE -> app_role=INSERT,app_role=SELECT,app_role=UPDATE,asset_service_role=INSERT,asset_service_role=SELECT,outbox_relay_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=INSERT,project_planning_role=SELECT",
+          "~project_planning.episodes: app_role=DELETE,app_role=INSERT,app_role=SELECT,app_role=UPDATE,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE -> postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=DELETE,project_planning_role=INSERT,project_planning_role=SELECT,project_planning_role=UPDATE",
+          "~project_planning.organizations: postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE -> postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=DELETE,project_planning_role=INSERT,project_planning_role=SELECT,project_planning_role=UPDATE",
+          "~project_planning.projects: app_role=DELETE,app_role=INSERT,app_role=SELECT,app_role=UPDATE,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE -> postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=DELETE,project_planning_role=INSERT,project_planning_role=SELECT,project_planning_role=UPDATE",
+          "~project_planning.script_revisions: app_role=DELETE,app_role=INSERT,app_role=SELECT,app_role=UPDATE,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE -> postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=DELETE,project_planning_role=INSERT,project_planning_role=SELECT,project_planning_role=UPDATE",
+          "~public.alembic_version: app_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE -> asset_service_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=SELECT"
+        ]
+      },
+      "diff_u_to_d_group_count": 1
+    },
+    {
+      "revision": "a0b1c2d3e4f5",
+      "parent": "f9a0b1c2d3e4",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "-project_planning.budget_ledger",
+          "-project_planning.budget_ledger_pkey",
+          "-project_planning.gate_decisions",
+          "-project_planning.gate_decisions_pkey",
+          "-project_planning.generation_tasks",
+          "-project_planning.generation_tasks_pkey",
+          "-project_planning.ix_project_planning_budget_ledger_tenant_id",
+          "-project_planning.ix_project_planning_gate_decisions_gate_key",
+          "-project_planning.ix_project_planning_gate_decisions_project_id",
+          "-project_planning.ix_project_planning_gate_decisions_tenant_id",
+          "-project_planning.ix_project_planning_generation_tasks_project_id",
+          "-project_planning.ix_project_planning_generation_tasks_tenant_id",
+          "-project_planning.ix_project_planning_production_routes_project_id",
+          "-project_planning.ix_project_planning_production_routes_tenant_id",
+          "-project_planning.ix_project_planning_shot_budget_requests_project_id",
+          "-project_planning.ix_project_planning_shot_budget_requests_tenant_id",
+          "-project_planning.production_routes",
+          "-project_planning.production_routes_pkey",
+          "-project_planning.shot_budget_requests",
+          "-project_planning.shot_budget_requests_pkey",
+          "+budget_quota.budget_ledger",
+          "+budget_quota.budget_ledger_pkey",
+          "+budget_quota.ix_budget_quota_budget_ledger_tenant_id",
+          "+budget_quota.ix_budget_quota_shot_budget_requests_project_id",
+          "+budget_quota.ix_budget_quota_shot_budget_requests_tenant_id",
+          "+budget_quota.shot_budget_requests",
+          "+budget_quota.shot_budget_requests_pkey",
+          "+budget_quota.uq_budget_ledger_idempotency_key",
+          "+production_planning.generation_tasks",
+          "+production_planning.generation_tasks_pkey",
+          "+production_planning.ix_production_planning_generation_tasks_project_id",
+          "+production_planning.ix_production_planning_generation_tasks_tenant_id",
+          "+production_planning.ix_production_planning_production_routes_project_id",
+          "+production_planning.ix_production_planning_production_routes_tenant_id",
+          "+production_planning.production_routes",
+          "+production_planning.production_routes_pkey",
+          "+production_planning.uq_generation_tasks_entity_project",
+          "+production_planning.uq_production_routes_entity_project",
+          "+qc_governance.gate_decisions",
+          "+qc_governance.gate_decisions_pkey",
+          "~NS budget_quota: postgres=CREATE,postgres=USAGE -> budget_quota_role=USAGE,postgres=CREATE,postgres=USAGE",
+          "~NS production_planning: postgres=CREATE,postgres=USAGE -> postgres=CREATE,postgres=USAGE,production_planning_role=USAGE",
+          "~NS qc_governance: postgres=CREATE,postgres=USAGE -> postgres=CREATE,postgres=USAGE,qc_governance_role=USAGE"
+        ],
+        "rels": [
+          "-i project_planning.budget_ledger_pkey",
+          "-i project_planning.gate_decisions_pkey",
+          "-i project_planning.generation_tasks_pkey",
+          "-i project_planning.ix_project_planning_budget_ledger_tenant_id",
+          "-i project_planning.ix_project_planning_gate_decisions_gate_key",
+          "-i project_planning.ix_project_planning_gate_decisions_project_id",
+          "-i project_planning.ix_project_planning_gate_decisions_tenant_id",
+          "-i project_planning.ix_project_planning_generation_tasks_project_id",
+          "-i project_planning.ix_project_planning_generation_tasks_tenant_id",
+          "-i project_planning.ix_project_planning_production_routes_project_id",
+          "-i project_planning.ix_project_planning_production_routes_tenant_id",
+          "-i project_planning.ix_project_planning_shot_budget_requests_project_id",
+          "-i project_planning.ix_project_planning_shot_budget_requests_tenant_id",
+          "-i project_planning.production_routes_pkey",
+          "-i project_planning.shot_budget_requests_pkey",
+          "-i project_planning.uq_budget_ledger_idempotency_key",
+          "-i project_planning.uq_generation_tasks_entity_project",
+          "-i project_planning.uq_production_routes_entity_project",
+          "-r project_planning.budget_ledger",
+          "-r project_planning.gate_decisions",
+          "+i budget_quota.budget_ledger_pkey",
+          "+i budget_quota.ix_budget_quota_budget_ledger_tenant_id",
+          "+i budget_quota.ix_budget_quota_shot_budget_requests_project_id",
+          "+i budget_quota.ix_budget_quota_shot_budget_requests_tenant_id",
+          "+i budget_quota.shot_budget_requests_pkey",
+          "+i budget_quota.uq_budget_ledger_idempotency_key",
+          "+i production_planning.generation_tasks_pkey",
+          "+i production_planning.ix_production_planning_generation_tasks_project_id",
+          "+i production_planning.ix_production_planning_generation_tasks_tenant_id",
+          "+i production_planning.ix_production_planning_production_routes_project_id",
+          "+i production_planning.ix_production_planning_production_routes_tenant_id",
+          "+i production_planning.production_routes_pkey",
+          "+i production_planning.uq_generation_tasks_entity_project",
+          "+i production_planning.uq_production_routes_entity_project",
+          "+i qc_governance.gate_decisions_pkey",
+          "+i qc_governance.ix_qc_governance_gate_decisions_project_id",
+          "+i qc_governance.ix_qc_governance_gate_decisions_project_id_gate_key",
+          "+i qc_governance.ix_qc_governance_gate_decisions_tenant_id",
+          "+r budget_quota.budget_ledger",
+          "+r budget_quota.shot_budget_requests"
+        ]
+      },
+      "diff_u_to_d_group_count": 2
+    },
+    {
+      "revision": "a1b2c3d4e5f6",
+      "parent": "c6d7e8f9a0b1",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {},
+      "diff_u_to_d_group_count": 0
+    },
+    {
+      "revision": "a5b6c7d8e9f0",
+      "parent": "b4c5d6e7f8a9",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "+PROC qc_maintenance.assert_discovery_identity() owner=qc_maintenance_owner secdef=false",
+          "~NS qc_maintenance: qc_governance_role=USAGE,qc_maintenance_login=USAGE,qc_maintenance_operator=USAGE,qc_maintenance_owner=CREATE,qc_maintenance_owner=USAGE -> qc_governance_role=USAGE,qc_maintenance_login=USAGE,qc_maintenance_operator=USAGE,qc_maintenance_owner=CREATE,qc_maintenance_owner=USAGE,qc_scheduler=USAGE",
+          "~PROC qc_maintenance.enforce_work_order_transition() owner=qc_maintenance_owner secdef=false: PUBLIC=EXECUTE,qc_maintenance_owner=EXECUTE -> qc_maintenance_owner=EXECUTE",
+          "~PROC qc_maintenance.enumerate_due_tasks() owner=qc_maintenance_owner secdef=true: qc_maintenance_login=EXECUTE,qc_maintenance_operator=EXECUTE,qc_maintenance_owner=EXECUTE -> qc_maintenance_login=EXECUTE,qc_maintenance_operator=EXECUTE,qc_maintenance_owner=EXECUTE,qc_scheduler=EXECUTE"
+        ],
+        "funcs": [
+          "+qc_maintenance.assert_discovery_identity()"
+        ]
+      },
+      "diff_u_to_d_group_count": 2
+    },
+    {
+      "revision": "a8b9c0d1e2f3",
+      "parent": "f9b0c1d2e3f4",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "+NS qc_maintenance",
+          "+qc_maintenance.ix_qc_projection_queued",
+          "+qc_maintenance.ix_qc_projection_running",
+          "+qc_maintenance.task_projection",
+          "+qc_maintenance.task_projection_pkey"
+        ],
+        "rels": [
+          "+i qc_maintenance.ix_qc_projection_queued",
+          "+i qc_maintenance.ix_qc_projection_running",
+          "+i qc_maintenance.task_projection_pkey",
+          "+r qc_maintenance.task_projection"
+        ]
+      },
+      "diff_u_to_d_group_count": 2
+    },
+    {
+      "revision": "b4c5d6e7f8a9",
+      "parent": "f8c9d0e1a2b3",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "+PROC qc_maintenance.repair_tenant_task(p_work_order_id text, p_task_id text, p_attempt_id text) owner=qc_maintenance_owner secdef=true",
+          "~qc_governance.qc_tasks: postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,qc_governance_role=INSERT,qc_governance_role=SELECT,qc_governance_role=UPDATE,qc_maintenance_owner=SELECT -> postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,qc_governance_role=INSERT,qc_governance_role=SELECT,qc_governance_role=UPDATE,qc_maintenance_owner=SELECT,qc_maintenance_owner=UPDATE"
+        ],
+        "funcs": [
+          "+qc_maintenance.repair_tenant_task(p_work_order_id text, p_task_id text, p_attempt_id text)"
+        ]
+      },
+      "diff_u_to_d_group_count": 2
+    },
+    {
+      "revision": "b5c6d7e8f9a0",
+      "parent": "a4b5c6d7e8f9",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "~outbox.maintenance_runs: app_role=INSERT,app_role=SELECT,app_role=UPDATE,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE -> postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE"
+        ]
+      },
+      "diff_u_to_d_group_count": 1
+    },
+    {
+      "revision": "b8c9d0e1f2a3",
+      "parent": "c4d5e6f7a8b9",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {},
+      "diff_u_to_d_group_count": 0
+    },
+    {
+      "revision": "c1a2b3d4e5f6",
+      "parent": "e0f1a2b3c4d5",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "-DEFACL asset_service:S:postgres",
+          "-DEFACL asset_service:r:postgres",
+          "-DEFACL project_planning:S:postgres",
+          "-DEFACL project_planning:r:postgres",
+          "~NS audit: asset_service_role=USAGE,postgres=CREATE,postgres=USAGE,project_planning_role=USAGE -> asset_service_role=USAGE,budget_quota_role=USAGE,postgres=CREATE,postgres=USAGE,production_planning_role=USAGE,project_planning_role=USAGE,qc_governance_role=USAGE",
+          "~NS auth: asset_service_role=USAGE,postgres=CREATE,postgres=USAGE,project_planning_role=USAGE -> asset_service_role=USAGE,budget_quota_role=USAGE,postgres=CREATE,postgres=USAGE,production_planning_role=USAGE,project_planning_role=USAGE,qc_governance_role=USAGE",
+          "~NS outbox: app_role=USAGE,asset_service_role=USAGE,outbox_relay_role=USAGE,postgres=CREATE,postgres=USAGE,project_planning_role=USAGE -> app_role=USAGE,asset_service_role=USAGE,budget_quota_role=USAGE,outbox_relay_role=USAGE,postgres=CREATE,postgres=USAGE,production_planning_role=USAGE,project_planning_role=USAGE,qc_governance_role=USAGE",
+          "~NS project_planning: asset_service_role=USAGE,postgres=CREATE,postgres=USAGE,project_planning_role=USAGE -> asset_service_role=USAGE,budget_quota_role=USAGE,postgres=CREATE,postgres=USAGE,production_planning_role=USAGE,project_planning_role=USAGE,qc_governance_role=USAGE",
+          "~NS public: PUBLIC=USAGE,pg_database_owner=CREATE,pg_database_owner=USAGE -> PUBLIC=USAGE,asset_service_role=USAGE,budget_quota_role=USAGE,pg_database_owner=CREATE,pg_database_owner=USAGE,production_planning_role=USAGE,project_planning_role=USAGE,qc_governance_role=USAGE",
+          "~audit.status_transitions: asset_service_role=INSERT,asset_service_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=INSERT,project_planning_role=SELECT -> asset_service_role=INSERT,asset_service_role=SELECT,budget_quota_role=INSERT,budget_quota_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,production_planning_role=INSERT,production_planning_role=SELECT,project_planning_role=INSERT,project_planning_role=SELECT,qc_governance_role=INSERT,qc_governance_role=SELECT",
+          "~auth.revoked_tokens: asset_service_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=SELECT -> asset_service_role=SELECT,budget_quota_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,production_planning_role=SELECT,project_planning_role=SELECT,qc_governance_role=SELECT",
+          "~outbox.outbox_events: app_role=SELECT,asset_service_role=INSERT,asset_service_role=SELECT,outbox_relay_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=INSERT,project_planning_role=SELECT -> app_role=SELECT,asset_service_role=INSERT,asset_service_role=SELECT,budget_quota_role=INSERT,budget_quota_role=SELECT,outbox_relay_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,production_planning_role=INSERT,production_planning_role=SELECT,project_planning_role=INSERT,project_planning_role=SELECT,qc_governance_role=INSERT,qc_governance_role=SELECT",
+          "~project_planning.episodes: postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=DELETE,project_planning_role=INSERT,project_planning_role=SELECT,project_planning_role=UPDATE -> postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=INSERT,project_planning_role=SELECT,project_planning_role=UPDATE",
+          "~project_planning.organizations: postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=DELETE,project_planning_role=INSERT,project_planning_role=SELECT,project_planning_role=UPDATE -> postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=SELECT",
+          "~project_planning.projects: postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=DELETE,project_planning_role=INSERT,project_planning_role=SELECT,project_planning_role=UPDATE -> postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=INSERT,project_planning_role=SELECT,project_planning_role=UPDATE",
+          "~project_planning.script_revisions: postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=DELETE,project_planning_role=INSERT,project_planning_role=SELECT,project_planning_role=UPDATE -> postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=INSERT,project_planning_role=SELECT,project_planning_role=UPDATE",
+          "~public.alembic_version: asset_service_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=SELECT -> asset_service_role=SELECT,budget_quota_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,production_planning_role=SELECT,project_planning_role=SELECT,qc_governance_role=SELECT"
+        ]
+      },
+      "diff_u_to_d_group_count": 1
+    },
+    {
+      "revision": "c1d2e3f4a5b6",
+      "parent": "b8c9d1e2f3a4",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "+DEFACL asset_service:r:postgres",
+          "+NS asset_service",
+          "+asset_service.asset_versions",
+          "+asset_service.asset_versions_pkey",
+          "+asset_service.ix_asset_service_asset_versions_tenant_id",
+          "+asset_service.ix_asset_service_asset_versions_type_sha256",
+          "+asset_service.ix_asset_service_qc_reports_asset_version_id",
+          "+asset_service.ix_asset_service_qc_reports_tenant_id",
+          "+asset_service.qc_reports",
+          "+asset_service.qc_reports_pkey"
+        ],
+        "rels": [
+          "+i asset_service.asset_versions_pkey",
+          "+i asset_service.ix_asset_service_asset_versions_tenant_id",
+          "+i asset_service.ix_asset_service_asset_versions_type_sha256",
+          "+i asset_service.ix_asset_service_qc_reports_asset_version_id",
+          "+i asset_service.ix_asset_service_qc_reports_tenant_id",
+          "+i asset_service.qc_reports_pkey",
+          "+r asset_service.asset_versions",
+          "+r asset_service.qc_reports"
+        ]
+      },
+      "diff_u_to_d_group_count": 2
+    },
+    {
+      "revision": "c5d6e7f8a9b0",
+      "parent": "a7b8c9d0e1f2",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "+outbox.dead_letter_replays",
+          "+outbox.dead_letter_replays_pkey",
+          "+outbox.ix_outbox_dead_letter_replays_source_event",
+          "+outbox.ix_outbox_dead_letter_replays_tenant_created",
+          "~NS outbox: app_role=USAGE,asset_service_role=USAGE,budget_quota_role=USAGE,outbox_relay_role=USAGE,postgres=CREATE,postgres=USAGE,production_planning_role=USAGE,project_planning_role=USAGE,qc_governance_role=USAGE -> app_role=USAGE,asset_service_role=USAGE,budget_quota_role=USAGE,outbox_ops_role=USAGE,outbox_relay_role=USAGE,postgres=CREATE,postgres=USAGE,production_planning_role=USAGE,project_planning_role=USAGE,qc_governance_role=USAGE",
+          "~outbox.outbox_events: app_role=SELECT,asset_service_role=INSERT,asset_service_role=SELECT,budget_quota_role=INSERT,budget_quota_role=SELECT,outbox_relay_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,production_planning_role=INSERT,production_planning_role=SELECT,project_planning_role=INSERT,project_planning_role=SELECT,qc_governance_role=INSERT,qc_governance_role=SELECT -> app_role=SELECT,asset_service_role=INSERT,asset_service_role=SELECT,budget_quota_role=INSERT,budget_quota_role=SELECT,outbox_ops_role=SELECT,outbox_relay_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,production_planning_role=INSERT,production_planning_role=SELECT,project_planning_role=INSERT,project_planning_role=SELECT,qc_governance_role=INSERT,qc_governance_role=SELECT",
+          "~outbox.outbox_events_default: asset_service_role=INSERT,asset_service_role=SELECT,outbox_relay_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=INSERT,project_planning_role=SELECT -> asset_service_role=INSERT,asset_service_role=SELECT,outbox_ops_role=SELECT,outbox_relay_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=INSERT,project_planning_role=SELECT",
+          "~outbox.outbox_events_y202611: asset_service_role=INSERT,asset_service_role=SELECT,outbox_relay_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=INSERT,project_planning_role=SELECT -> asset_service_role=INSERT,asset_service_role=SELECT,outbox_ops_role=SELECT,outbox_relay_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=INSERT,project_planning_role=SELECT",
+          "~outbox.outbox_events_y202612: asset_service_role=INSERT,asset_service_role=SELECT,outbox_relay_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=INSERT,project_planning_role=SELECT -> asset_service_role=INSERT,asset_service_role=SELECT,outbox_ops_role=SELECT,outbox_relay_role=SELECT,postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,project_planning_role=INSERT,project_planning_role=SELECT"
+        ],
+        "rels": [
+          "+i outbox.dead_letter_replays_pkey",
+          "+i outbox.ix_outbox_dead_letter_replays_source_event",
+          "+i outbox.ix_outbox_dead_letter_replays_tenant_created",
+          "+r outbox.dead_letter_replays"
+        ]
+      },
+      "diff_u_to_d_group_count": 2
+    },
+    {
+      "revision": "c6d7e8f9a0b1",
+      "parent": "b5c6d7e8f9a0",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "+NS auth",
+          "+auth.ix_auth_revoked_tokens_expires_at",
+          "+auth.revoked_tokens",
+          "+auth.revoked_tokens_pkey"
+        ],
+        "rels": [
+          "+i auth.ix_auth_revoked_tokens_expires_at",
+          "+i auth.revoked_tokens_pkey",
+          "+r auth.revoked_tokens"
+        ]
+      },
+      "diff_u_to_d_group_count": 2
+    },
+    {
+      "revision": "d7e8f9a0b1c2",
+      "parent": "c3d4e5f6a7b8",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "+PROC project_planning.assert_constraint_pack_shots_in_project() owner=postgres secdef=false",
+          "+PROC project_planning.constraint_entries_complete(entries jsonb) owner=postgres secdef=false",
+          "+PROC project_planning.text_array_unique(items text[]) owner=postgres secdef=false",
+          "+project_planning.constraint_packs",
+          "+project_planning.constraint_packs_pkey",
+          "+project_planning.ix_project_planning_constraint_packs_project_id",
+          "+project_planning.ix_project_planning_constraint_packs_tenant_id",
+          "+project_planning.uq_constraint_pack_single_active",
+          "+project_planning.uq_constraint_pack_version",
+          "+project_planning.uq_constraint_packs_entity_project"
+        ],
+        "rels": [
+          "+i project_planning.constraint_packs_pkey",
+          "+i project_planning.ix_project_planning_constraint_packs_project_id",
+          "+i project_planning.ix_project_planning_constraint_packs_tenant_id",
+          "+i project_planning.uq_constraint_pack_single_active",
+          "+i project_planning.uq_constraint_pack_version",
+          "+i project_planning.uq_constraint_packs_entity_project",
+          "+r project_planning.constraint_packs"
+        ],
+        "funcs": [
+          "+project_planning.assert_constraint_pack_shots_in_project()",
+          "+project_planning.constraint_entries_complete(entries jsonb)",
+          "+project_planning.text_array_unique(items text[])"
+        ]
+      },
+      "diff_u_to_d_group_count": 3
+    },
+    {
+      "revision": "d8e9f0a1b2c3",
+      "parent": "c7d8e9f0a1b2",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "+NS audit",
+          "+PROC audit.assert_transition_event_exists() owner=postgres secdef=true",
+          "+PROC audit.reject_mutation() owner=postgres secdef=false",
+          "+PROC audit.reject_truncate() owner=postgres secdef=false",
+          "+audit.ix_status_transitions_resource_history",
+          "+audit.status_transitions",
+          "+audit.status_transitions_pkey",
+          "+audit.uq_status_transition_version"
+        ],
+        "rels": [
+          "+i audit.ix_status_transitions_resource_history",
+          "+i audit.status_transitions_pkey",
+          "+i audit.uq_status_transition_version",
+          "+r audit.status_transitions"
+        ],
+        "funcs": [
+          "+audit.assert_transition_event_exists()",
+          "+audit.reject_mutation()",
+          "+audit.reject_truncate()"
+        ]
+      },
+      "diff_u_to_d_group_count": 3
+    },
+    {
+      "revision": "e0f1a2b3c4d5",
+      "parent": "e9f0a1b2c3d4",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "+NS budget_quota",
+          "+NS production_planning",
+          "+NS qc_governance"
+        ]
+      },
+      "diff_u_to_d_group_count": 1
+    },
+    {
+      "revision": "e1f2a3b4c5d6",
+      "parent": "d0e1f2a3b4c5",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "+PROC asset_service.reject_receipt_mutation() owner=postgres secdef=false",
+          "+PROC asset_service.reject_receipt_truncate() owner=postgres secdef=false",
+          "+asset_service.asset_registration_receipts",
+          "+asset_service.asset_registration_receipts_pkey",
+          "+asset_service.ix_asset_registration_receipts_generation_task_id",
+          "+asset_service.ix_asset_registration_receipts_project_id",
+          "+asset_service.ix_asset_service_asset_registration_receipts_tenant_id",
+          "+asset_service.uq_asset_registration_receipts_entity_project",
+          "+asset_service.uq_asset_registration_receipts_tenant_task",
+          "+asset_service.uq_asset_versions_project_entity",
+          "+production_planning.artifact_manifests",
+          "+production_planning.artifact_manifests_pkey",
+          "+production_planning.ix_artifact_manifests_generation_task_id",
+          "+production_planning.ix_artifact_manifests_project_id",
+          "+production_planning.ix_production_planning_artifact_manifests_tenant_id",
+          "+production_planning.uq_artifact_manifests_entity_project",
+          "+production_planning.uq_artifact_manifests_task_attempt",
+          "+production_planning.uq_generation_tasks_task_project_tenant"
+        ],
+        "rels": [
+          "+i asset_service.asset_registration_receipts_pkey",
+          "+i asset_service.ix_asset_registration_receipts_generation_task_id",
+          "+i asset_service.ix_asset_registration_receipts_project_id",
+          "+i asset_service.ix_asset_service_asset_registration_receipts_tenant_id",
+          "+i asset_service.uq_asset_registration_receipts_entity_project",
+          "+i asset_service.uq_asset_registration_receipts_tenant_task",
+          "+i asset_service.uq_asset_versions_project_entity",
+          "+i production_planning.artifact_manifests_pkey",
+          "+i production_planning.ix_artifact_manifests_generation_task_id",
+          "+i production_planning.ix_artifact_manifests_project_id",
+          "+i production_planning.ix_production_planning_artifact_manifests_tenant_id",
+          "+i production_planning.uq_artifact_manifests_entity_project",
+          "+i production_planning.uq_artifact_manifests_task_attempt",
+          "+i production_planning.uq_generation_tasks_task_project_tenant",
+          "+r asset_service.asset_registration_receipts",
+          "+r production_planning.artifact_manifests"
+        ],
+        "funcs": [
+          "+asset_service.reject_receipt_mutation()",
+          "+asset_service.reject_receipt_truncate()"
+        ]
+      },
+      "diff_u_to_d_group_count": 3
+    },
+    {
+      "revision": "e4f5a6b7c8d9",
+      "parent": "f1a2b3c4d5e7",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "+PROC audit.assert_signature_event_exists() owner=postgres secdef=true",
+          "+audit.approval_signatures",
+          "+audit.approval_signatures_pkey",
+          "+audit.ix_approval_signatures_group",
+          "+audit.uq_signature_event"
+        ],
+        "rels": [
+          "+i audit.approval_signatures_pkey",
+          "+i audit.ix_approval_signatures_group",
+          "+i audit.uq_signature_event",
+          "+r audit.approval_signatures"
+        ],
+        "funcs": [
+          "+audit.assert_signature_event_exists()"
+        ]
+      },
+      "diff_u_to_d_group_count": 3
+    },
+    {
+      "revision": "e5f6a7b8c9d0",
+      "parent": "d4e5f6a7b8c9",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "+PROC outbox.list_active_tenants() owner=postgres secdef=true"
+        ],
+        "funcs": [
+          "+outbox.list_active_tenants()"
+        ]
+      },
+      "diff_u_to_d_group_count": 2
+    },
+    {
+      "revision": "e6a7b8c9d0e1",
+      "parent": "a8b9c0d1e2f3",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "+PROC qc_maintenance.assert_session_identity() owner=qc_maintenance_owner secdef=false",
+          "~NS qc_maintenance: postgres=CREATE,postgres=USAGE,qc_governance_role=USAGE -> qc_governance_role=USAGE,qc_maintenance_login=USAGE,qc_maintenance_operator=USAGE,qc_maintenance_owner=CREATE,qc_maintenance_owner=USAGE",
+          "~PROC audit.assert_signature_event_exists() owner=postgres secdef=true: PUBLIC=EXECUTE,postgres=EXECUTE -> postgres=EXECUTE",
+          "~qc_maintenance.ix_qc_projection_queued: postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE -> qc_maintenance_owner=DELETE,qc_maintenance_owner=INSERT,qc_maintenance_owner=REFERENCES,qc_maintenance_owner=SELECT,qc_maintenance_owner=TRIGGER,qc_maintenance_owner=TRUNCATE,qc_maintenance_owner=UPDATE",
+          "~qc_maintenance.ix_qc_projection_running: postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE -> qc_maintenance_owner=DELETE,qc_maintenance_owner=INSERT,qc_maintenance_owner=REFERENCES,qc_maintenance_owner=SELECT,qc_maintenance_owner=TRIGGER,qc_maintenance_owner=TRUNCATE,qc_maintenance_owner=UPDATE",
+          "~qc_maintenance.task_projection: postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,qc_governance_role=DELETE,qc_governance_role=INSERT,qc_governance_role=SELECT,qc_governance_role=UPDATE -> qc_governance_role=DELETE,qc_governance_role=INSERT,qc_governance_role=SELECT,qc_governance_role=UPDATE,qc_maintenance_owner=DELETE,qc_maintenance_owner=INSERT,qc_maintenance_owner=REFERENCES,qc_maintenance_owner=SELECT,qc_maintenance_owner=TRIGGER,qc_maintenance_owner=TRUNCATE,qc_maintenance_owner=UPDATE",
+          "~qc_maintenance.task_projection_pkey: postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE -> qc_maintenance_owner=DELETE,qc_maintenance_owner=INSERT,qc_maintenance_owner=REFERENCES,qc_maintenance_owner=SELECT,qc_maintenance_owner=TRIGGER,qc_maintenance_owner=TRUNCATE,qc_maintenance_owner=UPDATE"
+        ],
+        "funcs": [
+          "+qc_maintenance.assert_session_identity()"
+        ]
+      },
+      "diff_u_to_d_group_count": 2
+    },
+    {
+      "revision": "e8f9a0b1c2d3",
+      "parent": "d7e8f9a0b1c2",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "+project_planning.budget_ledger",
+          "+project_planning.budget_ledger_pkey",
+          "+project_planning.generation_tasks",
+          "+project_planning.generation_tasks_pkey",
+          "+project_planning.ix_project_planning_budget_ledger_tenant_id",
+          "+project_planning.ix_project_planning_generation_tasks_project_id",
+          "+project_planning.ix_project_planning_generation_tasks_tenant_id",
+          "+project_planning.ix_project_planning_production_routes_project_id",
+          "+project_planning.ix_project_planning_production_routes_tenant_id",
+          "+project_planning.ix_project_planning_shot_budget_requests_project_id",
+          "+project_planning.ix_project_planning_shot_budget_requests_tenant_id",
+          "+project_planning.production_routes",
+          "+project_planning.production_routes_pkey",
+          "+project_planning.shot_budget_requests",
+          "+project_planning.shot_budget_requests_pkey",
+          "+project_planning.uq_budget_ledger_idempotency_key",
+          "+project_planning.uq_generation_tasks_entity_project",
+          "+project_planning.uq_production_routes_entity_project"
+        ],
+        "rels": [
+          "+i project_planning.budget_ledger_pkey",
+          "+i project_planning.generation_tasks_pkey",
+          "+i project_planning.ix_project_planning_budget_ledger_tenant_id",
+          "+i project_planning.ix_project_planning_generation_tasks_project_id",
+          "+i project_planning.ix_project_planning_generation_tasks_tenant_id",
+          "+i project_planning.ix_project_planning_production_routes_project_id",
+          "+i project_planning.ix_project_planning_production_routes_tenant_id",
+          "+i project_planning.ix_project_planning_shot_budget_requests_project_id",
+          "+i project_planning.ix_project_planning_shot_budget_requests_tenant_id",
+          "+i project_planning.production_routes_pkey",
+          "+i project_planning.shot_budget_requests_pkey",
+          "+i project_planning.uq_budget_ledger_idempotency_key",
+          "+i project_planning.uq_generation_tasks_entity_project",
+          "+i project_planning.uq_production_routes_entity_project",
+          "+r project_planning.budget_ledger",
+          "+r project_planning.generation_tasks",
+          "+r project_planning.production_routes",
+          "+r project_planning.shot_budget_requests"
+        ]
+      },
+      "diff_u_to_d_group_count": 2
+    },
+    {
+      "revision": "f1a2b3c4d5e6",
+      "parent": "e6f7a8b9c0d1",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "+qc_governance.ix_qc_governance_qc_tasks_status",
+          "+qc_governance.ix_qc_governance_qc_tasks_tenant_id",
+          "+qc_governance.qc_tasks",
+          "+qc_governance.qc_tasks_pkey",
+          "+qc_governance.uq_qc_governance_qc_tasks_generation_task"
+        ],
+        "rels": [
+          "+i qc_governance.ix_qc_governance_qc_tasks_status",
+          "+i qc_governance.ix_qc_governance_qc_tasks_tenant_id",
+          "+i qc_governance.qc_tasks_pkey",
+          "+i qc_governance.uq_qc_governance_qc_tasks_generation_task",
+          "+r qc_governance.qc_tasks"
+        ]
+      },
+      "diff_u_to_d_group_count": 2
+    },
+    {
+      "revision": "f2b3c4d5e6a7",
+      "parent": "b6c7d8e9f0a1",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {},
+      "diff_u_to_d_group_count": 0
+    },
+    {
+      "revision": "f6a7b8c9d1e2",
+      "parent": "e5f6a7b8c9d0",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "+outbox.outbox_events_default",
+          "+outbox.outbox_events_default_aggregate_id_idx",
+          "+outbox.outbox_events_default_pkey",
+          "+outbox.outbox_events_default_published_at_idx",
+          "+outbox.outbox_events_default_tenant_id_idx",
+          "+outbox.outbox_events_y202611",
+          "+outbox.outbox_events_y202611_aggregate_id_idx",
+          "+outbox.outbox_events_y202611_pkey",
+          "+outbox.outbox_events_y202611_published_at_idx",
+          "+outbox.outbox_events_y202611_tenant_id_idx",
+          "+outbox.outbox_events_y202612",
+          "+outbox.outbox_events_y202612_aggregate_id_idx",
+          "+outbox.outbox_events_y202612_pkey",
+          "+outbox.outbox_events_y202612_published_at_idx",
+          "+outbox.outbox_events_y202612_tenant_id_idx"
+        ],
+        "rels": [
+          "-i outbox.ix_outbox_aggregate",
+          "-i outbox.ix_outbox_published",
+          "-i outbox.ix_outbox_tenant",
+          "-i outbox.outbox_events_pkey",
+          "-r outbox.outbox_events",
+          "+I outbox.ix_outbox_aggregate",
+          "+I outbox.ix_outbox_published",
+          "+I outbox.ix_outbox_tenant",
+          "+I outbox.outbox_events_pkey",
+          "+i outbox.outbox_events_default_aggregate_id_idx",
+          "+i outbox.outbox_events_default_pkey",
+          "+i outbox.outbox_events_default_published_at_idx",
+          "+i outbox.outbox_events_default_tenant_id_idx",
+          "+i outbox.outbox_events_y202611_aggregate_id_idx",
+          "+i outbox.outbox_events_y202611_pkey",
+          "+i outbox.outbox_events_y202611_published_at_idx",
+          "+i outbox.outbox_events_y202611_tenant_id_idx",
+          "+i outbox.outbox_events_y202612_aggregate_id_idx",
+          "+i outbox.outbox_events_y202612_pkey",
+          "+i outbox.outbox_events_y202612_published_at_idx",
+          "+i outbox.outbox_events_y202612_tenant_id_idx",
+          "+p outbox.outbox_events",
+          "+r outbox.outbox_events_default",
+          "+r outbox.outbox_events_y202611",
+          "+r outbox.outbox_events_y202612"
+        ]
+      },
+      "diff_u_to_d_group_count": 2
+    },
+    {
+      "revision": "f8c9d0e1a2b3",
+      "parent": "e6a7b8c9d0e1",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "+PROC qc_maintenance._projection_anomalies(p_tenant uuid) owner=qc_maintenance_owner secdef=false",
+          "+PROC qc_maintenance.assert_session_member() owner=qc_maintenance_owner secdef=false",
+          "+PROC qc_maintenance.detect_projection_anomalies() owner=qc_maintenance_owner secdef=true",
+          "+PROC qc_maintenance.enforce_work_order_transition() owner=qc_maintenance_owner secdef=false",
+          "+PROC qc_maintenance.enumerate_due_tasks() owner=qc_maintenance_owner secdef=true",
+          "+PROC qc_maintenance.reconcile_tenant_tasks(p_work_order_id text) owner=qc_maintenance_owner secdef=true",
+          "+PROC qc_maintenance.record_maintenance_denial(p_work_order_id text, p_reason text, p_attempt_id text, p_outcome text, p_action text) owner=qc_maintenance_owner secdef=true",
+          "+qc_maintenance.ix_maintenance_action_log_tenant",
+          "+qc_maintenance.ix_maintenance_action_log_work_order",
+          "+qc_maintenance.ix_maintenance_work_order_status",
+          "+qc_maintenance.ix_maintenance_work_order_tenant",
+          "+qc_maintenance.ix_qc_maintenance_maintenance_work_orders_tenant_id",
+          "+qc_maintenance.maintenance_action_log",
+          "+qc_maintenance.maintenance_action_log_id_seq",
+          "+qc_maintenance.maintenance_action_log_pkey",
+          "+qc_maintenance.maintenance_work_orders",
+          "+qc_maintenance.maintenance_work_orders_pkey",
+          "+qc_maintenance.uq_maintenance_action_attempt",
+          "+qc_maintenance.uq_maintenance_work_order_idem",
+          "~NS qc_governance: postgres=CREATE,postgres=USAGE,qc_governance_role=USAGE -> postgres=CREATE,postgres=USAGE,qc_governance_role=USAGE,qc_maintenance_owner=USAGE",
+          "~qc_governance.qc_tasks: postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,qc_governance_role=INSERT,qc_governance_role=SELECT,qc_governance_role=UPDATE -> postgres=DELETE,postgres=INSERT,postgres=REFERENCES,postgres=SELECT,postgres=TRIGGER,postgres=TRUNCATE,postgres=UPDATE,qc_governance_role=INSERT,qc_governance_role=SELECT,qc_governance_role=UPDATE,qc_maintenance_owner=SELECT"
+        ],
+        "rels": [
+          "+S qc_maintenance.maintenance_action_log_id_seq",
+          "+i qc_maintenance.ix_maintenance_action_log_tenant",
+          "+i qc_maintenance.ix_maintenance_action_log_work_order",
+          "+i qc_maintenance.ix_maintenance_work_order_status",
+          "+i qc_maintenance.ix_maintenance_work_order_tenant",
+          "+i qc_maintenance.ix_qc_maintenance_maintenance_work_orders_tenant_id",
+          "+i qc_maintenance.maintenance_action_log_pkey",
+          "+i qc_maintenance.maintenance_work_orders_pkey",
+          "+i qc_maintenance.uq_maintenance_action_attempt",
+          "+i qc_maintenance.uq_maintenance_work_order_idem",
+          "+r qc_maintenance.maintenance_action_log",
+          "+r qc_maintenance.maintenance_work_orders"
+        ],
+        "funcs": [
+          "+qc_maintenance._projection_anomalies(p_tenant uuid)",
+          "+qc_maintenance.assert_session_member()",
+          "+qc_maintenance.detect_projection_anomalies()",
+          "+qc_maintenance.enforce_work_order_transition()",
+          "+qc_maintenance.enumerate_due_tasks()",
+          "+qc_maintenance.reconcile_tenant_tasks(p_work_order_id text)",
+          "+qc_maintenance.record_maintenance_denial(p_work_order_id text, p_reason text, p_attempt_id text, p_outcome text, p_action text)"
+        ]
+      },
+      "diff_u_to_d_group_count": 3
+    },
+    {
+      "revision": "f9a0b1c2d3e4",
+      "parent": "e8f9a0b1c2d3",
+      "verdict": "no_restore_proven",
+      "diff": {},
+      "diff_p_to_u": {
+        "acl": [
+          "+project_planning.gate_decisions",
+          "+project_planning.gate_decisions_pkey",
+          "+project_planning.ix_project_planning_gate_decisions_gate_key",
+          "+project_planning.ix_project_planning_gate_decisions_project_id",
+          "+project_planning.ix_project_planning_gate_decisions_tenant_id"
+        ],
+        "rels": [
+          "+i project_planning.gate_decisions_pkey",
+          "+i project_planning.ix_project_planning_gate_decisions_gate_key",
+          "+i project_planning.ix_project_planning_gate_decisions_project_id",
+          "+i project_planning.ix_project_planning_gate_decisions_tenant_id",
+          "+r project_planning.gate_decisions"
+        ]
+      },
+      "diff_u_to_d_group_count": 2
+    }
+  ]
+}

@@ -57,9 +57,7 @@ async def test_project_role_can_read_own_schema(project_engine: AsyncEngine) -> 
 async def test_project_role_can_write_outbox(project_engine: AsyncEngine) -> None:
     """project_planning_role 能读 outbox（同事务事件投递前提）。"""
     async with project_engine.connect() as conn:
-        rows = await conn.execute(
-            text("SELECT count(*) FROM outbox.outbox_events WHERE false")
-        )
+        rows = await conn.execute(text("SELECT count(*) FROM outbox.outbox_events WHERE false"))
         assert rows.scalar() == 0
 
 
@@ -69,9 +67,7 @@ async def test_project_role_cannot_access_asset_service(
     """project_planning_role 不能读 asset_service schema（越界被他域拒绝）。"""
     async with project_engine.connect() as conn:
         with pytest.raises(Exception) as exc_info:
-            await conn.execute(
-                text("SELECT count(*) FROM asset_service.asset_versions")
-            )
+            await conn.execute(text("SELECT count(*) FROM asset_service.asset_versions"))
     assert "permission denied" in str(exc_info.value).lower()
 
 
@@ -87,9 +83,7 @@ async def test_asset_role_can_read_own_schema(asset_engine: AsyncEngine) -> None
 async def test_asset_role_can_write_outbox(asset_engine: AsyncEngine) -> None:
     """asset_service_role 能读 outbox（同事务事件投递前提）。"""
     async with asset_engine.connect() as conn:
-        rows = await conn.execute(
-            text("SELECT count(*) FROM outbox.outbox_events WHERE false")
-        )
+        rows = await conn.execute(text("SELECT count(*) FROM outbox.outbox_events WHERE false"))
         assert rows.scalar() == 0
 
 
@@ -117,9 +111,7 @@ async def test_asset_role_cannot_read_project_business_fields(
     """asset_service_role 不能读项目业务字段（列级授权不做整表开放）。"""
     async with asset_engine.connect() as conn:
         with pytest.raises(Exception) as exc_info:
-            await conn.execute(
-                text("SELECT project_name FROM project_planning.projects LIMIT 1")
-            )
+            await conn.execute(text("SELECT project_name FROM project_planning.projects LIMIT 1"))
     assert "permission denied" in str(exc_info.value).lower()
 
 
@@ -130,9 +122,6 @@ async def test_asset_role_cannot_write_project_planning(
     async with asset_engine.connect() as conn:
         with pytest.raises(Exception) as exc_info:
             await conn.execute(
-                text(
-                    "INSERT INTO project_planning.projects (entity_id) "
-                    "VALUES ('x')"
-                )
+                text("INSERT INTO project_planning.projects (entity_id) VALUES ('x')")
             )
     assert "permission denied" in str(exc_info.value).lower()

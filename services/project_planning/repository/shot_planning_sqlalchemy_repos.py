@@ -57,14 +57,10 @@ from services.project_planning.repository.shot_planning_repositories import (
 
 
 def _bad_status(table: str, value: str) -> DomainError:
-    return DomainError(
-        ErrorRegistry.INTERNAL_ERROR, detail=f"{table} 存量状态非法: {value!r}"
-    )
+    return DomainError(ErrorRegistry.INTERNAL_ERROR, detail=f"{table} 存量状态非法: {value!r}")
 
 
-def scene_lock_statement(
-    entity_id: str, *, exclusive: bool
-) -> Select[SceneModel]:
+def scene_lock_statement(entity_id: str, *, exclusive: bool) -> Select[SceneModel]:
     """父行锁读取语句：SC-5 两个方向的唯一落点（ADR-R28 §6.3）。
 
     锁模式为什么是**这一对**，而不是随便选一个：
@@ -199,9 +195,7 @@ class SqlAlchemySceneRepository(SceneRepository):
         return await self._lock(entity_id, exclusive=False)
 
     async def _lock(self, entity_id: str, *, exclusive: bool) -> Scene | None:
-        result = await self._session.execute(
-            scene_lock_statement(entity_id, exclusive=exclusive)
-        )
+        result = await self._session.execute(scene_lock_statement(entity_id, exclusive=exclusive))
         model = result.scalar_one_or_none()
         return _scene_to_domain(model) if model is not None else None
 
@@ -311,9 +305,7 @@ class SqlAlchemyShotRepository(ShotRepository):
         )
         return result.scalar_one_or_none() is not None
 
-    async def existing_ids_in_project(
-        self, project_id: str, shot_ids: list[str]
-    ) -> set[str]:
+    async def existing_ids_in_project(self, project_id: str, shot_ids: list[str]) -> set[str]:
         """返回确实属于该项目的镜头 id（A23 约束包作用范围校验）。
 
         用 ``IN`` 而不是「逐个查」：一次往返换回命中集合，调用方据此点出越界 id。
@@ -446,9 +438,7 @@ class SqlAlchemyShotRevisionRepository(ShotRevisionRepository):
 
     async def get_by_id(self, entity_id: str) -> ShotRevision | None:
         result = await self._session.execute(
-            select(ShotRevisionModel).where(
-                ShotRevisionModel.entity_id == entity_id
-            )
+            select(ShotRevisionModel).where(ShotRevisionModel.entity_id == entity_id)
         )
         model = result.scalar_one_or_none()
         return _revision_to_domain(model) if model is not None else None
@@ -473,9 +463,7 @@ class SqlAlchemyShotRevisionRepository(ShotRevisionRepository):
         return _revision_to_domain(model) if model is not None else None
 
     async def lock_for_child_write(self, entity_id: str) -> ShotRevision | None:
-        result = await self._session.execute(
-            shot_revision_lock_statement(entity_id)
-        )
+        result = await self._session.execute(shot_revision_lock_statement(entity_id))
         model = result.scalar_one_or_none()
         return _revision_to_domain(model) if model is not None else None
 
@@ -579,9 +567,7 @@ class SqlAlchemyShotSpecRepository(ShotSpecRepository):
 
     async def get_by_revision(self, shot_revision_id: str) -> ShotSpec | None:
         result = await self._session.execute(
-            select(ShotSpecModel).where(
-                ShotSpecModel.shot_revision_id == shot_revision_id
-            )
+            select(ShotSpecModel).where(ShotSpecModel.shot_revision_id == shot_revision_id)
         )
         model = result.scalar_one_or_none()
         return _spec_to_domain(model) if model is not None else None
@@ -683,9 +669,7 @@ class SqlAlchemyConstraintPackRepository(ConstraintPackRepository):
 
     async def get_by_id(self, entity_id: str) -> ConstraintPack | None:
         result = await self._session.execute(
-            select(ConstraintPackModel).where(
-                ConstraintPackModel.entity_id == entity_id
-            )
+            select(ConstraintPackModel).where(ConstraintPackModel.entity_id == entity_id)
         )
         model = result.scalar_one_or_none()
         return _pack_to_domain(model) if model is not None else None
@@ -822,9 +806,7 @@ class SqlAlchemyShotDraftRepository(ShotDraftRepository):
 
     async def get_by_id(self, entity_id: str) -> ShotBreakdownDraft | None:
         result = await self._session.execute(
-            select(ShotBreakdownDraftModel).where(
-                ShotBreakdownDraftModel.entity_id == entity_id
-            )
+            select(ShotBreakdownDraftModel).where(ShotBreakdownDraftModel.entity_id == entity_id)
         )
         model = result.scalar_one_or_none()
         return _draft_to_domain(model) if model is not None else None

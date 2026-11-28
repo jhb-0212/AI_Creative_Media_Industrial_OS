@@ -24,10 +24,7 @@ def _composite_fk_to_episodes() -> list[ForeignKeyConstraint]:
         for c in ScriptModel.__table__.constraints
         if isinstance(c, ForeignKeyConstraint)
         and {el.parent.name for el in c.elements} == {"project_id", "episode_ref"}
-        and all(
-            el.target_fullname.startswith("project_planning.episodes.")
-            for el in c.elements
-        )
+        and all(el.target_fullname.startswith("project_planning.episodes.") for el in c.elements)
     ]
 
 
@@ -36,8 +33,7 @@ def test_script_revision_keeps_composite_fk_ownership() -> None:
     cols = {c.name for c in ScriptModel.__table__.columns}
     assert {"project_id", "episode_ref"} <= cols, "归属列缺失：复合外键将失去载体"
     assert _composite_fk_to_episodes(), (
-        "缺少 (project_id, episode_ref) → episodes 复合外键，"
-        "跨项目挂载将退回 Service 校验"
+        "缺少 (project_id, episode_ref) → episodes 复合外键，跨项目挂载将退回 Service 校验"
     )
 
 
@@ -53,6 +49,6 @@ def test_outbox_events_have_tenant_column_and_index() -> None:
     本用例只保证承载隔离所需的列与索引存在。
     """
     assert OutboxEventModel.__table__.c.tenant_id.nullable is False
-    assert any(
-        ix.name == "ix_outbox_tenant" for ix in OutboxEventModel.__table__.indexes
-    ), "outbox 缺少 tenant_id 索引"
+    assert any(ix.name == "ix_outbox_tenant" for ix in OutboxEventModel.__table__.indexes), (
+        "outbox 缺少 tenant_id 索引"
+    )

@@ -85,17 +85,15 @@ def test_unknown_value_in_declaration_is_reported(tmp_path: Path) -> None:
     data = _sets()
     data["fields"][0]["values"].append("GHOST_STATE")
     path = _dump(data, tmp_path / "field_value_sets.yaml")
-    problems = cc.field_value_set_problems(
-        path, _definitions(), _layers(), _authority_entries()
-    )
+    problems = cc.field_value_set_problems(path, _definitions(), _layers(), _authority_entries())
     assert any("GHOST_STATE" in p for p in problems), problems
 
 
 def test_schema_enum_drift_is_reported(tmp_path: Path) -> None:
     definitions = json.loads(json.dumps(_definitions()))
-    definitions["ExternalToolAdapterManifest"]["properties"]["lifecycle_status"][
-        "enum"
-    ].remove("REVOKED")
+    definitions["ExternalToolAdapterManifest"]["properties"]["lifecycle_status"]["enum"].remove(
+        "REVOKED"
+    )
     problems = cc.field_value_set_problems(
         FIELD_VALUE_SETS, definitions, _layers(), _authority_entries()
     )
@@ -135,8 +133,7 @@ def test_hidden_gap_without_value_set_or_pending_entry_is_reported() -> None:
         entry
         for entry in layers["non_lifecycle_dimensions"]
         if not (
-            entry.get("object") == "QCIssue"
-            and "disposition" in str(entry.get("status_field", ""))
+            entry.get("object") == "QCIssue" and "disposition" in str(entry.get("status_field", ""))
         )
     ]
     problems = cc.field_value_set_problems(
@@ -149,9 +146,7 @@ def test_transition_to_unknown_value_is_reported(tmp_path: Path) -> None:
     data = _sets()
     data["fields"][0]["transitions"].append({"from": "ACTIVE", "to": "GHOST_STATE"})
     path = _dump(data, tmp_path / "field_value_sets.yaml")
-    problems = cc.field_value_set_problems(
-        path, _definitions(), _layers(), _authority_entries()
-    )
+    problems = cc.field_value_set_problems(path, _definitions(), _layers(), _authority_entries())
     assert any("GHOST_STATE" in p for p in problems), problems
 
 
@@ -159,9 +154,7 @@ def test_guard_to_unknown_field_is_reported(tmp_path: Path) -> None:
     data = _sets()
     data["fields"][0]["guards"][0]["require"].append("ghost_ref")
     path = _dump(data, tmp_path / "field_value_sets.yaml")
-    problems = cc.field_value_set_problems(
-        path, _definitions(), _layers(), _authority_entries()
-    )
+    problems = cc.field_value_set_problems(path, _definitions(), _layers(), _authority_entries())
     assert any("ghost_ref" in p for p in problems), problems
 
 

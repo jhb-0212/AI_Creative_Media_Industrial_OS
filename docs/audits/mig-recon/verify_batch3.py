@@ -99,8 +99,13 @@ async def main() -> int:
         )
 
         exists = await conn.fetchval(fk_exists_sql())
-        rec("P1", "前提", "基线里 episodes 归属外键尚不存在（否则测的不是本迁移）",
-            not exists, f"exists={exists}")
+        rec(
+            "P1",
+            "前提",
+            "基线里 episodes 归属外键尚不存在（否则测的不是本迁移）",
+            not exists,
+            f"exists={exists}",
+        )
         if exists:
             raise RuntimeError("前提不成立：基线已含 episodes 归属外键")
 
@@ -109,9 +114,13 @@ async def main() -> int:
             "SELECT entity_id, tenant_id::text AS tenant, organization_id::text AS org "
             "FROM project_planning.projects WHERE status = 'ACTIVE' ORDER BY entity_id LIMIT 1"
         )
-        rec("P2", "前提", "库里取到一行 ACTIVE 项目作为对照",
+        rec(
+            "P2",
+            "前提",
+            "库里取到一行 ACTIVE 项目作为对照",
             proj is not None,
-            f"{proj['entity_id']} / {proj['tenant'][-4:]} / {proj['org'][-4:]}" if proj else "无")
+            f"{proj['entity_id']} / {proj['tenant'][-4:]} / {proj['org'][-4:]}" if proj else "无",
+        )
         if proj is None:
             raise RuntimeError("没有 ACTIVE 项目，无法构造对照行")
 
@@ -124,7 +133,10 @@ async def main() -> int:
         rec("G1", "对照", "真实项目 + 同租户组织可正常插入（约束未建立前）", ok_g, d_g)
 
         ok_c, d_c = await lab.case(
-            conn, [], ep_insert("b3-ghost", "ep-ghost", "ghost-project", tenant, org), expect_changed=1
+            conn,
+            [],
+            ep_insert("b3-ghost", "ep-ghost", "ghost-project", tenant, org),
+            expect_changed=1,
         )
         rec("C1", "缺口", "建约束前：episodes 可指向不存在的项目", ok_c, d_c)
 
@@ -132,24 +144,28 @@ async def main() -> int:
         n = await lab.apply_steps(conn, lab.upgrade_sqls(mig))
         rec("U1", "升级", f"执行 upgrade_steps()（{n} 步）", True, "无异常")
 
-        row = await conn.fetchrow(
-            "SELECT convalidated FROM pg_constraint WHERE conname = $1", FK
-        )
-        rec("S1", "结构", "三列外键已建且为 NOT VALID（存量未扫）",
+        row = await conn.fetchrow("SELECT convalidated FROM pg_constraint WHERE conname = $1", FK)
+        rec(
+            "S1",
+            "结构",
+            "三列外键已建且为 NOT VALID（存量未扫）",
             row is not None and row["convalidated"] is False,
-            f"exists={row is not None} convalidated={row['convalidated'] if row else '-'}")
+            f"exists={row is not None} convalidated={row['convalidated'] if row else '-'}",
+        )
 
         # ---------- 新写入被拦，且不误伤 ----------
         ok_n, d_n = await lab.case(
-            conn, [], ep_insert("b3-new", "ep-new", "ghost-project", tenant, org), expect_state="23503"
+            conn,
+            [],
+            ep_insert("b3-new", "ep-new", "ghost-project", tenant, org),
+            expect_state="23503",
         )
         rec("N1", "拦截", "约束建立后：指向不存在的项目一律 23503", ok_n, d_n)
 
         ok_n2, d_n2 = await lab.case(
             conn, [], ep_insert("b3-ok2", "ep-ok2", pid, tenant, org), expect_changed=1
         )
-        rec("N2", "拦截", "同一约束不误伤真实项目（否则 N1 的 23503 是别的原因）",
-            ok_n2, d_n2)
+        rec("N2", "拦截", "同一约束不误伤真实项目（否则 N1 的 23503 是别的原因）", ok_n2, d_n2)
 
         # ---------- VALIDATE 非恒真 ----------
         ok_v, d_v = await lab.case(
@@ -170,14 +186,17 @@ async def main() -> int:
                 await conn.execute(f"ALTER TABLE {TABLE} VALIDATE CONSTRAINT {FK}")
             rec("V3", "验证", "清掉脏行后 VALIDATE 通过（成功路径可达）", True, "VALIDATE OK")
         except asyncpg.PostgresError as exc:
-            rec("V3", "验证", "清掉脏行后 VALIDATE 通过（成功路径可达）", False,
-                f"{exc.sqlstate}: {str(exc).splitlines()[0][:80]}")
+            rec(
+                "V3",
+                "验证",
+                "清掉脏行后 VALIDATE 通过（成功路径可达）",
+                False,
+                f"{exc.sqlstate}: {str(exc).splitlines()[0][:80]}",
+            )
 
         # ---------- 幂等 ----------
         await lab.apply_steps(conn, lab.upgrade_sqls(mig))
-        cnt = await conn.fetchval(
-            "SELECT count(*) FROM pg_constraint WHERE conname = $1", FK
-        )
+        cnt = await conn.fetchval("SELECT count(*) FROM pg_constraint WHERE conname = $1", FK)
         rec("I1", "幂等", "重复 upgrade 不重复建约束", cnt == 1, f"count={cnt}")
 
         # ---------- 降级 ----------
@@ -187,7 +206,9 @@ async def main() -> int:
         rec("D2", "降级", "外键已删净", not gone, f"exists={gone}")
 
         ok_r, d_r = await lab.case(
-            conn, [], ep_insert("b3-after-down", "ep-ad", "ghost-project", tenant, org),
+            conn,
+            [],
+            ep_insert("b3-after-down", "ep-ad", "ghost-project", tenant, org),
             expect_changed=1,
         )
         rec("D3", "降级", "降级后同一脏写入恢复为可成功（语义可逆）", ok_r, d_r)

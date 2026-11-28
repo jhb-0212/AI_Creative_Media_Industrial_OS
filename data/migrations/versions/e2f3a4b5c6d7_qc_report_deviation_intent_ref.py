@@ -36,6 +36,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column(
-        "qc_reports", "deviation_intent_ref", schema="asset_service"
-    )
+    op.drop_column("qc_reports", "deviation_intent_ref", schema="asset_service")

@@ -144,6 +144,7 @@ async def request_generation(
         created_by=principal.subject_id,
         tenant_id=principal.tenant_id,
         generation_task_id=body.generation_task_id,
+        organization_id=principal.organization_id,
     )
     await uow.commit()
     return task.to_dict()

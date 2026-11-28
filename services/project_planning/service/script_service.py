@@ -90,17 +90,11 @@ class ScriptService:
         if not title:
             raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="title 不能为空")
         if not project_id:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="project_id 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="project_id 不能为空")
         if not episode_ref:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="episode_ref 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="episode_ref 不能为空")
         if not created_by:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="created_by 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="created_by 不能为空")
 
         # 归属验证：project 存在 + episode 归属该项目（P1#6），并判定父集数未冻结。
         # 这是**创建**路径，故用带锁读；审批推进两处仍走无锁版（见方法文档）。
@@ -163,9 +157,7 @@ class ScriptService:
                     existing, project_id=project_id, episode_ref=episode_ref, title=title
                 )
                 return existing
-            raise DomainError(
-                ErrorRegistry.INTERNAL_ERROR, detail="剧本版本写入冲突"
-            ) from exc
+            raise DomainError(ErrorRegistry.INTERNAL_ERROR, detail="剧本版本写入冲突") from exc
 
         # 审计事件（决策 3）：剧本导入与状态落库同事务原子记录，不可变。
         self._outbox_writer.record(
@@ -198,15 +190,11 @@ class ScriptService:
         """
         requested_by = principal.subject_id.strip()
         if not requested_by:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="requested_by 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="requested_by 不能为空")
 
         script = await self._repository.get_by_id(entity_id)
         if script is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"剧本版本不存在: {entity_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"剧本版本不存在: {entity_id}")
 
         # 归属验证（申请前要求归属合法）。
         await self._assert_episode_ownership(script.project_id, script.episode_ref)
@@ -249,15 +237,11 @@ class ScriptService:
         """
         approved_by = principal.subject_id.strip()
         if not approved_by:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="approved_by 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="approved_by 不能为空")
 
         script = await self._repository.get_by_id(entity_id)
         if script is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"剧本版本不存在: {entity_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"剧本版本不存在: {entity_id}")
 
         # 归属验证（批准前要求归属合法）。
         await self._assert_episode_ownership(script.project_id, script.episode_ref)
@@ -298,9 +282,7 @@ class ScriptService:
         )
         return script
 
-    async def _assert_episode_ownership(
-        self, project_id: str, episode_ref: str
-    ) -> None:
+    async def _assert_episode_ownership(self, project_id: str, episode_ref: str) -> None:
         """归属验证：project 存在，且 episode 归属该项目。
 
         杜绝两类脏数据：
@@ -316,9 +298,7 @@ class ScriptService:
                 ErrorRegistry.NOT_FOUND,
                 detail=f"项目不存在: {project_id}",
             )
-        episode = await self._episode_repository.get_by_project_ref(
-            project_id, episode_ref
-        )
+        episode = await self._episode_repository.get_by_project_ref(project_id, episode_ref)
         if episode is None:
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,
@@ -454,7 +434,5 @@ def _assert_same_request(
     ):
         raise DomainError(
             ErrorRegistry.IDEMPOTENCY_CONFLICT,
-            detail=(
-                "同一 entity_id 已存在且内容不同：幂等键不能复用于另一个请求"
-            ),
+            detail=("同一 entity_id 已存在且内容不同：幂等键不能复用于另一个请求"),
         )

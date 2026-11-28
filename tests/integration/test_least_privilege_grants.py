@@ -12,6 +12,14 @@
 2. 不该有的有（多授）→ 授权面宽于动作面，越权路径静默存在，审计发现不了。
 第 2 类是本轮 N-06 的形态：``projects`` 有 DELETE、``organizations`` 有 INSERT，
 而契约里根本没有 ``*.DELETE`` / ``ORGANIZATION.*`` 动作。
+
+判据覆盖**三类授权路径**（缺一类就有一种越权静默通过）：
+- 表级（``pg_class.relacl``）：整表 DML；
+- 列级（``pg_attribute.attacl``）：``GRANT UPDATE (col)`` 不进表级 ACL，
+  只看表级会把「能改一列」判成「无权限」——append-only 表上最隐蔽的一条；
+- 角色继承（``pg_auth_members``）：权限记在组角色名下，成员继承；只比对
+  ``grantee = 域角色`` 会把组上的越权判成「矩阵没有、库里也没有」。
+三类共用同一份矩阵声明与同一批 ACM 查询，不另建第二套期望值。
 """
 
 from __future__ import annotations
@@ -81,6 +89,17 @@ _PUBLIC_TABLE_ACL = text(
     """
 )
 
+# 角色成员关系（PG 的权限可以挂在**组角色**名下，成员通过本表继承）。
+# 只按 ``grantee = 域角色`` 过滤 ACL，等于假设「没有组成员关系」；一旦有人
+# 用组角色收口权限，越权会藏在组的那一行里，按角色过滤永远看不见。
+_ROLE_MEMBERSHIPS = text(
+    """
+    SELECT m.member::regrole::text AS member,
+           m.roleid::regrole::text AS group_role
+    FROM pg_auth_members m
+    """
+)
+
 
 async def _table_acl(admin_sessionmaker) -> dict[tuple[str, str, str], set[str]]:
     """``(role, schema, table) -> 权限集``（整表级）。"""
@@ -126,20 +145,93 @@ async def _column_acl(
     return grants
 
 
+async def _role_memberships(
+    admin_sessionmaker,
+) -> dict[str, set[str]]:
+    """``成员角色 -> 它直接继承的组角色集合``（传递闭包在 Python 里算）。"""
+    async with admin_sessionmaker() as session:
+        rows = (await session.execute(_ROLE_MEMBERSHIPS)).all()
+    memberships: dict[str, set[str]] = {}
+    for member, group_role in rows:
+        memberships.setdefault(member, set()).add(group_role)
+    return memberships
+
+
+def _privilege_sources(role: str, memberships: dict[str, set[str]]) -> set[str]:
+    """该角色的**有效授权来源**：自身 + 直接/间接所属的组角色。
+
+    为什么必须展开：``relacl`` / ``attacl`` 记录的是「授给了谁」。域角色若通过
+    组成员关系继承权限，那条授权记在组名下；只比对 ``grantee = 域角色`` 的行，
+    会把「域角色实际能写」判成「矩阵没有、库里也没有」——漏报，而且是静默的。
+    """
+    sources = {role}
+    pending = [role]
+    while pending:
+        member = pending.pop()
+        for group_role in memberships.get(member, ()):
+            if group_role not in sources:
+                sources.add(group_role)
+                pending.append(group_role)
+    return sources
+
+
+def _effective_table_grants(
+    actual: dict[tuple[str, str, str], set[str]],
+    sources: set[str],
+    watched: frozenset[tuple[str, str]],
+) -> dict[tuple[str, str], set[str]]:
+    """把闭包内各来源的表级授权并成「该角色实际持有的权限集」。"""
+    merged: dict[tuple[str, str], set[str]] = {}
+    for (grantee, schema, table), privileges in actual.items():
+        if grantee not in sources or (schema, table) not in watched:
+            continue
+        merged.setdefault((schema, table), set()).update(privileges)
+    return merged
+
+
+def _effective_column_grants(
+    actual: dict[tuple[str, str, str], tuple[set[str], set[str]]],
+    sources: set[str],
+) -> dict[tuple[str, str], tuple[set[str], set[str]]]:
+    """把闭包内各来源的列级授权并成「该角色实际可读写的列与权限」。"""
+    merged: dict[tuple[str, str], tuple[set[str], set[str]]] = {}
+    for (grantee, schema, table), (columns, privileges) in actual.items():
+        if grantee not in sources:
+            continue
+        cols, privs = merged.setdefault((schema, table), (set(), set()))
+        cols.update(columns)
+        privs.update(privileges)
+    return merged
+
+
 async def test_domain_role_privileges_match_matrix(admin_sessionmaker) -> None:
     """真实 ACL 必须与授权矩阵逐项相等（少授与多授都算失败）。
 
-    比对范围严格限定在矩阵声明过且当前库真实存在的表上：矩阵是「该角色
-    **应该**拥有什么」的唯一声明，矩阵之外的表上出现任何权限都属于多授。
+    判据必须覆盖三类授权路径，缺一类就会出现「矩阵对、库里越权、测试绿」：
+
+    1. **表级**（``pg_class.relacl``）：整表 DML；
+    2. **列级**（``pg_attribute.attacl``）：只授某几列。``GRANT UPDATE (col)``
+       不会出现在表级 ACL 里，只看表级会把这类越权判成「无权限」——在
+       append-only 表上这是最隐蔽的一条；
+    3. **角色继承**（``pg_auth_members``）：权限记在组角色名下，成员继承。
+       只比对 ``grantee = 域角色`` 会把组上的越权判成「矩阵没有、库里也没有」。
+
+    比对范围严格限定在矩阵声明过且当前库真实存在的对象上：矩阵是「该角色
+    **应该**拥有什么」的唯一声明，矩阵之外出现任何权限都属于多授。
     分叉链对象未进入当前库时单列 N/A，不把「对象不存在」误判成「权限为空」。
     """
-    actual = await _table_acl(admin_sessionmaker)
+    table_actual = await _table_acl(admin_sessionmaker)
+    column_actual = await _column_acl(admin_sessionmaker)
+    memberships = await _role_memberships(admin_sessionmaker)
     existing = await _existing_tables(admin_sessionmaker)
     mismatches: list[str] = []
     not_applicable: list[str] = []
 
     for domain in DOMAINS:
         role = domain_role(domain)
+        sources = _privilege_sources(role, memberships)
+
+        # ---- 表级：整表授权 ----
         expected_all = dict(declared_privileges(domain))
         # 可机检前提：只有真表存在才参与 ACL 对账；缺表单列 N/A，不计通过率。
         expected = {key: value for key, value in expected_all.items() if key in existing}
@@ -147,34 +239,53 @@ async def test_domain_role_privileges_match_matrix(admin_sessionmaker) -> None:
             f"{role} 对 {schema}.{table}（对象不存在）"
             for schema, table in sorted(set(expected_all) - set(expected))
         )
-        # 只取该角色在这些被监视表上的实际权限。
+        # 只取该角色（含其继承的组）在这些被监视表上的实际权限。
         watched = declared_tables(domain)
-        observed = {
-            (schema, table): privileges
-            for (grantee, schema, table), privileges in actual.items()
-            if grantee == role and (schema, table) in watched
-        }
+        observed = _effective_table_grants(table_actual, sources, watched)
 
         for key in sorted(set(expected) | set(observed)):
             want = expected.get(key, frozenset())
             got = frozenset(observed.get(key, frozenset()))
             if want != got:
                 mismatches.append(
-                    f"{role} 对 {key[0]}.{key[1]}: 实际={sorted(got) or '无'}，"
+                    f"[表级] {role} 对 {key[0]}.{key[1]}: 实际={sorted(got) or '无'}，"
                     f"矩阵={sorted(want) or '无'}"
                 )
 
         # 业务 schema 里出现了矩阵之外的表授权 → 新表未经声明就获得了权限。
         overreach = sorted(
             (schema, table)
-            for (grantee, schema, table) in actual
-            if grantee == role and schema == domain and (schema, table) not in watched
+            for (grantee, schema, table) in table_actual
+            if grantee in sources and schema == domain and (schema, table) not in watched
         )
         for schema, table in overreach:
             mismatches.append(
-                f"{role} 在未声明的表 {schema}.{table} 上持有权限"
+                f"[表级] {role} 在未声明的表 {schema}.{table} 上持有权限"
                 "（新表必须先进入 db_grants.py 矩阵）"
             )
+
+        # ---- 列级：只授某些列 ----
+        expected_columns_all = declared_column_privileges(domain)
+        expected_columns = {
+            key: value for key, value in expected_columns_all.items() if key in existing
+        }
+        not_applicable.extend(
+            f"{role} 对 {schema}.{table} 的列级授权（对象不存在）"
+            for schema, table in sorted(set(expected_columns_all) - set(expected_columns))
+        )
+        observed_columns = _effective_column_grants(column_actual, sources)
+
+        for key in sorted(set(expected_columns) | set(observed_columns)):
+            want_columns, want_privileges = expected_columns.get(key, (frozenset(), frozenset()))
+            got_columns, got_privileges = observed_columns.get(key, (set(), set()))
+            if set(want_columns) != got_columns or set(want_privileges) != got_privileges:
+                mismatches.append(
+                    f"[列级] {role} 对 {key[0]}.{key[1]}: "
+                    f"实际列={sorted(got_columns) or '无'} "
+                    f"权限={sorted(got_privileges) or '无'}，"
+                    f"矩阵列={sorted(want_columns) or '无'} "
+                    f"权限={sorted(want_privileges) or '无'}"
+                )
 
     if not_applicable:
         print("[N-A] ACL 对账跳过不存在的对象：" + "、".join(not_applicable))
@@ -244,12 +355,9 @@ async def test_business_tables_grant_nothing_to_public(admin_sessionmaker) -> No
     """
     async with admin_sessionmaker() as session:
         rows = (await session.execute(_PUBLIC_TABLE_ACL)).all()
-    offenders = [
-        f"{row[0]}.{row[1]}: {row[2]}" for row in rows if row[0] in DOMAINS
-    ]
-    assert not offenders, (
-        "业务表对 PUBLIC 授权（所有角色都会继承，矩阵形同虚设）：\n"
-        + "\n".join(offenders)
+    offenders = [f"{row[0]}.{row[1]}: {row[2]}" for row in rows if row[0] in DOMAINS]
+    assert not offenders, "业务表对 PUBLIC 授权（所有角色都会继承，矩阵形同虚设）：\n" + "\n".join(
+        offenders
     )
 
 
@@ -271,9 +379,7 @@ async def test_cross_domain_read_is_column_scoped(admin_sessionmaker) -> None:
     # 列级之外不得再叠加整表授权（否则列级收窄毫无意义）。
     table_grants = await _table_acl(admin_sessionmaker)
     assert ("project_planning", "projects") not in {
-        (schema, table)
-        for (grantee, schema, table) in table_grants
-        if grantee == role
+        (schema, table) for (grantee, schema, table) in table_grants if grantee == role
     }, "资产域对 projects 持有整表授权：列级只读被整表 SELECT 覆盖，等于没做列级"
 
 
@@ -288,13 +394,10 @@ async def test_no_default_privileges_on_business_schemas(admin_sessionmaker) -> 
         rows = (await session.execute(_DEFAULT_ACL)).all()
     roles = {domain_role(domain) for domain in DOMAINS}
     leftovers = [
-        (row[0], row[1], row[2], row[3])
-        for row in rows
-        if row[2] in roles and row[0] in DOMAINS
+        (row[0], row[1], row[2], row[3]) for row in rows if row[2] in roles and row[0] in DOMAINS
     ]
     assert not leftovers, (
-        "业务 schema 仍存在域角色的默认权限（新表会自动获得，fail-closed 失效）："
-        f"{leftovers}"
+        f"业务 schema 仍存在域角色的默认权限（新表会自动获得，fail-closed 失效）：{leftovers}"
     )
 
 
@@ -315,9 +418,7 @@ async def test_project_role_cannot_delete(db_sessionmaker, statement: str) -> No
     async with db_sessionmaker() as session:
         with pytest.raises(DBAPIError) as exc_info:
             await session.execute(text(statement))
-        assert "42501" in str(exc_info.value) or "permission denied" in str(
-            exc_info.value
-        ).lower()
+        assert "42501" in str(exc_info.value) or "permission denied" in str(exc_info.value).lower()
         await session.rollback()
 
 
@@ -337,9 +438,7 @@ async def test_organizations_are_read_only(db_sessionmaker, statement: str) -> N
     async with db_sessionmaker() as session:
         with pytest.raises(DBAPIError) as exc_info:
             await session.execute(text(statement))
-        assert "42501" in str(exc_info.value) or "permission denied" in str(
-            exc_info.value
-        ).lower()
+        assert "42501" in str(exc_info.value) or "permission denied" in str(exc_info.value).lower()
         await session.rollback()
 
 
@@ -348,9 +447,7 @@ async def test_asset_role_cannot_delete_asset_versions(asset_sessionmaker) -> No
     async with asset_sessionmaker() as session:
         with pytest.raises(DBAPIError) as exc_info:
             await session.execute(text("DELETE FROM asset_service.asset_versions WHERE false"))
-        assert "42501" in str(exc_info.value) or "permission denied" in str(
-            exc_info.value
-        ).lower()
+        assert "42501" in str(exc_info.value) or "permission denied" in str(exc_info.value).lower()
         await session.rollback()
 
 
@@ -359,14 +456,9 @@ async def test_qc_reports_are_append_only(asset_sessionmaker) -> None:
     async with asset_sessionmaker() as session:
         with pytest.raises(DBAPIError) as exc_info:
             await session.execute(
-                text(
-                    "UPDATE asset_service.qc_reports "
-                    "SET human_decision = 'APPROVED' WHERE false"
-                )
+                text("UPDATE asset_service.qc_reports SET human_decision = 'APPROVED' WHERE false")
             )
-        assert "42501" in str(exc_info.value) or "permission denied" in str(
-            exc_info.value
-        ).lower()
+        assert "42501" in str(exc_info.value) or "permission denied" in str(exc_info.value).lower()
         await session.rollback()
 
 
@@ -384,9 +476,7 @@ async def test_asset_role_cannot_read_unscoped_project_columns(
             await session.execute(
                 text("SELECT project_name FROM project_planning.projects LIMIT 1")
             )
-        assert "42501" in str(exc_info.value) or "permission denied" in str(
-            exc_info.value
-        ).lower()
+        assert "42501" in str(exc_info.value) or "permission denied" in str(exc_info.value).lower()
         await session.rollback()
 
 

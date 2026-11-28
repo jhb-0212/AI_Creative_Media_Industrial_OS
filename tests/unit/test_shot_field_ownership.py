@@ -57,7 +57,9 @@ DURATION_OWNERS = {
 # --------------------------------------------------------------------------- #
 def test_shot_revision_retired_duration_and_timecode() -> None:
     assert "duration_ms" not in REVISION["properties"], "时长已归 ShotSpec，留在修订就是双事实源"
-    assert "timecode" not in REVISION["properties"], "时间码已归 TimelineDraft，留在修订会让剪辑污染版本链"
+    assert "timecode" not in REVISION["properties"], (
+        "时间码已归 TimelineDraft，留在修订会让剪辑污染版本链"
+    )
     assert "duration_ms" not in REVISION["required"]
     assert "timecode" not in REVISION["required"]
 
@@ -138,7 +140,9 @@ def test_no_second_interval_fact_anywhere() -> None:
         if not isinstance(spec, dict):
             continue
         timecode = (spec.get("properties") or {}).get("timecode")
-        if isinstance(timecode, dict) and set(INTERVAL_FIELDS) <= set(timecode.get("properties") or {}):
+        if isinstance(timecode, dict) and set(INTERVAL_FIELDS) <= set(
+            timecode.get("properties") or {}
+        ):
             holders.add(name)
     assert holders == set(), (
         f"{sorted(holders)} 仍持有区间型 timecode：区间事实的持有者是 TimelineDraft 的"
@@ -268,7 +272,9 @@ def test_invariant_ids_are_unique_and_scoped() -> None:
         "ShotSpec 能由 schema 表达的只有：时长单一权威、绑定精确修订、不含时间线定位；"
         f"实际 {sorted(spec_schema)}"
     )
-    timeline_schema = {i["id"] for i in TIMELINE["x-afs-invariants"] if i["enforced_by"] == "SCHEMA"}
+    timeline_schema = {
+        i["id"] for i in TIMELINE["x-afs-invariants"] if i["enforced_by"] == "SCHEMA"
+    }
     assert timeline_schema == {"TL-4"}, (
         "TimelineDraft 只有「引用精确修订」能由 schema 表达，区间关系都要运行时；"
         f"实际 {sorted(timeline_schema)}"

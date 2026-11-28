@@ -107,9 +107,7 @@ def _service(project: Project | None) -> tuple[EpisodeService, _EpisodeRepo, _Pr
     episodes = _EpisodeRepo()
     projects = _ProjectRepo(project)
     return (
-        EpisodeService(
-            repository=episodes, project_repository=projects, outbox_writer=_Outbox()
-        ),
+        EpisodeService(repository=episodes, project_repository=projects, outbox_writer=_Outbox()),
         episodes,
         projects,
     )

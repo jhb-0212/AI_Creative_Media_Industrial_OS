@@ -32,6 +32,7 @@ RLS 与守卫共用同一事实源（这是设计要点，不是实现细节）
 Revision ID: d2e3f4a5b6c7
 Revises: c1d2e3f4a5b7
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -104,9 +105,7 @@ AUDIT_TARGETS: tuple[tuple[str, str], ...] = (
 #:      即「权限在，功能不可用」的假可用；
 #:   3. 可观测：扩散本身没有任何验收用例覆盖，靠 `verify_grants.py` 的
 #:      「有表写权限 ⇒ 有函数 EXECUTE」不变量才暴露出来。
-AUDIT_WRITABLE: tuple[tuple[str, str], ...] = (
-    ("project_planning", "projects"),
-)
+AUDIT_WRITABLE: tuple[tuple[str, str], ...] = (("project_planning", "projects"),)
 
 
 class Step(NamedTuple):
@@ -232,8 +231,7 @@ def upgrade_steps() -> list[Step]:
             "R4",
             "repair 角色对映射表只需 SELECT（判定函数以 DEFINER 读，但自查要能读）",
             f"GRANT SELECT ON TABLE project_planning.ownership_repair_map TO {REPAIR_ROLE}",
-            "不授 INSERT：映射行的写入属迁移操作面，由迁移主体完成，"
-            "避免「谁都能给自己开例外」",
+            "不授 INSERT：映射行的写入属迁移操作面，由迁移主体完成，避免「谁都能给自己开例外」",
         )
     )
 
@@ -336,42 +334,63 @@ def downgrade_steps() -> list[Step]:
     # 让降级失败在一个与降级意图无关的错误上。
     for qualified in _all_tables():
         steps.append(
-            Step("D", f"{qualified}：移除 repair 可见性策略",
-                 f"DROP POLICY IF EXISTS repair_row_scope ON {qualified}")
+            Step(
+                "D",
+                f"{qualified}：移除 repair 可见性策略",
+                f"DROP POLICY IF EXISTS repair_row_scope ON {qualified}",
+            )
         )
         steps.append(
-            Step("D", f"{qualified}：移除审计可见性策略",
-                 f"DROP POLICY IF EXISTS audit_quarantine_scope ON {qualified}")
+            Step(
+                "D",
+                f"{qualified}：移除审计可见性策略",
+                f"DROP POLICY IF EXISTS audit_quarantine_scope ON {qualified}",
+            )
         )
     for schema, table in REPAIR_TARGETS:
         steps.append(
-            Step("D", f"撤销 {schema}.{table} 的 repair 表权限",
-                 f"REVOKE SELECT, UPDATE ON TABLE {schema}.{table} FROM {REPAIR_ROLE}")
+            Step(
+                "D",
+                f"撤销 {schema}.{table} 的 repair 表权限",
+                f"REVOKE SELECT, UPDATE ON TABLE {schema}.{table} FROM {REPAIR_ROLE}",
+            )
         )
     for schema, table in AUDIT_TARGETS:
         steps.append(
-            Step("D", f"撤销 {schema}.{table} 的审计表权限",
-                 f"REVOKE SELECT, UPDATE ON TABLE {schema}.{table} FROM {AUDIT_ROLE}",
-                 "刻意比升级多撤一个 UPDATE（升级只对 AUDIT_WRITABLE 授它）："
-                 "REVOKE 未授予的权限是幂等 no-op，而多撤这一下能把手工补授的残留一并清掉。"
-                 "降级的目标是「回到干净基线」，不是「逐字回放升级的相反数」。")
+            Step(
+                "D",
+                f"撤销 {schema}.{table} 的审计表权限",
+                f"REVOKE SELECT, UPDATE ON TABLE {schema}.{table} FROM {AUDIT_ROLE}",
+                "刻意比升级多撤一个 UPDATE（升级只对 AUDIT_WRITABLE 授它）："
+                "REVOKE 未授予的权限是幂等 no-op，而多撤这一下能把手工补授的残留一并清掉。"
+                "降级的目标是「回到干净基线」，不是「逐字回放升级的相反数」。",
+            )
         )
     steps.append(
-        Step("D", "撤销映射表 SELECT",
-             f"REVOKE SELECT ON TABLE project_planning.ownership_repair_map FROM {REPAIR_ROLE}")
+        Step(
+            "D",
+            "撤销映射表 SELECT",
+            f"REVOKE SELECT ON TABLE project_planning.ownership_repair_map FROM {REPAIR_ROLE}",
+        )
     )
     for fn in (
         "project_planning.ownership_repair_allows(regclass,jsonb,jsonb,text)",
         "project_planning.ownership_repair_map_match(text,text,text)",
     ):
         steps.append(
-            Step("D", f"撤销 {REPAIR_ROLE} 对 {fn.split('(')[0]} 的 EXECUTE",
-                 f"REVOKE EXECUTE ON FUNCTION {fn} FROM {REPAIR_ROLE}")
+            Step(
+                "D",
+                f"撤销 {REPAIR_ROLE} 对 {fn.split('(')[0]} 的 EXECUTE",
+                f"REVOKE EXECUTE ON FUNCTION {fn} FROM {REPAIR_ROLE}",
+            )
         )
     for schema in sorted({s for s, _ in REPAIR_TARGETS} | {s for s, _ in AUDIT_TARGETS}):
         steps.append(
-            Step("D", f"撤销 schema {schema} 的 USAGE",
-                 f"REVOKE USAGE ON SCHEMA {schema} FROM {REPAIR_ROLE}, {AUDIT_ROLE}")
+            Step(
+                "D",
+                f"撤销 schema {schema} 的 USAGE",
+                f"REVOKE USAGE ON SCHEMA {schema} FROM {REPAIR_ROLE}, {AUDIT_ROLE}",
+            )
         )
     return steps
 

@@ -55,6 +55,7 @@ T3 场景 E1/E2 实测：一行「项目属 O1、资源写 O2」的错配数据�
 Revision ID: a9b8c7d6e5f4
 Revises: c4e5f6a7b8d9
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -407,11 +408,9 @@ def downgrade_steps() -> list[Step]:
 
 #: 由本迁移创建、需在 VALIDATE 阶段逐一核验的外键（供 runbook 与验证脚本共用）。
 OWNERSHIP_FKS: tuple[tuple[str, str], ...] = (
-    (
-        (PROJECTS, "fk_projects_organization_tenant"),
-        *tuple((f"{s}.{t}", _fk_project(t)) for s, t in PROJECT_LEVEL),
-        *tuple((f"{s}.{t}", _fk_org(t)) for s, t in ORG_LEVEL),
-    )
+    (PROJECTS, "fk_projects_organization_tenant"),
+    *tuple((f"{s}.{t}", _fk_project(t)) for s, t in PROJECT_LEVEL),
+    *tuple((f"{s}.{t}", _fk_org(t)) for s, t in ORG_LEVEL),
 )
 
 

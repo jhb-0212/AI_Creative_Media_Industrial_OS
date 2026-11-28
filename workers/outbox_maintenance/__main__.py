@@ -42,6 +42,7 @@ from packages.shared.config import Settings, get_process_settings
 from packages.shared.database import build_migration_url
 from packages.shared.logging import get_logger, setup_logging
 from packages.shared.partition_guard import (
+    grant_ops_partition_statements,
     grant_outbox_partition_statements,
     protect_partition_statements,
 )
@@ -126,9 +127,7 @@ def plan_create(existing: set[str], today: datetime, ahead_months: int) -> list[
     return planned
 
 
-def plan_retention(
-    existing: set[str], today: datetime, retain_months: int
-) -> list[Partition]:
+def plan_retention(existing: set[str], today: datetime, retain_months: int) -> list[Partition]:
     """整月早于保留窗口的分区（右开区间上界 <= 保留下界才可摘除）。"""
     cutoff = add_months(month_start(today), -retain_months)
     candidates: list[Partition] = []
@@ -143,9 +142,7 @@ def plan_retention(
 
 
 async def list_partitions(conn: AsyncConnection) -> set[str]:
-    rows = (
-        await conn.execute(_LIST_PARTITIONS, {"schema": SCHEMA, "parent": PARENT})
-    ).scalars()
+    rows = (await conn.execute(_LIST_PARTITIONS, {"schema": SCHEMA, "parent": PARENT})).scalars()
     return set(rows)
 
 
@@ -178,11 +175,7 @@ async def ensure_partition(conn: AsyncConnection, part: Partition) -> int:
                 f"WHERE occurred_at >= '{lower}' AND occurred_at < '{upper}'"
             )
         )
-        moved = int(
-            (
-                await conn.execute(text("SELECT count(*) FROM _outbox_moved"))
-            ).scalar_one()
-        )
+        moved = int((await conn.execute(text("SELECT count(*) FROM _outbox_moved"))).scalar_one())
         if moved:
             logger.warning(
                 "outbox_default_partition_rows_moved",
@@ -214,10 +207,13 @@ async def ensure_partition(conn: AsyncConnection, part: Partition) -> int:
         # 再显式授权一次是双保险（幂等），也避免依赖「默认权限一定生效」。
         for statement in grant_outbox_partition_statements(part.name):
             await conn.execute(text(statement))
+        # 运维重放角色（D6-9）同样按分区授权：通过父表 SELECT/UPDATE 时 PG 会
+        # 校验目标分区的 ACL，不在这里授予就在「事件落在新分区」那天才暴露成
+        # permission denied（而那正是最需要重放的时候）。
+        for statement in grant_ops_partition_statements(part.name):
+            await conn.execute(text(statement))
         if moved:
-            await conn.execute(
-                text(f"INSERT INTO {SCHEMA}.{PARENT} SELECT * FROM _outbox_moved")
-            )
+            await conn.execute(text(f"INSERT INTO {SCHEMA}.{PARENT} SELECT * FROM _outbox_moved"))
     return moved
 
 
@@ -258,9 +254,7 @@ async def detach_partition(
         await conn.execute(
             text(f"ALTER TABLE {SCHEMA}.{PARENT} DETACH PARTITION {SCHEMA}.{part.name}")
         )
-        await conn.execute(
-            text(f"ALTER TABLE {SCHEMA}.{part.name} RENAME TO {archived}")
-        )
+        await conn.execute(text(f"ALTER TABLE {SCHEMA}.{part.name} RENAME TO {archived}"))
     if drop:
         async with await _begin(conn):
             await conn.execute(text(f"DROP TABLE {SCHEMA}.{archived}"))
@@ -319,9 +313,7 @@ async def run_once(args: argparse.Namespace, settings: Settings) -> RunResult:
             if not args.apply:
                 print("dry-run：以下操作未执行（加 --apply 才执行）")
                 for part in to_create:
-                    print(
-                        f"  + {part.name} [{part.lower:%Y-%m-%d}, {part.upper:%Y-%m-%d})"
-                    )
+                    print(f"  + {part.name} [{part.lower:%Y-%m-%d}, {part.upper:%Y-%m-%d})")
                 for part in to_detach:
                     print(f"  - {part.name}（摘除，--drop-detached 才删除）")
                 result.status = "dry_run"
@@ -364,9 +356,7 @@ async def _record(
         engine = create_async_engine(build_migration_url(settings))
         try:
             async with engine.connect() as conn:
-                await record_run(
-                    conn, result, applied=applied, started_at=started_at
-                )
+                await record_run(conn, result, applied=applied, started_at=started_at)
         finally:
             await engine.dispose()
 
@@ -392,9 +382,9 @@ async def _run(args: argparse.Namespace) -> int:
         if args.every_hours <= 0:
             return exit_code
         logger.info(
-            "outbox_maintenance_sleep", hours=args.every_hours, next_in_seconds=int(
-                args.every_hours * 3600
-            )
+            "outbox_maintenance_sleep",
+            hours=args.every_hours,
+            next_in_seconds=int(args.every_hours * 3600),
         )
         await asyncio.sleep(args.every_hours * 3600)
 

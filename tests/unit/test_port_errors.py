@@ -144,9 +144,7 @@ def test_missing_table_grant_is_not_translated() -> None:
     这是 42501 的第二个来源：迁移漏授 / 角色配错。把它翻译成「引用不成立」
     会让运维事故伪装成业务 409，排障方向直接跑偏。
     """
-    exc = _FakeSqlAlchemyError(
-        _FakeDriverError("42501", 'permission denied for table episodes')
-    )
+    exc = _FakeSqlAlchemyError(_FakeDriverError("42501", "permission denied for table episodes"))
     assert classify_write_error(exc, entity_id="ep-1") is None
 
 

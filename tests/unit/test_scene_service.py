@@ -109,9 +109,7 @@ class _ShotStore(ShotRepository):
         self.queries: list[tuple[str, ShotStatus]] = []
         self.calls = calls if calls is not None else []
 
-    async def existing_ids_in_project(
-        self, project_id: str, shot_ids: list[str]
-    ) -> set[str]:
+    async def existing_ids_in_project(self, project_id: str, shot_ids: list[str]) -> set[str]:
         # 本文件不建约束包：镜头归属查询只服务 CONSTRAINT.PACK.CREATE。
         # 让它直接失败，是为了把「别处误用这个端口」变成红灯，而不是返回一个
         # 看起来合理的空集（空集会让「镜头都不属于本项目」变成静默通过）。
@@ -136,8 +134,7 @@ class _ShotStore(ShotRepository):
         self.queries.append((scene_id, status))
         self.calls.append(f"shots:has_with_status:{status.value}")
         return any(
-            shot.scene_id == scene_id and shot.status is status
-            for shot in self.rows.values()
+            shot.scene_id == scene_id and shot.status is status for shot in self.rows.values()
         )
 
 
@@ -161,10 +158,7 @@ class _EpisodeStore:
     ) -> Episode | None:
         self.child_write_reads.append(episode_ref)
         for episode in self._rows.values():
-            if (
-                episode.project_id == project_id
-                and episode.episode_ref == episode_ref
-            ):
+            if episode.project_id == project_id and episode.episode_ref == episode_ref:
                 return episode
         return None
 
@@ -211,9 +205,7 @@ class _Outbox:
         self.events.append((aggregate_type, event_type))
         return uuid4()
 
-    def record_transition(
-        self, *, fact: TransitionFact, event: TransitionEvent
-    ) -> UUID:
+    def record_transition(self, *, fact: TransitionFact, event: TransitionEvent) -> UUID:
         self.transitions.append(fact)
         return uuid4()
 

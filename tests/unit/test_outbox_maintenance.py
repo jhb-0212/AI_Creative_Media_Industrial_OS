@@ -25,15 +25,9 @@ def test_month_start_normalizes_to_first_day_utc() -> None:
 
 
 def test_add_months_crosses_year_boundaries() -> None:
-    assert add_months(datetime(2026, 12, 1, tzinfo=UTC), 1) == datetime(
-        2027, 1, 1, tzinfo=UTC
-    )
-    assert add_months(datetime(2026, 1, 1, tzinfo=UTC), -1) == datetime(
-        2025, 12, 1, tzinfo=UTC
-    )
-    assert add_months(datetime(2026, 11, 1, tzinfo=UTC), 30) == datetime(
-        2029, 5, 1, tzinfo=UTC
-    )
+    assert add_months(datetime(2026, 12, 1, tzinfo=UTC), 1) == datetime(2027, 1, 1, tzinfo=UTC)
+    assert add_months(datetime(2026, 1, 1, tzinfo=UTC), -1) == datetime(2025, 12, 1, tzinfo=UTC)
+    assert add_months(datetime(2026, 11, 1, tzinfo=UTC), 30) == datetime(2029, 5, 1, tzinfo=UTC)
 
 
 def test_partition_name_and_parse_roundtrip() -> None:

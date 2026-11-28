@@ -182,8 +182,7 @@ async def main() -> int:
             policies = {
                 r["polname"]
                 for r in await c.fetch(
-                    "SELECT polname FROM pg_policy "
-                    "WHERE polrelid='workflow.rework_tasks'::regclass"
+                    "SELECT polname FROM pg_policy WHERE polrelid='workflow.rework_tasks'::regclass"
                 )
             }
             want_policies = {
@@ -193,39 +192,65 @@ async def main() -> int:
                 "repair_row_scope",
                 "audit_quarantine_scope",
             }
-            record("S4", bool(rls) and policies == want_policies, "RLS 开启且五策略齐全",
-                   f"enabled={rls}, 缺={sorted(want_policies - policies)}")
+            record(
+                "S4",
+                bool(rls) and policies == want_policies,
+                "RLS 开启且五策略齐全",
+                f"enabled={rls}, 缺={sorted(want_policies - policies)}",
+            )
 
             # S5 行为
             await seed_scene(c, SCENE)
             await seed_shot(c, SHOT, SCENE, status="IN_PRODUCTION")
             await insert_rework(c, RT_OK, PROJECT)
             state_ok, msg_ok, rows_ok = await point_shot(c, RT_OK)
-            record("S5a", state_ok == "00000" and rows_ok == 1,
-                   "同项目授权可挂且回读生效", f"{state_ok} rows={rows_ok} {msg_ok}")
+            record(
+                "S5a",
+                state_ok == "00000" and rows_ok == 1,
+                "同项目授权可挂且回读生效",
+                f"{state_ok} rows={rows_ok} {msg_ok}",
+            )
 
             state_missing, msg_missing, rows_missing = await point_shot(c, "rt-does-not-exist")
-            record("S5b", state_missing == "23503" and rows_missing == 0,
-                   "不存在的授权被外键拒绝", f"{state_missing} {msg_missing[:120]}")
+            record(
+                "S5b",
+                state_missing == "23503" and rows_missing == 0,
+                "不存在的授权被外键拒绝",
+                f"{state_missing} {msg_missing[:120]}",
+            )
 
             await lab.insert_minimal_row(
-                c, "project_planning.projects",
-                entity_id=OTHER_PROJECT, entity_type="Project", schema_version=1,
-                entity_version=1, status="ACTIVE", owner_module="project_planning",
-                tenant_id=TENANT, organization_id=ORG,
-                project_name="B9 他项目", project_tier="B",
+                c,
+                "project_planning.projects",
+                entity_id=OTHER_PROJECT,
+                entity_type="Project",
+                schema_version=1,
+                entity_version=1,
+                status="ACTIVE",
+                owner_module="project_planning",
+                tenant_id=TENANT,
+                organization_id=ORG,
+                project_name="B9 他项目",
+                project_tier="B",
             )
             await insert_rework(c, RT_OTHER, OTHER_PROJECT)
             state_cross, msg_cross, rows_cross = await point_shot(c, RT_OTHER)
-            record("S5c", state_cross == "23503" and rows_cross == 0,
-                   "跨项目授权被复合外键拒绝", f"{state_cross} {msg_cross[:120]}")
+            record(
+                "S5c",
+                state_cross == "23503" and rows_cross == 0,
+                "跨项目授权被复合外键拒绝",
+                f"{state_cross} {msg_cross[:120]}",
+            )
 
             # S6 变异：撤掉外键后同一条写必须成功——否则 S5c 的红灯另有原因。
             await c.execute("ALTER TABLE shot_planning.shots DROP CONSTRAINT fk_shots_rework_basis")
             state_mut, msg_mut, rows_mut = await point_shot(c, RT_OTHER)
-            record("S6", state_mut == "00000" and rows_mut == 1,
-                   "撤掉外键后跨项目写成功（证明拦截者是外键）",
-                   f"{state_mut} rows={rows_mut} {msg_mut}")
+            record(
+                "S6",
+                state_mut == "00000" and rows_mut == 1,
+                "撤掉外键后跨项目写成功（证明拦截者是外键）",
+                f"{state_mut} rows={rows_mut} {msg_mut}",
+            )
         finally:
             await c.close()
     finally:

@@ -203,12 +203,12 @@ async def test_tenant_enumeration_exposes_only_backlog_metadata(
     empty_tenant = uuid.uuid4()
 
     async with relay_sessionmaker() as session:
-        columns = (
-            await session.execute(text("SELECT * FROM outbox.list_active_tenants()"))
-        ).keys()
+        columns = (await session.execute(text("SELECT * FROM outbox.list_active_tenants()"))).keys()
         rows = (
-            await session.execute(text("SELECT * FROM outbox.list_active_tenants()"))
-        ).mappings().all()
+            (await session.execute(text("SELECT * FROM outbox.list_active_tenants()")))
+            .mappings()
+            .all()
+        )
 
     # 枚举函数只返回租户与积压/死信元数据，绝不返回事件负载（payload）。
     # 死信单独用 dead_count / oldest_dead_at 观测（见审计复核 R2），

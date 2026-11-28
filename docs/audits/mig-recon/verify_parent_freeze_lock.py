@@ -66,12 +66,12 @@ def record(cid: str, title: str, status: str, expect: str, observed: str) -> Non
 
 
 async def conn() -> asyncpg.Connection:
-    return await asyncpg.connect(
-        host=HOST, port=PORT, user=USER, password=PWD, database=LAB
-    )
+    return await asyncpg.connect(host=HOST, port=PORT, user=USER, password=PWD, database=LAB)
 
 
-async def probe(c: asyncpg.Connection, sql: str, timeout_ms: int = LOCK_TIMEOUT_MS) -> tuple[str, str]:
+async def probe(
+    c: asyncpg.Connection, sql: str, timeout_ms: int = LOCK_TIMEOUT_MS
+) -> tuple[str, str]:
     """在保存点内执行 sql，返回 (blocked|ok|error, 说明)。
 
     用保存点而非子事务：``ROLLBACK TO SAVEPOINT`` 会把 GUC 一并恢复，所以
@@ -327,7 +327,9 @@ async def main() -> int:
 
         await case_lock_matrix()
         print()
-        await case_wait_then_read("READ COMMITTED", "H4", "READ COMMITTED：等锁后读到 ARCHIVED（重检）")
+        await case_wait_then_read(
+            "READ COMMITTED", "H4", "READ COMMITTED：等锁后读到 ARCHIVED（重检）"
+        )
         print()
         await case_wait_then_read("REPEATABLE READ", "H7", "REPEATABLE READ：等锁后的行为（边界）")
         print()

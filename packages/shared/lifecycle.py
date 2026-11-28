@@ -163,21 +163,15 @@ class Lifecycle[StatusT]:
     initial_states: tuple[StatusT, ...] = ()
 
     def __post_init__(self) -> None:
-        problems = validate_lifecycle(
-            self.object_name, self.states, self.edges, self.frozen_states
-        )
+        problems = validate_lifecycle(self.object_name, self.states, self.edges, self.frozen_states)
         initial_list = list(self.initial_states)
         if _duplicates(initial_list):
             problems.append("initial_states 有重复项")
         for state in initial_list:
             if state not in set(self.states):
-                problems.append(
-                    f"initial_states 含未声明状态 {_status_value(state)!r}"
-                )
+                problems.append(f"initial_states 含未声明状态 {_status_value(state)!r}")
         if problems:
-            raise ValueError(
-                f"{self.object_name} 状态机边表非法：" + "；".join(problems)
-            )
+            raise ValueError(f"{self.object_name} 状态机边表非法：" + "；".join(problems))
         # frozen dataclass 仍可在 __post_init__ 里写 object.__setattr__ 建立索引；
         # 这里选择不建：边表规模是个位数，线性查找比多一份可变缓存更不容易错。
         # 唯一性已由构造校验保证，(source, target) 至多一条边。
@@ -193,9 +187,7 @@ class Lifecycle[StatusT]:
         真相，也就不存在「改了一处忘了另一处」。
         """
         return {
-            state: frozenset(
-                edge.target for edge in self.edges if edge.source == state
-            )
+            state: frozenset(edge.target for edge in self.edges if edge.source == state)
             for state in self.states
         }
 
@@ -230,9 +222,7 @@ class Lifecycle[StatusT]:
         """
         return status in self.frozen_states
 
-    def assert_child_creation_allowed(
-        self, status: StatusT, *, child_object: str
-    ) -> None:
+    def assert_child_creation_allowed(self, status: StatusT, *, child_object: str) -> None:
         """父对象冻结时拒绝新增子对象。
 
         **调用方必须在持有父行锁之后调用**：本函数只回答「此刻读到的状态是否冻结」，
@@ -258,18 +248,14 @@ class Lifecycle[StatusT]:
     # ------------------------------------------------------------------ #
     # 判定（结构 + 所有权）
     # ------------------------------------------------------------------ #
-    def edge_for(
-        self, source: StatusT, target: StatusT
-    ) -> Transition[StatusT] | None:
+    def edge_for(self, source: StatusT, target: StatusT) -> Transition[StatusT] | None:
         """取指定边；未登记返回 None（由调用方按「不可达」处理）。"""
         for edge in self.edges:
             if edge.source == source and edge.target == target:
                 return edge
         return None
 
-    def assert_registered(
-        self, source: StatusT, target: StatusT
-    ) -> Transition[StatusT]:
+    def assert_registered(self, source: StatusT, target: StatusT) -> Transition[StatusT]:
         """未登记转移一律拒绝（31.5），返回该边以便调用方复用。"""
         edge = self.edge_for(source, target)
         if edge is None:
@@ -283,9 +269,7 @@ class Lifecycle[StatusT]:
             )
         return edge
 
-    def edge_owned_by(
-        self, source: StatusT, target: StatusT, action: str
-    ) -> Transition[StatusT]:
+    def edge_owned_by(self, source: StatusT, target: StatusT, action: str) -> Transition[StatusT]:
         """取边并校验所有权：不属于该动作的边，对该动作**不可达**。
 
         这是 N-07 的结构性修法。顺序是刻意的——先判结构（未登记即拒），再判
@@ -303,9 +287,7 @@ class Lifecycle[StatusT]:
             )
         return edge
 
-    def next_edge_owned_by(
-        self, source: StatusT, action: str
-    ) -> Transition[StatusT] | None:
+    def next_edge_owned_by(self, source: StatusT, action: str) -> Transition[StatusT] | None:
         """从当前状态出发、由指定动作拥有的下一条边（审批链逐跳推进用）。
 
         返回 None 有两种语义：该状态没有出边（终态），或出边都不归该动作。
@@ -320,9 +302,7 @@ class Lifecycle[StatusT]:
     # ------------------------------------------------------------------ #
     # 跨聚合前置条件（并发约束的声明侧）
     # ------------------------------------------------------------------ #
-    def parent_precondition(
-        self, source: StatusT, target: StatusT
-    ) -> ParentPrecondition | None:
+    def parent_precondition(self, source: StatusT, target: StatusT) -> ParentPrecondition | None:
         """该边是否要求父对象不处于某状态；未登记边返回 None。
 
         为什么「未登记边」返回 None 而不是抛错：调用方拿到 None 后照常走
@@ -333,9 +313,7 @@ class Lifecycle[StatusT]:
         edge = self.edge_for(source, target)
         return edge.parent_precondition if edge is not None else None
 
-    def child_precondition(
-        self, source: StatusT, target: StatusT
-    ) -> ChildPrecondition | None:
+    def child_precondition(self, source: StatusT, target: StatusT) -> ChildPrecondition | None:
         """该边是否要求其下子对象不处于某状态（``parent_precondition`` 的另一侧）。"""
         edge = self.edge_for(source, target)
         return edge.child_precondition if edge is not None else None
@@ -379,13 +357,11 @@ def validate_lifecycle[StatusT](
     for edge in edge_list:
         if edge.source not in known:
             problems.append(
-                f"边 {edge.label} 的 source 不在 states 内"
-                f"（{_status_value(edge.source)}）"
+                f"边 {edge.label} 的 source 不在 states 内（{_status_value(edge.source)}）"
             )
         if edge.target not in known:
             problems.append(
-                f"边 {edge.label} 的 target 不在 states 内"
-                f"（{_status_value(edge.target)}）"
+                f"边 {edge.label} 的 target 不在 states 内（{_status_value(edge.target)}）"
             )
         if not edge.owner_action.strip():
             problems.append(f"边 {edge.label} 的 owner_action 为空")

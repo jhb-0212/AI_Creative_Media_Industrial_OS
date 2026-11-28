@@ -362,25 +362,17 @@ def patch_schema(
         spec = definitions.get(name)
         if not isinstance(spec, dict):
             continue
-        declared_fields = sorted(
-            field for (obj, field) in field_values if obj == name
-        )
+        declared_fields = sorted(field for (obj, field) in field_values if obj == name)
         targets = ["status", *declared_fields]
         for field in targets:
             found = _property_block(lines, start, end, field)
             if found is None:
                 if field == "status":
                     continue  # 无信封字段的对象（如纯列表定义）不归本派生器管
-                raise ValueError(
-                    f"field_value_sets 登记了 {name}.{field}，但 Schema 没有这个属性"
-                )
+                raise ValueError(f"field_value_sets 登记了 {name}.{field}，但 Schema 没有这个属性")
             block_start, block_end, indent = found
             props = dict(spec.get("properties", {}).get(field) or {})
-            want = (
-                required.get(name)
-                if field == "status"
-                else field_values[(name, field)]
-            )
+            want = required.get(name) if field == "status" else field_values[(name, field)]
             if want:
                 props["enum"] = list(want)
             else:
@@ -472,9 +464,7 @@ def drift_problems() -> list[str]:
 
     expected_schema = patch_schema(raw, nl, required, field_values)
     if expected_schema != raw:
-        drifted = _drifted_enum_objects(
-            _schema_enum_map(expected_schema), _schema_enum_map(raw)
-        )
+        drifted = _drifted_enum_objects(_schema_enum_map(expected_schema), _schema_enum_map(raw))
         problems.append(
             "object_schemas.schema.json 的字段 enum 与权威源不一致"
             f"（漂移字段: {', '.join(drifted) or '文件级差异'}；"

@@ -25,9 +25,7 @@ _ORG_B = uuid.uuid4()
 
 
 def _principal(organization_id: uuid.UUID | None) -> Principal:
-    return Principal(
-        subject_id="u1", tenant_id=_TENANT, organization_id=organization_id
-    )
+    return Principal(subject_id="u1", tenant_id=_TENANT, organization_id=organization_id)
 
 
 def _resource() -> ResourceRef:

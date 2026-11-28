@@ -50,9 +50,7 @@ def upgrade() -> None:
     )
     op.add_column(
         "outbox_events",
-        sa.Column(
-            "dead_lettered_at", sa.DateTime(timezone=True), nullable=True
-        ),
+        sa.Column("dead_lettered_at", sa.DateTime(timezone=True), nullable=True),
         schema="outbox",
     )
 

@@ -16,17 +16,27 @@
 
 | 正文类目 | 文件 | 字节 | SHA-256 | 对应章节 |
 |---|---|---|---|---|
-| ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 318109 | `171e9953e16a597fba092500896fef5c71830b752f52347da4e1291f089ca7d0` | 8.x 对象契约 / C.3 数据契约 |
-| ② OpenAPI 草案 | `contracts/openapi/openapi.draft.yaml` | 139315 | `419568058560926fa9a07be0aba6cd7e2e3cbf9daa17ec8677bac4867f82a43a` | 31.6（由 Action Registry 派生） |
-| ③ 状态机 | `contracts/state_machines/state_machines.yaml` | 68091 | `ce782ce483706ec6c04a57a853a85043a14b3e22431413958f19854ed6a01ac2` | 31.5 / 8.6 / 32.6 / 33.3 / 34.7 |
-| ④ Action Registry | `contracts/action_registry/action_registry.yaml` | 55959 | `6ccfa5f7c85b0c894f439f6547ead5ec50445ab8263ea78e51623fdd23767ffc` | 31.6 唯一注册表 |
-| ⑤ 权限矩阵 | `contracts/permission/permission_matrix.yaml` | 4213 | `ea343622c08f233d11c91420c914f46fa5f8fd984c9b23140cb29821b447ce6b` | C.5 / 31.6 |
+| ① 对象 Schema | `contracts/schemas/object_schemas.schema.json` | 318439 | `8dd9923114ae0faae929d38e9c8d5043028865e80cd6926811da9413af7b5319` | 8.x 对象契约 / C.3 数据契约 |
+| ② OpenAPI 草案 | `contracts/openapi/openapi.draft.yaml` | 145972 | `41b497536be4ff40eeaceaa03744e7ced517898a80bfb19e5d9532d08370154b` | 31.6（由 Action Registry 派生） |
+| ③ 状态机 | `contracts/state_machines/state_machines.yaml` | 68503 | `947372930811f91071475655b09f306920f52e0f5e4758d32c902482de29d1e6` | 31.5 / 8.6 / 32.6 / 33.3 / 34.7 |
+| ④ Action Registry | `contracts/action_registry/action_registry.yaml` | 58935 | `3c4cb3310020477f66fcf503f2d66f55fc0c1dc21b1c30e6cce0ce9fe5c62271` | 31.6 唯一注册表 |
+| ⑤ 权限矩阵 | `contracts/permission/permission_matrix.yaml` | 4109 | `e2a33d3de18495da985c5cb372b1e208e57ac01a6d2837629ce4fe88fd800693` | C.5 / 31.6 |
 | ⑥ 预算与成本口径 | `contracts/budget/budget_caliber.yaml` | 2511 | `29e1d7d470f115ff41b07daaebfb198ccea9246316a2dd4b43a28b52596a0aef` | C.2 / 34.6 |
 | ⑦ 指标字典 | `contracts/metrics/metric_dictionary.yaml` | 7567 | `fb909bccf1da14c74efaad77d77cf73d86c34126b41052def1d0185e4ea4f8cb` | 31.10 / 34.13 |
 | ⑧ 冻结包清单 | `contracts/phase0/phase0_manifest.md` | — | 自指不登记，见 `phase0_manifest.md.sha256` | 31.11 契约证据清单 |
-| ⑨ 枚举注册表 | `contracts/enums/enum_registry.yaml` | 6537 | `affeb10f36f2af6b097412f0c9de26f61297f4431ccf6fb810a7c6677d0c8c3c` | 31.5 / C.7 |
+| ⑨ 枚举注册表 | `contracts/enums/enum_registry.yaml` | 6548 | `8dd371aefffd05b36d30d5b945ba9a6c488b51b6e975590ff295500dcc4a8f05` | 31.5 / C.7 |
 | ⑩ ADR 主索引 | `docs/adr/adr_index.yaml` | 33011 | `24cca2103e93296eae56d8118b15d0eeb5eb6a52a9f2ec44ff50d1f49d7c27ff` | 31.12 / 32.13 / 33.15 |
 | ⑪ 阶段表 | `contracts/phases/phase_map.yaml` | 4221 | `ee03d60c4008aff193cc19c06f96fbe96f9976d9bb7c4a1b6af7f80c6199528e` | 31.2 唯一阶段总表 |
+
+## 冻结附件（治理文件）
+
+除十一类契约产物外，冻结结论所依据的治理文件也在此登记并校验字节：它们不是契约派生物，
+不参与「基线 ∪ 修订 == 实际」的名称全集判定，但一旦被改动，冻结的依据就变了——
+须重新裁决，而不是重签清单。
+
+| 文件 | 字节 | SHA-256 | 作用 |
+|---|---|---|---|
+| `docs/baseline/Phase0-冻结评审决议.md` | 21327 | `05eb0c99385426ae7405c05aa908eb9fd0685b83853f7831b713594182f30aab` | Phase 0 契约冻结决议（AFS-P0-FREEZE-2026-11-13-01，2026-11-13，项目 owner 签署） |
 
 ## 已批准修订
 
@@ -73,6 +83,17 @@
 - `V205-R35-GA-THIRD-TEN`
 - `V205-R35-GC`
 - `V205-R45`
+- `V205-R15-A36`
+- `V205-R42-C7B`
+- `V205-R42-C7B-IMPL`
+- `V205-R42-D69`
+- `V205-R42-D69-IMPL`
+- `V205-R42-P2-RATIFY`
+- `V205-R42-P2-BLOCK-LIFT`
+- `V205-R42-D69-RESIDUAL-CLOSURE`
+- `V205-R44-TC-DECISION-BLOCK-LIFT`
+- `V205-P0-FREEZE-RESOLUTION-REGISTER`
+- `V205-R42-S1-AUTHORIZATION-ACK`
 
 契约名称全集必须精确等于「基线清单 ∪ 已批准修订」，由
 `scripts/freeze_manifest.py --check` 逐名称判定（不是只看数量）。

@@ -61,6 +61,7 @@ def observe_circuit_state(gauge: Gauge, state: str, previous: str | None) -> Non
         gauge.labels(state=previous).set(0)
     gauge.labels(state=state).set(1)
 
+
 # Outbox relay（R06 消费端）。标签只放 event_type 与 result：event_type 由契约
 # 枚举约束（有限集），result 是 delivered/unrouted/failed 三值，基数可控。
 OUTBOX_RELAY_EVENTS_TOTAL = Counter(
@@ -81,6 +82,23 @@ OUTBOX_RELAY_DEAD = Gauge(
     "死信事件总数（最近一轮扫描采样，投递已放弃、待人工重放）",
 )
 
+# 人工重放计数。与 OUTBOX_RELAY_DEAD 分工明确：Gauge 回答「现在积压多少死信」，
+# Counter 回答「处置动作发生了多少次」——只看 Gauge 时，「一直有 5 条」与
+# 「重放了 100 条又新进 100 条」在曲线上无法区分。
+#
+# 口径（台账 D69 残余风险第 2 条要求先定口径）：
+# - 只计**成功**重放：拒绝路径（未死信 / 已投递 / 跨租户 / 并发）是「有人在做
+#   不该做的事」或「看错了状态」，它的证据在结构化日志与 4xx 指标里，不该混进
+#   「重放次数」——否则「这个月重放了多少条」永远算不对。
+# - 唯一的标签是 event_type：它由契约枚举约束（有限集），且排障时最有用的问句
+#   「哪类事件在反复进死信」刚好按它聚合。不打 operator（人员维度会随时间单调
+#   增长，且不该用于阈值告警）。
+OUTBOX_DEAD_LETTER_REPLAYS_TOTAL = Counter(
+    "outbox_dead_letter_replays_total",
+    "死信人工重放成功次数（按事件类型）",
+    ["event_type"],
+)
+
 OUTBOX_RELAY_RUN_ERRORS = Counter(
     "outbox_relay_run_errors_total",
     "Relay 单轮失败次数（stage=enumerate/tenant）",
@@ -94,6 +112,53 @@ OUTBOX_WEBHOOK_CIRCUIT_STATE = Gauge(
     "Webhook 端点熔断器当前状态（1=当前态；state=closed/open/half_open）",
     ["state"],
 )
+
+
+# --------------------------------------------------------------------------- #
+# QC 调度（WP-04 观测面）
+# --------------------------------------------------------------------------- #
+# 四个指标各自回答一个「不看代码就看不出来」的问题，而不是把事件再数一遍：
+#
+# * ``qc_lease_expired_total``：租约真的过期并被系统回收了多少次。回收会递增
+#   代次，因此它是「有多少个 Worker 悄悄死掉」的唯一直接证据；
+# * ``qc_fencing_rejected_total``：迟到的旧代次写入被拒多少次。它与上一条**不必
+#   相等**——代次被拒还可能来自「同一代重复提交」或「Worker 重试风暴」，
+#   两者相减就是「恢复成功但旧实例还在挣扎」的规模；
+# * ``qc_claim_conflict_total``：同一任务被并发领取的次数。行锁把冲突串行化，
+#   但冲突本身仍在发生，冲突率持续不降说明 Worker 数相对待办过密；
+# * ``qc_projection_mismatch_total``：投影写入被 ``entity_version`` 条件挡回的
+#   次数。挡回意味着投影领先源表——写入路径漏了同步，或有人绕过服务直接改
+#   源表。这是「派生数据已经开始说谎」的实时信号。
+QC_LEASE_EXPIRED_TOTAL = Counter(
+    "qc_lease_expired_total",
+    "租约过期被系统回收的次数（每次回收递增代次，旧 Worker 之后写入全部失效）",
+)
+
+QC_FENCING_REJECTED_TOTAL = Counter(
+    "qc_fencing_rejected_total",
+    "旧代次写入被拒的次数（operation=renew/finish）",
+    ["operation"],
+)
+
+QC_CLAIM_CONFLICT_TOTAL = Counter(
+    "qc_claim_conflict_total",
+    "QC 任务领取并发冲突次数（行锁未取得或任务已被他人领取）",
+)
+
+QC_PROJECTION_MISMATCH_TOTAL = Counter(
+    "qc_projection_mismatch_total",
+    "投影写入被版本条件挡回的次数（投影领先源表 = 写入路径漏同步的真实信号）",
+)
+
+# 刻意还没有的三个（写在这里是为了让「为什么没有」可被审到，而不是留白）：
+#
+# * ``qc_projection_lag_seconds``：滞后只能在同时读源表与投影的进程里采样。
+#   目前唯一这样的进程是回填/对账批处理——它跑完就退出，没有抓取端点，指标
+#   永远发布不出去。等调度消费者（长驻进程）落地时再引入，否则就是一个
+#   「永远为 0 且没人能查」的假指标。
+# * ``qc_maintenance_denied_total`` / ``qc_maintenance_repair_total``：维护命令
+#   尚未实现（WP-03 只落了身份层与守卫函数），没有观测点可挂。守卫函数的
+#   拒绝发生在数据库里，应用进程无法计数——只能靠审计视图，不能靠进程内指标。
 
 
 def metrics_response() -> Response:

@@ -78,9 +78,10 @@ def _assert_no_conflicting_constraint() -> None:
         ),
     )
     for table, name, contype, accepted in checks:
-        rows = bind.execute(
-            text(
-                """
+        rows = (
+            bind.execute(
+                text(
+                    """
                 SELECT a.attname
                 FROM pg_constraint c
                 JOIN pg_class t ON t.oid = c.conrelid
@@ -91,9 +92,12 @@ def _assert_no_conflicting_constraint() -> None:
                   AND c.conname = :name AND c.contype::text = :contype
                 ORDER BY k.ord
                 """
-            ),
-            {"schema": _SCHEMA, "table": table, "name": name, "contype": contype},
-        ).scalars().all()
+                ),
+                {"schema": _SCHEMA, "table": table, "name": name, "contype": contype},
+            )
+            .scalars()
+            .all()
+        )
         if rows and tuple(rows) not in accepted:
             raise RuntimeError(
                 f"{_SCHEMA}.{table} 的约束 {name} 列集为 {tuple(rows)}，"
@@ -108,18 +112,17 @@ def upgrade() -> None:
     # 1. 目标唯一键：复合外键的引用目标。entity_id 是 envelope 主键，
     #    (project_id, entity_id) 唯一恒成立，但 PG 要求显式键。
     if not _has_constraint(_REWORK, _UQ, "u"):
-        op.create_unique_constraint(
-            _UQ, _REWORK, ["project_id", "entity_id"], schema=_SCHEMA
-        )
+        op.create_unique_constraint(_UQ, _REWORK, ["project_id", "entity_id"], schema=_SCHEMA)
 
     # 2. 删旧单列外键（若仍是单列）。同名复用是刻意的：约束名不变，
     #    测试/台账按名字找外键时不会因升级多出一个别名。
     bind = op.get_bind()
     from sqlalchemy import text
 
-    old_cols = bind.execute(
-        text(
-            """
+    old_cols = (
+        bind.execute(
+            text(
+                """
             SELECT a.attname
             FROM pg_constraint c
             JOIN pg_class t ON t.oid = c.conrelid
@@ -130,9 +133,12 @@ def upgrade() -> None:
               AND c.conname = :name AND c.contype::text = 'f'
             ORDER BY k.ord
             """
-        ),
-        {"schema": _SCHEMA, "table": _SHOTS, "name": _OLD_FK},
-    ).scalars().all()
+            ),
+            {"schema": _SCHEMA, "table": _SHOTS, "name": _OLD_FK},
+        )
+        .scalars()
+        .all()
+    )
     if old_cols and tuple(old_cols) != ("project_id", "rework_basis_ref"):
         # 单列旧键：删掉重建。_assert_no_conflicting_constraint 已保证不是
         # 另一个语义的复合键。
@@ -148,9 +154,7 @@ def upgrade() -> None:
         )
     # 4. VALIDATE：证明存量无违例（rework_basis_ref 为 NULL 的行外键不检查，
     #    非空行必须同项目）。省略这步等于「我不知道有没有脏数据」。
-    op.execute(
-        f"ALTER TABLE {_SCHEMA}.{_SHOTS} VALIDATE CONSTRAINT {_OLD_FK}"
-    )
+    op.execute(f"ALTER TABLE {_SCHEMA}.{_SHOTS} VALIDATE CONSTRAINT {_OLD_FK}")
 
 
 def downgrade() -> None:
@@ -158,9 +162,10 @@ def downgrade() -> None:
     from sqlalchemy import text
 
     bind = op.get_bind()
-    cols = bind.execute(
-        text(
-            """
+    cols = (
+        bind.execute(
+            text(
+                """
             SELECT a.attname
             FROM pg_constraint c
             JOIN pg_class t ON t.oid = c.conrelid
@@ -171,9 +176,12 @@ def downgrade() -> None:
               AND c.conname = :name AND c.contype::text = 'f'
             ORDER BY k.ord
             """
-        ),
-        {"schema": _SCHEMA, "table": _SHOTS, "name": _OLD_FK},
-    ).scalars().all()
+            ),
+            {"schema": _SCHEMA, "table": _SHOTS, "name": _OLD_FK},
+        )
+        .scalars()
+        .all()
+    )
     if not cols:
         return
     op.drop_constraint(_OLD_FK, _SHOTS, schema=_SCHEMA)

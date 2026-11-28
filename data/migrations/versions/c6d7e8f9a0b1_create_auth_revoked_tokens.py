@@ -63,3 +63,9 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute(f'DROP TABLE IF EXISTS "{_SCHEMA}"."{_TABLE}"')
+    # WP-04/#20：父 revision 的 auth schema 没有显式 ACL（只有属主默认权限）。
+    # 升级给 app_role 授的 USAGE 在降级必须收回，否则 D 会比 P 多一条 schema 授权。
+    op.execute(f'REVOKE USAGE ON SCHEMA "{_SCHEMA}" FROM {app_role_name()}')
+    # 这个 schema 本身也是本 revision 建的（父态没有 auth schema）。表已删空后
+    # 必须一并删掉，否则降级态留下一个父态不存在的 schema 对象。
+    op.execute(f'DROP SCHEMA "{_SCHEMA}"')

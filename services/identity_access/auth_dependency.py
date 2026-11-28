@@ -78,20 +78,14 @@ def build_principal_dependency(
         try:
             kid = jwt.get_unverified_header(token).get("kid")
         except Exception as exc:
-            raise DomainError(
-                ErrorRegistry.AUTH_UNAUTHENTICATED, detail="令牌格式非法"
-            ) from exc
+            raise DomainError(ErrorRegistry.AUTH_UNAUTHENTICATED, detail="令牌格式非法") from exc
 
         if not kid:
-            raise DomainError(
-                ErrorRegistry.AUTH_UNAUTHENTICATED, detail="令牌缺少 kid"
-            )
+            raise DomainError(ErrorRegistry.AUTH_UNAUTHENTICATED, detail="令牌缺少 kid")
 
         public_pem = key_store.public_pem(kid)
         if public_pem is None:
-            raise DomainError(
-                ErrorRegistry.AUTH_UNAUTHENTICATED, detail="未知的签名密钥"
-            )
+            raise DomainError(ErrorRegistry.AUTH_UNAUTHENTICATED, detail="未知的签名密钥")
 
         try:
             principal = decode_token(
@@ -101,19 +95,13 @@ def build_principal_dependency(
                 audience=audience,
             )
         except TokenError as exc:
-            raise DomainError(
-                ErrorRegistry.AUTH_UNAUTHENTICATED, detail="令牌验签失败"
-            ) from exc
+            raise DomainError(ErrorRegistry.AUTH_UNAUTHENTICATED, detail="令牌验签失败") from exc
 
         if revocation_check is not None:
             if not principal.jti:
-                raise DomainError(
-                    ErrorRegistry.AUTH_UNAUTHENTICATED, detail="令牌缺少 jti"
-                )
+                raise DomainError(ErrorRegistry.AUTH_UNAUTHENTICATED, detail="令牌缺少 jti")
             if await revocation_check(request, principal.jti):
-                raise DomainError(
-                    ErrorRegistry.AUTH_UNAUTHENTICATED, detail="令牌已吊销"
-                )
+                raise DomainError(ErrorRegistry.AUTH_UNAUTHENTICATED, detail="令牌已吊销")
 
         return principal
 

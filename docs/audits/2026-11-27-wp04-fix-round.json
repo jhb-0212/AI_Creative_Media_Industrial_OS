@@ -1,0 +1,26 @@
+{
+  "method": "P(parent snapshot) -> alembic upgrade -> alembic downgrade -> D(downgrade snapshot); canonical ACL via aclexplode(acldefault), pg_toast OID jitter excluded",
+  "run_at": "2026-11-27",
+  "worktree": "AI_Creative_Media_Industrial_OS-d02 (feat/d02-and-retirement, base c4b9a52, uncommitted)",
+  "runner": "%TEMP%\\wp04_triage.py (WP04_TARGETS=10 defects, WP04_DB_SUFFIX=_final)",
+  "log": "%TEMP%\\wp04_triage_final.log",
+  "results": [
+    {"revision": "a13b0c1d2e3f", "defect": "#35", "parent": "c1a2b3d4e5f6", "verdict": "no_restore_proven", "diff": {}},
+    {"revision": "c3d4e5f6a7b8", "defect": "#37", "parent": "b1c2d3e4f5a6", "verdict": "no_restore_proven", "diff": {}},
+    {"revision": "b7c8d9e0f1a2", "defect": "#14", "parent": "c1d2e3f4a5b6", "verdict": "no_restore_proven", "diff": {}},
+    {"revision": "c6d7e8f9a0b1", "defect": "#20", "parent": "b5c6d7e8f9a0", "verdict": "no_restore_proven", "diff": {}},
+    {"revision": "b3c4d5e6f7a8", "defect": "#29", "parent": "d2e3f4a5b6c7", "verdict": "no_restore_proven", "diff": {}},
+    {"revision": "b8c9d0e1f2a3", "defect": "#47", "parent": "c4d5e6f7a8b9", "verdict": "no_restore_proven", "diff": {}},
+    {"revision": "e6a7b8c9d0e1", "defect": "#59", "parent": "a8b9c0d1e2f3", "verdict": "no_restore_proven", "diff": {}},
+    {"revision": "a5b6c7d8e9f0", "defect": "#62", "parent": "b4c5d6e7f8a9", "verdict": "no_restore_proven", "diff": {}},
+    {"revision": "c1a2b3d4e5f6", "defect": "#34", "parent": "e0f1a2b3c4d5", "verdict": "no_restore_proven", "diff": {}},
+    {"revision": "a0b1c2d3e4f5", "defect": "#41", "parent": "f9a0b1c2d3e4", "verdict": "no_restore_proven", "diff": {}}
+  ],
+  "fixed_after_iteration": [
+    {"revision": "a13b0c1d2e3f", "round": "fix2", "before": "downgrade failed: cannot drop constraint because other objects depend"},
+    {"revision": "c3d4e5f6a7b8", "round": "fix2", "before": "downgrade failed: cannot drop constraint because other objects depend"},
+    {"revision": "c6d7e8f9a0b1", "round": "fix2", "before": "+NS auth"},
+    {"revision": "c1a2b3d4e5f6", "round": "fix7", "before": "19 ACL groups: default privileges widened to 5 roles, shared-table ACLs, shared schema USAGE"},
+    {"revision": "a5b6c7d8e9f0", "round": "fix5", "before": "+DEFACL qc_maintenance:f:qc_maintenance_owner"}
+  ]
+}

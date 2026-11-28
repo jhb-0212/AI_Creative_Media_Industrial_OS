@@ -22,6 +22,10 @@
 6. 单条失败不阻塞同批其余事件，也不阻塞其他租户；失败事件保持未投递，
    按指数退避重试；超过 `max_attempts` 进入死信（dead_lettered_at），不再领取。
    死信不删除：它是"投递放弃"的事实，必须可查、可人工重放（P2-2）。
+   人工处置入口是 ``POST /outbox/dead-letters/{event_id}/replay``（D6-9）：
+   它只清 dead_lettered_at / next_attempt_at / attempts 三列并把事件交回本
+   claim 查询，**不复制新事件、不改事件内容、不改 published_at**——重放不是
+   「再投一次」，而是「让这条事件重新排进待投递」。
 7. **「没外发」不等于「失败一次」**（审查 N2）：处理器抛
    ``DeliveryDeferredError`` 时表示它明确知道本次没有发出请求（例如端点熔断
    拦截）。这类事件不计 attempts、不写退避、不推进死信——否则会被一串「根本
@@ -117,7 +121,8 @@ _ACK = text(
 
 # 失败重试：attempts + 1，按指数退避（10s/20s/40s... 上限 640s），
 # 达到 max_attempts 时写 dead_lettered_at，此后不再被 CLAIM 领取。
-# 死信不删除——"投递放弃"本身是可审计事实，留待人工重放。
+# 死信不删除——"投递放弃"本身是可审计事实，留待人工重放
+# （POST /outbox/dead-letters/{event_id}/replay，见 services/outbox_ops）。
 _FAIL = text(
     """
     UPDATE outbox.outbox_events
@@ -167,9 +172,7 @@ class OutboxRelay:
 
         async with self._sessionmaker() as session:
             try:
-                tenants = (
-                    await session.execute(_LIST_TENANTS)
-                ).mappings().all()
+                tenants = (await session.execute(_LIST_TENANTS)).mappings().all()
             except Exception:
                 # 枚举失败（函数缺失/权限收回）必须显式暴露，不能静默空转。
                 OUTBOX_RELAY_RUN_ERRORS.labels(stage="enumerate").inc()
@@ -196,9 +199,7 @@ class OutboxRelay:
             except Exception:
                 # 单租户失败不影响其他租户：租户之间没有共享事务，隔离在此处体现。
                 OUTBOX_RELAY_RUN_ERRORS.labels(stage="tenant").inc()
-                logger.exception(
-                    "outbox_relay_tenant_failed", tenant_id=str(row["tenant_id"])
-                )
+                logger.exception("outbox_relay_tenant_failed", tenant_id=str(row["tenant_id"]))
 
         if stats.delivered or stats.unrouted or stats.failed or stats.deferred:
             logger.info(

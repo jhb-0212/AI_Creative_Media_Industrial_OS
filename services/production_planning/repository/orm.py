@@ -18,6 +18,7 @@ denied，不是代码评审的意见。
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import UUID
 
 from sqlalchemy import (
     CheckConstraint,
@@ -27,6 +28,7 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    Uuid,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -81,7 +83,9 @@ class GenerationTaskModel(Base, EntityMixin):
         # 产物清单与登记回执的复合外键目标：跨任务/跨租户伪造登记依据必须被拒。
         # 约束名由迁移 e1f2a3b4c5d6 建立，这里同步声明，避免 alembic check 漂移。
         UniqueConstraint(
-            "generation_task_id", "project_id", "tenant_id",
+            "generation_task_id",
+            "project_id",
+            "tenant_id",
             name="uq_generation_tasks_task_project_tenant",
         ),
         # 归属外键：本表此前对 projects **一条外键都没有**。生成任务是
@@ -103,23 +107,21 @@ class GenerationTaskModel(Base, EntityMixin):
     budget_ref: Mapped[str] = mapped_column(String(128), nullable=False)
     prompt_ref: Mapped[str] = mapped_column(String(200), nullable=False)
     # 租约：领取者、到期时间、领取次数（Phase 2，GENERATION.PROCESS）。
-    lease_owner: Mapped[str] = mapped_column(
-        String(128), nullable=False, server_default=""
-    )
+    lease_owner: Mapped[str] = mapped_column(String(128), nullable=False, server_default="")
     lease_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    attempt_count: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default="0"
-    )
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     # 产物引用（Phase 3 后续）：成功任务把产物与质量标准版本落库，
     # QC 入队与「成功但漏入队」的对账扫描都以这两列为唯一依据。
-    asset_version_id: Mapped[str] = mapped_column(
-        String(64), nullable=False, server_default=""
-    )
+    asset_version_id: Mapped[str] = mapped_column(String(64), nullable=False, server_default="")
     quality_profile_version: Mapped[str] = mapped_column(
         String(64), nullable=False, server_default=""
     )
+    # 组织归属：入队时随事实下传给 QC，用于在 Worker 侧建立组织上下文。
+    # 为什么不从 ``projects`` 现查：该表的 RLS 要求组织上下文，而 Worker 没有
+    # ``current_organization_id``——查不到正是「没有组织」，两者会混成一件事。
+    organization_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
 
 
 class ArtifactManifestModel(Base, EntityMixin):
@@ -133,12 +135,11 @@ class ArtifactManifestModel(Base, EntityMixin):
     __tablename__ = "artifact_manifests"
     __table_args__ = (
         UniqueConstraint(
-            "generation_task_id", "attempt_id",
+            "generation_task_id",
+            "attempt_id",
             name="uq_artifact_manifests_task_attempt",
         ),
-        UniqueConstraint(
-            "project_id", "entity_id", name="uq_artifact_manifests_entity_project"
-        ),
+        UniqueConstraint("project_id", "entity_id", name="uq_artifact_manifests_entity_project"),
         project_tenant_fk("artifact_manifests"),
         ForeignKeyConstraint(
             ["generation_task_id", "project_id", "tenant_id"],
@@ -152,12 +153,8 @@ class ArtifactManifestModel(Base, EntityMixin):
         Index("ix_artifact_manifests_project_id", "project_id"),
         Index("ix_production_planning_artifact_manifests_tenant_id", "tenant_id"),
         Index("ix_artifact_manifests_generation_task_id", "generation_task_id"),
-        status_check(
-            (s.value for s in ArtifactManifestStatus), table="artifact_manifests"
-        ),
-        CheckConstraint(
-            sql_locator_check("locator"), name="ck_artifact_manifests_locator_sha256"
-        ),
+        status_check((s.value for s in ArtifactManifestStatus), table="artifact_manifests"),
+        CheckConstraint(sql_locator_check("locator"), name="ck_artifact_manifests_locator_sha256"),
         {"schema": SCHEMA_NAME},
     )
 
@@ -165,6 +162,9 @@ class ArtifactManifestModel(Base, EntityMixin):
     project_id: Mapped[str] = mapped_column(String(64), nullable=False)
     locator: Mapped[str] = mapped_column(String(96), nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    # PR-G：T0 固化的媒体类型，与 locator 扩展名同源。T1/T2 与 PR-G 恢复都以它
+    # 为落盘事实，不再只依赖 T1 事件载荷（事件丢失/篡改时仍可核对）。
+    media_type: Mapped[str] = mapped_column(String(64), nullable=False)
     attempt_id: Mapped[str] = mapped_column(String(64), nullable=False)
 
 

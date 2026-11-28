@@ -122,13 +122,8 @@ class _EpisodeRepo(EpisodeRepository):
     async def get_by_id(self, entity_id: str) -> Episode | None:
         return self._episode
 
-    async def get_by_project_ref(
-        self, project_id: str, episode_ref: str
-    ) -> Episode | None:
-        if (
-            self._episode.project_id == project_id
-            and self._episode.episode_ref == episode_ref
-        ):
+    async def get_by_project_ref(self, project_id: str, episode_ref: str) -> Episode | None:
+        if self._episode.project_id == project_id and self._episode.episode_ref == episode_ref:
             return self._episode
         return None
 
@@ -142,9 +137,7 @@ class _EpisodeRepo(EpisodeRepository):
 
 
 def _principal(subject_id: str = "writer_001") -> Principal:
-    return Principal(
-        subject_id=subject_id, tenant_id=_TENANT, roles=frozenset({"导演", "编剧"})
-    )
+    return Principal(subject_id=subject_id, tenant_id=_TENANT, roles=frozenset({"导演", "编剧"}))
 
 
 def _service(
@@ -258,9 +251,7 @@ async def test_project_completed_blocks_import_even_when_episode_active() -> Non
     这条防的是「只在 ARCHIVED 上写死」的实现：COMPLETED 有出边（→ARCHIVED），
     很容易被当成「还活着」而漏掉，但状态图没有回到 ACTIVE 的路，内容已定稿。
     """
-    service, _, projects = _service(
-        EpisodeStatus.ACTIVE, project_status=ProjectStatus.COMPLETED
-    )
+    service, _, projects = _service(EpisodeStatus.ACTIVE, project_status=ProjectStatus.COMPLETED)
 
     with pytest.raises(DomainError) as exc:
         await service.import_script(

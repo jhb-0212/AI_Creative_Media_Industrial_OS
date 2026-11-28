@@ -107,9 +107,7 @@ async def sqlstate_of(c: asyncpg.Connection, sql: str) -> tuple[str, str, int]:
         return "?????", f"{type(exc).__name__}: {exc}", 0
 
 
-async def seed_scene(
-    c: asyncpg.Connection, scene_id: str, *, status: str = "ACTIVE"
-) -> None:
+async def seed_scene(c: asyncpg.Connection, scene_id: str, *, status: str = "ACTIVE") -> None:
     await lab.insert_minimal_row(
         c,
         "project_planning.scenes",
@@ -128,9 +126,7 @@ async def seed_scene(
     )
 
 
-async def seed_shot(
-    c: asyncpg.Connection, shot_id: str, scene_id: str, *, status: str
-) -> None:
+async def seed_shot(c: asyncpg.Connection, shot_id: str, scene_id: str, *, status: str) -> None:
     """同事务建 shot_revisions + shots：两表互指且双边 NOT NULL（延迟约束）。"""
     revision_id = f"rev-{shot_id}"
     # BLOCKED 与 blocked_reason 必须同真同假（ck_shots_blocked_reason）。
@@ -218,11 +214,11 @@ async def main() -> int:
                     await c.execute(s)
 
             # ---- 造数据（必须在装触发器之前）----
-            await seed_scene(c, "b6-sc-A")                      # 有 IN_PRODUCTION 子镜头
-            await seed_scene(c, "b6-sc-B")                      # 有 NOT_STARTED 子镜头
-            await seed_scene(c, "b6-sc-C")                      # 无子镜头
-            await seed_scene(c, "b6-sc-D")                      # 预先归档，供反向用例
-            await seed_scene(c, "b6-sc-E")                      # 有 BLOCKED 子镜头
+            await seed_scene(c, "b6-sc-A")  # 有 IN_PRODUCTION 子镜头
+            await seed_scene(c, "b6-sc-B")  # 有 NOT_STARTED 子镜头
+            await seed_scene(c, "b6-sc-C")  # 无子镜头
+            await seed_scene(c, "b6-sc-D")  # 预先归档，供反向用例
+            await seed_scene(c, "b6-sc-E")  # 有 BLOCKED 子镜头
             await seed_shot(c, "b6-sh-A", "b6-sc-A", status="IN_PRODUCTION")
             await seed_shot(c, "b6-sh-B", "b6-sc-B", status="NOT_STARTED")
             await seed_shot(c, "b6-sh-D", "b6-sc-D", status="NOT_STARTED")
@@ -304,13 +300,23 @@ async def main() -> int:
             st, msg, n = await sqlstate_of(
                 c, "UPDATE project_planning.scenes SET status='ARCHIVED' WHERE scene_id='b6-sc-B'"
             )
-            record("F1", st == "00000" and n == 1, "归档成功（子镜头 NOT_STARTED）", f"sqlstate={st} {msg}".strip())
+            record(
+                "F1",
+                st == "00000" and n == 1,
+                "归档成功（子镜头 NOT_STARTED）",
+                f"sqlstate={st} {msg}".strip(),
+            )
 
             # ---- F2 无子镜头 ----
             st, msg, n = await sqlstate_of(
                 c, "UPDATE project_planning.scenes SET status='ARCHIVED' WHERE scene_id='b6-sc-C'"
             )
-            record("F2", st == "00000" and n == 1, "归档成功（无子镜头）", f"sqlstate={st} {msg}".strip())
+            record(
+                "F2",
+                st == "00000" and n == 1,
+                "归档成功（无子镜头）",
+                f"sqlstate={st} {msg}".strip(),
+            )
 
             # ---- F3 只拦状态转换 ----
             st, msg, n = await sqlstate_of(
@@ -431,8 +437,10 @@ async def main() -> int:
         await admin.close()
 
     failed = [r["id"] for r in results if r["status"] == "FAIL"]
-    print(f"\n批次六验证：{len(results) - len(failed)}/{len(results)} 通过"
-          + (f"（FAIL: {failed}）" if failed else ""))
+    print(
+        f"\n批次六验证：{len(results) - len(failed)}/{len(results)} 通过"
+        + (f"（FAIL: {failed}）" if failed else "")
+    )
     out = Path(__file__).with_suffix(".json")
     out.write_text(
         json.dumps(

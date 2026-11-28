@@ -23,6 +23,7 @@ Revision ID: b9e1c2d3f4a5
 Revises: ae8724980e0b
 Create Date: 2026-11-18
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -105,9 +106,7 @@ def downgrade() -> None:
 
     for partition in _existing_partitions():
         qualified = f"{quote_ident(OUTBOX_SCHEMA)}.{quote_ident(partition)}"
-        op.execute(
-            f"REVOKE UPDATE ({columns}) ON {qualified} FROM {quote_ident(relay_role)}"
-        )
+        op.execute(f"REVOKE UPDATE ({columns}) ON {qualified} FROM {quote_ident(relay_role)}")
         op.execute(f"GRANT UPDATE ON {qualified} TO {quote_ident(relay_role)}")
 
     op.execute(

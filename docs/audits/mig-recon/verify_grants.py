@@ -130,9 +130,7 @@ def drift_of(matrix: list[dict[str, object]]) -> list[str]:
 async def public_execute(conn: asyncpg.Connection, oid: int) -> bool:
     """PUBLIC 是否持有该函数的 EXECUTE（撤 PUBLIC 是否真的生效）。"""
     return bool(
-        await conn.fetchval(
-            "SELECT has_function_privilege('public', $1::oid, 'EXECUTE')", oid
-        )
+        await conn.fetchval("SELECT has_function_privilege('public', $1::oid, 'EXECUTE')", oid)
     )
 
 
@@ -179,7 +177,13 @@ async def run(args: argparse.Namespace) -> int:
         if allows_oid is None or map_oid is None:
             rec("G1", "中间态", "两个判定函数已创建", False, "to_regprocedure 返回 NULL")
             raise RuntimeError("判定函数不存在，后续断言无意义")
-        rec("G1", "中间态", "两个判定函数已创建（b0c9 之后）", True, f"allows={allows_oid} map={map_oid}")
+        rec(
+            "G1",
+            "中间态",
+            "两个判定函数已创建（b0c9 之后）",
+            True,
+            f"allows={allows_oid} map={map_oid}",
+        )
 
         has_repair = await conn.fetchval("SELECT to_regrole($1) IS NOT NULL", REPAIR_ROLE)
         if not has_repair:
@@ -192,13 +196,24 @@ async def run(args: argparse.Namespace) -> int:
         else:  # pragma: no cover - 仅当迁移顺序被改动时触发
             matrix = await writer_matrix(conn, guard_tables, allows_oid, map_oid)
             drift = drift_of(matrix)
-            rec("G2", "中间态", "此刻的写者均已持有函数 EXECUTE", not drift, "; ".join(drift) or "无漂移")
+            rec(
+                "G2",
+                "中间态",
+                "此刻的写者均已持有函数 EXECUTE",
+                not drift,
+                "; ".join(drift) or "无漂移",
+            )
 
         # ---------- G3 终态：归属栈全上 ----------
         for _rev, mod in stack_mods[2:]:
             await lab.apply_steps(conn, lab.upgrade_sqls(mod))
-        rec("G3", "终态", f"归属栈全部应用（{len(stack_mods)} 层，末层 {stack_mods[-1][0]}）", True,
-            f"{len(stack_mods)} 层")
+        rec(
+            "G3",
+            "终态",
+            f"归属栈全部应用（{len(stack_mods)} 层，末层 {stack_mods[-1][0]}）",
+            True,
+            f"{len(stack_mods)} 层",
+        )
 
         allows_oid = await fn_oid(conn, ALLOWS)
         map_oid = await fn_oid(conn, MAP_MATCH)
@@ -220,7 +235,9 @@ async def run(args: argparse.Namespace) -> int:
             rec("G4b", "终态", "写者矩阵非空（否则上一行是平凡通过）", False, "0 行")
         else:
             roles = sorted({str(r["role"]) for r in matrix})
-            rec("G4b", "终态", "写者矩阵非空", True, f"{len(roles)} 个角色：{', '.join(roles[:6])}…")
+            rec(
+                "G4b", "终态", "写者矩阵非空", True, f"{len(roles)} 个角色：{', '.join(roles[:6])}…"
+            )
 
         repair_row = [r for r in matrix if r["role"] == REPAIR_ROLE]
         has_repair = await conn.fetchval("SELECT to_regrole($1) IS NOT NULL", REPAIR_ROLE)
@@ -241,8 +258,13 @@ async def run(args: argparse.Namespace) -> int:
 
         pub_a = await public_execute(conn, allows_oid)
         pub_m = await public_execute(conn, map_oid)
-        rec("G6", "终态", "PUBLIC 无两函数 EXECUTE（撤 PUBLIC 生效）", not (pub_a or pub_m),
-            f"allows={pub_a} map_match={pub_m}")
+        rec(
+            "G6",
+            "终态",
+            "PUBLIC 无两函数 EXECUTE（撤 PUBLIC 生效）",
+            not (pub_a or pub_m),
+            f"allows={pub_a} map_match={pub_m}",
+        )
 
         # ---------- G7/G8 非恒真：新角色不会自动获得授权 ----------
         admin2 = await lab.admin_conn(args.host, args.port, args.user, args.password)
@@ -314,8 +336,13 @@ async def run(args: argparse.Namespace) -> int:
             for sql in lab._downgrade_sqls(mod):
                 await conn.execute(sql)
         left = await fn_oid(conn, ALLOWS)
-        rec("G10", "降级", "归属栈逆序降级后判定函数已移除（无悬空 ACL）", left is None,
-            f"allows_oid={left}")
+        rec(
+            "G10",
+            "降级",
+            "归属栈逆序降级后判定函数已移除（无悬空 ACL）",
+            left is None,
+            f"allows_oid={left}",
+        )
 
     finally:
         await conn.close()
@@ -355,7 +382,9 @@ async def run(args: argparse.Namespace) -> int:
         meta=meta,
         footer=footer,
     )
-    print(f"\n授权完整性验证：{REC.passed}/{REC.total} 通过（N/A {REC.skipped}，缺口 {len(REC.open_findings)}）")
+    print(
+        f"\n授权完整性验证：{REC.passed}/{REC.total} 通过（N/A {REC.skipped}，缺口 {len(REC.open_findings)}）"
+    )
     print(f"写入 {out_dir / 'verify-grants.md'}")
     return 0 if REC.failed == 0 else 1
 
@@ -365,7 +394,7 @@ def main() -> int:
     ap.add_argument("--host", default="localhost")
     ap.add_argument("--port", type=int, default=15444)
     ap.add_argument("--user", default="postgres")
-    ap.add_argument("--password", default="replay_super_pw")
+    ap.add_argument("--password", default="<ROTATED-2026-11-28>")
     ap.add_argument("--template", default="ai_film_industrial")
     ap.add_argument("--lab", default="gx_lab")
     ap.add_argument("--versions-dir", required=True, help="含归属栈全部迁移的 versions 目录")

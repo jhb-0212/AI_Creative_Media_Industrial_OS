@@ -69,13 +69,16 @@ async def guard_whitelist(conn: asyncpg.Connection, fqn: str) -> set[str]:
     可靠地区分「内容列」与「允许变的列」，只能靠猜。
     """
     schema, table = fqn.split(".")
-    body = await conn.fetchval(
-        "SELECT pg_get_functiondef(p.oid) FROM pg_proc p "
-        "JOIN pg_namespace n ON n.oid = p.pronamespace "
-        "WHERE n.nspname = $1 AND p.proname = $2",
-        schema,
-        table + "_guard",
-    ) or ""
+    body = (
+        await conn.fetchval(
+            "SELECT pg_get_functiondef(p.oid) FROM pg_proc p "
+            "JOIN pg_namespace n ON n.oid = p.pronamespace "
+            "WHERE n.nspname = $1 AND p.proname = $2",
+            schema,
+            table + "_guard",
+        )
+        or ""
+    )
     names: list[str] = []
     for m in re.finditer(r"NOT\s+IN\s*\(([^)]*)\)", body, re.I):
         names += re.findall(r"'([^']+)'", m.group(1))
@@ -172,13 +175,20 @@ async def run_table(
         for row_key in k.values():
             await conn.execute(fx.insert_sql(fqn, row_key, overrides=REF_OVERRIDES.get(fqn)))
     except asyncpg.PostgresError as exc:
-        rec(f"{slug}.row", "夹具", f"{fqn} 造出 4 行合法数据", False,
-            f"{exc.sqlstate}: {str(exc).splitlines()[0][:110]}")
+        rec(
+            f"{slug}.row",
+            "夹具",
+            f"{fqn} 造出 4 行合法数据",
+            False,
+            f"{exc.sqlstate}: {str(exc).splitlines()[0][:110]}",
+        )
         return
 
     # N1 无令牌 → 仍被守卫拦
     ok, d = await lab.case(
-        conn, [], f"UPDATE {fqn} SET {fx.ownership_set(fqn)} WHERE {key_col} = '{k[1]}'",
+        conn,
+        [],
+        f"UPDATE {fqn} SET {fx.ownership_set(fqn)} WHERE {key_col} = '{k[1]}'",
         expect_state="P0001",
     )
     rec(f"{slug}.N1", "无令牌", "改归属列 → P0001（守卫仍在）", ok, d)
@@ -196,8 +206,13 @@ async def run_table(
     got = await conn.fetchval(sel(fqn, key_col, k[2], col))
     # organization_id 是 uuid 列，asyncpg 返回 UUID 对象；与字符串直接比较会永远不等，
     # 把「其实成功了」判成失败。统一按字符串比较，口径与 SQL 侧一致。
-    rec(f"{slug}.N2", "例外放行", f"四条件齐备 → UPDATE 1 且 {col} 回读为新值",
-        ok and str(got) == want, f"{d} now={got}")
+    rec(
+        f"{slug}.N2",
+        "例外放行",
+        f"四条件齐备 → UPDATE 1 且 {col} 回读为新值",
+        ok and str(got) == want,
+        f"{d} now={got}",
+    )
 
     # N3 有令牌但改内容列 → 仍被拒
     probe = await content_probe(conn, fqn)
@@ -218,8 +233,10 @@ async def run_table(
     await conn.execute(map_insert(fqn, k[4], TICKET))
     ok, d = await lab.case(
         conn,
-        [f"SET LOCAL ROLE {PROBE_ROLE}",
-         f"SELECT set_config('app.ownership_repair_ticket','{TICKET}',true)"],
+        [
+            f"SET LOCAL ROLE {PROBE_ROLE}",
+            f"SELECT set_config('app.ownership_repair_ticket','{TICKET}',true)",
+        ],
         f"UPDATE {fqn} SET {fx.ownership_set(fqn)} WHERE {key_col} = '{k[4]}'",
         expect_state="P0001",
     )
@@ -243,7 +260,9 @@ async def run_table(
             )
             if ok:
                 REC.note(
-                    f"{slug}.N5", "外键", f"{col} 上是否存在归属外键",
+                    f"{slug}.N5",
+                    "外键",
+                    f"{col} 上是否存在归属外键",
                     f"无外键 → N5 不适用；实测该更新到不存在的目标**成功**（{d}）",
                 )
                 REC.finding(
@@ -253,8 +272,7 @@ async def run_table(
                     "唯一约束是映射表里的 new_* 记录，属流程约束而非数据库约束",
                 )
             else:
-                rec(f"{slug}.N5", "外键",
-                    "无归属外键时该更新应当成功（缺口可复现）", False, d)
+                rec(f"{slug}.N5", "外键", "无归属外键时该更新应当成功（缺口可复现）", False, d)
         else:
             ok, d = await lab.case(
                 conn,
@@ -262,8 +280,7 @@ async def run_table(
                 action,
                 expect_state="23503",
             )
-            rec(f"{slug}.N5", "外键",
-                f"例外放行后仍受 {fk} 约束 → 23503（非 0 行静默）", ok, d)
+            rec(f"{slug}.N5", "外键", f"例外放行后仍受 {fk} 约束 → 23503（非 0 行静默）", ok, d)
 
 
 async def main() -> int:
@@ -275,11 +292,15 @@ async def main() -> int:
     ap.add_argument("--template", default=lab.DEFAULT_TEMPLATE)
     ap.add_argument("--lab", default="t3cov_lab")
     ap.add_argument("--guard-migration", required=True)
-    ap.add_argument("--fk-migration", default=None,
-                    help="给出 a9b8 路径则先建归属外键，N5 才有意义")
-    ap.add_argument("--batch2-migration", default=None,
-                    help="给出批次二（f8a9）路径则再补三条外键，"
-                         "使 qc_reports / shot_specs / approval_steps 的 N5 从 N/A 变实测")
+    ap.add_argument(
+        "--fk-migration", default=None, help="给出 a9b8 路径则先建归属外键，N5 才有意义"
+    )
+    ap.add_argument(
+        "--batch2-migration",
+        default=None,
+        help="给出批次二（f8a9）路径则再补三条外键，"
+        "使 qc_reports / shot_specs / approval_steps 的 N5 从 N/A 变实测",
+    )
     ap.add_argument("--out-dir", default=None)
     ap.add_argument(
         "--versions-dir",
@@ -297,9 +318,7 @@ async def main() -> int:
     guard_mig = lab.load_migration(args.guard_migration, "mig_guard")
     fk_mig = lab.load_migration(args.fk_migration, "mig_fk") if args.fk_migration else None
     b2_mig = (
-        lab.load_migration(args.batch2_migration, "mig_batch2")
-        if args.batch2_migration
-        else None
+        lab.load_migration(args.batch2_migration, "mig_batch2") if args.batch2_migration else None
     )
 
     admin = await lab.admin_conn(args.host, args.port, args.user, args.password)
@@ -319,8 +338,13 @@ async def main() -> int:
             vd = Path(args.versions_dir) if args.versions_dir else Path(args.guard_migration).parent
             purge, order, checks = await lab.prepare_pre_activation_baseline(conn, vd)
             ok = all(v.endswith("=0") for v in checks)
-            rec("B0", "前置", f"回退归属栈至激活前基线（{len(order)} 层）", ok,
-                f"{purge}; " + "; ".join(checks))
+            rec(
+                "B0",
+                "前置",
+                f"回退归属栈至激活前基线（{len(order)} 层）",
+                ok,
+                f"{purge}; " + "; ".join(checks),
+            )
             if not ok:
                 raise RuntimeError(f"基线回退未生效：{checks}")
 
@@ -348,8 +372,13 @@ async def main() -> int:
             fks = await conn.fetchval(
                 "SELECT count(*) FROM pg_constraint WHERE contype='f' AND conname LIKE 'fk\\_%\\_project\\_tenant\\_org'"
             )
-            rec("U0b", "前置", "归属外键已建（NOT VALID 亦对新写入生效）",
-                (fks or 0) >= 12, f"三列外键={fks}")
+            rec(
+                "U0b",
+                "前置",
+                "归属外键已建（NOT VALID 亦对新写入生效）",
+                (fks or 0) >= 12,
+                f"三列外键={fks}",
+            )
 
         # 批次二必须在 b0c9 之前应用：例外迁移会按真实表权限动态补 EXECUTE，
         # 但外键本身与例外无关；放在前面只是为了让 N5 在全部 13 张表上都有约束可撞。
@@ -360,15 +389,20 @@ async def main() -> int:
                 "('fk_qc_reports_project_tenant_org','fk_shot_specs_project_tenant_org',"
                 "'fk_approval_steps_project_tenant_org')"
             )
-            rec("U0c", "前置", f"批次二三条归属外键已建（{n2} 步）", (got or 0) == 3,
-                f"命中={got}/3")
+            rec(
+                "U0c",
+                "前置",
+                f"批次二三条归属外键已建（{n2} 步）",
+                (got or 0) == 3,
+                f"命中={got}/3",
+            )
 
         # 授权必须在受控例外迁移**之前**：迁移按真实表权限动态补 EXECUTE，
         # 反序会让探针只拿到 42501，N4 就从「守卫拒绝」漂移成「权限拒绝」。
         for fqn in fx.FIXTURES:
             schema, _table = fqn.split(".")
             await conn.execute(f'GRANT USAGE ON SCHEMA "{schema}" TO {PROBE_ROLE}')
-            await conn.execute(f'GRANT SELECT, UPDATE ON {fqn} TO {PROBE_ROLE}')
+            await conn.execute(f"GRANT SELECT, UPDATE ON {fqn} TO {PROBE_ROLE}")
 
         n = await lab.apply_steps(conn, guard_mig.upgrade_sqls())
         rec("U1", "前置", f"执行受控例外迁移（{n} 条）", True, "无异常")
@@ -390,7 +424,9 @@ async def main() -> int:
         finally:
             await admin.close()
 
-    print(f"\n逐表覆盖矩阵：{REC.passed}/{REC.total} 通过（N/A {REC.skipped}，待裁决缺口 {len(REC.open_findings)}）")
+    print(
+        f"\n逐表覆盖矩阵：{REC.passed}/{REC.total} 通过（N/A {REC.skipped}，待裁决缺口 {len(REC.open_findings)}）"
+    )
     out_dir = Path(args.out_dir) if args.out_dir else Path(__file__).resolve().parent  # noqa: ASYNC240 — CLI 启动期一次性路径解析，非并发热路径
     ts = REC.write_report(
         out_dir / "verify-coverage.md",

@@ -39,7 +39,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute(
-        f'GRANT SELECT, INSERT, UPDATE ON TABLE "{_SCHEMA}"."{_TABLE}" '
-        f"TO {app_role_name()}"
-    )
+    op.execute(f'GRANT SELECT, INSERT, UPDATE ON TABLE "{_SCHEMA}"."{_TABLE}" TO {app_role_name()}')

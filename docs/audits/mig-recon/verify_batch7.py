@@ -102,8 +102,7 @@ async def main() -> int:
                 "'shot_planning.shots_parent_scene_guard()') IS NOT NULL"
             )
             fn_absent = not await c.fetchval(
-                "SELECT to_regprocedure("
-                "'shot_planning.shot_archive_blocking_states()') IS NOT NULL"
+                "SELECT to_regprocedure('shot_planning.shot_archive_blocking_states()') IS NOT NULL"
             )
             if not (guard_present and fn_absent):
                 # 前提不成立就停：在错的起点上跑出来的 PASS 比 FAIL 更危险。
@@ -126,22 +125,22 @@ async def main() -> int:
             print(f"\n已应用 {applied} 步升级\n")
 
             # ---- S1 单源：DB == 迁移常量 ----
-            db_states = sorted(await blocking_states(c, "shot_planning.shot_archive_blocking_states"))
+            db_states = sorted(
+                await blocking_states(c, "shot_planning.shot_archive_blocking_states")
+            )
             record(
                 "S1",
-                db_states == sorted(blocking) == sorted(_contract_blocking(contract_states, non_blocking)),
+                db_states
+                == sorted(blocking)
+                == sorted(_contract_blocking(contract_states, non_blocking)),
                 "数据库函数返回值 == 迁移常量 == 契约划分中的阻断集合",
                 f"db={db_states} 迁移={sorted(blocking)} "
                 f"契约划分={sorted(_contract_blocking(contract_states, non_blocking))}",
             )
 
             # ---- S2 守卫/触发器里没有状态字面量 ----
-            scenes_body = await function_body(
-                c, "project_planning.scenes_archive_guard()"
-            )
-            shots_body = await function_body(
-                c, "shot_planning.shots_parent_scene_guard()"
-            )
+            scenes_body = await function_body(c, "project_planning.scenes_archive_guard()")
+            shots_body = await function_body(c, "shot_planning.shots_parent_scene_guard()")
             trg_scenes = await trigger_def(c, "scenes_archive_guard_trigger")
             trg_shots = await trigger_def(c, "shots_parent_scene_guard_trigger")
             leaks = {
@@ -160,8 +159,7 @@ async def main() -> int:
             # ---- S4 IN_PRODUCTION 仍阻断（先跑回归，再跑会改状态的 S3）----
             st, msg, n = await sqlstate_of(
                 c,
-                "UPDATE project_planning.scenes SET status='ARCHIVED'"
-                " WHERE scene_id='b7-sc-prod'",
+                "UPDATE project_planning.scenes SET status='ARCHIVED' WHERE scene_id='b7-sc-prod'",
             )
             record(
                 "S4",
@@ -177,8 +175,7 @@ async def main() -> int:
                 " WHERE scene_id='b7-sc-blocked'",
             )
             back = await c.fetchval(
-                "SELECT status FROM project_planning.scenes"
-                " WHERE scene_id='b7-sc-blocked'"
+                "SELECT status FROM project_planning.scenes WHERE scene_id='b7-sc-blocked'"
             )
             archived_ok = st == "00000" and n == 1 and back == "ARCHIVED"
 
@@ -242,8 +239,7 @@ async def main() -> int:
                 " WHERE scene_id='b7-sc-mut-empty'",
             )
             back = await c.fetchval(
-                "SELECT status FROM project_planning.scenes"
-                " WHERE scene_id='b7-sc-mut-empty'"
+                "SELECT status FROM project_planning.scenes WHERE scene_id='b7-sc-mut-empty'"
             )
             record(
                 "S6",
@@ -270,20 +266,14 @@ async def main() -> int:
             for s in mod.downgrade_steps():
                 await c.execute(s.sql)
             fn_gone = not await c.fetchval(
-                "SELECT to_regprocedure("
-                "'shot_planning.shot_archive_blocking_states()') IS NOT NULL"
+                "SELECT to_regprocedure('shot_planning.shot_archive_blocking_states()') IS NOT NULL"
             )
-            restored_a = await function_body(
-                c, "project_planning.scenes_archive_guard()"
-            )
-            restored_b = await function_body(
-                c, "shot_planning.shots_parent_scene_guard()"
-            )
+            restored_a = await function_body(c, "project_planning.scenes_archive_guard()")
+            restored_b = await function_body(c, "shot_planning.shots_parent_scene_guard()")
             trg_back = await trigger_def(c, "scenes_archive_guard_trigger")
             st, msg, n = await sqlstate_of(
                 c,
-                "UPDATE project_planning.scenes SET status='ARCHIVED'"
-                " WHERE scene_id='b7-sc-prod'",
+                "UPDATE project_planning.scenes SET status='ARCHIVED' WHERE scene_id='b7-sc-prod'",
             )
             record(
                 "S7",
@@ -329,10 +319,7 @@ async def main() -> int:
 
 def _contract_shot_states() -> set[str]:
     data = load_yaml_file(
-        Path(__file__).parents[3]
-        / "contracts"
-        / "state_machines"
-        / "state_machines.yaml"
+        Path(__file__).parents[3] / "contracts" / "state_machines" / "state_machines.yaml"
     )
     entry = next(o for o in data["objects"] if o.get("object") == "Shot")
     return set(entry["allowed_states"])

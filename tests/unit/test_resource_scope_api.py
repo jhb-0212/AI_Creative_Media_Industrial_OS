@@ -65,9 +65,7 @@ def _client(
 
     from apps.api.main import app
 
-    token = make_test_token(
-        subject_id=subject_id, roles=roles, organization_id=organization_id
-    )
+    token = make_test_token(subject_id=subject_id, roles=roles, organization_id=organization_id)
     return AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
@@ -204,9 +202,7 @@ async def test_episode_status_change_across_organizations_rejected() -> None:
         episode_id = created.json()["entity_id"]
 
     async with _client(organization_id=_ORG_B, subject_id="ep_other") as other:
-        resp = await other.post(
-            f"/episodes/{episode_id}/status", json={"target_status": "ACTIVE"}
-        )
+        resp = await other.post(f"/episodes/{episode_id}/status", json={"target_status": "ACTIVE"})
     # ADR-R24 §D3a-7：组织边界下沉到数据库后，他组织的行**查不出来**，
     # 于是「存在但无权」与「不存在」在响应上同形（404）。403 只在调用方能
     # 看到该行时才可能出现——而看到本身就意味着边界没生效。

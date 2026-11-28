@@ -408,7 +408,7 @@ def main() -> int:
     ap.add_argument("--port", type=int, default=15444)
     ap.add_argument("--db", default="ai_film_industrial")
     ap.add_argument("--user", default="postgres")
-    ap.add_argument("--password", default="replay_super_pw")
+    ap.add_argument("--password", default="<ROTATED-2026-11-28>")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
@@ -437,7 +437,9 @@ def main() -> int:
                 if INJECT_MARK in body:
                     raise SystemExit(f"{schema}.{func} 已含例外接入，拒绝重复注入")
                 orig = body.strip()
-                rows.append((f"{schema}.{table}", key_col, orig, inject(orig, key_col, f"{schema}.{table}")))
+                rows.append(
+                    (f"{schema}.{table}", key_col, orig, inject(orig, key_col, f"{schema}.{table}"))
+                )
             return rows
         finally:
             await conn.close()

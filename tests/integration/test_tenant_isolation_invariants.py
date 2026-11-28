@@ -7,8 +7,13 @@ RLS 负向测试"来解决，而要单独立这组断言：
   分区是**动态创建**的对象，任何"逐表手写用例"的写法都会在新分区出现时失效；
 - 因此这里断言的是**规律**而不是某张表：凡是 outbox 分区，必须
   ① ``relrowsecurity=true``、② 有租户策略、③ app_role 无任何直连权限；
-- 以及 append-only 对象（``qc_reports`` / ``asset_versions``）不接受应用的
-  整行删改。
+- append-only 对象的授权口径与行为**不在这里**：口径由
+  ``test_least_privilege_grants.py`` 的矩阵对账（表级 + 列级 + 继承）判定，
+  行为由 ``test_qc_reports_are_append_only`` /
+  ``test_asset_role_cannot_delete_asset_versions`` 判定。此前这里另有一份
+  「授权集合 == 硬编码期望」的用例，它是同一事实的第三处声明（期望值与矩阵
+  会各自漂移），已按 C1 裁决删除；删除的依据不是「ACL 不重要」，而是判据
+  应当归属于唯一事实源。
 
 这些断言在 CI 里跑（依赖真实 PostgreSQL），是"分区保护钩子"生效与否的
 唯一可信证据——迁移/维护工具改坏了，这里会红。
@@ -29,7 +34,6 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from packages.shared.database import (
-    build_asset_service_database_url,
     build_database_url,
     build_migration_url,
 )
@@ -67,16 +71,6 @@ _PARTITION_STATE = sa.text(
 async def admin_engine() -> AsyncIterator[AsyncEngine]:
     """迁移角色连接：只用于读系统目录（业务代码不接触）。"""
     engine = create_async_engine(build_migration_url())
-    try:
-        yield engine
-    finally:
-        await engine.dispose()
-
-
-@pytest.fixture(scope="module")
-async def asset_engine() -> AsyncIterator[AsyncEngine]:
-    """asset_service_role 连接（asset_service 域运行时的真实连接角色）。"""
-    engine = create_async_engine(build_asset_service_database_url())
     try:
         yield engine
     finally:
@@ -131,9 +125,7 @@ async def test_every_outbox_partition_is_protected(
     async with admin_engine.connect() as conn:
         for partition in partitions:
             rls = (
-                await conn.execute(
-                    _PARTITION_STATE, {"schema": OUTBOX_SCHEMA, "name": partition}
-                )
+                await conn.execute(_PARTITION_STATE, {"schema": OUTBOX_SCHEMA, "name": partition})
             ).scalar_one()
             assert rls is True, f"分区 {partition} 未开启 RLS"
 
@@ -184,52 +176,3 @@ async def test_outbox_parent_still_fails_closed_without_tenant(
     async with db_sessionmaker() as session:
         count = await session.scalar(sa.text("SELECT count(*) FROM outbox.outbox_events"))
     assert count == 0
-
-
-async def test_append_only_tables_reject_row_mutation(
-    admin_engine: AsyncEngine,
-    asset_engine: AsyncEngine,
-) -> None:
-    """qc_reports 不可 UPDATE/DELETE、asset_versions 不可 DELETE（append-only 落到授权）。
-
-    授权口径断言目标是 **asset_service_role**（asset_service 域的运行时角色），
-    而非 app_role——DATA-1 拆角色后，app_role 对业务 schema 的权限已被迁移
-    8f3b2c1d4e5a 回收，业务写改由 asset_service_role 承担。append-only 不变量
-    必须延续到新角色：若拆角色时误授全量 DML，这里会红（授权越界回归）。
-    """
-    from packages.shared.config import get_settings
-
-    asset_role = get_settings().postgres_asset_service_user
-
-    # 1. 授权口径：asset_service_role 在 append-only 表上的 DML 集合必须
-    #    与 b7c8d9e0f1a2 基线一致（qc_reports 无 UPDATE/DELETE、
-    #    asset_versions 无 DELETE）。
-    async with admin_engine.connect() as conn:
-        for table, expected in (
-            ("qc_reports", {"INSERT", "SELECT"}),
-            ("asset_versions", {"INSERT", "SELECT", "UPDATE"}),
-        ):
-            rows = await conn.execute(
-                sa.text(
-                    """
-                    SELECT privilege_type
-                    FROM information_schema.role_table_grants
-                    WHERE grantee = :role AND table_schema = 'asset_service'
-                      AND table_name = :table
-                    """
-                ),
-                {"role": asset_role, "table": table},
-            )
-            granted = {str(privilege) for privilege in rows.scalars()}
-            assert granted == expected, (
-                f"{table} 授权口径不符：实际 {sorted(granted)}，期望 {sorted(expected)}"
-            )
-
-    # 2. 行为负向证明：asset_service_role 实际 UPDATE qc_reports 必须被拒绝
-    #    （口径断言 + 真实执行双重验证，防止「授权记录正确但执行被绕过」）。
-    async with asset_engine.connect() as conn:
-        with pytest.raises(DBAPIError) as exc_info:
-            await conn.execute(
-                sa.text("UPDATE asset_service.qc_reports SET findings = findings")
-            )
-    assert "permission denied" in str(exc_info.value).lower()

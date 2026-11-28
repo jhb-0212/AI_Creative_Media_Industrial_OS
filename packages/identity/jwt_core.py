@@ -88,9 +88,7 @@ def encode_token(
         claims[CLAIM_ORG] = organization_id
     # header 显式携带 kid：验签方据此从 JWKS/KeyStore 按 kid 取公钥（决策 4）。
     headers = {"kid": signing_key.kid}
-    return jwt.encode(
-        claims, signing_key.private_pem, algorithm=ALGORITHM, headers=headers
-    )
+    return jwt.encode(claims, signing_key.private_pem, algorithm=ALGORITHM, headers=headers)
 
 
 def decode_token(
@@ -139,17 +137,13 @@ def decode_token(
     roles_raw = payload.get(CLAIM_ROLES, [])
     # fail-closed：roles 必须是字符串数组。字符串会被迭代成单字（"导演" →
     # {"导","演"}），导致 RBAC 角色集错误；非法类型一律拒绝而非静默降级。
-    if not isinstance(roles_raw, list) or any(
-        not isinstance(r, str) for r in roles_raw
-    ):
+    if not isinstance(roles_raw, list) or any(not isinstance(r, str) for r in roles_raw):
         raise TokenError("roles claim 必须是字符串数组")
     roles = frozenset(roles_raw)
 
     # caps 同理：必须是字符串数组（可选，缺省为空集 = 未授予能力范围）。
     caps_raw = payload.get(CLAIM_CAPS, [])
-    if not isinstance(caps_raw, list) or any(
-        not isinstance(c, str) for c in caps_raw
-    ):
+    if not isinstance(caps_raw, list) or any(not isinstance(c, str) for c in caps_raw):
         raise TokenError("caps claim 必须是字符串数组")
     capabilities = frozenset(caps_raw)
 

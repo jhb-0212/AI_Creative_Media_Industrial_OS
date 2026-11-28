@@ -48,9 +48,7 @@ PROPS = DEF["properties"]
 STATE_MACHINES = yaml.safe_load(
     (ROOT / "contracts/state_machines/state_machines.yaml").read_text(encoding="utf-8")
 )
-ENUMS = yaml.safe_load(
-    (ROOT / "contracts/enums/enum_registry.yaml").read_text(encoding="utf-8")
-)
+ENUMS = yaml.safe_load((ROOT / "contracts/enums/enum_registry.yaml").read_text(encoding="utf-8"))
 GAPS = yaml.safe_load(
     (ROOT / "contracts/runtime/resource_schema_gaps.yaml").read_text(encoding="utf-8")
 )
@@ -200,8 +198,7 @@ def test_invariants_are_registered_and_partitioned() -> None:
         assert item["enforced_by"] in cc.INVARIANT_LEVELS
     schema_enforced = {item["id"] for item in invariants if item["enforced_by"] == "SCHEMA"}
     assert schema_enforced == {"SC-4", "SC-6"}, (
-        "能由 schema 表达的只有「状态范围」与「字段集合闭合」；"
-        f"实际标注: {sorted(schema_enforced)}"
+        f"能由 schema 表达的只有「状态范围」与「字段集合闭合」；实际标注: {sorted(schema_enforced)}"
     )
 
 
@@ -332,9 +329,7 @@ def test_scene_invariants_are_no_longer_runtime_pending() -> None:
         )
 
     pending = [
-        item["id"]
-        for item in DEF["x-afs-invariants"]
-        if item["enforced_by"] == "RUNTIME_PENDING"
+        item["id"] for item in DEF["x-afs-invariants"] if item["enforced_by"] == "RUNTIME_PENDING"
     ]
     assert pending == [], f"Scene 仍有未落地的不变量：{pending}"
 

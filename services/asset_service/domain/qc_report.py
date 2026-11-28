@@ -50,9 +50,7 @@ class QCReport:
         for name in ("qc_report_id", "asset_version_id", "created_by"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
 
         if not self.quality_profile_version.strip():
             raise DomainError(
@@ -60,9 +58,7 @@ class QCReport:
                 detail="quality_profile_version 不能为空",
             )
         if not self.detector_versions:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="detector_versions 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="detector_versions 不能为空")
         if not self.findings:
             # 红线：没有 findings 就没有证据，不能用「空报告」换放行。
             raise DomainError(
@@ -83,9 +79,7 @@ class QCReport:
             "benchmark_version": self.benchmark_version,
             "detector_versions": self.detector_versions,
             "findings": self.findings,
-            "deviation_class": (
-                self.deviation_class.value if self.deviation_class else None
-            ),
+            "deviation_class": (self.deviation_class.value if self.deviation_class else None),
             "deviation_intent_ref": self.deviation_intent_ref,
             "intent_match_status": (
                 self.intent_match_status.value if self.intent_match_status else None

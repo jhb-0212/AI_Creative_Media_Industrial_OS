@@ -24,9 +24,7 @@ async def admin_engine() -> AsyncIterator[AsyncEngine]:
         await engine.dispose()
 
 
-async def test_revoked_jti_is_rejected(
-    admin_engine: AsyncEngine, client: AsyncClient
-) -> None:
+async def test_revoked_jti_is_rejected(admin_engine: AsyncEngine, client: AsyncClient) -> None:
     token = make_test_token()
     claims = jwt.decode(token, options={"verify_signature": False})
     jti = claims["jti"]
@@ -145,16 +143,20 @@ async def test_legacy_app_role_outbox_grants_reclaimed(
 
         # UPDATE 是列级授权语义：app_role 不得对任何列有 UPDATE（整表或列级）。
         columns = (
-            await conn.execute(
-                text(
-                    """
+            (
+                await conn.execute(
+                    text(
+                        """
                     SELECT column_name
                     FROM information_schema.columns
                     WHERE table_schema = 'outbox' AND table_name = 'outbox_events'
                     """
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for column in columns:
             granted = (
                 await conn.execute(
