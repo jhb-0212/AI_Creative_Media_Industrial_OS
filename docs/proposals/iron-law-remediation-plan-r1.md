@@ -159,13 +159,21 @@ AuthorizeRequest(principal, action_key, resource_ref)
 class Transition:
     source: Status
     target: Status
-    owner_action: str            # 唯一被允许走这条边的动作
-    guards: tuple[Guard, ...]    # 准入条件（声明式，纯函数求值）
+    owner_action: str  # 唯一被允许走这条边的动作
+    guards: tuple[Guard, ...]  # 准入条件（声明式，纯函数求值）
+
 
 # AssetVersion
-Transition(TECHNICAL_QC, HUMAN_REVIEW, "ASSET.VERSION.APPROVE", (Guards.rights, Guards.qc)),
-Transition(HUMAN_REVIEW,  APPROVED,     "ASSET.VERSION.APPROVE", (Guards.rights, Guards.qc, Guards.separation)),
-Transition(APPROVED,      GOLD,         "ASSET.STATUS.CHANGE",   (Guards.rights, Guards.qc)),
+(Transition(TECHNICAL_QC, HUMAN_REVIEW, "ASSET.VERSION.APPROVE", (Guards.rights, Guards.qc)),)
+(
+    Transition(
+        HUMAN_REVIEW,
+        APPROVED,
+        "ASSET.VERSION.APPROVE",
+        (Guards.rights, Guards.qc, Guards.separation),
+    ),
+)
+(Transition(APPROVED, GOLD, "ASSET.STATUS.CHANGE", (Guards.rights, Guards.qc)),)
 ```
 
 - `change_status` 的语义从"目标状态作参数"变为"**沿当前状态中归本动作所有的边推进**"；

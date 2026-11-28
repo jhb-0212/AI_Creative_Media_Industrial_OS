@@ -276,9 +276,7 @@ async def test_domain_role_privileges_match_matrix(admin_sessionmaker) -> None:
         observed_columns = _effective_column_grants(column_actual, sources)
 
         for key in sorted(set(expected_columns) | set(observed_columns)):
-            want_columns, want_privileges = expected_columns.get(
-                key, (frozenset(), frozenset())
-            )
+            want_columns, want_privileges = expected_columns.get(key, (frozenset(), frozenset()))
             got_columns, got_privileges = observed_columns.get(key, (set(), set()))
             if set(want_columns) != got_columns or set(want_privileges) != got_privileges:
                 mismatches.append(
@@ -357,12 +355,9 @@ async def test_business_tables_grant_nothing_to_public(admin_sessionmaker) -> No
     """
     async with admin_sessionmaker() as session:
         rows = (await session.execute(_PUBLIC_TABLE_ACL)).all()
-    offenders = [
-        f"{row[0]}.{row[1]}: {row[2]}" for row in rows if row[0] in DOMAINS
-    ]
-    assert not offenders, (
-        "业务表对 PUBLIC 授权（所有角色都会继承，矩阵形同虚设）：\n"
-        + "\n".join(offenders)
+    offenders = [f"{row[0]}.{row[1]}: {row[2]}" for row in rows if row[0] in DOMAINS]
+    assert not offenders, "业务表对 PUBLIC 授权（所有角色都会继承，矩阵形同虚设）：\n" + "\n".join(
+        offenders
     )
 
 
@@ -384,9 +379,7 @@ async def test_cross_domain_read_is_column_scoped(admin_sessionmaker) -> None:
     # 列级之外不得再叠加整表授权（否则列级收窄毫无意义）。
     table_grants = await _table_acl(admin_sessionmaker)
     assert ("project_planning", "projects") not in {
-        (schema, table)
-        for (grantee, schema, table) in table_grants
-        if grantee == role
+        (schema, table) for (grantee, schema, table) in table_grants if grantee == role
     }, "资产域对 projects 持有整表授权：列级只读被整表 SELECT 覆盖，等于没做列级"
 
 
@@ -401,13 +394,10 @@ async def test_no_default_privileges_on_business_schemas(admin_sessionmaker) -> 
         rows = (await session.execute(_DEFAULT_ACL)).all()
     roles = {domain_role(domain) for domain in DOMAINS}
     leftovers = [
-        (row[0], row[1], row[2], row[3])
-        for row in rows
-        if row[2] in roles and row[0] in DOMAINS
+        (row[0], row[1], row[2], row[3]) for row in rows if row[2] in roles and row[0] in DOMAINS
     ]
     assert not leftovers, (
-        "业务 schema 仍存在域角色的默认权限（新表会自动获得，fail-closed 失效）："
-        f"{leftovers}"
+        f"业务 schema 仍存在域角色的默认权限（新表会自动获得，fail-closed 失效）：{leftovers}"
     )
 
 
@@ -428,9 +418,7 @@ async def test_project_role_cannot_delete(db_sessionmaker, statement: str) -> No
     async with db_sessionmaker() as session:
         with pytest.raises(DBAPIError) as exc_info:
             await session.execute(text(statement))
-        assert "42501" in str(exc_info.value) or "permission denied" in str(
-            exc_info.value
-        ).lower()
+        assert "42501" in str(exc_info.value) or "permission denied" in str(exc_info.value).lower()
         await session.rollback()
 
 
@@ -450,9 +438,7 @@ async def test_organizations_are_read_only(db_sessionmaker, statement: str) -> N
     async with db_sessionmaker() as session:
         with pytest.raises(DBAPIError) as exc_info:
             await session.execute(text(statement))
-        assert "42501" in str(exc_info.value) or "permission denied" in str(
-            exc_info.value
-        ).lower()
+        assert "42501" in str(exc_info.value) or "permission denied" in str(exc_info.value).lower()
         await session.rollback()
 
 
@@ -461,9 +447,7 @@ async def test_asset_role_cannot_delete_asset_versions(asset_sessionmaker) -> No
     async with asset_sessionmaker() as session:
         with pytest.raises(DBAPIError) as exc_info:
             await session.execute(text("DELETE FROM asset_service.asset_versions WHERE false"))
-        assert "42501" in str(exc_info.value) or "permission denied" in str(
-            exc_info.value
-        ).lower()
+        assert "42501" in str(exc_info.value) or "permission denied" in str(exc_info.value).lower()
         await session.rollback()
 
 
@@ -472,14 +456,9 @@ async def test_qc_reports_are_append_only(asset_sessionmaker) -> None:
     async with asset_sessionmaker() as session:
         with pytest.raises(DBAPIError) as exc_info:
             await session.execute(
-                text(
-                    "UPDATE asset_service.qc_reports "
-                    "SET human_decision = 'APPROVED' WHERE false"
-                )
+                text("UPDATE asset_service.qc_reports SET human_decision = 'APPROVED' WHERE false")
             )
-        assert "42501" in str(exc_info.value) or "permission denied" in str(
-            exc_info.value
-        ).lower()
+        assert "42501" in str(exc_info.value) or "permission denied" in str(exc_info.value).lower()
         await session.rollback()
 
 
@@ -497,9 +476,7 @@ async def test_asset_role_cannot_read_unscoped_project_columns(
             await session.execute(
                 text("SELECT project_name FROM project_planning.projects LIMIT 1")
             )
-        assert "42501" in str(exc_info.value) or "permission denied" in str(
-            exc_info.value
-        ).lower()
+        assert "42501" in str(exc_info.value) or "permission denied" in str(exc_info.value).lower()
         await session.rollback()
 
 

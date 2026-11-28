@@ -50,11 +50,7 @@ def test_token_required_is_mandatory() -> None:
 
 def test_no_action_has_empty_allowed_principals() -> None:
     """负向不变量：任何 action 都不得是「无授权主体」的空授权。"""
-    empty = [
-        a["action_key"]
-        for a in _actions()
-        if not (a.get("allowed_principals") or "").strip()
-    ]
+    empty = [a["action_key"] for a in _actions() if not (a.get("allowed_principals") or "").strip()]
     assert not empty, f"以下 action 的 allowed_principals 为空: {empty}"
 
 

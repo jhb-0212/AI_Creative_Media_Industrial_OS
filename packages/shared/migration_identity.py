@@ -92,9 +92,7 @@ def restore_retired_role(role: str, *, op: _OpLike) -> None:
 
     contract = retired_roles_by_name().get(role)
     if contract is None:
-        raise RuntimeError(
-            f'role "{role}" 不在 RETIRED_ROLES：不是退役身份，禁止走恢复路径'
-        )
+        raise RuntimeError(f'role "{role}" 不在 RETIRED_ROLES：不是退役身份，禁止走恢复路径')
     if contract.downgrade_restore_policy != "restore_on_downgrade":
         raise RuntimeError(
             f'role "{role}" 的 downgrade_restore_policy='
@@ -112,9 +110,7 @@ def restore_retired_role(role: str, *, op: _OpLike) -> None:
     attrs = contract.historical_attributes
     for flag in ("superuser", "createdb", "createrole", "bypassrls"):
         if attrs.get(flag):
-            raise RuntimeError(
-                f'role "{role}" 的历史属性声明了提权位 {flag}=True：拒绝恢复'
-            )
+            raise RuntimeError(f'role "{role}" 的历史属性声明了提权位 {flag}=True：拒绝恢复')
 
     login = bool(attrs.get("login", False))
     settings = get_settings()
@@ -124,19 +120,13 @@ def restore_retired_role(role: str, *, op: _OpLike) -> None:
             contract.credential_source or ""
         ).removeprefix("settings.")
         if not setting_name:
-            raise RuntimeError(
-                f'role "{role}" 是 LOGIN 但没有口令来源：降级恢复 fail-closed'
-            )
+            raise RuntimeError(f'role "{role}" 是 LOGIN 但没有口令来源：降级恢复 fail-closed')
         secret = getattr(settings, str(setting_name), None)
         if secret is None:
-            raise RuntimeError(
-                f'role "{role}" 的口令来源缺失：Settings 上没有 {setting_name}'
-            )
+            raise RuntimeError(f'role "{role}" 的口令来源缺失：Settings 上没有 {setting_name}')
         value = secret.get_secret_value() if hasattr(secret, "get_secret_value") else secret
         if not value:
-            raise RuntimeError(
-                f'role "{role}" 的口令来源为空：拒绝用空口令恢复登录身份'
-            )
+            raise RuntimeError(f'role "{role}" 的口令来源为空：拒绝用空口令恢复登录身份')
         password_sql = " PASSWORD '" + str(value).replace("'", "''") + "'"
 
     role_literal = role.replace("'", "''")
@@ -177,4 +167,3 @@ def restore_retired_role(role: str, *, op: _OpLike) -> None:
             continue
         group_literal = group.replace("'", "''")
         op.execute(f"GRANT {group_literal} TO {role_literal}")
-

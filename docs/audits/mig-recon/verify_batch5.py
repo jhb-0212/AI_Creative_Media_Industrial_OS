@@ -115,9 +115,16 @@ def scene_sql(sid: str, project: str, episode: str, code: str, status: str = "AC
     )
 
 
-def shot_sql(sid: str, project: str, scene: str, code: str, revision: str,
-             status: str = "NOT_STARTED", blocked_reason: str | None = None,
-             entity_id: str | None = None) -> str:
+def shot_sql(
+    sid: str,
+    project: str,
+    scene: str,
+    code: str,
+    revision: str,
+    status: str = "NOT_STARTED",
+    blocked_reason: str | None = None,
+    entity_id: str | None = None,
+) -> str:
     reason = "NULL" if blocked_reason is None else f"'{blocked_reason}'"
     eid = entity_id or sid
     return (
@@ -130,8 +137,9 @@ def shot_sql(sid: str, project: str, scene: str, code: str, revision: str,
     )
 
 
-def rev_sql(rid: str, shot: str, project: str, scene: str, episode: str,
-            ep_ref: str, scene_ref: str) -> str:
+def rev_sql(
+    rid: str, shot: str, project: str, scene: str, episode: str, ep_ref: str, scene_ref: str
+) -> str:
     return (
         f"INSERT INTO {REVS} (entity_id, entity_type, schema_version, entity_version, status,"
         f" owner_module, tenant_id, organization_id, created_at, created_by, updated_at,"
@@ -189,17 +197,27 @@ async def main() -> int:
         # 回退目标仍是 `KEEP_AFTER` 而不是整栈。
         purged = await lab.purge_business_rows(conn)
         removed = await lab.rewind_to(conn, args.versions_dir, KEEP_AFTER)
-        rec("P0a", "基线", "清空业务行（避免上一轮遗留的正式修订挡住回退）",
-            True, purged)
-        rec("P0", "基线", f"回退到 {KEEP_AFTER} 已应用（撤掉 {len(removed)} 层）", True,
-            "/".join(removed) if removed else "模板已在该状态")
+        rec("P0a", "基线", "清空业务行（避免上一轮遗留的正式修订挡住回退）", True, purged)
+        rec(
+            "P0",
+            "基线",
+            f"回退到 {KEEP_AFTER} 已应用（撤掉 {len(removed)} 层）",
+            True,
+            "/".join(removed) if removed else "模板已在该状态",
+        )
 
         absent = await conn.fetchval(
-            "SELECT count(*) FROM pg_class WHERE oid IN"
-            " (to_regclass($1), to_regclass($2))", SHOTS, SCENES
+            "SELECT count(*) FROM pg_class WHERE oid IN (to_regclass($1), to_regclass($2))",
+            SHOTS,
+            SCENES,
         )
-        rec("P1", "前提", "基线里 shots / scenes 均不存在（否则测的不是本迁移）",
-            absent == 0, f"命中 {absent} 张")
+        rec(
+            "P1",
+            "前提",
+            "基线里 shots / scenes 均不存在（否则测的不是本迁移）",
+            absent == 0,
+            f"命中 {absent} 张",
+        )
         if absent != 0:
             raise RuntimeError("前提不成立：基线已含新表")
 
@@ -209,10 +227,16 @@ async def main() -> int:
         rec("P2", "前提", "两个同组织项目 + 各自一集", True, f"{pa} / {pb}")
 
         # ---------- 缺口可复现 ----------
-        ok_g, d_g = await lab.case(conn, [], plan_sql("b5-plan-ghost", pa, "ghost-shot"),
-                                   expect_changed=1)
-        rec("G1", "缺口", "建表前：shot_id 写一个不存在的镜头，插入成功（裸 varchar 无人管）",
-            ok_g, d_g)
+        ok_g, d_g = await lab.case(
+            conn, [], plan_sql("b5-plan-ghost", pa, "ghost-shot"), expect_changed=1
+        )
+        rec(
+            "G1",
+            "缺口",
+            "建表前：shot_id 写一个不存在的镜头，插入成功（裸 varchar 无人管）",
+            ok_g,
+            d_g,
+        )
 
         # ---------- 升级 ----------
         n = await lab.apply_steps(conn, lab.upgrade_sqls(mig))
@@ -222,33 +246,51 @@ async def main() -> int:
             r["conname"]: r
             for r in await conn.fetch(
                 "SELECT conname, convalidated FROM pg_constraint"
-                " WHERE contype = 'f' AND conname = ANY($1::text[])", list(EXPECTED_FK)
+                " WHERE contype = 'f' AND conname = ANY($1::text[])",
+                list(EXPECTED_FK),
             )
         }
         missing = [c for c in EXPECTED_FK if c not in found]
-        rec("S1", "结构", f"{len(EXPECTED_FK)} 条收敛边全部建立（缺一条即建了表白建）",
-            not missing, f"缺失={missing or '无'}")
-        pending = [c for c in EXPECTED_FK
-                   if c in found and not found[c]["convalidated"]]
-        rec("S2", "结构", "接边的外键为 NOT VALID（存量未扫，新写入即生效）",
-            set(pending) == set(EXPECTED_FK) - {
-                "fk_shots_scene_project", "fk_shots_current_revision", "fk_scenes_episode_project"},
-            f"NOT VALID={len(pending)} 条（新表自建的三条天然 valid）")
+        rec(
+            "S1",
+            "结构",
+            f"{len(EXPECTED_FK)} 条收敛边全部建立（缺一条即建了表白建）",
+            not missing,
+            f"缺失={missing or '无'}",
+        )
+        pending = [c for c in EXPECTED_FK if c in found and not found[c]["convalidated"]]
+        rec(
+            "S2",
+            "结构",
+            "接边的外键为 NOT VALID（存量未扫，新写入即生效）",
+            set(pending)
+            == set(EXPECTED_FK)
+            - {"fk_shots_scene_project", "fk_shots_current_revision", "fk_scenes_episode_project"},
+            f"NOT VALID={len(pending)} 条（新表自建的三条天然 valid）",
+        )
 
         uq = await conn.fetchval(
             "SELECT count(*) FROM pg_constraint WHERE conname = 'uq_shots_project_shot' AND contype = 'u'"
         )
-        rec("S3", "结构", "shots 备 (project_id, shot_id) 唯一键（复合边的目标键）",
-            uq == 1, f"count={uq}")
+        rec(
+            "S3",
+            "结构",
+            "shots 备 (project_id, shot_id) 唯一键（复合边的目标键）",
+            uq == 1,
+            f"count={uq}",
+        )
 
         # ---------- 接边后同一条写入被拦 ----------
-        ok_n, d_n = await lab.case(conn, [], plan_sql("b5-plan-ghost2", pa, "ghost-shot-2"),
-                                   expect_state="23503")
+        ok_n, d_n = await lab.case(
+            conn, [], plan_sql("b5-plan-ghost2", pa, "ghost-shot-2"), expect_state="23503"
+        )
         rec("N1", "拦截", "接边后：指向不存在的镜头一律 23503", ok_n, d_n)
 
         # ---------- VALIDATE 非恒真 ----------
         ok_v, d_v = await lab.case(
-            conn, [], f"ALTER TABLE {PLANS} VALIDATE CONSTRAINT fk_shot_visual_plans_shot_project",
+            conn,
+            [],
+            f"ALTER TABLE {PLANS} VALIDATE CONSTRAINT fk_shot_visual_plans_shot_project",
             expect_state="23503",
         )
         rec("V1", "验证", "存量 ghost 行让 VALIDATE 必须 23503（不是走过场）", ok_v, d_v)
@@ -277,21 +319,36 @@ async def main() -> int:
         finally:
             await conn.execute("SET session_replication_role = origin")
         left = await conn.fetchval(f"SELECT count(*) FROM {PLANS} WHERE entity_id LIKE 'b5-plan-%'")
-        rec("V2a", "验证", "清掉本批夹具与任何模板遗留合成行，清完无残留",
-            left == 0, f"退场 gt-mismatch {retired} 行，残留夹具 {left} 行")
+        rec(
+            "V2a",
+            "验证",
+            "清掉本批夹具与任何模板遗留合成行，清完无残留",
+            left == 0,
+            f"退场 gt-mismatch {retired} 行，残留夹具 {left} 行",
+        )
 
         errs = []
         for conname in EXPECTED_FK:
-            if conname in {"fk_shots_scene_project", "fk_shots_current_revision", "fk_scenes_episode_project"}:
+            if conname in {
+                "fk_shots_scene_project",
+                "fk_shots_current_revision",
+                "fk_scenes_episode_project",
+            }:
                 continue
             tbl = await conn.fetchval(
-                "SELECT conrelid::regclass::text FROM pg_constraint WHERE conname = $1", conname)
+                "SELECT conrelid::regclass::text FROM pg_constraint WHERE conname = $1", conname
+            )
             try:
                 await conn.execute(f"ALTER TABLE {tbl} VALIDATE CONSTRAINT {conname}")
             except asyncpg.PostgresError as exc:
                 errs.append(f"{conname}:{exc.sqlstate}")
-        rec("V2", "验证", "清掉 ghost 行后全部 VALIDATE 通过（成功路径可达）",
-            not errs, f"失败={errs or '无'}")
+        rec(
+            "V2",
+            "验证",
+            "清掉 ghost 行后全部 VALIDATE 通过（成功路径可达）",
+            not errs,
+            f"失败={errs or '无'}",
+        )
 
         # ---------- 造真实镜头：DEFERRABLE 循环引用 ----------
         # 三者同事务：shots.shot_revision_id ↔ shot_revisions.shot_id 互指。
@@ -299,71 +356,116 @@ async def main() -> int:
             async with conn.transaction():
                 await conn.execute(scene_sql("b5-sc-a", pa, ep_a, "SC001"))
                 await conn.execute(shot_sql("b5-shot-a", pa, "b5-sc-a", "SH001", "b5-rev-a"))
-                await conn.execute(rev_sql("b5-rev-a", "b5-shot-a", pa, "b5-sc-a", ep_a,
-                                           "EP001", "SC001"))
-            rec("C0", "约束", "同事务创建 Shot 与其首个 ShotRevision（互指，靠 DEFERRABLE）",
-                True, "COMMIT 成功")
+                await conn.execute(
+                    rev_sql("b5-rev-a", "b5-shot-a", pa, "b5-sc-a", ep_a, "EP001", "SC001")
+                )
+            rec(
+                "C0",
+                "约束",
+                "同事务创建 Shot 与其首个 ShotRevision（互指，靠 DEFERRABLE）",
+                True,
+                "COMMIT 成功",
+            )
         except asyncpg.PostgresError as exc:
-            rec("C0", "约束", "同事务创建 Shot 与其首个 ShotRevision（互指，靠 DEFERRABLE）",
-                False, f"{exc.sqlstate}: {str(exc).splitlines()[0][:80]}")
+            rec(
+                "C0",
+                "约束",
+                "同事务创建 Shot 与其首个 ShotRevision（互指，靠 DEFERRABLE）",
+                False,
+                f"{exc.sqlstate}: {str(exc).splitlines()[0][:80]}",
+            )
             raise
 
         # 反证：延迟不等于不检查。把约束强制立即、而目标尚不存在，必须 23503。
         try:
             async with conn.transaction():
-                await conn.execute(shot_sql("b5-shot-ghost", pa, "b5-sc-a", "SHGHOST", "b5-rev-ghost"))
+                await conn.execute(
+                    shot_sql("b5-shot-ghost", pa, "b5-sc-a", "SHGHOST", "b5-rev-ghost")
+                )
                 await conn.execute("SET CONSTRAINTS ALL IMMEDIATE")
-            rec("C1", "约束", "强制立即检查时，指向缺失修订的 Shot 必须 23503（证明约束真在）",
-                False, "竟然提交成功")
+            rec(
+                "C1",
+                "约束",
+                "强制立即检查时，指向缺失修订的 Shot 必须 23503（证明约束真在）",
+                False,
+                "竟然提交成功",
+            )
         except asyncpg.PostgresError as exc:
             code = exc.sqlstate
-            rec("C1", "约束", "强制立即检查时，指向缺失修订的 Shot 必须 23503（证明约束真在）",
-                code == "23503", f"{code}")
+            rec(
+                "C1",
+                "约束",
+                "强制立即检查时，指向缺失修订的 Shot 必须 23503（证明约束真在）",
+                code == "23503",
+                f"{code}",
+            )
 
         # ---------- 跨项目挂载 ----------
         # 场次在 B，镜头写 A。两个项目都真实、同组织——单列外键完全放行。
         await conn.execute(scene_sql("b5-sc-b", pb, ep_b, "SC001"))
         ok_x, d_x = await lab.case(
-            conn, [], shot_sql("b5-shot-cross", pa, "b5-sc-b", "SHX", "b5-rev-a"),
+            conn,
+            [],
+            shot_sql("b5-shot-cross", pa, "b5-sc-b", "SHX", "b5-rev-a"),
             expect_state="23503",
         )
-        rec("C2", "约束", "镜头挂到**另一个真实项目**的场次：23503（一致性，不是存在性）",
-            ok_x, d_x)
+        rec(
+            "C2", "约束", "镜头挂到**另一个真实项目**的场次：23503（一致性，不是存在性）", ok_x, d_x
+        )
 
         # ---------- 状态与护栏 ----------
         ok_s, d_s = await lab.case(
-            conn, [],
+            conn,
+            [],
             shot_sql("b5-shot-bad", pa, "b5-sc-a", "SH002", "b5-rev-a", status="IN_REVIEW"),
             expect_state="23514",
         )
         rec("C3", "约束", "未知 status（IN_REVIEW 刻意不在五态内）必须 23514", ok_s, d_s)
 
         ok_b, d_b = await lab.case(
-            conn, [],
+            conn,
+            [],
             shot_sql("b5-shot-blk", pa, "b5-sc-a", "SH003", "b5-rev-a", status="BLOCKED"),
             expect_state="23514",
         )
         rec("C4", "约束", "BLOCKED 无 blocked_reason 必须 23514", ok_b, d_b)
 
         ok_b2, d_b2 = await lab.case(
-            conn, [],
-            shot_sql("b5-shot-blk2", pa, "b5-sc-a", "SH004", "b5-rev-a",
-                     status="NOT_STARTED", blocked_reason="stale reason"),
+            conn,
+            [],
+            shot_sql(
+                "b5-shot-blk2",
+                pa,
+                "b5-sc-a",
+                "SH004",
+                "b5-rev-a",
+                status="NOT_STARTED",
+                blocked_reason="stale reason",
+            ),
             expect_state="23514",
         )
-        rec("C5", "约束", "非 BLOCKED 携带 blocked_reason **也**必须 23514（双向，不是单向）",
-            ok_b2, d_b2)
+        rec(
+            "C5",
+            "约束",
+            "非 BLOCKED 携带 blocked_reason **也**必须 23514（双向，不是单向）",
+            ok_b2,
+            d_b2,
+        )
 
         ok_c, d_c = await lab.case(
-            conn, [], shot_sql("b5-shot-dup", pa, "b5-sc-a", "SH001", "b5-rev-a"),
+            conn,
+            [],
+            shot_sql("b5-shot-dup", pa, "b5-sc-a", "SH001", "b5-rev-a"),
             expect_state="23505",
         )
         rec("C6", "约束", "同项目重复 shot_code 必须 23505（ADR-R19 的纸面约束落地）", ok_c, d_c)
 
         ok_i, d_i = await lab.case(
-            conn, [],
-            shot_sql("b5-shot-split", pa, "b5-sc-a", "SH005", "b5-rev-a",
-                     entity_id="b5-shot-split-other"),
+            conn,
+            [],
+            shot_sql(
+                "b5-shot-split", pa, "b5-sc-a", "SH005", "b5-rev-a", entity_id="b5-shot-split-other"
+            ),
             expect_state="23514",
         )
         rec("C7", "约束", "entity_id ≠ shot_id 必须 23514（信封主键与业务身份合一）", ok_i, d_i)
@@ -387,8 +489,9 @@ async def main() -> int:
         # 本身就是附带证据——跨项目的引用在 RLS 之前就进不来。
         async with conn.transaction():
             await conn.execute(shot_sql("b5-shot-q", qp, "b5-sc-q", "SHQ", "b5-rev-q"))
-            await conn.execute(rev_sql("b5-rev-q", "b5-shot-q", qp, "b5-sc-q", ep_q,
-                                       "EP001", "SCQ"))
+            await conn.execute(
+                rev_sql("b5-rev-q", "b5-shot-q", qp, "b5-sc-q", ep_q, "EP001", "SCQ")
+            )
         seen_total = await conn.fetchval(f"SELECT count(*) FROM {SHOTS}")
 
         await conn.execute("SET ROLE svc_shot_planning")
@@ -405,26 +508,35 @@ async def main() -> int:
             await conn.execute("RESET app.current_projects")
             await conn.execute("RESET app.include_quarantine")
 
-        rec("R1", "RLS", "隔离项目的镜头对业务角色不可见（与既有归属表同形）",
+        rec(
+            "R1",
+            "RLS",
+            "隔离项目的镜头对业务角色不可见（与既有归属表同形）",
             seen_biz == seen_total - 1,
-            f"业务可见 {seen_biz} / 总行 {seen_total}（应少 1）")
+            f"业务可见 {seen_biz} / 总行 {seen_total}（应少 1）",
+        )
 
         # ---------- 与闸门一致 ----------
         report = await consistency.evaluate(conn)
-        rec("Q1", "闸门", "一致闸门里 shots / scenes 相关边不再报 DANGLING",
+        rec(
+            "Q1",
+            "闸门",
+            "一致闸门里 shots / scenes 相关边不再报 DANGLING",
             True,
             f"PASS={report.count('PASS')} NO_FK={report.count('NO_FK')} "
             f"FK_NOT_COMPOSITE={report.count('FK_NOT_COMPOSITE')} "
             f"PENDING={report.count('PENDING_VALIDATE')} DANGLING={report.count('DANGLING')}"
-            f"（DANGLING 应只剩 gate_instances 相关）")
+            f"（DANGLING 应只剩 gate_instances 相关）",
+        )
 
         # ---------- 降级 ----------
         n = await lab.apply_steps(conn, lab._downgrade_sqls(mig))
         rec("D1", "降级", f"执行 downgrade_steps()（{n} 步）", True, "无异常")
 
         gone = await conn.fetchval(
-            "SELECT count(*) FROM pg_class WHERE oid IN"
-            " (to_regclass($1), to_regclass($2))", SHOTS, SCENES
+            "SELECT count(*) FROM pg_class WHERE oid IN (to_regclass($1), to_regclass($2))",
+            SHOTS,
+            SCENES,
         )
         cols = await conn.fetchval(
             "SELECT count(*) FROM information_schema.columns"
@@ -435,13 +547,19 @@ async def main() -> int:
             "SELECT count(*) FROM pg_constraint WHERE contype = 'f' AND conname = ANY($1::text[])",
             list(EXPECTED_FK),
         )
-        rec("D2", "降级", "新表、新列、新边全部消失（对称，不留悬空引用）",
+        rec(
+            "D2",
+            "降级",
+            "新表、新列、新边全部消失（对称，不留悬空引用）",
             gone == 0 and cols == 0 and edges == 0,
-            f"表={gone} 列={cols} 边={edges}")
+            f"表={gone} 列={cols} 边={edges}",
+        )
 
         # 降级后跨项目写入恢复成功——证明 D1 撤掉的是真约束，不是别的东西。
         ok_r, d_r = await lab.case(
-            conn, [], plan_sql("b5-plan-after-down", pa, "ghost-after-down"),
+            conn,
+            [],
+            plan_sql("b5-plan-after-down", pa, "ghost-after-down"),
             expect_changed=1,
         )
         rec("D3", "降级", "降级后同一跨项目/幽灵写入恢复成功（约束确实已撤）", ok_r, d_r)

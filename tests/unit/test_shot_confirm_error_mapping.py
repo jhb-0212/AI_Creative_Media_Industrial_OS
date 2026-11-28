@@ -88,9 +88,7 @@ class _Shots(ShotRepository):
     def __init__(self) -> None:
         self.rows: dict[str, Shot] = {}
 
-    async def existing_ids_in_project(
-        self, project_id: str, shot_ids: list[str]
-    ) -> set[str]:
+    async def existing_ids_in_project(self, project_id: str, shot_ids: list[str]) -> set[str]:
         # 本文件不建约束包：镜头归属查询只服务 CONSTRAINT.PACK.CREATE。
         # 让它直接失败，是为了把「别处误用这个端口」变成红灯，而不是返回一个
         # 看起来合理的空集（空集会让「镜头都不属于本项目」变成静默通过）。
@@ -229,9 +227,7 @@ def _draft(*shot_specs: dict[str, object]) -> ShotBreakdownDraft:
     )
 
 
-def _scene(
-    *, status: SceneStatus = SceneStatus.DRAFT, entity_id: str = "scene-1"
-) -> Scene:
+def _scene(*, status: SceneStatus = SceneStatus.DRAFT, entity_id: str = "scene-1") -> Scene:
     return Scene(
         entity_id=entity_id,
         project_id="proj-1",
@@ -352,9 +348,7 @@ async def test_confirm_rejects_archived_parent_scene() -> None:
     service, shots, _, outbox = _service(_draft(), scenes=scenes)
 
     with pytest.raises(DomainError) as exc:
-        await service.confirm_draft(
-            entity_id="draft-1", confirmed_by="user-1", tenant_id=_TENANT
-        )
+        await service.confirm_draft(entity_id="draft-1", confirmed_by="user-1", tenant_id=_TENANT)
 
     assert exc.value.error_code is ErrorRegistry.PARENT_LIFECYCLE_FROZEN
     assert shots.rows == {}, "拒绝必须发生在 INSERT 之前"
@@ -377,11 +371,8 @@ async def test_confirm_locks_all_parent_scenes_in_sorted_order() -> None:
     )
     service, _, _, _ = _service(draft, scenes=scenes)
 
-    await service.confirm_draft(
-        entity_id="draft-1", confirmed_by="user-1", tenant_id=_TENANT
-    )
+    await service.confirm_draft(entity_id="draft-1", confirmed_by="user-1", tenant_id=_TENANT)
 
     assert scenes.lock_order == ["scene-a", "scene-b"], (
-        "取锁顺序必须与草案里的出现顺序无关：跟随调用方顺序会让两个确认事务"
-        "以相反次序取锁而死锁"
+        "取锁顺序必须与草案里的出现顺序无关：跟随调用方顺序会让两个确认事务以相反次序取锁而死锁"
     )

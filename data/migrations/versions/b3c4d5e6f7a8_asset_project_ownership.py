@@ -125,13 +125,9 @@ def downgrade() -> None:
     op.execute(f"REVOKE SELECT ({columns}) ON {PROJECT_TABLE} FROM {role}")
 
     op.drop_index(INDEX_NAME, table_name="asset_versions", schema=ASSET_SCHEMA)
-    op.drop_constraint(
-        FK_NAME, "asset_versions", schema=ASSET_SCHEMA, type_="foreignkey"
-    )
+    op.drop_constraint(FK_NAME, "asset_versions", schema=ASSET_SCHEMA, type_="foreignkey")
     op.drop_column("asset_versions", "project_id", schema=ASSET_SCHEMA)
-    op.drop_constraint(
-        PROJECT_TENANT_UNIQUE, "projects", schema=PROJECT_SCHEMA, type_="unique"
-    )
+    op.drop_constraint(PROJECT_TENANT_UNIQUE, "projects", schema=PROJECT_SCHEMA, type_="unique")
     # WP-04/#29：父 revision 的 project_planning schema 只有
     # postgres + project_planning_role 的 USAGE。升级给 asset_service_role
     # 新授的 USAGE 必须收回，否则 D 比 P 多一条跨域访问。

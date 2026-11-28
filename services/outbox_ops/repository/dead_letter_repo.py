@@ -30,9 +30,7 @@ _LOCK_FOR_REPLAY = text(
     """
 )
 
-_DEAD_LETTER_COLUMNS = (
-    "event_id, event_type, tenant_id, attempts, dead_lettered_at, occurred_at"
-)
+_DEAD_LETTER_COLUMNS = "event_id, event_type, tenant_id, attempts, dead_lettered_at, occurred_at"
 
 # 死信列表分页用键集（keyset）而不是 OFFSET：
 # 死信是「待人工处置的工作队列」，处置过程中行会不断从结果集里消失；
@@ -171,9 +169,7 @@ class SqlAlchemyDeadLetterRepository:
 
     async def lock(self, event_id: UUID) -> DeadLetterRow | None:
         """锁定事件行；不存在或不在本租户（RLS 过滤）一律返回 None。"""
-        row = (
-            await self._session.execute(_LOCK_FOR_REPLAY, {"event_id": event_id})
-        ).first()
+        row = (await self._session.execute(_LOCK_FOR_REPLAY, {"event_id": event_id})).first()
         if row is None:
             return None
         return DeadLetterRow(
@@ -187,9 +183,7 @@ class SqlAlchemyDeadLetterRepository:
 
     async def clear_dead_letter(self, event_id: UUID) -> bool:
         """条件清标记，返回是否真的由本次调用完成了状态迁移。"""
-        cleared = (
-            await self._session.execute(_CLEAR_DEAD_LETTER, {"event_id": event_id})
-        ).first()
+        cleared = (await self._session.execute(_CLEAR_DEAD_LETTER, {"event_id": event_id})).first()
         return cleared is not None
 
     async def record(self, replay: DeadLetterReplayModel) -> None:

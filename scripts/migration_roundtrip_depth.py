@@ -100,9 +100,7 @@ def count_branch_migrations(name_status: str) -> int:
             count += 1
         else:
             # T（类型变化）/ U（未合并）等：不猜它算不算一次往返，直接失败。
-            raise MigrationDepthError(
-                f"迁移目录出现无法判定的变更状态 {status!r}：{path}"
-            )
+            raise MigrationDepthError(f"迁移目录出现无法判定的变更状态 {status!r}：{path}")
     if deleted:
         raise MigrationDepthError(
             "迁移目录出现删除："

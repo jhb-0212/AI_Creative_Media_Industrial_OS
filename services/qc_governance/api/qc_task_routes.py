@@ -197,16 +197,11 @@ async def recover_qc_task(
             ),
         )
     lookup: GenerationFactsLookup = facts_factory(facts_uow.session)
-    facts = await lookup(
-        body.generation_task_id, body.project_id, principal.tenant_id
-    )
+    facts = await lookup(body.generation_task_id, body.project_id, principal.tenant_id)
     if facts is None:
         raise DomainError(
             ErrorRegistry.NOT_FOUND,
-            detail=(
-                f"生成任务不存在或不可见: {body.generation_task_id}"
-                f"（项目 {body.project_id}）"
-            ),
+            detail=(f"生成任务不存在或不可见: {body.generation_task_id}（项目 {body.project_id}）"),
         )
     # 授权对象是**事实行里的** project_id：请求体只用来选择，不参与归属判定。
     #

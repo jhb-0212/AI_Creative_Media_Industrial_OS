@@ -108,9 +108,7 @@ class ObjectStoragePort(Protocol):
     并留下与资产台账的对应记录。
     """
 
-    async def put(
-        self, *, data: bytes, media_type: str, expected_sha256: str = ""
-    ) -> StoredObject:
+    async def put(self, *, data: bytes, media_type: str, expected_sha256: str = "") -> StoredObject:
         """落盘并返回受控定位符。
 
         ``expected_sha256`` 非空时用于核对**上游声明**的哈希（例如模型网关

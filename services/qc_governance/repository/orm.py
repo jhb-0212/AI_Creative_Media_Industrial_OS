@@ -62,24 +62,14 @@ class GateDecisionModel(Base, EntityMixin):
     decision: Mapped[str] = mapped_column(String(16), nullable=False)
     decided_by: Mapped[str] = mapped_column(String(64), nullable=False)
     decided_at: Mapped[Any] = mapped_column(DateTime(timezone=True), nullable=False)
-    gate_instance_id: Mapped[str] = mapped_column(
-        String(64), nullable=False, server_default=""
-    )
+    gate_instance_id: Mapped[str] = mapped_column(String(64), nullable=False, server_default="")
     constraint_snapshot_id: Mapped[str] = mapped_column(
         String(128), nullable=False, server_default=""
     )
-    entry_criteria: Mapped[str] = mapped_column(
-        String(500), nullable=False, server_default=""
-    )
-    reason_code: Mapped[str] = mapped_column(
-        String(64), nullable=False, server_default=""
-    )
-    comment: Mapped[str] = mapped_column(
-        String(500), nullable=False, server_default=""
-    )
-    required_artifacts: Mapped[str] = mapped_column(
-        String(500), nullable=False, server_default=""
-    )
+    entry_criteria: Mapped[str] = mapped_column(String(500), nullable=False, server_default="")
+    reason_code: Mapped[str] = mapped_column(String(64), nullable=False, server_default="")
+    comment: Mapped[str] = mapped_column(String(500), nullable=False, server_default="")
+    required_artifacts: Mapped[str] = mapped_column(String(500), nullable=False, server_default="")
     evidence_refs: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     reviewers: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     ruleset_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
@@ -115,21 +105,15 @@ class QCTaskModel(Base, EntityMixin):
     asset_version_id: Mapped[str] = mapped_column(String(64), nullable=False)
     generation_task_id: Mapped[str] = mapped_column(String(64), nullable=False)
     quality_profile_version: Mapped[str] = mapped_column(String(64), nullable=False)
-    lease_owner: Mapped[str] = mapped_column(
-        String(128), nullable=False, server_default=""
-    )
-    lease_expires_at: Mapped[Any | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    lease_owner: Mapped[str] = mapped_column(String(128), nullable=False, server_default="")
+    lease_expires_at: Mapped[Any | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # 租约代次（fencing token）：与 entity_version / attempt_count 语义不同，
     # 见 domain/qc_task.py 的字段注释。库层非负约束在迁移里（防绕过领域层写负数）。
     lease_generation: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default="0"
     )
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    qc_report_id: Mapped[str] = mapped_column(
-        String(64), nullable=False, server_default=""
-    )
+    qc_report_id: Mapped[str] = mapped_column(String(64), nullable=False, server_default="")
     # 组织归属（``NULL`` = 租户级项目）。Worker 没有 Principal，组织只能作为
     # 事实随任务行下传；从项目表现查会撞上项目表的组织面 RLS。
     organization_id: Mapped[Any | None] = mapped_column(Uuid, nullable=True)

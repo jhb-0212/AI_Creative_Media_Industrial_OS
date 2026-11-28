@@ -80,13 +80,9 @@ class OrganizationModel(Base):
     organization_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
     tenant_id: Mapped[UUID] = mapped_column(Uuid, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_by: Mapped[str] = mapped_column(String(64), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class ProjectModel(EntityMixin, Base):
@@ -294,12 +290,8 @@ class ShotModel(EntityMixin, Base):
     blocked_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     rework_basis_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     cancellation_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    cancelled_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    source_draft_ref: Mapped[dict[str, Any] | None] = mapped_column(
-        JSONB, nullable=True
-    )
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    source_draft_ref: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
 
 class ShotRevisionModel(EntityMixin, Base):
@@ -318,9 +310,7 @@ class ShotRevisionModel(EntityMixin, Base):
 
     __tablename__ = "shot_revisions"
     __table_args__ = (
-        UniqueConstraint(
-            "shot_id", "revision_no", name="uq_shot_revision_no"
-        ),
+        UniqueConstraint("shot_id", "revision_no", name="uq_shot_revision_no"),
         UniqueConstraint(
             "project_id",
             "entity_id",
@@ -339,9 +329,7 @@ class ShotRevisionModel(EntityMixin, Base):
         ),
         # 归属外键：父链只保证「同一 project_id」，租户一致性另需本约束。
         project_tenant_fk("shot_revisions"),
-        CheckConstraint(
-            "shot_revision_id = entity_id", name="ck_shot_revisions_identity_single"
-        ),
+        CheckConstraint("shot_revision_id = entity_id", name="ck_shot_revisions_identity_single"),
         status_check((s.value for s in ShotRevisionStatus), table="shot_revisions"),
         {"schema": SCHEMA_NAME},
     )
@@ -357,9 +345,7 @@ class ShotRevisionModel(EntityMixin, Base):
     character_refs: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
     location_ref: Mapped[str] = mapped_column(String(64), nullable=False)
     prop_refs: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
-    constraint_pack_applicability: Mapped[str] = mapped_column(
-        String(64), nullable=False
-    )
+    constraint_pack_applicability: Mapped[str] = mapped_column(String(64), nullable=False)
     constraint_pack_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     creative_autonomy: Mapped[str] = mapped_column(String(64), nullable=False)
     risk: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
@@ -367,21 +353,15 @@ class ShotRevisionModel(EntityMixin, Base):
     intent_ref: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     basis_script_revision_id: Mapped[str] = mapped_column(String(64), nullable=False)
     script_anchors: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
-    source_draft_ref: Mapped[dict[str, Any] | None] = mapped_column(
-        JSONB, nullable=True
-    )
+    source_draft_ref: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     source_candidate_refs: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
     change_origin: Mapped[str] = mapped_column(String(64), nullable=False)
-    supersedes_shot_revision_id: Mapped[str | None] = mapped_column(
-        String(64), nullable=True
-    )
+    supersedes_shot_revision_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     change_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     changed_fields: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
     provenance: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     confirmed_by: Mapped[str] = mapped_column(String(64), nullable=False)
-    confirmed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class ShotSpecModel(EntityMixin, Base):
@@ -427,13 +407,9 @@ class ShotSpecModel(EntityMixin, Base):
         ),
         # 归属外键：父链只保证「同一 project_id」，租户一致性另需本约束。
         project_tenant_fk("shot_specs"),
-        CheckConstraint(
-            "shot_spec_id = entity_id", name="ck_shot_specs_identity_single"
-        ),
+        CheckConstraint("shot_spec_id = entity_id", name="ck_shot_specs_identity_single"),
         CheckConstraint("duration_ms >= 1", name="ck_shot_specs_duration_positive"),
-        CheckConstraint(
-            "fps_num >= 1 AND fps_den >= 1", name="ck_shot_specs_fps_positive"
-        ),
+        CheckConstraint("fps_num >= 1 AND fps_den >= 1", name="ck_shot_specs_fps_positive"),
         CheckConstraint(
             f"{SCHEMA_NAME}.cut_points_monotonic(cut_points_frames) "
             "AND cut_points_frames[array_length(cut_points_frames, 1)] "
@@ -450,9 +426,7 @@ class ShotSpecModel(EntityMixin, Base):
     duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     fps_num: Mapped[int] = mapped_column(Integer, nullable=False)
     fps_den: Mapped[int] = mapped_column(Integer, nullable=False)
-    cut_points_frames: Mapped[list[int]] = mapped_column(
-        ARRAY(Integer), nullable=False
-    )
+    cut_points_frames: Mapped[list[int]] = mapped_column(ARRAY(Integer), nullable=False)
     aspect_ratio: Mapped[str] = mapped_column(String(32), nullable=False)
     coordinate_system: Mapped[str] = mapped_column(String(32), nullable=False)
     camera_path: Mapped[str] = mapped_column(Text, nullable=False)
@@ -460,9 +434,7 @@ class ShotSpecModel(EntityMixin, Base):
     shot_size_changes: Mapped[str] = mapped_column(String(500), nullable=False)
     previz_ref: Mapped[str] = mapped_column(String(200), nullable=False)
     control_signal_refs: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
-    locked_dimensions: Mapped[str] = mapped_column(
-        String(512), nullable=False, default=""
-    )
+    locked_dimensions: Mapped[str] = mapped_column(String(512), nullable=False, default="")
 
 
 class ConstraintPackModel(EntityMixin, Base):
@@ -511,13 +483,9 @@ class ConstraintPackModel(EntityMixin, Base):
 
     __tablename__ = "constraint_packs"
     __table_args__ = (
-        UniqueConstraint(
-            "constraint_pack_id", "version", name="uq_constraint_pack_version"
-        ),
+        UniqueConstraint("constraint_pack_id", "version", name="uq_constraint_pack_version"),
         # 子表复合外键的引用目标（A13 同形）；也是包在项目内的身份唯一性。
-        UniqueConstraint(
-            "project_id", "entity_id", name="uq_constraint_packs_entity_project"
-        ),
+        UniqueConstraint("project_id", "entity_id", name="uq_constraint_packs_entity_project"),
         # 归属外键：与 asset_versions 同一构造，见 project_tenant_fk 的注释。
         project_tenant_fk("constraint_packs"),
         Index(
@@ -530,9 +498,7 @@ class ConstraintPackModel(EntityMixin, Base):
             "applicability IN ('APPLICABLE', 'NOT_APPLICABLE')",
             name="ck_constraint_packs_applicability",
         ),
-        CheckConstraint(
-            "cardinality(shot_ids) >= 1", name="ck_constraint_packs_shot_ids_present"
-        ),
+        CheckConstraint("cardinality(shot_ids) >= 1", name="ck_constraint_packs_shot_ids_present"),
         CheckConstraint(
             f"{SCHEMA_NAME}.text_array_unique(shot_ids::text[])",
             name="ck_constraint_packs_shot_ids_unique",
@@ -566,24 +532,16 @@ class ConstraintPackModel(EntityMixin, Base):
     project_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     scene_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     shot_ids: Mapped[list[str]] = mapped_column(ARRAY(String(64)), nullable=False)
-    shot_group_ids: Mapped[list[str]] = mapped_column(
-        ARRAY(String(64)), nullable=False
-    )
+    shot_group_ids: Mapped[list[str]] = mapped_column(ARRAY(String(64)), nullable=False)
     applicability: Mapped[str] = mapped_column(String(32), nullable=False)
-    locked_dimensions: Mapped[list[str]] = mapped_column(
-        ARRAY(String(32)), nullable=False
-    )
+    locked_dimensions: Mapped[list[str]] = mapped_column(ARRAY(String(32)), nullable=False)
     constraints: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
-    source_previz_revision: Mapped[str] = mapped_column(
-        String(200), nullable=False, default=""
-    )
+    source_previz_revision: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     # 授权人：7.9「不得为 Agent」。这一句由授权层保证（Agent/Worker 角色没有
     # CONSTRAINT.PACK.LOCK 权限），不在库里按字符串猜主体类型。
     approved_by: Mapped[str] = mapped_column(String(64), nullable=False, default="")
-    approved_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class ShotBreakdownDraftModel(EntityMixin, Base):
@@ -611,9 +569,7 @@ class ShotBreakdownDraftModel(EntityMixin, Base):
     generation_method: Mapped[str] = mapped_column(String(64), nullable=False)
     draft_version: Mapped[int] = mapped_column(Integer, nullable=False)
     root_draft_ref: Mapped[str] = mapped_column(String(64), nullable=False)
-    supersedes_draft_ref: Mapped[str | None] = mapped_column(
-        String(64), nullable=True
-    )
+    supersedes_draft_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
     change_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     ai_rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
     open_questions: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
@@ -621,16 +577,10 @@ class ShotBreakdownDraftModel(EntityMixin, Base):
     scene_breakdowns: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
     review_records: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
     confirmed_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    confirmed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    confirmed_shot_revision_refs: Mapped[list[Any]] = mapped_column(
-        JSONB, nullable=False
-    )
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    confirmed_shot_revision_refs: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
     returned_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    returned_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    returned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     return_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     discarded_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -669,9 +619,7 @@ class ReworkTaskModel(EntityMixin, Base):
     root_cause: Mapped[str] = mapped_column(Text, nullable=False)
     owner: Mapped[str] = mapped_column(String(64), nullable=False)
     return_node: Mapped[str] = mapped_column(String(64), nullable=False)
-    affected_asset_version_ids: Mapped[list[Any]] = mapped_column(
-        JSONB, nullable=False
-    )
+    affected_asset_version_ids: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
     downstream_task_ids: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
     constraint_pack_ref: Mapped[str | None] = mapped_column(String(64), nullable=True)
 

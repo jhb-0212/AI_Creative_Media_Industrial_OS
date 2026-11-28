@@ -123,12 +123,8 @@ def _transfer_ownership() -> None:
     """
     owner = _role("owner")
     op.execute(f"ALTER SCHEMA {MAINTENANCE_SCHEMA} OWNER TO {owner}")
-    op.execute(
-        f"ALTER TABLE {MAINTENANCE_SCHEMA}.task_projection OWNER TO {owner}"
-    )
-    op.execute(
-        f"ALTER FUNCTION {MAINTENANCE_SCHEMA}.{_GUARD_NAME}() OWNER TO {owner}"
-    )
+    op.execute(f"ALTER TABLE {MAINTENANCE_SCHEMA}.task_projection OWNER TO {owner}")
+    op.execute(f"ALTER FUNCTION {MAINTENANCE_SCHEMA}.{_GUARD_NAME}() OWNER TO {owner}")
 
 
 def upgrade() -> None:

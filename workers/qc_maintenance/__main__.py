@@ -95,11 +95,7 @@ async def verify_isolation(engine: AsyncEngine) -> None:
         identity = (await conn.execute(_IDENTITY_SQL)).one()
 
         async def table_read(schema: str, table: str) -> bool:
-            return bool(
-                await conn.scalar(
-                    _TABLE_PRIVILEGE_SQL, {"schema": schema, "table": table}
-                )
-            )
+            return bool(await conn.scalar(_TABLE_PRIVILEGE_SQL, {"schema": schema, "table": table}))
 
         async def function_exec(name: str) -> bool:
             return bool(
@@ -133,9 +129,7 @@ async def verify_isolation(engine: AsyncEngine) -> None:
     if not can_detect:
         problems.append("维护身份不能执行检测命令")
     if problems:
-        raise RuntimeError(
-            f"维护身份 {identity.role} 与声明不符：" + "；".join(problems)
-        )
+        raise RuntimeError(f"维护身份 {identity.role} 与声明不符：" + "；".join(problems))
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -161,13 +155,9 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 async def _run(args: argparse.Namespace, client: MaintenanceCommandClient) -> int:
     attempt_id = args.attempt or uuid.uuid4().hex
     if args.command == "reconcile":
-        result = await client.reconcile(
-            args.work_order, attempt_id=attempt_id
-        )
+        result = await client.reconcile(args.work_order, attempt_id=attempt_id)
     elif args.command == "repair":
-        result = await client.repair_task(
-            args.work_order, args.task, attempt_id=attempt_id
-        )
+        result = await client.repair_task(args.work_order, args.task, attempt_id=attempt_id)
     else:
         result = await client.detect_anomalies(attempt_id=attempt_id)
 
@@ -180,9 +170,7 @@ async def _run(args: argparse.Namespace, client: MaintenanceCommandClient) -> in
                 # 成功时 denial_recorded 的默认值是 True（没有拒绝事实要记）。
                 # 直接透传会让成功输出看起来像「记了一次拒绝」，所以在没有
                 # 拒绝时明确给 False：输出里的每个字段都要能被当作事实读。
-                "denial_recorded": (
-                    result.denial is not None and result.denial_recorded
-                ),
+                "denial_recorded": (result.denial is not None and result.denial_recorded),
                 "rows": [{k: str(v) for k, v in row.items()} for row in result.rows],
             },
             ensure_ascii=False,

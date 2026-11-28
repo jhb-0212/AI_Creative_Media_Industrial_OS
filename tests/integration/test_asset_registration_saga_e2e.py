@@ -113,9 +113,7 @@ async def _seed(admin_engine: AsyncEngine, prod_sm: object) -> dict[str, object]
             tenant_id=_TENANT,
             route_id=route_id,
         )
-        service = GenerationService(
-            SqlAlchemyGenerationTaskRepository(session), outbox
-        )
+        service = GenerationService(SqlAlchemyGenerationTaskRepository(session), outbox)
         task = await service.request_generation(
             project_id=project_id,
             shot_id="shot-1",
@@ -215,12 +213,15 @@ async def test_full_saga_commits_and_replays_idempotently(
             attempt_id=attempt_id,
         )
         await session.commit()
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM production_planning.artifact_manifests "
-        "WHERE status='PREPARED' AND generation_task_id=:task",
-        {"task": task_id},
-    ) == 1
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM production_planning.artifact_manifests "
+            "WHERE status='PREPARED' AND generation_task_id=:task",
+            {"task": task_id},
+        )
+        == 1
+    )
 
     async with prod_sm() as session:  # type: ignore[operator]
         await set_tenant_context(session, _TENANT)
@@ -237,15 +238,16 @@ async def test_full_saga_commits_and_replays_idempotently(
         )
         await session.commit()
 
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM production_planning.generation_tasks "
-        "WHERE entity_id=:eid AND status='AWAITING_ASSET_REGISTRATION'",
-        {"eid": task_entity},
-    ) == 1
-    requested = await _read_outbox_event(
-        admin_engine, "ASSET_REGISTRATION_REQUESTED", task_id
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM production_planning.generation_tasks "
+            "WHERE entity_id=:eid AND status='AWAITING_ASSET_REGISTRATION'",
+            {"eid": task_entity},
+        )
+        == 1
     )
+    requested = await _read_outbox_event(admin_engine, "ASSET_REGISTRATION_REQUESTED", task_id)
     assert requested.payload["sha256"] == _DIGEST
 
     handlers = build_asset_registration_handlers(
@@ -254,36 +256,46 @@ async def test_full_saga_commits_and_replays_idempotently(
     # T2：重复投递只建一个资产与一条回执。
     await handlers["ASSET_REGISTRATION_REQUESTED"](requested)
     await handlers["ASSET_REGISTRATION_REQUESTED"](requested)
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM asset_service.asset_registration_receipts "
-        "WHERE generation_task_id=:task",
-        {"task": task_id},
-    ) == 1
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM asset_service.asset_versions av "
-        "JOIN asset_service.asset_registration_receipts r "
-        "ON av.entity_id = r.asset_version_id "
-        "WHERE r.generation_task_id = :task AND av.sha256 = :digest",
-        {"task": task_id, "digest": _DIGEST},
-    ) == 1
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM asset_service.asset_registration_receipts "
+            "WHERE generation_task_id=:task",
+            {"task": task_id},
+        )
+        == 1
+    )
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM asset_service.asset_versions av "
+            "JOIN asset_service.asset_registration_receipts r "
+            "ON av.entity_id = r.asset_version_id "
+            "WHERE r.generation_task_id = :task AND av.sha256 = :digest",
+            {"task": task_id, "digest": _DIGEST},
+        )
+        == 1
+    )
 
     # T3：终态的资产 ID 必须来自回执，重复消费不重复发成功事件。
-    completed = await _read_outbox_event(
-        admin_engine, "ASSET_REGISTRATION_COMPLETED", task_id
+    completed = await _read_outbox_event(admin_engine, "ASSET_REGISTRATION_COMPLETED", task_id)
+    await handlers["ASSET_REGISTRATION_COMPLETED"](completed)
+    await handlers["ASSET_REGISTRATION_COMPLETED"](completed)
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM production_planning.generation_tasks "
+            "WHERE entity_id=:eid AND status='SUCCEEDED' AND asset_version_id<>''",
+            {"eid": task_entity},
+        )
+        == 1
     )
-    await handlers["ASSET_REGISTRATION_COMPLETED"](completed)
-    await handlers["ASSET_REGISTRATION_COMPLETED"](completed)
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM production_planning.generation_tasks "
-        "WHERE entity_id=:eid AND status='SUCCEEDED' AND asset_version_id<>''",
-        {"eid": task_entity},
-    ) == 1
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM outbox.outbox_events WHERE event_type='GENERATION_SUCCEEDED' "
-        "AND payload->>'generation_task_id' = :task",
-        {"task": task_id},
-    ) == 1
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM outbox.outbox_events WHERE event_type='GENERATION_SUCCEEDED' "
+            "AND payload->>'generation_task_id' = :task",
+            {"task": task_id},
+        )
+        == 1
+    )

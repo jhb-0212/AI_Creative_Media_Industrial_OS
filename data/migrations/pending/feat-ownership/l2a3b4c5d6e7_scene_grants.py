@@ -78,11 +78,7 @@ def downgrade_steps() -> list[str]:
     """
     role = domain_role(DOMAIN)
     marker = f".{TARGET_TABLE}"
-    return [
-        statement
-        for statement in legacy_statements(role, DOMAIN)
-        if marker in statement
-    ]
+    return [statement for statement in legacy_statements(role, DOMAIN) if marker in statement]
 
 
 def upgrade() -> None:

@@ -80,9 +80,7 @@ async def _main_async(*, interval: float, batch_size: int, once: bool) -> None:
         if settings.outbox_webhook_url
         else None
     )
-    relay = OutboxRelay(
-        sessionmaker, handlers, batch_size=batch_size, default_handler=dispatcher
-    )
+    relay = OutboxRelay(sessionmaker, handlers, batch_size=batch_size, default_handler=dispatcher)
     if dispatcher is None:
         logger.warning(
             "outbox_relay_no_downstream",
@@ -143,11 +141,7 @@ def main() -> None:
     args = parser.parse_args()
 
     setup_logging(settings.log_level)
-    asyncio.run(
-        _main_async(
-            interval=args.interval, batch_size=args.batch_size, once=args.once
-        )
-    )
+    asyncio.run(_main_async(interval=args.interval, batch_size=args.batch_size, once=args.once))
 
 
 if __name__ == "__main__":

@@ -92,8 +92,12 @@ async def sample(admin_engine: AsyncEngine) -> AsyncIterator[dict[str, object]]:
                 " :task_id, :pid, '', '', '', '', '', '', '', '', 0, '', :qp)"
             ),
             {
-                "eid": task_entity, "tid": tenant, "now": now,
-                "task_id": task_id, "pid": project_id, "qp": UNIFIED_HIGH_QUALITY,
+                "eid": task_entity,
+                "tid": tenant,
+                "now": now,
+                "task_id": task_id,
+                "pid": project_id,
+                "qp": UNIFIED_HIGH_QUALITY,
             },
         )
     payload: dict[str, object] = {
@@ -123,9 +127,14 @@ async def sample(admin_engine: AsyncEngine) -> AsyncIterator[dict[str, object]]:
             )
 
 
-def _manifest_row(sample: dict[str, object], *, task_id: str | None = None,
-                  project_id: str | None = None, digest: str = "a" * 64,
-                  entity_id: str | None = None) -> dict[str, object]:
+def _manifest_row(
+    sample: dict[str, object],
+    *,
+    task_id: str | None = None,
+    project_id: str | None = None,
+    digest: str = "a" * 64,
+    entity_id: str | None = None,
+) -> dict[str, object]:
     return {
         # entity_id 列是 String(64)：uuid4 的 36 字符加上前缀会超长，
         # 超长报的是 22001，会伪装成「外键/CHECK 没生效」的假红灯。
@@ -239,8 +248,7 @@ async def test_manifest_rejects_cross_tenant_project(
     async with admin_engine.connect() as conn:
         count = await conn.scalar(
             sa.text(
-                "SELECT count(*) FROM production_planning.artifact_manifests "
-                "WHERE entity_id = :eid"
+                "SELECT count(*) FROM production_planning.artifact_manifests WHERE entity_id = :eid"
             ),
             {"eid": row["eid"]},
         )
@@ -348,8 +356,10 @@ async def test_completed_receipt_requires_asset_id(
             ),
             {
                 "eid": f"reg-task-entity-bad-{sample['run']}",
-                "tid": sample["tenant"], "now": sample["now"],
-                "task_id": params["task_id"], "pid": sample["project_id"],
+                "tid": sample["tenant"],
+                "now": sample["now"],
+                "task_id": params["task_id"],
+                "pid": sample["project_id"],
             },
         )
     with pytest.raises(DBAPIError) as caught:
@@ -477,8 +487,7 @@ async def test_awaiting_state_and_frozen_quality_profile_are_writable(
     async with admin_engine.connect() as conn:
         status = await conn.scalar(
             sa.text(
-                "SELECT status FROM production_planning.generation_tasks "
-                "WHERE entity_id = :eid"
+                "SELECT status FROM production_planning.generation_tasks WHERE entity_id = :eid"
             ),
             {"eid": sample["task_entity"]},
         )

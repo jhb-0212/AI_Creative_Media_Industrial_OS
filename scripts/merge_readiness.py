@@ -231,9 +231,7 @@ def check_git(root: Path = ROOT) -> list[Finding]:
         return findings
 
     def git_out(*args: str) -> tuple[int, str]:
-        p = subprocess.run(
-            ("git", *args), cwd=root, capture_output=True, text=True, check=False
-        )
+        p = subprocess.run(("git", *args), cwd=root, capture_output=True, text=True, check=False)
         return p.returncode, p.stdout.strip()
 
     rc, dirty = git_out("status", "--porcelain")
@@ -252,7 +250,11 @@ def check_git(root: Path = ROOT) -> list[Finding]:
 
     rc, branch = git_out("rev-parse", "--abbrev-ref", "HEAD")
     if rc != 0 or branch in ("HEAD", ""):
-        findings.append(Finding("G2 分支新鲜度", "git rev-parse", "无法解析当前分支名，禁止在 detached HEAD 上合并"))
+        findings.append(
+            Finding(
+                "G2 分支新鲜度", "git rev-parse", "无法解析当前分支名，禁止在 detached HEAD 上合并"
+            )
+        )
         return findings
 
     # 远端引用必须存在：缺失时 fail-closed，不静默当作「不落后」。
@@ -301,8 +303,11 @@ def check_git(root: Path = ROOT) -> list[Finding]:
 # 判据逻辑保持纯函数式——「证据不足」与「证据表明不一致」必须能被分别证明。
 def _real_fetch(root: Path) -> tuple[int, str]:
     p = subprocess.run(
-        ("git", "fetch", "origin", "main"), cwd=root,
-        capture_output=True, text=True, check=False,
+        ("git", "fetch", "origin", "main"),
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     return p.returncode, (p.stderr + p.stdout).strip()
 
@@ -311,15 +316,21 @@ def _real_api_sha(root: Path) -> tuple[int, str]:
     """从 GitHub API 读远端 main 的真实 SHA（权威事实源，非本地跟踪引用）。"""
     p = subprocess.run(
         ("gh", "api", "repos/{owner}/{repo}/git/ref/heads/main", "--jq", ".object.sha"),
-        cwd=root, capture_output=True, text=True, check=False,
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     return p.returncode, p.stdout.strip()
 
 
 def _real_cat_file(root: Path, sha: str) -> tuple[int, str]:
     p = subprocess.run(
-        ("git", "cat-file", "-p", sha), cwd=root,
-        capture_output=True, text=True, check=False,
+        ("git", "cat-file", "-p", sha),
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     return p.returncode, p.stdout
 
@@ -370,9 +381,7 @@ def check_remote_baseline(
         return findings
 
     def git_out(*args: str) -> tuple[int, str]:
-        p = subprocess.run(
-            ("git", *args), cwd=root, capture_output=True, text=True, check=False
-        )
+        p = subprocess.run(("git", *args), cwd=root, capture_output=True, text=True, check=False)
         return p.returncode, p.stdout.strip()
 
     rc_api, api_main = api_sha(root)
@@ -430,9 +439,7 @@ def check_remote_baseline(
         lines = raw.splitlines()
         has_tree = any(ln.startswith("tree ") and len(ln.split()) == 2 for ln in lines)
         parents = [
-            ln.split()[1]
-            for ln in lines
-            if ln.startswith("parent ") and len(ln.split()) == 2
+            ln.split()[1] for ln in lines if ln.startswith("parent ") and len(ln.split()) == 2
         ]
         bad_parent = [p for p in parents if not _is_hex_sha(p)]
         if not has_tree or bad_parent:
@@ -526,9 +533,11 @@ def main() -> int:
         return 2
 
     mode = "静态派生" + (" + git" if args.git else "") + (" + 静态与契约检查" if args.full else "")
-    print(f"[PASS] 合并前自检通过（{mode}）：字典重复键 0 / 同名顶层定义 0 / 覆盖面防呆 OK"
-          + (" / git 前置 OK" if args.git else "")
-          + (" / 静态与契约检查全绿（pytest/DB/镜像仍以 CI 为准）" if args.full else ""))
+    print(
+        f"[PASS] 合并前自检通过（{mode}）：字典重复键 0 / 同名顶层定义 0 / 覆盖面防呆 OK"
+        + (" / git 前置 OK" if args.git else "")
+        + (" / 静态与契约检查全绿（pytest/DB/镜像仍以 CI 为准）" if args.full else "")
+    )
     return 0
 
 

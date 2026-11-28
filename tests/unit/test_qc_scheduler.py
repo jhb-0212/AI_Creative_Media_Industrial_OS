@@ -69,9 +69,7 @@ async def test_discovery_failure_blocks_instead_of_claiming() -> None:
     scheduler = TenantScheduler(discovery=_Discovery(None), worker=worker)
 
     outcome = await scheduler.run_once()
-    assert outcome.blocked is True, (
-        "发现失败必须与「空闲」分开：共用一个返回值，调用方只能误读"
-    )
+    assert outcome.blocked is True, "发现失败必须与「空闲」分开：共用一个返回值，调用方只能误读"
     assert outcome.busy is False and outcome.tenant_errors == 0
     assert worker.processed == [], "发现失败时不得领取：那会把停摆伪装成空队列"
     assert worker.swept == []
@@ -96,17 +94,14 @@ async def test_empty_discovery_is_a_clean_idle_cycle() -> None:
 async def test_one_broken_tenant_does_not_starve_the_others() -> None:
     broken, healthy = uuid.uuid4(), uuid.uuid4()
     worker = _Worker(busy=True, fail_for={broken})
-    scheduler = TenantScheduler(
-        discovery=_Discovery([broken, healthy]), worker=worker
-    )
+    scheduler = TenantScheduler(discovery=_Discovery([broken, healthy]), worker=worker)
 
     outcome = await scheduler.run_once()
 
     assert outcome.tenant_errors == 1, "部分失败必须作为 degraded 上报"
     assert outcome.busy is True, "健康租户仍应被调度"
     assert worker.processed == [broken, healthy], (
-        "坏租户排在前面也不能挡住后面的租户：逐租户隔离正是为了不让一处失败"
-        "冻结整批"
+        "坏租户排在前面也不能挡住后面的租户：逐租户隔离正是为了不让一处失败冻结整批"
     )
 
 
@@ -119,8 +114,7 @@ async def test_all_tenants_failing_is_degraded_not_idle() -> None:
 
     assert outcome.busy is False
     assert outcome.degraded is True, (
-        "全部租户都失败时 busy=False；若不看 tenant_errors，一轮全败会被读成"
-        "「队列空闲」"
+        "全部租户都失败时 busy=False；若不看 tenant_errors，一轮全败会被读成「队列空闲」"
     )
 
 

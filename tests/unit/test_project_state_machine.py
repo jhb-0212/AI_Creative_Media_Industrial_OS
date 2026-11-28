@@ -50,9 +50,7 @@ def test_all_unregistered_transitions_denied() -> None:
         for tgt in ALL_STATES:
             if tgt in EXPECTED_TRANSITIONS[src]:
                 continue
-            assert not can_transition(src, tgt), (
-                f"{src.value} -> {tgt.value} 应被拒绝"
-            )
+            assert not can_transition(src, tgt), f"{src.value} -> {tgt.value} 应被拒绝"
 
 
 def test_archived_is_terminal_and_cannot_revive() -> None:

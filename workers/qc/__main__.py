@@ -108,9 +108,7 @@ def _make_scope(sessionmaker: Any, report_lookup: Any | None = None) -> Any:
     return scope
 
 
-def _make_tenant_scope(
-    sessionmaker: Any, report_lookup: Any | None = None
-) -> Any:
+def _make_tenant_scope(sessionmaker: Any, report_lookup: Any | None = None) -> Any:
     """按租户打开的作用域：先注入 RLS 租户上下文，再交出同一套服务/仓储。
 
     为什么必须在**这里**注入：调度发现只给出租户 id，读 ``qc_tasks`` 仍要过
@@ -180,9 +178,7 @@ def _make_report_lookup(asset_sessionmaker: Any) -> Any:
             # ``qc_reports`` 的组织面约束经 ``EXISTS(asset_versions) →
             # EXISTS(projects)`` 传递；组织来自任务事实行，不注入就一律读不到。
             await set_organization_context(session, organization_id)
-            return await build_report_lookup(session)(
-                qc_report_id, tenant_id, organization_id
-            )
+            return await build_report_lookup(session)(qc_report_id, tenant_id, organization_id)
 
     return lookup
 
@@ -209,9 +205,7 @@ def _build_worker(
     )
 
 
-async def _run_cycle(
-    scheduler: TenantScheduler, args: argparse.Namespace
-) -> CycleOutcome:
+async def _run_cycle(scheduler: TenantScheduler, args: argparse.Namespace) -> CycleOutcome:
     """一轮调度：``blocked`` / ``busy`` / ``tenant_errors`` 三个维度分开上报。
 
     ``--sweep`` 也走租户委派：回收「过期租约」必须知道在哪些租户里找，而这份
@@ -221,9 +215,7 @@ async def _run_cycle(
     if args.sweep:
         reclaimed = await scheduler.sweep()
         if reclaimed is None:
-            logger.error(
-                "tenant discovery unavailable: sweep skipped, not a clean queue"
-            )
+            logger.error("tenant discovery unavailable: sweep skipped, not a clean queue")
             return CycleOutcome(blocked=True)
         logger.info("reclaimed %d expired QC lease(s)", reclaimed)
         return CycleOutcome()
@@ -255,8 +247,7 @@ async def _main(argv: list[str] | None = None) -> int:
         storage_root = getattr(settings, "storage_local_root", "")
         if not storage_root:
             raise ValueError(
-                "启用真实 QC 检测器但 STORAGE_LOCAL_ROOT 为空："
-                "检测器无法按定位符读回产物，拒绝启动"
+                "启用真实 QC 检测器但 STORAGE_LOCAL_ROOT 为空：检测器无法按定位符读回产物，拒绝启动"
             )
         storage = LocalFsObjectStorage(
             storage_root,

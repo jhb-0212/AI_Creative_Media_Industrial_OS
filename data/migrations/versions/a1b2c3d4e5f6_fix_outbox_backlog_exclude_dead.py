@@ -85,12 +85,9 @@ def upgrade() -> None:
     # 返回类型变更必须 DROP 后重建，CREATE OR REPLACE 无法改返回类型。
     op.execute(f"DROP FUNCTION IF EXISTS {OUTBOX_SCHEMA}.list_active_tenants()")
     op.execute(_CREATE_FUNCTION)
+    op.execute(f"REVOKE ALL ON FUNCTION {OUTBOX_SCHEMA}.list_active_tenants() FROM PUBLIC")
     op.execute(
-        f"REVOKE ALL ON FUNCTION {OUTBOX_SCHEMA}.list_active_tenants() FROM PUBLIC"
-    )
-    op.execute(
-        f"GRANT EXECUTE ON FUNCTION {OUTBOX_SCHEMA}.list_active_tenants() "
-        f"TO {app_role_name()}"
+        f"GRANT EXECUTE ON FUNCTION {OUTBOX_SCHEMA}.list_active_tenants() TO {app_role_name()}"
     )
 
 
@@ -117,10 +114,7 @@ def downgrade() -> None:
         $fn$
         """
     )
+    op.execute(f"REVOKE ALL ON FUNCTION {OUTBOX_SCHEMA}.list_active_tenants() FROM PUBLIC")
     op.execute(
-        f"REVOKE ALL ON FUNCTION {OUTBOX_SCHEMA}.list_active_tenants() FROM PUBLIC"
-    )
-    op.execute(
-        f"GRANT EXECUTE ON FUNCTION {OUTBOX_SCHEMA}.list_active_tenants() "
-        f"TO {app_role_name()}"
+        f"GRANT EXECUTE ON FUNCTION {OUTBOX_SCHEMA}.list_active_tenants() TO {app_role_name()}"
     )

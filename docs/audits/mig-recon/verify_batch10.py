@@ -95,7 +95,7 @@ async def insert_full_row(c: asyncpg.Connection, entity_id: str) -> str:
         "'d', 'n', '[]'::jsonb, 'loc', '[]'::jsonb, "
         "'NOT_APPLICABLE', 'L1', '{\"level\": \"LOW\"}'::jsonb, "
         "'UNIFIED_HIGH_QUALITY', "
-        "'{\"intent_id\": \"i\", \"intent_version\": 1}'::jsonb, "
+        '\'{"intent_id": "i", "intent_version": 1}\'::jsonb, '
         "'sr-base', '[\"EP001:1\"]'::jsonb, '[]'::jsonb, 'MANUAL_EDIT', "
         "'[]'::jsonb, '{}'::jsonb, 'director', now(), 1"
     )
@@ -126,12 +126,15 @@ async def main() -> int:
 
             # B2 NOT NULL 与 nullable 双向比对
             nullable = {
-                "basis_script_revision_id", "constraint_pack_id", "source_draft_ref",
-                "supersedes_shot_revision_id", "change_summary", "audit_ref",
+                "basis_script_revision_id",
+                "constraint_pack_id",
+                "source_draft_ref",
+                "supersedes_shot_revision_id",
+                "change_summary",
+                "audit_ref",
             }
             wrong = [
-                name for name in want
-                if (cols[name]["is_nullable"] == "YES") != (name in nullable)
+                name for name in want if (cols[name]["is_nullable"] == "YES") != (name in nullable)
             ]
             record(
                 "B2",
@@ -161,12 +164,11 @@ async def main() -> int:
                 f"change_summary, provenance, basis_script_revision_id "
                 f"FROM {TABLE} WHERE entity_id='rev-gt-mismatch'"
             )
-            legacy_basis_is_null = (
-                legacy is not None and legacy["basis_script_revision_id"] is None
-            )
+            legacy_basis_is_null = legacy is not None and legacy["basis_script_revision_id"] is None
             ok = (
                 legacy is not None
-                and legacy["description"] == "placeholder shot created so that generation_tasks.gt-mismatch has a real referent"
+                and legacy["description"]
+                == "placeholder shot created so that generation_tasks.gt-mismatch has a real referent"
                 and legacy["narrative_intent"] == "backfill parent for gt-mismatch"
                 and legacy["revision_no"] == 1
                 and legacy["confirmed_by"] == "LEGACY_BACKFILL"
@@ -194,8 +196,7 @@ async def main() -> int:
             rejected = False
             try:
                 await c.execute(
-                    f"UPDATE {TABLE} SET creative_autonomy='L9' "
-                    "WHERE entity_id='shot-b10-bad-enum'"
+                    f"UPDATE {TABLE} SET creative_autonomy='L9' WHERE entity_id='shot-b10-bad-enum'"
                 )
             except asyncpg.CheckViolationError as exc:
                 rejected = "ck_sr_creative_autonomy" in str(exc)
@@ -229,9 +230,7 @@ async def main() -> int:
 
             # B7 正向写入（影响行数 + 回读）
             tag = await insert_full_row(c, "shot-b10-ok")
-            rows = await c.fetchval(
-                f"SELECT count(*) FROM {TABLE} WHERE entity_id='shot-b10-ok'"
-            )
+            rows = await c.fetchval(f"SELECT count(*) FROM {TABLE} WHERE entity_id='shot-b10-ok'")
             value = await c.fetchval(
                 f"SELECT description FROM {TABLE} WHERE entity_id='shot-b10-ok'"
             )
@@ -254,8 +253,7 @@ async def main() -> int:
             except asyncpg.CheckViolationError as exc:
                 basis_rejected = "ck_sr_basis_script" in str(exc)
             basis_readback = await c.fetchval(
-                f"SELECT basis_script_revision_id FROM {TABLE} "
-                "WHERE entity_id='shot-b10-basis'"
+                f"SELECT basis_script_revision_id FROM {TABLE} WHERE entity_id='shot-b10-basis'"
             )
             record(
                 "B9",

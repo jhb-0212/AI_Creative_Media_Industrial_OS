@@ -93,14 +93,10 @@ def test_retirement_migration_does_not_manage_identity_lifecycle() -> None:
     不 ``ALTER ROLE``、不写口令，也不调用恢复入口（恢复不再是降级路径的一部分）。
     """
     code = _migration_code_only()
-    assert "restore_retired_role(" not in code, (
-        "降级不得重建已退役身份：恢复只能走受控身份治理流程"
-    )
+    assert "restore_retired_role(" not in code, "降级不得重建已退役身份：恢复只能走受控身份治理流程"
     for forbidden in ("DROP ROLE", "CREATE ROLE", "ALTER ROLE", "PASSWORD '"):
         assert forbidden not in code, f"迁移不得执行身份生命周期 DDL：{forbidden}"
-    assert "retired_roles_by_name(" in code, (
-        "退役边界必须从声明层取（RETIRED_ROLES），不能凭空假设"
-    )
+    assert "retired_roles_by_name(" in code, "退役边界必须从声明层取（RETIRED_ROLES），不能凭空假设"
 
 
 def test_retirement_tool_is_the_execution_entry() -> None:
@@ -110,7 +106,6 @@ def test_retirement_tool_is_the_execution_entry() -> None:
     assert "--retired" in source
     assert "retired_role_names()" in source, "目标必须读 RETIRED_ROLES，不另存清单"
     assert "RETIREMENT_EXECUTED" in source, "执行结果必须与 RETIRED 状态分开记录"
-
 
 
 def test_restore_requires_explicit_authorization(monkeypatch: pytest.MonkeyPatch) -> None:

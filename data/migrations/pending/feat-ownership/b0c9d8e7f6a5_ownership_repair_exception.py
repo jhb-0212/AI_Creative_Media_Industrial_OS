@@ -46,25 +46,25 @@ MAP_TABLE = "project_planning.ownership_repair_map"
 
 # 生成顺序即执行顺序（与校验脚本的期望顺序一致）
 GUARD_ORDER: tuple[str, ...] = (
-    'asset_service.asset_versions',
-    'asset_service.delivery_manifests',
-    'asset_service.qc_reports',
-    'generation_execution.generation_tasks',
-    'generation_execution.production_routes',
-    'generation_execution.shot_route_selections',
-    'qc_governance.gate_decisions',
-    'qc_governance.qc_review_sessions',
-    'shot_planning.constraint_packs',
-    'shot_planning.shot_specs',
-    'shot_planning.shot_visual_plans',
-    'workflow.approval_flows',
-    'workflow.approval_steps',
+    "asset_service.asset_versions",
+    "asset_service.delivery_manifests",
+    "asset_service.qc_reports",
+    "generation_execution.generation_tasks",
+    "generation_execution.production_routes",
+    "generation_execution.shot_route_selections",
+    "qc_governance.gate_decisions",
+    "qc_governance.qc_review_sessions",
+    "shot_planning.constraint_packs",
+    "shot_planning.shot_specs",
+    "shot_planning.shot_visual_plans",
+    "workflow.approval_flows",
+    "workflow.approval_steps",
 )
 
 # 原文（导出时刻的真实定义，逐字保留）：downgrade 用这一份
 GUARD_ORIGINAL: dict[str, str] = {
     # asset_service.asset_versions  行标识=entity_id
-    'asset_service.asset_versions': r'''CREATE OR REPLACE FUNCTION asset_service.asset_versions_guard()
+    "asset_service.asset_versions": r"""CREATE OR REPLACE FUNCTION asset_service.asset_versions_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -115,9 +115,9 @@ BEGIN
 
     RETURN NEW;
 END;
-$function$''',
+$function$""",
     # asset_service.delivery_manifests  行标识=entity_id
-    'asset_service.delivery_manifests': r'''CREATE OR REPLACE FUNCTION asset_service.delivery_manifests_guard()
+    "asset_service.delivery_manifests": r"""CREATE OR REPLACE FUNCTION asset_service.delivery_manifests_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -163,9 +163,9 @@ BEGIN
 
     RETURN NEW;
 END;
-$function$''',
+$function$""",
     # asset_service.qc_reports  行标识=qc_report_id
-    'asset_service.qc_reports': r'''CREATE OR REPLACE FUNCTION asset_service.qc_reports_guard()
+    "asset_service.qc_reports": r"""CREATE OR REPLACE FUNCTION asset_service.qc_reports_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -173,9 +173,9 @@ BEGIN
     RAISE EXCEPTION
         'qc_reports 是追加型检测证据，禁止 %（ADR-R11）', TG_OP;
 END;
-$function$''',
+$function$""",
     # generation_execution.generation_tasks  行标识=entity_id
-    'generation_execution.generation_tasks': r'''CREATE OR REPLACE FUNCTION generation_execution.generation_tasks_guard()
+    "generation_execution.generation_tasks": r"""CREATE OR REPLACE FUNCTION generation_execution.generation_tasks_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -223,9 +223,9 @@ AS $function$
 
             RETURN NEW;
         END;
-        $function$''',
+        $function$""",
     # generation_execution.production_routes  行标识=entity_id
-    'generation_execution.production_routes': r'''CREATE OR REPLACE FUNCTION generation_execution.production_routes_guard()
+    "generation_execution.production_routes": r"""CREATE OR REPLACE FUNCTION generation_execution.production_routes_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -273,9 +273,9 @@ AS $function$
 
             RETURN NEW;
         END;
-        $function$''',
+        $function$""",
     # generation_execution.shot_route_selections  行标识=entity_id
-    'generation_execution.shot_route_selections': r'''CREATE OR REPLACE FUNCTION generation_execution.shot_route_selections_guard()
+    "generation_execution.shot_route_selections": r"""CREATE OR REPLACE FUNCTION generation_execution.shot_route_selections_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -288,9 +288,9 @@ AS $function$
                 'generation_execution.shot_route_selections 为受理事实（生效路线），禁止改写'
                 '（单一路线生成，V205-R14-A9）';
         END;
-        $function$''',
+        $function$""",
     # qc_governance.gate_decisions  行标识=entity_id
-    'qc_governance.gate_decisions': r'''CREATE OR REPLACE FUNCTION qc_governance.gate_decisions_guard()
+    "qc_governance.gate_decisions": r"""CREATE OR REPLACE FUNCTION qc_governance.gate_decisions_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -299,9 +299,9 @@ BEGIN
         'gate_decisions 是 append-only Gate 裁决事实，禁止 % （裁决不可改写，'
         '修正须新建一条裁决并附新证据）', TG_OP;
 END;
-$function$''',
+$function$""",
     # qc_governance.qc_review_sessions  行标识=entity_id
-    'qc_governance.qc_review_sessions': r'''CREATE OR REPLACE FUNCTION qc_governance.qc_review_sessions_guard()
+    "qc_governance.qc_review_sessions": r"""CREATE OR REPLACE FUNCTION qc_governance.qc_review_sessions_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -375,9 +375,9 @@ AS $function$
 
             RETURN NEW;
         END;
-        $function$''',
+        $function$""",
     # shot_planning.constraint_packs  行标识=entity_id
-    'shot_planning.constraint_packs': r'''CREATE OR REPLACE FUNCTION shot_planning.constraint_packs_guard()
+    "shot_planning.constraint_packs": r"""CREATE OR REPLACE FUNCTION shot_planning.constraint_packs_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -426,9 +426,9 @@ AS $function$
 
             RETURN NEW;
         END;
-        $function$''',
+        $function$""",
     # shot_planning.shot_specs  行标识=entity_id
-    'shot_planning.shot_specs': r'''CREATE OR REPLACE FUNCTION shot_planning.shot_specs_guard()
+    "shot_planning.shot_specs": r"""CREATE OR REPLACE FUNCTION shot_planning.shot_specs_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -466,9 +466,9 @@ AS $function$
 
             RETURN NEW;
         END;
-        $function$''',
+        $function$""",
     # shot_planning.shot_visual_plans  行标识=entity_id
-    'shot_planning.shot_visual_plans': r'''CREATE OR REPLACE FUNCTION shot_planning.shot_visual_plans_guard()
+    "shot_planning.shot_visual_plans": r"""CREATE OR REPLACE FUNCTION shot_planning.shot_visual_plans_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -517,9 +517,9 @@ AS $function$
 
             RETURN NEW;
         END;
-        $function$''',
+        $function$""",
     # workflow.approval_flows  行标识=entity_id
-    'workflow.approval_flows': r'''CREATE OR REPLACE FUNCTION workflow.approval_flows_guard()
+    "workflow.approval_flows": r"""CREATE OR REPLACE FUNCTION workflow.approval_flows_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -527,9 +527,9 @@ AS $function$
         RAISE EXCEPTION
             'approval_flows 是 append-only 审批事实，禁止 %（修正须追加新事实）', TG_OP;
     END;
-    $function$''',
+    $function$""",
     # workflow.approval_steps  行标识=entity_id
-    'workflow.approval_steps': r'''CREATE OR REPLACE FUNCTION workflow.approval_steps_guard()
+    "workflow.approval_steps": r"""CREATE OR REPLACE FUNCTION workflow.approval_steps_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -537,13 +537,13 @@ AS $function$
         RAISE EXCEPTION
             'approval_steps 是 append-only 审批事实，禁止 %（修正须追加新事实）', TG_OP;
     END;
-    $function$''',
+    $function$""",
 }
 
 # 注入接入点后的完整语句（upgrade 用这一份，生成时已逐字校验）
 GUARD_PATCHED: dict[str, str] = {
     # asset_service.asset_versions  行标识=entity_id
-    'asset_service.asset_versions': r'''CREATE OR REPLACE FUNCTION asset_service.asset_versions_guard()
+    "asset_service.asset_versions": r"""CREATE OR REPLACE FUNCTION asset_service.asset_versions_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -606,9 +606,9 @@ BEGIN
 
     RETURN NEW;
 END;
-$function$''',
+$function$""",
     # asset_service.delivery_manifests  行标识=entity_id
-    'asset_service.delivery_manifests': r'''CREATE OR REPLACE FUNCTION asset_service.delivery_manifests_guard()
+    "asset_service.delivery_manifests": r"""CREATE OR REPLACE FUNCTION asset_service.delivery_manifests_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -666,9 +666,9 @@ BEGIN
 
     RETURN NEW;
 END;
-$function$''',
+$function$""",
     # asset_service.qc_reports  行标识=qc_report_id
-    'asset_service.qc_reports': r'''CREATE OR REPLACE FUNCTION asset_service.qc_reports_guard()
+    "asset_service.qc_reports": r"""CREATE OR REPLACE FUNCTION asset_service.qc_reports_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -688,9 +688,9 @@ BEGIN
     RAISE EXCEPTION
         'qc_reports 是追加型检测证据，禁止 %（ADR-R11）', TG_OP;
 END;
-$function$''',
+$function$""",
     # generation_execution.generation_tasks  行标识=entity_id
-    'generation_execution.generation_tasks': r'''CREATE OR REPLACE FUNCTION generation_execution.generation_tasks_guard()
+    "generation_execution.generation_tasks": r"""CREATE OR REPLACE FUNCTION generation_execution.generation_tasks_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -750,9 +750,9 @@ AS $function$
 
             RETURN NEW;
         END;
-        $function$''',
+        $function$""",
     # generation_execution.production_routes  行标识=entity_id
-    'generation_execution.production_routes': r'''CREATE OR REPLACE FUNCTION generation_execution.production_routes_guard()
+    "generation_execution.production_routes": r"""CREATE OR REPLACE FUNCTION generation_execution.production_routes_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -812,9 +812,9 @@ AS $function$
 
             RETURN NEW;
         END;
-        $function$''',
+        $function$""",
     # generation_execution.shot_route_selections  行标识=entity_id
-    'generation_execution.shot_route_selections': r'''CREATE OR REPLACE FUNCTION generation_execution.shot_route_selections_guard()
+    "generation_execution.shot_route_selections": r"""CREATE OR REPLACE FUNCTION generation_execution.shot_route_selections_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -839,9 +839,9 @@ AS $function$
                 'generation_execution.shot_route_selections 为受理事实（生效路线），禁止改写'
                 '（单一路线生成，V205-R14-A9）';
         END;
-        $function$''',
+        $function$""",
     # qc_governance.gate_decisions  行标识=entity_id
-    'qc_governance.gate_decisions': r'''CREATE OR REPLACE FUNCTION qc_governance.gate_decisions_guard()
+    "qc_governance.gate_decisions": r"""CREATE OR REPLACE FUNCTION qc_governance.gate_decisions_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -862,9 +862,9 @@ BEGIN
         'gate_decisions 是 append-only Gate 裁决事实，禁止 % （裁决不可改写，'
         '修正须新建一条裁决并附新证据）', TG_OP;
 END;
-$function$''',
+$function$""",
     # qc_governance.qc_review_sessions  行标识=entity_id
-    'qc_governance.qc_review_sessions': r'''CREATE OR REPLACE FUNCTION qc_governance.qc_review_sessions_guard()
+    "qc_governance.qc_review_sessions": r"""CREATE OR REPLACE FUNCTION qc_governance.qc_review_sessions_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -950,9 +950,9 @@ AS $function$
 
             RETURN NEW;
         END;
-        $function$''',
+        $function$""",
     # shot_planning.constraint_packs  行标识=entity_id
-    'shot_planning.constraint_packs': r'''CREATE OR REPLACE FUNCTION shot_planning.constraint_packs_guard()
+    "shot_planning.constraint_packs": r"""CREATE OR REPLACE FUNCTION shot_planning.constraint_packs_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -1013,9 +1013,9 @@ AS $function$
 
             RETURN NEW;
         END;
-        $function$''',
+        $function$""",
     # shot_planning.shot_specs  行标识=entity_id
-    'shot_planning.shot_specs': r'''CREATE OR REPLACE FUNCTION shot_planning.shot_specs_guard()
+    "shot_planning.shot_specs": r"""CREATE OR REPLACE FUNCTION shot_planning.shot_specs_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -1065,9 +1065,9 @@ AS $function$
 
             RETURN NEW;
         END;
-        $function$''',
+        $function$""",
     # shot_planning.shot_visual_plans  行标识=entity_id
-    'shot_planning.shot_visual_plans': r'''CREATE OR REPLACE FUNCTION shot_planning.shot_visual_plans_guard()
+    "shot_planning.shot_visual_plans": r"""CREATE OR REPLACE FUNCTION shot_planning.shot_visual_plans_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -1128,9 +1128,9 @@ AS $function$
 
             RETURN NEW;
         END;
-        $function$''',
+        $function$""",
     # workflow.approval_flows  行标识=entity_id
-    'workflow.approval_flows': r'''CREATE OR REPLACE FUNCTION workflow.approval_flows_guard()
+    "workflow.approval_flows": r"""CREATE OR REPLACE FUNCTION workflow.approval_flows_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -1150,9 +1150,9 @@ AS $function$
         RAISE EXCEPTION
             'approval_flows 是 append-only 审批事实，禁止 %（修正须追加新事实）', TG_OP;
     END;
-    $function$''',
+    $function$""",
     # workflow.approval_steps  行标识=entity_id
-    'workflow.approval_steps': r'''CREATE OR REPLACE FUNCTION workflow.approval_steps_guard()
+    "workflow.approval_steps": r"""CREATE OR REPLACE FUNCTION workflow.approval_steps_guard()
  RETURNS trigger
  LANGUAGE plpgsql
 AS $function$
@@ -1172,7 +1172,7 @@ AS $function$
         RAISE EXCEPTION
             'approval_steps 是 append-only 审批事实，禁止 %（修正须追加新事实）', TG_OP;
     END;
-    $function$''',
+    $function$""",
 }
 
 # ---------------------------------------------------------------------------
@@ -1402,8 +1402,7 @@ def downgrade_sqls() -> list[str]:
         "project_planning.ownership_repair_allows(regclass,jsonb,jsonb,text)"
     )
     sqls.append(
-        "DROP FUNCTION IF EXISTS "
-        "project_planning.ownership_repair_map_match(text,text,text)"
+        "DROP FUNCTION IF EXISTS project_planning.ownership_repair_map_match(text,text,text)"
     )
     sqls.append("DROP TABLE IF EXISTS project_planning.ownership_repair_map")
     # 角色不删：PostgreSQL 角色是集群级对象，其他库可能已依赖；删角色会引发
@@ -1419,4 +1418,3 @@ def upgrade() -> None:
 def downgrade() -> None:
     for sql in downgrade_sqls():
         op.execute(sql)
-

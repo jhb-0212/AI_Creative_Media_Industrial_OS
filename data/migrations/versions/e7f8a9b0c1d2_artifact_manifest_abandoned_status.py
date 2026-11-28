@@ -72,11 +72,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     abandoned = (
         op.get_bind()
-        .execute(
-            sa.text(
-                f"SELECT count(*) FROM {_SCHEMA}.{_TABLE} WHERE status = 'ABANDONED'"
-            )
-        )
+        .execute(sa.text(f"SELECT count(*) FROM {_SCHEMA}.{_TABLE} WHERE status = 'ABANDONED'"))
         .scalar_one()
     )
     if abandoned:

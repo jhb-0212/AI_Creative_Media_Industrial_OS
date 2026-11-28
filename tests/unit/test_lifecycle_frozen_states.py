@@ -190,9 +190,7 @@ def test_project_freeze_does_not_swallow_draft_or_active() -> None:
         ProjectStatus.ON_HOLD,
     ):
         assert PROJECT_LIFECYCLE.is_frozen(status) is False
-        PROJECT_LIFECYCLE.assert_child_creation_allowed(
-            status, child_object="Episode"
-        )
+        PROJECT_LIFECYCLE.assert_child_creation_allowed(status, child_object="Episode")
 
 
 def test_episode_actions_are_the_declared_owner() -> None:
@@ -201,6 +199,9 @@ def test_episode_actions_are_the_declared_owner() -> None:
         EpisodeStatus.DRAFT, EpisodeStatus.ACTIVE, EPISODE_STATUS_CHANGE_ACTION
     )
     assert edge.owner_action == EPISODE_STATUS_CHANGE_ACTION
-    assert PROJECT_LIFECYCLE.edge_owned_by(
-        ProjectStatus.ACTIVE, ProjectStatus.COMPLETED, PROJECT_STATUS_CHANGE_ACTION
-    ).owner_action == PROJECT_STATUS_CHANGE_ACTION
+    assert (
+        PROJECT_LIFECYCLE.edge_owned_by(
+            ProjectStatus.ACTIVE, ProjectStatus.COMPLETED, PROJECT_STATUS_CHANGE_ACTION
+        ).owner_action
+        == PROJECT_STATUS_CHANGE_ACTION
+    )

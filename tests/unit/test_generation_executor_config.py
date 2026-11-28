@@ -87,8 +87,6 @@ def test_s3_backend_is_rejected_rather_than_silently_local(tmp_path) -> None:
 
 async def test_gateway_is_closable(tmp_path) -> None:
     """装配出来的网关必须能被关闭，否则 Worker 退出时连接池泄漏。"""
-    _executor, gateway = _wire_executor(
-        _settings(storage_local_root=str(tmp_path / "objects"))
-    )
+    _executor, gateway = _wire_executor(_settings(storage_local_root=str(tmp_path / "objects")))
     assert gateway is not None
     await gateway.aclose()

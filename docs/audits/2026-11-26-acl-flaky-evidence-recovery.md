@@ -150,9 +150,7 @@
 原用例的判据是：
 
 ```python
-assert granted == expected, (
-    f"{table} 授权口径不符：实际 {sorted(granted)}，期望 {sorted(expected)}"
-)
+assert granted == expected, f"{table} 授权口径不符：实际 {sorted(granted)}，期望 {sorted(expected)}"
 ```
 
 只有正文里的 `实际 [...]` 才能区分三种成因，而三者指向完全不同的整改方向：

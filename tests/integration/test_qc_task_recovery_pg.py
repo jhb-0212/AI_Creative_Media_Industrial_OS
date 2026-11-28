@@ -107,14 +107,8 @@ async def _seed_task(
                 "task_id": task_id,
                 "pid": project_id,
                 # 显式传空串表示「终态但没有产物引用」，不能被 or 兜底吃掉。
-                "asset": (
-                    f"asset-{run}" if asset_version_id is None else asset_version_id
-                ),
-                "qp": (
-                    "qp-v1"
-                    if quality_profile_version is None
-                    else quality_profile_version
-                ),
+                "asset": (f"asset-{run}" if asset_version_id is None else asset_version_id),
+                "qp": ("qp-v1" if quality_profile_version is None else quality_profile_version),
             },
         )
     return {"project_id": project_id, "generation_task_id": task_id}
@@ -433,9 +427,7 @@ async def test_duplicate_generation_task_translates_to_port_error(
         )
 
     async with admin_sm() as session:
-        await SqlAlchemyQCTaskRepository(session).add(
-            _task(f"qc-first-{uuid.uuid4().hex[:8]}")
-        )
+        await SqlAlchemyQCTaskRepository(session).add(_task(f"qc-first-{uuid.uuid4().hex[:8]}"))
         await session.commit()
 
     async with admin_sm() as session:
@@ -444,6 +436,4 @@ async def test_duplicate_generation_task_translates_to_port_error(
                 _task(f"qc-second-{uuid.uuid4().hex[:8]}")
             )
         # SAVEPOINT 已回滚到冲突之前，同一会话仍能继续工作。
-        assert (
-            await session.execute(text("SELECT 1"))
-        ).scalar_one() == 1
+        assert (await session.execute(text("SELECT 1"))).scalar_one() == 1

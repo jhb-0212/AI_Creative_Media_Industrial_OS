@@ -275,9 +275,7 @@ class SqlAlchemyGenerationTaskRepository:
         model = result.scalar_one_or_none()
         return _task_to_domain(model) if model is not None else None
 
-    async def get_by_generation_task_id(
-        self, generation_task_id: str
-    ) -> GenerationTask | None:
+    async def get_by_generation_task_id(self, generation_task_id: str) -> GenerationTask | None:
         """按业务任务号读取（事件载荷使用业务号，不是随机 entity_id）。"""
         result = await self._session.execute(
             select(GenerationTaskModel).where(
@@ -355,9 +353,7 @@ class SqlAlchemyGenerationTaskRepository:
         model = result.scalar_one_or_none()
         return _orm_to_manifest(model) if model is not None else None
 
-    async def list_pending_prepared(
-        self, generation_task_id: str
-    ) -> list[ArtifactManifest]:
+    async def list_pending_prepared(self, generation_task_id: str) -> list[ArtifactManifest]:
         """PR-G：某任务所有未确认（PREPARED）的产物意图，按创建序稳定返回。
 
         恢复流程凭它决定「对象是否已落盘、要不要重新调用模型」。顺序显式

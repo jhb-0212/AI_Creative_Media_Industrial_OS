@@ -83,9 +83,7 @@ def _ops_password() -> str:
     settings = get_settings()
     password = settings.postgres_outbox_ops_password.get_secret_value()
     if not password:
-        raise RuntimeError(
-            "POSTGRES_OUTBOX_OPS_PASSWORD 未配置：拒绝以空口令创建运维角色"
-        )
+        raise RuntimeError("POSTGRES_OUTBOX_OPS_PASSWORD 未配置：拒绝以空口令创建运维角色")
     reject_development_default_password(
         settings, "postgres_outbox_ops_password", "POSTGRES_OUTBOX_OPS_PASSWORD"
     )
@@ -202,25 +200,13 @@ def downgrade() -> None:
     仍绿、CI 的 downgrade roundtrip 直接红（见 ``ops_partition_revoke_do_block``）。
     """
     role = infra_role(OUTBOX_OPS)
-    op.execute(
-        f"REVOKE ALL ON {_SCHEMA}.{_TABLE} FROM {role}"
-    )
+    op.execute(f"REVOKE ALL ON {_SCHEMA}.{_TABLE} FROM {role}")
     op.execute(ops_partition_revoke_do_block())
-    op.execute(
-        f"REVOKE ALL ON {_SCHEMA}.outbox_events FROM {role}"
-    )
-    op.execute(
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {_SCHEMA} "
-        f"REVOKE ALL ON TABLES FROM {role}"
-    )
-    op.execute(
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {_SCHEMA} "
-        f"REVOKE ALL ON SEQUENCES FROM {role}"
-    )
+    op.execute(f"REVOKE ALL ON {_SCHEMA}.outbox_events FROM {role}")
+    op.execute(f"ALTER DEFAULT PRIVILEGES IN SCHEMA {_SCHEMA} REVOKE ALL ON TABLES FROM {role}")
+    op.execute(f"ALTER DEFAULT PRIVILEGES IN SCHEMA {_SCHEMA} REVOKE ALL ON SEQUENCES FROM {role}")
     op.execute(f"REVOKE USAGE ON SCHEMA {_SCHEMA} FROM {role}")
-    op.execute(
-        f"DROP POLICY IF EXISTS tenant_isolation_{_TABLE} ON {_SCHEMA}.{_TABLE}"
-    )
+    op.execute(f"DROP POLICY IF EXISTS tenant_isolation_{_TABLE} ON {_SCHEMA}.{_TABLE}")
     op.execute(f"ALTER TABLE {_SCHEMA}.{_TABLE} DISABLE ROW LEVEL SECURITY")
     op.execute(f"DROP TRIGGER IF EXISTS trg_{_TABLE}_no_truncate ON {_SCHEMA}.{_TABLE}")
     op.execute(f"DROP TRIGGER IF EXISTS trg_{_TABLE}_no_mutation ON {_SCHEMA}.{_TABLE}")

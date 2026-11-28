@@ -45,9 +45,7 @@ from packages.shared.metrics import (
 )
 
 
-def _observe_backend_circuit(
-    state: CircuitState, previous: CircuitState | None
-) -> None:
+def _observe_backend_circuit(state: CircuitState, previous: CircuitState | None) -> None:
     """把限流后端熔断状态发布到限流专属 Gauge（不与 webhook 端点共用）。"""
     observe_circuit_state(
         RATE_LIMIT_CIRCUIT_STATE,
@@ -126,9 +124,7 @@ class RateLimiter:
         # 这里不增加 backend_errors：那个指标表示「真的尝试并失败了」，
         # 熔断期没有尝试，混进去会让「故障次数」失去意义。
         if self._breaker is not None and not self._breaker.allow():
-            return RateLimitDecision(
-                allowed=True, retry_after_seconds=0, degraded=True
-            )
+            return RateLimitDecision(allowed=True, retry_after_seconds=0, degraded=True)
 
         key = f"ratelimit:{identity}"
         try:
@@ -147,17 +143,13 @@ class RateLimiter:
             RATE_LIMIT_BACKEND_ERRORS.inc()
             if self._breaker is not None:
                 self._breaker.record_failure()
-            return RateLimitDecision(
-                allowed=True, retry_after_seconds=0, degraded=True
-            )
+            return RateLimitDecision(allowed=True, retry_after_seconds=0, degraded=True)
 
         if self._breaker is not None:
             self._breaker.record_success()
 
         if count > self._limit:
-            return RateLimitDecision(
-                allowed=False, retry_after_seconds=self._window_seconds
-            )
+            return RateLimitDecision(allowed=False, retry_after_seconds=self._window_seconds)
         return RateLimitDecision(allowed=True, retry_after_seconds=0)
 
     async def aclose(self) -> None:

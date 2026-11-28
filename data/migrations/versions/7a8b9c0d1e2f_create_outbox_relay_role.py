@@ -26,6 +26,7 @@ Revision ID: 7a8b9c0d1e2f
 Revises: 9f1a2b3c4d5e6
 Create Date: 2026-11-17
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -75,9 +76,7 @@ def _relay_password() -> str:
     settings = get_settings()
     password = settings.postgres_relay_password.get_secret_value()
     if not password:
-        raise RuntimeError(
-            "POSTGRES_RELAY_PASSWORD 未配置：拒绝以空口令创建 relay 角色"
-        )
+        raise RuntimeError("POSTGRES_RELAY_PASSWORD 未配置：拒绝以空口令创建 relay 角色")
     reject_development_default_password(
         settings, "postgres_relay_password", "POSTGRES_RELAY_PASSWORD"
     )
@@ -105,21 +104,14 @@ def upgrade() -> None:
     #    此处即按列授予，避免新库在 b9e1c2d3f4a5 之前存在越权窗口。
     columns = ", ".join(RELAY_UPDATE_COLUMNS)
     op.execute(f"GRANT SELECT ON {OUTBOX_SCHEMA}.outbox_events TO {relay_role}")
-    op.execute(
-        f"GRANT UPDATE ({columns}) ON {OUTBOX_SCHEMA}.outbox_events TO {relay_role}"
-    )
+    op.execute(f"GRANT UPDATE ({columns}) ON {OUTBOX_SCHEMA}.outbox_events TO {relay_role}")
 
     # 4. 序列权限（最小权限；relay 不插入新行，通常无需序列，但保留 USAGE
     #    以兼容未来可能的事件表结构演进）。
-    op.execute(
-        f"GRANT USAGE ON ALL SEQUENCES IN SCHEMA {OUTBOX_SCHEMA} TO {relay_role}"
-    )
+    op.execute(f"GRANT USAGE ON ALL SEQUENCES IN SCHEMA {OUTBOX_SCHEMA} TO {relay_role}")
 
     # 5. list_active_tenants() 函数执行权限（relay 领取前的租户枚举依赖它）。
-    op.execute(
-        f"GRANT EXECUTE ON FUNCTION {OUTBOX_SCHEMA}.list_active_tenants() "
-        f"TO {relay_role}"
-    )
+    op.execute(f"GRANT EXECUTE ON FUNCTION {OUTBOX_SCHEMA}.list_active_tenants() TO {relay_role}")
 
 
 def downgrade() -> None:
@@ -131,17 +123,11 @@ def downgrade() -> None:
     """
     relay_role = _relay_role()
     op.execute(
-        f"REVOKE EXECUTE ON FUNCTION {OUTBOX_SCHEMA}.list_active_tenants() "
-        f"FROM {relay_role}"
+        f"REVOKE EXECUTE ON FUNCTION {OUTBOX_SCHEMA}.list_active_tenants() FROM {relay_role}"
     )
+    op.execute(f"REVOKE ALL ON ALL SEQUENCES IN SCHEMA {OUTBOX_SCHEMA} FROM {relay_role}")
+    op.execute(f"REVOKE ALL ON {OUTBOX_SCHEMA}.outbox_events FROM {relay_role}")
     op.execute(
-        f"REVOKE ALL ON ALL SEQUENCES IN SCHEMA {OUTBOX_SCHEMA} FROM {relay_role}"
-    )
-    op.execute(
-        f"REVOKE ALL ON {OUTBOX_SCHEMA}.outbox_events FROM {relay_role}"
-    )
-    op.execute(
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {OUTBOX_SCHEMA} "
-        f"REVOKE ALL ON TABLES FROM {relay_role}"
+        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {OUTBOX_SCHEMA} REVOKE ALL ON TABLES FROM {relay_role}"
     )
     op.execute(f"REVOKE USAGE ON SCHEMA {OUTBOX_SCHEMA} FROM {relay_role}")

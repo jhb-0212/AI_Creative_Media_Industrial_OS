@@ -58,9 +58,7 @@ def test_ddl_inside_do_block_is_counted() -> None:
 
 
 def test_ddl_inside_execute_format_is_counted() -> None:
-    counts = classify_sql(
-        "EXECUTE format('GRANT %I TO %I', 'SELECT', 'app_role');"
-    )
+    counts = classify_sql("EXECUTE format('GRANT %I TO %I', 'SELECT', 'app_role');")
     assert counts["grant"] == 1
 
 
@@ -113,9 +111,7 @@ def test_drop_role_inside_conditional_do_block_is_counted() -> None:
 
 def test_grant_inside_policy_body_is_not_double_counted_as_statement() -> None:
     """策略表达式里不会出现 GRANT；出现时也只算策略，不该污染授权计数。"""
-    counts = classify_sql(
-        "CREATE POLICY p ON t USING (true);"
-    )
+    counts = classify_sql("CREATE POLICY p ON t USING (true);")
     assert counts["grant"] == 0
 
 

@@ -833,9 +833,7 @@ def test_baseline_self_reported_action_count_mismatch_detected(pack: FrozenPack)
 
     这正是副本写「83」的成因：回填 8 条修订、数了自己加的行，而真实是 75+9=84。
     """
-    pack.doc.write_text(
-        "# 基线正文\n当前共注册 99 项规范 action_key；\n", encoding="utf-8"
-    )
+    pack.doc.write_text("# 基线正文\n当前共注册 99 项规范 action_key；\n", encoding="utf-8")
     problems = fm.check_baseline_self_reported_counts(fm._load_yaml(pack.inventory))
     assert any("自述 action 数 99" in p for p in problems)
 

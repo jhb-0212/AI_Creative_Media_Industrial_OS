@@ -210,14 +210,10 @@ async def test_supersede_concurrent_idempotent_skip() -> None:
     )
     await repo.add(active)
     writer = _RecordingOutboxWriter()
-    service = ScriptService(
-        repo, _FakeProjectRepository(), _FakeEpisodeRepository(), writer
-    )
+    service = ScriptService(repo, _FakeProjectRepository(), _FakeEpisodeRepository(), writer)
 
     # 第一次取代成功：DRAFT -> SUPERSEDED，version 1 -> 2。
-    await service._supersede_active_version(
-        "proj_s", "EP001", "scr_new", _TENANT, actor="tester"
-    )
+    await service._supersede_active_version("proj_s", "EP001", "scr_new", _TENANT, actor="tester")
 
     fetched = await repo.get_by_id("scr_old")
     assert fetched is not None
@@ -229,9 +225,7 @@ async def test_supersede_concurrent_idempotent_skip() -> None:
 
     # 第二次取代（并发模拟）：此时活跃版本已是 SUPERSEDED，get_latest 应返回 None
     # （因为 status != SUPERSEDED 过滤），幂等跳过，不抛错。
-    await service._supersede_active_version(
-        "proj_s", "EP001", "scr_new2", _TENANT, actor="tester"
-    )
+    await service._supersede_active_version("proj_s", "EP001", "scr_new2", _TENANT, actor="tester")
 
 
 async def test_concurrent_modification_error_carries_code() -> None:

@@ -30,9 +30,7 @@ from services.project_planning.service.transition import advance_status
 class ProjectService:
     """项目创建与查询用例。"""
 
-    def __init__(
-        self, repository: ProjectRepository, outbox_writer: OutboxWriter
-    ) -> None:
+    def __init__(self, repository: ProjectRepository, outbox_writer: OutboxWriter) -> None:
         self._repository = repository
         self._outbox_writer = outbox_writer
 
@@ -74,9 +72,7 @@ class ProjectService:
         if entity_id is not None:
             existing = await self._repository.get_by_id(entity_id)
             if existing is not None:
-                _assert_same_request(
-                    existing, project_name, project_tier, organization_id
-                )
+                _assert_same_request(existing, project_name, project_tier, organization_id)
                 return existing
 
         project = Project(
@@ -102,18 +98,12 @@ class ProjectService:
         except DuplicateEntityError as exc:
             if entity_id is None:
                 # 无显式 id 时 UUID 冲突概率可忽略，仍转结构化内部错误。
-                raise DomainError(
-                    ErrorRegistry.INTERNAL_ERROR, detail="项目写入冲突"
-                ) from exc
+                raise DomainError(ErrorRegistry.INTERNAL_ERROR, detail="项目写入冲突") from exc
             existing = await self._repository.get_by_id(entity_id)
             if existing is not None:
-                _assert_same_request(
-                    existing, project_name, project_tier, organization_id
-                )
+                _assert_same_request(existing, project_name, project_tier, organization_id)
                 return existing
-            raise DomainError(
-                ErrorRegistry.INTERNAL_ERROR, detail="项目写入冲突"
-            ) from exc
+            raise DomainError(ErrorRegistry.INTERNAL_ERROR, detail="项目写入冲突") from exc
 
         # 与创建同事务写 PROJECT_CREATED：项目生命周期起点必须可被下游订阅，
         # 否则 outbox 里项目只有"被读写"的痕迹，没有"诞生"的事实（P2-1）。
@@ -164,15 +154,11 @@ class ProjectService:
         """
         changed_by = changed_by.strip()
         if not changed_by:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="changed_by 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="changed_by 不能为空")
 
         project = await self._repository.get_by_id(entity_id)
         if project is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"项目不存在: {entity_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"项目不存在: {entity_id}")
 
         # 唯一推进路径（ADR-R23 §D2-b）：守卫求值 → 乐观锁落库 → 写事件
         # 全部由 transition.advance_status 承载，本处不再复制这四步。

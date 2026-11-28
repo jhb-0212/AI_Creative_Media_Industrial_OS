@@ -20,6 +20,7 @@ Revision ID: e5f6a7b8c9d0
 Revises: d4e5f6a7b8c9
 Create Date: 2026-11-14
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -57,12 +58,9 @@ $fn$
 def upgrade() -> None:
     """创建租户枚举函数并只授权给应用角色。"""
     op.execute(_CREATE_FUNCTION)
+    op.execute(f"REVOKE ALL ON FUNCTION {OUTBOX_SCHEMA}.list_active_tenants() FROM PUBLIC")
     op.execute(
-        f"REVOKE ALL ON FUNCTION {OUTBOX_SCHEMA}.list_active_tenants() FROM PUBLIC"
-    )
-    op.execute(
-        f"GRANT EXECUTE ON FUNCTION {OUTBOX_SCHEMA}.list_active_tenants() "
-        f"TO {app_role_name()}"
+        f"GRANT EXECUTE ON FUNCTION {OUTBOX_SCHEMA}.list_active_tenants() TO {app_role_name()}"
     )
 
 

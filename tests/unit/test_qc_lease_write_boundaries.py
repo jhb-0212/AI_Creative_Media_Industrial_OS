@@ -39,8 +39,7 @@ def test_lease_assignment_outside_domain_is_rejected(fake_root: Path) -> None:
     _write(
         fake_root,
         "services/demo/service/demo_service.py",
-        "async def renew(task, generation):\n"
-        "    task.lease_generation = generation\n",
+        "async def renew(task, generation):\n    task.lease_generation = generation\n",
     )
     problems = ba.evaluate_transition_entries(fake_root)
     assert problems, "服务层直接改写 lease_generation 未被判红"
@@ -52,8 +51,7 @@ def test_setattr_of_lease_outside_domain_is_rejected(fake_root: Path) -> None:
     _write(
         fake_root,
         "services/demo/service/demo_service.py",
-        "def steal(task):\n"
-        '    setattr(task, "lease_owner", "someone-else")\n',
+        'def steal(task):\n    setattr(task, "lease_owner", "someone-else")\n',
     )
     problems = ba.evaluate_transition_entries(fake_root)
     assert any("租约字段" in problem for problem in problems)
@@ -64,8 +62,6 @@ def test_lease_assignment_inside_domain_is_allowed(fake_root: Path) -> None:
     _write(
         fake_root,
         "services/demo/domain/task.py",
-        "def claim(self, worker):\n"
-        "    self.lease_owner = worker\n"
-        "    self.lease_generation += 1\n",
+        "def claim(self, worker):\n    self.lease_owner = worker\n    self.lease_generation += 1\n",
     )
     assert ba.evaluate_transition_entries(fake_root) == []

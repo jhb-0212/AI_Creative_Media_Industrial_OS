@@ -437,7 +437,9 @@ def main() -> int:
                 if INJECT_MARK in body:
                     raise SystemExit(f"{schema}.{func} 已含例外接入，拒绝重复注入")
                 orig = body.strip()
-                rows.append((f"{schema}.{table}", key_col, orig, inject(orig, key_col, f"{schema}.{table}")))
+                rows.append(
+                    (f"{schema}.{table}", key_col, orig, inject(orig, key_col, f"{schema}.{table}"))
+                )
             return rows
         finally:
             await conn.close()

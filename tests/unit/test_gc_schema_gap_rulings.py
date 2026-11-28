@@ -34,10 +34,24 @@ EXEMPTIONS_PATH = ROOT / "contracts" / "runtime" / "resource_schema_exemptions.y
 LIFECYCLE_ADDED = {
     "PublicationReview": {"APPROVED", "IN_REVIEW", "QUEUED", "REJECTED", "RETURNED"},
     "CreatorShareLink": {"ACTIVE", "EXPIRED", "REVOKED"},
-    "Pattern": {"DEPRECATED", "EXPERIMENT_RECORD", "FAILURE_CASE", "IN_REVIEW",
-                "REJECTED", "RETIRED", "REUSABLE_PATTERN"},
-    "SharedReferenceAsset": {"AVAILABLE", "DEPRECATED", "DRAFT", "QUARANTINED",
-                             "REVOKED", "RIGHTS_CHECK", "VALIDATED"},
+    "Pattern": {
+        "DEPRECATED",
+        "EXPERIMENT_RECORD",
+        "FAILURE_CASE",
+        "IN_REVIEW",
+        "REJECTED",
+        "RETIRED",
+        "REUSABLE_PATTERN",
+    },
+    "SharedReferenceAsset": {
+        "AVAILABLE",
+        "DEPRECATED",
+        "DRAFT",
+        "QUARANTINED",
+        "REVOKED",
+        "RIGHTS_CHECK",
+        "VALIDATED",
+    },
 }
 IMMUTABLE_ADDED = {"CanonRevision", "RightsCase", "RightsManifest"}
 ALL_ADDED = LIFECYCLE_ADDED.keys() | IMMUTABLE_ADDED
@@ -111,8 +125,15 @@ def test_shared_reference_asset_moved_into_objects() -> None:
     assert sm["text_authority_only"] == [] or sm["text_authority_only"] is None
     assert any(o["object"] == "SharedReferenceAsset" for o in sm["objects"])
     states = _sm_states()["SharedReferenceAsset"]
-    assert {"DRAFT", "RIGHTS_CHECK", "VALIDATED", "AVAILABLE", "DEPRECATED",
-            "REVOKED", "QUARANTINED"} <= states
+    assert {
+        "DRAFT",
+        "RIGHTS_CHECK",
+        "VALIDATED",
+        "AVAILABLE",
+        "DEPRECATED",
+        "REVOKED",
+        "QUARANTINED",
+    } <= states
 
 
 def test_all_gap_ledgers_cleared_and_scriptlock_exemption_kept() -> None:
@@ -156,12 +177,14 @@ def test_deleting_schema_without_gap_entry_is_named() -> None:
 def test_stale_gap_entry_for_modeled_object_is_named() -> None:
     """陈旧债务分支同样只对状态机对象成立；用 PublicationReview（有状态机 + 有 schema）注入。
     envelope_only 对象挂 gap 会先命中「不是状态机对象」分支，测不到本命题。"""
-    gaps = [{
-        "object": "PublicationReview",
-        "reason": "陈旧债务",
-        "contract_ref": "x",
-        "unblocks_when": "y",
-    }]
+    gaps = [
+        {
+            "object": "PublicationReview",
+            "reason": "陈旧债务",
+            "contract_ref": "x",
+            "unblocks_when": "y",
+        }
+    ]
     problems = cc.schema_gap_problems(gaps, _sm_states(), _definitions())
     assert any("PublicationReview" in p and "已有 object schema" in p for p in problems), problems
 
@@ -170,8 +193,17 @@ def test_wrong_class_for_lifecycle_object_is_named() -> None:
     """把有状态机的 CreatorShareLink 错标 envelope_only，闸门必须点名。"""
     taxonomy = _taxonomy()
     objects = [
-        ({**o, "class": "envelope_only", "basis": "immutable_record",
-          "reason": "x", "unblocks_when": "y"} if o["object"] == "CreatorShareLink" else o)
+        (
+            {
+                **o,
+                "class": "envelope_only",
+                "basis": "immutable_record",
+                "reason": "x",
+                "unblocks_when": "y",
+            }
+            if o["object"] == "CreatorShareLink"
+            else o
+        )
         for o in taxonomy["objects"]
     ]
     problems = cc.taxonomy_problems(objects, _sm_states(), _definitions())
@@ -182,4 +214,6 @@ def test_unregistered_new_schema_object_is_named() -> None:
     defs = dict(_definitions())
     defs["GhostGCObject"] = {"properties": {"status": {"type": "string"}}}
     problems = cc.taxonomy_problems(_taxonomy()["objects"], _sm_states(), defs)
-    assert any("GhostGCObject" in p and "没在 status_field_taxonomy 登记" in p for p in problems), problems
+    assert any("GhostGCObject" in p and "没在 status_field_taxonomy 登记" in p for p in problems), (
+        problems
+    )

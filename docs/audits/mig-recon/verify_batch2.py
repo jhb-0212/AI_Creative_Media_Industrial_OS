@@ -123,8 +123,13 @@ async def main() -> int:
             "SELECT count(*) FROM project_planning.organizations WHERE organization_id = $1::uuid",
             fx.ORG,
         )
-        rec("P2", "前提", "夹具组织存在（外键目标真实，否则 23503 会被误读为拦截）",
-            (q or 0) >= 1, f"organizations={q}")
+        rec(
+            "P2",
+            "前提",
+            "夹具组织存在（外键目标真实，否则 23503 会被误读为拦截）",
+            (q or 0) >= 1,
+            f"organizations={q}",
+        )
 
         # ---------- 缺口可复现 ----------
         # 约束建立之前，把 project_id 指向不存在的项目：应当**成功**，
@@ -248,15 +253,25 @@ async def main() -> int:
             "SELECT count(*) FROM pg_constraint WHERE conname = ANY($1::text[])",
             list(fks.values()),
         )
-        rec("I1", "幂等", "重复 upgrade 不重复建约束", before == after == len(fks),
-            f"{before}→{after}")
+        rec(
+            "I1",
+            "幂等",
+            "重复 upgrade 不重复建约束",
+            before == after == len(fks),
+            f"{before}→{after}",
+        )
 
         # ---------- 降级 ----------
         n = await lab.apply_steps(conn, mig.downgrade_steps())
         rec("D1", "降级", f"执行 downgrade_steps()（{n} 步）", True, "无异常")
         gone = {t: await conn.fetchval(fk_exists_sql(t, nm)) for t, nm in fks.items()}
-        rec("D2", "降级", "三条外键已删净", not any(gone.values()),
-            "; ".join(f"{t}={v}" for t, v in gone.items()))
+        rec(
+            "D2",
+            "降级",
+            "三条外键已删净",
+            not any(gone.values()),
+            "; ".join(f"{t}={v}" for t, v in gone.items()),
+        )
 
         # 语义可逆：约束没了，脏写入又能成功——证明 D2 不是「删了个别的约束」。
         ok_r, d_r = await lab.case(

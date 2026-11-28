@@ -92,9 +92,7 @@ def role_statements(
         effective_password = _resolve_password(spec, passwords)
         options = _attribute_options(spec, effective_password)
         statements.append(_create_role_guard(spec, options))
-        statements.append(
-            f"ALTER ROLE {_ident(spec.name)} WITH {options}"
-        )
+        statements.append(f"ALTER ROLE {_ident(spec.name)} WITH {options}")
     return statements
 
 
@@ -144,9 +142,7 @@ def role_passwords_from_settings(settings: object) -> dict[str, str]:
     只取声明里出现过的字段：把 Settings 上的口令全搬过来，等于让「声明里没有的
     口令」也进入 SQL 生成路径，将来某个字段改名时无人察觉。
     """
-    wanted = {
-        spec.password_setting for spec in role_specs() if spec.password_setting
-    }
+    wanted = {spec.password_setting for spec in role_specs() if spec.password_setting}
     resolved: dict[str, str] = {}
     for field_name in sorted(wanted):
         value = getattr(settings, field_name, None)
@@ -185,9 +181,7 @@ def grant_statements(*, server_version_num: int) -> list[str]:
     for domain in DOMAIN_GRANTS:
         statements += converge_statements(domain_role(domain), domain)
     for infra in INFRA_ROLE_GRANTS:
-        statements += infra_converge_statements(
-            _infra_role_name(infra), infra
-        )
+        statements += infra_converge_statements(_infra_role_name(infra), infra)
     statements += maintenance_identity_statements()
     statements += maintenance_command_statements()
     statements += maintenance_repair_statements(server_version_num)

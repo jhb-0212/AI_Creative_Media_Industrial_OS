@@ -232,8 +232,7 @@ class GenerationService:
             raise DomainError(
                 ErrorRegistry.NOT_FOUND,
                 detail=(
-                    f"产物写入意图不存在"
-                    f"（task={task.generation_task_id}, attempt={attempt_id}）"
+                    f"产物写入意图不存在（task={task.generation_task_id}, attempt={attempt_id}）"
                 ),
             )
         manifest = cast(ArtifactManifest, manifest)
@@ -323,9 +322,7 @@ class GenerationService:
     async def _load(self, task_id: str) -> GenerationTask:
         task = await self._repository.get_by_id(task_id)
         if task is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"生成任务不存在: {task_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"生成任务不存在: {task_id}")
         return cast(GenerationTask, task)
 
     async def claim(
@@ -357,9 +354,7 @@ class GenerationService:
             conflict_detail="任务已被其他 Worker 领取，请勿重复领取",
             actor_field="worker_id",
             actor=worker_id,
-            domain_operation=lambda audit_ref, action: task.claim(
-                worker_id, expires, audit_ref
-            ),
+            domain_operation=lambda audit_ref, action: task.claim(worker_id, expires, audit_ref),
         )
         return task
 
@@ -376,9 +371,7 @@ class GenerationService:
         expires = _now() + timedelta(seconds=lease_seconds)
         await save_versioned_entity(
             task,
-            mutation=lambda audit_ref, action: task.renew(
-                worker_id, expires, audit_ref
-            ),
+            mutation=lambda audit_ref, action: task.renew(worker_id, expires, audit_ref),
             audit_ref=f"lease-renew:{uuid4()}",
             repository=self._repository,
             outbox_writer=self._outbox_writer,
@@ -538,9 +531,7 @@ class GenerationService:
             resource_type="GenerationTask",
             owner_action=GENERATION_PROCESS_ACTION,
             conflict_detail="租约回收并发冲突，请重试",
-            domain_operation=lambda audit_ref, action: task.release_expired(
-                _now(), audit_ref
-            ),
+            domain_operation=lambda audit_ref, action: task.release_expired(_now(), audit_ref),
         )
         return task
 

@@ -47,9 +47,7 @@ WORK_ORDER_TRANSITIONS: dict[str, frozenset[str]] = {
 # 只读，修复才写——把三者合成一条命令会让「只读」的那一半也拿到写权限。
 WORK_ORDER_KINDS: tuple[str, ...] = ("DETECT", "RECONCILE", "REPAIR")
 
-TERMINAL_STATES: frozenset[str] = frozenset(
-    {"SUCCEEDED", "FAILED", "CANCELLED"}
-)
+TERMINAL_STATES: frozenset[str] = frozenset({"SUCCEEDED", "FAILED", "CANCELLED"})
 
 
 def transition_edges() -> tuple[tuple[str, str], ...]:

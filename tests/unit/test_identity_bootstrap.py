@@ -25,11 +25,7 @@ from packages.shared.role_specs import RoleSpec, role_specs
 
 
 def _passwords_for(specs: tuple[RoleSpec, ...]) -> dict[str, str]:
-    return {
-        spec.password_setting: f"pw_{spec.name}"
-        for spec in specs
-        if spec.password_setting
-    }
+    return {spec.password_setting: f"pw_{spec.name}" for spec in specs if spec.password_setting}
 
 
 def test_every_role_gets_guard_and_converge() -> None:
@@ -121,11 +117,7 @@ def test_required_objects_and_missing_report() -> None:
     # schema 整个不在：只报 schema（后面那串表都归同一个根因，逐表刷屏会淹没它）。
     absent = missing_objects({})
     assert "project_planning" in absent
-    assert all(
-        "schema 不存在" in item
-        for item in absent
-        if item.startswith("project_planning.")
-    )
+    assert all("schema 不存在" in item for item in absent if item.startswith("project_planning."))
 
 
 def test_plan_is_deterministic() -> None:

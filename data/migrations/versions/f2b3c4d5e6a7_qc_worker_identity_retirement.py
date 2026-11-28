@@ -71,9 +71,7 @@ def upgrade() -> None:
     role = _worker()
     contract = retired_roles_by_name().get(role)
     if contract is None:  # 声明与迁移边界脱节时失败关闭，不给「悄悄不退役」留口子
-        raise RuntimeError(
-            f'role "{role}" 不在 RETIRED_ROLES：退役边界缺少声明来源，拒绝继续'
-        )
+        raise RuntimeError(f'role "{role}" 不在 RETIRED_ROLES：退役边界缺少声明来源，拒绝继续')
     role_literal = role.replace("'", "''")
     op.execute(
         f"""

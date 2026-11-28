@@ -39,10 +39,7 @@ from packages.shared.yaml_strict import load_yaml_file
 # 本文件位于 <repo>/services/identity_access/action_registry.py，
 # parents[2] 即仓库根。
 _CONTRACT_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "contracts"
-    / "action_registry"
-    / "action_registry.yaml"
+    Path(__file__).resolve().parents[2] / "contracts" / "action_registry" / "action_registry.yaml"
 )
 
 # 匹配全角/半角括号及其内容（资质说明），如「Agent（授权范围内）」「Worker（最小权限）」。
@@ -116,26 +113,18 @@ def _load_registry() -> dict[str, ActionDefinition]:
             raise FileNotFoundError(f"契约缺失: {_CONTRACT_PATH}")
         data = load_yaml_file(_CONTRACT_PATH)
         if not isinstance(data, dict):
-            raise ValueError(
-                f"action_registry 解析结果不是映射: {type(data).__name__}"
-            )
+            raise ValueError(f"action_registry 解析结果不是映射: {type(data).__name__}")
         actions = data.get("actions")
         if not isinstance(actions, list):
-            raise ValueError(
-                f"action_registry.actions 必须是列表，实际: {type(actions).__name__}"
-            )
+            raise ValueError(f"action_registry.actions 必须是列表，实际: {type(actions).__name__}")
         registry: dict[str, ActionDefinition] = {}
         for action in actions:
             if not isinstance(action, dict):
-                raise ValueError(
-                    f"action_registry 存在非映射条目: {action!r}"
-                )
+                raise ValueError(f"action_registry 存在非映射条目: {action!r}")
             key = action.get("action_key")
             principals = action.get("allowed_principals")
             if not key or not principals:
-                raise ValueError(
-                    f"action_registry 存在缺关键字段的条目: {action!r}"
-                )
+                raise ValueError(f"action_registry 存在缺关键字段的条目: {action!r}")
             if key in registry:
                 raise ValueError(f"action_registry 存在重复 action_key: {key}")
             registry[key] = ActionDefinition(
@@ -159,9 +148,7 @@ def action_definition(action_key: str) -> ActionDefinition:
     """返回指定 action 的完整运行时定义；未注册转结构化内部错误。"""
     definition = _load_registry().get(action_key)
     if definition is None:
-        raise DomainError(
-            ErrorRegistry.INTERNAL_ERROR, detail=f"未注册的 action_key: {action_key}"
-        )
+        raise DomainError(ErrorRegistry.INTERNAL_ERROR, detail=f"未注册的 action_key: {action_key}")
     return definition
 
 

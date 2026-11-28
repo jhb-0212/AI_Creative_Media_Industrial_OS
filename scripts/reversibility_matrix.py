@@ -42,7 +42,12 @@ _DEFAULT_INVENTORY = _REPO_ROOT / "docs" / "audits" / "2026-11-28-identity-migra
 _DEFAULT_OUTPUT = _REPO_ROOT / "docs" / "audits" / "2026-11-28-wp04-reversibility-matrix.json"
 _DEFAULT_SNAPSHOT = _REPO_ROOT / "docs" / "audits" / "2026-11-28-wp04-bidirectional-snapshot.json"
 
-CLASSIFICATIONS = ("no_restore_proven", "restore_required", "intentional_one_way", "unproven_blocking")
+CLASSIFICATIONS = (
+    "no_restore_proven",
+    "restore_required",
+    "intentional_one_way",
+    "unproven_blocking",
+)
 
 #: 允许从"往返快照差异"中排除的语义规则。每一条都必须能说明"为什么与身份语义无关"，
 #: 并且有测试证明排除范围恰好只覆盖这一类。禁止用正则兜底吞掉未知差异。
@@ -318,9 +323,10 @@ def _row_roles(row: dict[str, Any], tail_match: re.Match[str] | None) -> list[st
     if isinstance(raw, str) and raw:
         return [_norm_name(part) for part in re.split(r",", raw) if part.strip()]
     if tail_match:
-        return [_norm_name(part) for part in re.split(r",", tail_match.group("role")) if part.strip()]
+        return [
+            _norm_name(part) for part in re.split(r",", tail_match.group("role")) if part.strip()
+        ]
     return []
-
 
 
 def parse_actions(row: dict[str, Any]) -> list[dict[str, str]]:
@@ -332,7 +338,9 @@ def parse_actions(row: dict[str, Any]) -> list[dict[str, str]]:
     direction = str(row.get("direction") or "")
 
     if operation in {"create_role", "drop_role"}:
-        match = re.search(r"(?:CREATE|DROP)\s+ROLE\s+(?:IF\s+EXISTS\s+)?(?P<role>[A-Za-z0-9_\"\.]+)", sql, re.I)
+        match = re.search(
+            r"(?:CREATE|DROP)\s+ROLE\s+(?:IF\s+EXISTS\s+)?(?P<role>[A-Za-z0-9_\"\.]+)", sql, re.I
+        )
         if not match:
             match = _EXECUTE_ROLE_RE.search(sql)
         if not match:
@@ -495,7 +503,6 @@ def _dropped_in_downgrade(ddl: dict[str, set[str]] | None, action: dict[str, str
     return False
 
 
-
 def _describe(action: dict[str, str]) -> str:
     parts = [action["kind"], action["scope"], action["object"]]
     if action["role"]:
@@ -581,8 +588,9 @@ def _aggregate(findings: list[str], cap: int = 25) -> list[str]:
         head, _, rest = finding.partition(" privs=")
         buckets.setdefault(head, []).append(rest)
     merged = [
-        f"{head} ×{len(items)}（权限集不同，需父 revision 证据）" if len(items) > 1 else
-        f"{head}（privs={items[0]}）"
+        f"{head} ×{len(items)}（权限集不同，需父 revision 证据）"
+        if len(items) > 1
+        else f"{head}（privs={items[0]}）"
         for head, items in buckets.items()
     ]
     if len(merged) > cap:
@@ -661,8 +669,7 @@ def _compare(
             # A 方案（D4 裁决 2026-11-28）：退役职责归身份治理；降级在迁移里
             # 重建退役身份就是「以迁移伪造恢复」，不再是可接受的受控例外。
             findings.append(
-                f"RISK:降级在迁移中重建退役身份 {role}"
-                "（A 方案后退役/恢复归身份治理，迁移不得重建）"
+                f"RISK:降级在迁移中重建退役身份 {role}（A 方案后退役/恢复归身份治理，迁移不得重建）"
             )
             continue
         findings.append(f"RISK:降级创建本 revision 未退役的角色 {role}（身份越权创建）")
@@ -729,7 +736,9 @@ def build_matrix(
         for item in asymmetric
         if item["classification"] in {"unproven_blocking", "restore_required"}
     ]
-    defects = [item["revision"] for item in asymmetric if item["classification"] == "restore_required"]
+    defects = [
+        item["revision"] for item in asymmetric if item["classification"] == "restore_required"
+    ]
     return {
         "chain_length": inventory.get("chain_length"),
         "head": inventory.get("head"),
@@ -739,7 +748,9 @@ def build_matrix(
         "chain_coverage": inventory.get("coverage") or {},
         "revisions_with_identity_ops": len(matrix),
         "asymmetric_revisions": len(asymmetric),
-        "classified": {name: sum(1 for i in matrix if i["classification"] == name) for name in CLASSIFICATIONS},
+        "classified": {
+            name: sum(1 for i in matrix if i["classification"] == name) for name in CLASSIFICATIONS
+        },
         "unclassified_revisions": unclassified,
         "restore_defects": defects,
         "blocking_revisions": blocking,
@@ -776,9 +787,7 @@ def _is_registered_ignore(item: str, ignored: list[dict[str, str]]) -> bool:
     return False
 
 
-def evaluate_snapshot(
-    snapshot: dict[str, Any], matrix_payload: dict[str, Any]
-) -> dict[str, Any]:
+def evaluate_snapshot(snapshot: dict[str, Any], matrix_payload: dict[str, Any]) -> dict[str, Any]:
     """双向语义闸门：把"P → upgrade → downgrade → D"的实测差异作为正式输入。
 
     检查四个方向，任何一项不满足都阻断：
@@ -806,12 +815,12 @@ def evaluate_snapshot(
         if not entry.get("parent"):
             blocks.append(f"{revision}: 快照缺少父 revision，无法证明回到哪个状态")
         items = _snapshot_diff_items(entry)
-        unexplained = [item for item in items if not _is_registered_ignore(item, entry.get("ignored") or [])]
+        unexplained = [
+            item for item in items if not _is_registered_ignore(item, entry.get("ignored") or [])
+        ]
         ignored_used.extend(item for item in items if item not in unexplained)
         if verdict == "no_restore_proven" and unexplained:
-            blocks.append(
-                f"{revision}: 标 no_restore_proven 但仍有未解释差异 {unexplained[:3]}"
-            )
+            blocks.append(f"{revision}: 标 no_restore_proven 但仍有未解释差异 {unexplained[:3]}")
         if verdict == "restore_required":
             blocks.append(f"{revision}: 快照实测仍需要恢复（restore_required）")
         if verdict == "unproven_blocking":
@@ -877,7 +886,9 @@ def main(argv: list[str] | None = None) -> int:
         help="P→upgrade→downgrade→D 的实测快照（双向语义闸门输入）；传空引用可跳过",
     )
     parser.add_argument("--print", action="store_true", help="打印不对称项与结论")
-    parser.add_argument("--check", action="store_true", help="存在未分类或 unproven_blocking 时返回 1")
+    parser.add_argument(
+        "--check", action="store_true", help="存在未分类或 unproven_blocking 时返回 1"
+    )
     args = parser.parse_args(argv)
 
     inventory = json.loads(args.inventory.read_text(encoding="utf-8"))
@@ -885,8 +896,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.snapshot and args.snapshot.exists():
         snapshot = json.loads(args.snapshot.read_text(encoding="utf-8"))
         payload["snapshot"] = evaluate_snapshot(snapshot, payload)
-        payload["snapshot"]["source"] = str(args.snapshot.relative_to(_REPO_ROOT)).replace("\\", "/")
-    args.output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        payload["snapshot"]["source"] = str(args.snapshot.relative_to(_REPO_ROOT)).replace(
+            "\\", "/"
+        )
+    args.output.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     print(
         f"[MATRIX] revisions={payload['revisions_with_identity_ops']} "
         f"asymmetric={payload['asymmetric_revisions']} "
@@ -902,12 +917,17 @@ def main(argv: list[str] | None = None) -> int:
         for item in payload["matrix"]:
             if item["verdict"] != "asymmetric":
                 continue
-            print(f"#{item['chain_index']} {item['revision']} [{item['classification'] or 'UNCLASSIFIED'}]")
+            print(
+                f"#{item['chain_index']} {item['revision']} [{item['classification'] or 'UNCLASSIFIED'}]"
+            )
             for finding in item["findings"]:
                 print("   -", finding)
     if args.check:
         if payload["unclassified_revisions"]:
-            print("[MATRIX][FAIL] 未分类不对称 revision:", ", ".join(payload["unclassified_revisions"]))
+            print(
+                "[MATRIX][FAIL] 未分类不对称 revision:",
+                ", ".join(payload["unclassified_revisions"]),
+            )
             return 1
         if payload["restore_defects"]:
             print("[MATRIX][FAIL] 实测未恢复（需修复迁移）:", ", ".join(payload["restore_defects"]))
@@ -923,8 +943,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
-
-
-

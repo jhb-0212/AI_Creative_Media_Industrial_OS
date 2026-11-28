@@ -71,9 +71,7 @@ async def test_admin_option_does_not_unlock_superuser_attribute() -> None:
         )
         try:
             # 反面：LOGIN / PASSWORD 改得动，说明「改角色」本身没有被拒。
-            await conn.execute(
-                f'ALTER ROLE "{target}" WITH LOGIN PASSWORD \'{password}\''
-            )
+            await conn.execute(f"ALTER ROLE \"{target}\" WITH LOGIN PASSWORD '{password}'")
 
             # 正面一：语句里只要出现 NOSUPERUSER，哪怕目标本来就不是超管、
             # 哪怕执行者持有 ADMIN，也仍按「改 SUPERSER 属性」拒掉——迁移里

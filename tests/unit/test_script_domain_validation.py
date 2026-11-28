@@ -62,6 +62,4 @@ def test_superseded_is_terminal_and_not_revivable() -> None:
     """终态不可原地复活（红线），即使构造时已 SUPERSEDED 也不可再迁移。"""
     s = _make(status=ScriptStatus.SUPERSEDED)
     with pytest.raises(DomainError):
-        s.transition_to(
-            ScriptStatus.DRAFT, audit_ref="revive", action=SCRIPT_IMPORT_ACTION
-        )
+        s.transition_to(ScriptStatus.DRAFT, audit_ref="revive", action=SCRIPT_IMPORT_ACTION)

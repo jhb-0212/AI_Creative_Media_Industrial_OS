@@ -118,8 +118,10 @@ def main() -> int:
     # 这里补「同 ID 但内容一致且路径不同」的情形（不算冲突，仅记录）。
     print(f"<!-- main={main_commit} feat={feat_commit} -->")
     print()
-    print("| # | Revision | 类型 | main 路径 | 分支路径 | 同路径 | main blob SHA1 | 分支 blob SHA1 "
-          "| main SHA-256 | 分支 SHA-256 | 差异行 |")
+    print(
+        "| # | Revision | 类型 | main 路径 | 分支路径 | 同路径 | main blob SHA1 | 分支 blob SHA1 "
+        "| main SHA-256 | 分支 SHA-256 | 差异行 |"
+    )
     print("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
     for index, row in enumerate(rows, 1):
         print(
@@ -134,7 +136,11 @@ def main() -> int:
     counts: dict[str, int] = {}
     for row in rows:
         counts[str(row["class"])] = counts.get(str(row["class"]), 0) + 1
-    print(f"<!-- 合计 {len(rows)} 个 revision；" + " / ".join(f"{k}={v}" for k, v in sorted(counts.items())) + " -->")
+    print(
+        f"<!-- 合计 {len(rows)} 个 revision；"
+        + " / ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+        + " -->"
+    )
 
     payload = {
         "main_commit": main_commit,

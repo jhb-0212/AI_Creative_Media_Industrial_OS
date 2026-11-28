@@ -60,9 +60,7 @@ LAYERS: tuple[str, ...] = (
 )
 
 # 非代码层目录：测试、脚本、契约、基础设施等，不参与分层判定。
-NON_LAYER_DIRS = frozenset(
-    {"tests", "scripts", "contracts", "docs", "data", "infra", "alembic"}
-)
+NON_LAYER_DIRS = frozenset({"tests", "scripts", "contracts", "docs", "data", "infra", "alembic"})
 
 
 @dataclass(frozen=True)
@@ -411,9 +409,7 @@ def check_process_isolation(imports: list[ImportRecord]) -> list[Violation]:
         if forbidden is None:
             continue
         for target in forbidden:
-            if record.target_module == target or record.target_module.startswith(
-                target + "."
-            ):
+            if record.target_module == target or record.target_module.startswith(target + "."):
                 violations.append(
                     Violation(
                         rule="R4 进程边界隔离",
@@ -469,9 +465,7 @@ def check_kernel_persistence_isolation(imports: list[ImportRecord]) -> list[Viol
         if len(parts) < 3 or parts[2] not in KERNEL_SUBPACKAGES:
             continue
         for library in PERSISTENCE_LIBRARIES:
-            if record.target_module == library or record.target_module.startswith(
-                library + "."
-            ):
+            if record.target_module == library or record.target_module.startswith(library + "."):
                 violations.append(
                     Violation(
                         rule="R5 内核持久化隔离",
@@ -563,7 +557,9 @@ def _strongly_connected(graph: dict[str, set[str]]) -> list[list[str]]:
     return components
 
 
-def check_import_cycles(root: Path = ROOT, imports: list[ImportRecord] | None = None) -> list[Violation]:
+def check_import_cycles(
+    root: Path = ROOT, imports: list[ImportRecord] | None = None
+) -> list[Violation]:
     """模块导入期存在环 → 违规（惰性导入不计，见模块 docstring 的 R3 说明）。"""
     records = imports if imports is not None else collect_imports(root)
     graph = _module_graph(root, records)

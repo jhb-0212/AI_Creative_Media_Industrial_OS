@@ -155,9 +155,7 @@ class SqlAlchemyQCTaskRepository:
 
     async def find_by_generation_task(self, generation_task_id: str) -> QCTask | None:
         result = await self._session.execute(
-            select(QCTaskModel).where(
-                QCTaskModel.generation_task_id == generation_task_id
-            )
+            select(QCTaskModel).where(QCTaskModel.generation_task_id == generation_task_id)
         )
         model = result.scalar_one_or_none()
         return _to_domain(model) if model is not None else None

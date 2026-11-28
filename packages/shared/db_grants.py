@@ -253,8 +253,7 @@ DOMAIN_GRANTS: dict[str, tuple[TableGrant, ...]] = {
             "auth",
             "revoked_tokens",
             "SELECT",
-            "SELECT：每个请求的吊销检查（fail-closed）。写入（吊销）由签发方负责，"
-            "业务域角色只读。",
+            "SELECT：每个请求的吊销检查（fail-closed）。写入（吊销）由签发方负责，业务域角色只读。",
             source="infra",
         ),
         _grant(
@@ -558,11 +557,7 @@ def declared_privileges(domain: str) -> dict[tuple[str, str], frozenset[str]]:
     分开取用不是细枝末节：整表授权与列级授权在数据库里是两份 ACL
     （``relacl`` vs ``attacl``），混在一起比对会让「列级只读」永远对不上。
     """
-    return {
-        (g.schema, g.table): g.privileges
-        for g in DOMAIN_GRANTS[domain]
-        if g.columns is None
-    }
+    return {(g.schema, g.table): g.privileges for g in DOMAIN_GRANTS[domain] if g.columns is None}
 
 
 def declared_column_privileges(
@@ -613,10 +608,7 @@ def schema_usage_statements(
     重跑那条迁移。不传表示按当前矩阵派生（断言 / 初始化）。
     """
     selected = referenced_schemas(domain) if schemas is None else tuple(schemas)
-    return [
-        f"GRANT USAGE ON SCHEMA {schema} TO {role}"
-        for schema in selected
-    ]
+    return [f"GRANT USAGE ON SCHEMA {schema} TO {role}" for schema in selected]
 
 
 def business_tables(domain: str) -> frozenset[tuple[str, str]]:
@@ -625,11 +617,7 @@ def business_tables(domain: str) -> frozenset[tuple[str, str]]:
     跨域列级只读（``source="cross_domain"``）不在此列：它属于**他域**的表，
     计入「本域表覆盖」会让「新增表必须声明」这条判据把邻居的表也算自家人。
     """
-    return frozenset(
-        (g.schema, g.table)
-        for g in DOMAIN_GRANTS[domain]
-        if g.schema == domain
-    )
+    return frozenset((g.schema, g.table) for g in DOMAIN_GRANTS[domain] if g.schema == domain)
 
 
 def _privileges_sql(privileges: frozenset[str]) -> str:
@@ -662,20 +650,21 @@ def _grants_converge(
     statements: list[str] = [
         f"GRANT USAGE ON SCHEMA {schema} TO {role}" for schema in usage_schemas
     ]
-    statements += [
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} REVOKE ALL ON TABLES FROM {role}"
-        for schema in default_privilege_schemas
-    ] + [
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
-        f"REVOKE ALL ON SEQUENCES FROM {role}"
-        for schema in default_privilege_schemas
-    ] + [
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} REVOKE ALL ON TABLES FROM PUBLIC"
-        for schema in default_privilege_schemas
-    ]
-    selected = [
-        grant for grant in grants if tables is None or grant.table in tables
-    ]
+    statements += (
+        [
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} REVOKE ALL ON TABLES FROM {role}"
+            for schema in default_privilege_schemas
+        ]
+        + [
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} REVOKE ALL ON SEQUENCES FROM {role}"
+            for schema in default_privilege_schemas
+        ]
+        + [
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} REVOKE ALL ON TABLES FROM PUBLIC"
+            for schema in default_privilege_schemas
+        ]
+    )
+    selected = [grant for grant in grants if tables is None or grant.table in tables]
     # 撤销按**表**去重，且全部先于授予。同一张表可能既有整表权限又有列级权限
     # （运维角色的 outbox_events = SELECT 整表 + UPDATE 三列）；若按「每条声明
     # revoke→grant」直译，第二条声明的 ``REVOKE ALL`` 会把第一条刚授的 SELECT
@@ -720,8 +709,7 @@ def converge_statements(
     的库不会重跑该迁移，于是这个缺口只在「从零建库」时才暴露。
     """
     selected_grants = tuple(
-        grant for grant in DOMAIN_GRANTS[domain]
-        if tables is None or grant.table in tables
+        grant for grant in DOMAIN_GRANTS[domain] if tables is None or grant.table in tables
     )
     usage = (
         referenced_schemas(domain)
@@ -820,8 +808,7 @@ def legacy_statements(
         f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {role}"
     )
     statements.append(
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {domain} "
-        f"GRANT USAGE, SELECT ON SEQUENCES TO {role}"
+        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {domain} GRANT USAGE, SELECT ON SEQUENCES TO {role}"
     )
     return statements
 
@@ -923,8 +910,7 @@ def validate_matrix() -> list[str]:
     for key, variants in shared.items():
         if len(variants) > 1:
             problems.append(
-                f"{key[0]}.{key[1]} 在两个域的权限口径不一致："
-                f"{[sorted(v) for v in variants]}"
+                f"{key[0]}.{key[1]} 在两个域的权限口径不一致：{[sorted(v) for v in variants]}"
             )
 
     return problems
@@ -943,9 +929,7 @@ def validate_infra_matrix() -> list[str]:
     """
     problems: list[str] = []
     if set(INFRA_ROLE_GRANTS) != set(INFRA_ROLES):
-        problems.append(
-            f"运维角色矩阵 {sorted(INFRA_ROLE_GRANTS)} 与 INFRA_ROLES 不一致"
-        )
+        problems.append(f"运维角色矩阵 {sorted(INFRA_ROLE_GRANTS)} 与 INFRA_ROLES 不一致")
     for infra in INFRA_ROLES:
         seen: set[tuple[str, str, tuple[str, ...] | None]] = set()
         for grant in INFRA_ROLE_GRANTS[infra]:
@@ -955,14 +939,11 @@ def validate_infra_matrix() -> list[str]:
             seen.add(key)
             unknown = grant.privileges - ALL_TABLE_PRIVILEGES
             if unknown:
-                problems.append(
-                    f"{infra}: {grant.qualified()} 含未知权限 {sorted(unknown)}"
-                )
+                problems.append(f"{infra}: {grant.qualified()} 含未知权限 {sorted(unknown)}")
             unusable = grant.privileges - _USABLE_PRIVILEGES
             if unusable:
                 problems.append(
-                    f"{infra}: {grant.qualified()} 声明了应用用不到的权限 "
-                    f"{sorted(unusable)}"
+                    f"{infra}: {grant.qualified()} 声明了应用用不到的权限 {sorted(unusable)}"
                 )
             if "DELETE" in grant.privileges:
                 problems.append(
@@ -972,9 +953,7 @@ def validate_infra_matrix() -> list[str]:
             if not grant.privileges:
                 problems.append(f"{infra}: {grant.qualified()} 没有任何权限")
             if grant.source not in {"orm", "migration", "infra", "cross_domain"}:
-                problems.append(
-                    f"{infra}: {grant.qualified()} 的 source={grant.source!r} 非法"
-                )
+                problems.append(f"{infra}: {grant.qualified()} 的 source={grant.source!r} 非法")
             if not grant.write_path.strip():
                 problems.append(
                     f"{infra}: {grant.qualified()} 未给出真实写入路径"
@@ -984,9 +963,7 @@ def validate_infra_matrix() -> list[str]:
                 if not grant.columns:
                     problems.append(f"{infra}: {grant.qualified()} 列级授权但没有列清单")
                 if list(grant.columns) != sorted(set(grant.columns)):
-                    problems.append(
-                        f"{infra}: {grant.qualified()} 的列清单未按字典序去重"
-                    )
+                    problems.append(f"{infra}: {grant.qualified()} 的列清单未按字典序去重")
                 if len(grant.privileges) > 1:
                     problems.append(
                         f"{infra}: {grant.qualified()} 列级授权声明了多项权限 "
@@ -1001,9 +978,7 @@ MAINTENANCE_SESSION = f"{MAINTENANCE_SCHEMA}.assert_session_member()"
 MAINTENANCE_ENUMERATE = f"{MAINTENANCE_SCHEMA}.enumerate_due_tasks()"
 MAINTENANCE_DETECT = f"{MAINTENANCE_SCHEMA}.detect_projection_anomalies()"
 MAINTENANCE_RECONCILE = f"{MAINTENANCE_SCHEMA}.reconcile_tenant_tasks(text)"
-MAINTENANCE_DENIAL = (
-    f"{MAINTENANCE_SCHEMA}.record_maintenance_denial(text, text, text, text, text)"
-)
+MAINTENANCE_DENIAL = f"{MAINTENANCE_SCHEMA}.record_maintenance_denial(text, text, text, text, text)"
 MAINTENANCE_REPAIR = f"{MAINTENANCE_SCHEMA}.repair_tenant_task(text, text, text)"
 MAINTENANCE_HELPER = f"{MAINTENANCE_SCHEMA}._projection_anomalies(uuid)"
 # 工作单状态机的触发器函数：它不能直接调用，但 ACL 上默认带 PUBLIC EXECUTE，
@@ -1139,14 +1114,10 @@ def maintenance_repair_statements(
     login = maintenance_role("login")
     statements: list[str] = []
     if server_version_num >= MAINTENANCE_MAINTAIN_SINCE:
-        statements.append(
-            f"GRANT MAINTAIN ON TABLE {QC_GOVERNANCE}.qc_tasks TO {owner}"
-        )
+        statements.append(f"GRANT MAINTAIN ON TABLE {QC_GOVERNANCE}.qc_tasks TO {owner}")
         # 幂等收紧：先前的 PG16 部署升到 PG17 后，残留的 UPDATE 必须收回，
         # 否则「升级即降权」只是纸面结论。
-        statements.append(
-            f"REVOKE UPDATE ON TABLE {QC_GOVERNANCE}.qc_tasks FROM {owner}"
-        )
+        statements.append(f"REVOKE UPDATE ON TABLE {QC_GOVERNANCE}.qc_tasks FROM {owner}")
     else:
         statements.append(f"GRANT UPDATE ON TABLE {QC_GOVERNANCE}.qc_tasks TO {owner}")
     statements.append(f"REVOKE ALL ON FUNCTION {MAINTENANCE_REPAIR} FROM PUBLIC")

@@ -67,18 +67,14 @@ class ReworkTask(Entity):
         ):
             value = getattr(self, name)
             if not value or not str(value).strip():
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
             if len(value) > max_len:
                 raise DomainError(
                     ErrorRegistry.VALIDATION_ERROR,
                     detail=f"{name} 长度超过上限 {max_len}",
                 )
 
-    def transition_to(
-        self, target: ReworkTaskStatus, audit_ref: str, action: str
-    ) -> ReworkTask:
+    def transition_to(self, target: ReworkTaskStatus, audit_ref: str, action: str) -> ReworkTask:
         """执行状态迁移；REJECTED 无入边，任何指向它的请求在此被拒。"""
         REWORK_TASK_LIFECYCLE.edge_owned_by(self.status, target, action)
         self.status = target

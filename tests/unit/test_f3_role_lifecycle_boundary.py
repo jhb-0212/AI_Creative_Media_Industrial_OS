@@ -71,4 +71,3 @@ def test_f3_decision_is_recorded_in_d08() -> None:
     text = D08.read_text(encoding="utf-8")
     assert "F3" in text
     assert "RETIRED_ROLES" in text
-

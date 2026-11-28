@@ -75,9 +75,7 @@ class BudgetService:
     ) -> ShotBudgetRequest:
         request = await self._repository.get_by_id(entity_id)
         if request is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"预算申请不存在: {entity_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"预算申请不存在: {entity_id}")
 
         # 审批要素在推进前落位：transition_to(APPROVED) 校验 approver 非空且与
         # 申请人职责分离；transition_to(REJECTED) 校验 decision_reason 非空。
@@ -193,9 +191,7 @@ class BudgetService:
         # 这里的求和只是**提前给出可读的拒绝理由**；权威闸门在库层触发器
         # （``budget_quota.budget_ledger_settlement_guard``），因为两个事务各读
         # 一次「已结算 0」时，服务层的求和必然同时放过两笔。
-        settled = await self._ledger_repository.settlement_total(
-            reservation_ref=run.entity_id
-        )
+        settled = await self._ledger_repository.settlement_total(reservation_ref=run.entity_id)
         if settled + amount > run.amount:
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,
@@ -250,9 +246,7 @@ class BudgetService:
             )
         return ledger
 
-    async def _write_ledger(
-        self, ledger: BudgetLedger, *, kind: str, reservation_ref: str
-    ) -> None:
+    async def _write_ledger(self, ledger: BudgetLedger, *, kind: str, reservation_ref: str) -> None:
         """追加流水，把库层拒绝翻译成**业务**语义。
 
         三种拒绝必须分开报，否则调用方无法判断该重试、该换金额、还是该报缺陷：

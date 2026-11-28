@@ -114,28 +114,24 @@ def test_missing_or_unknown_version_is_rejected(event_type: str) -> None:
 def test_wrong_types_are_not_coerced() -> None:
     succeeded = _samples()["GENERATION_SUCCEEDED"]
     with pytest.raises(EventPayloadError):
-        parse_event_payload(
-            "GENERATION_SUCCEEDED", {**succeeded, "attempt_count": "1"}
-        )
+        parse_event_payload("GENERATION_SUCCEEDED", {**succeeded, "attempt_count": "1"})
     conflict = _samples()["ASSET_REGISTRATION_CONFLICT"]
     with pytest.raises(EventPayloadError):
-        parse_event_payload(
-            "ASSET_REGISTRATION_CONFLICT", {**conflict, "observed": "not-a-dict"}
-        )
+        parse_event_payload("ASSET_REGISTRATION_CONFLICT", {**conflict, "observed": "not-a-dict"})
 
 
 def test_blank_critical_fact_is_rejected() -> None:
     succeeded = _samples()["GENERATION_SUCCEEDED"]
     with pytest.raises(EventPayloadError):
-        parse_event_payload(
-            "GENERATION_SUCCEEDED", {**succeeded, "asset_version_id": "   "}
-        )
+        parse_event_payload("GENERATION_SUCCEEDED", {**succeeded, "asset_version_id": "   "})
 
 
 def test_writer_stamps_the_same_version() -> None:
     stamped = stamp_event_payload({"x": 1})
     assert stamped["schema_version"] == EVENT_PAYLOAD_SCHEMA_VERSION
-    assert declared_schema_versions() == dict.fromkeys(EVENT_PAYLOAD_SCHEMAS, EVENT_PAYLOAD_SCHEMA_VERSION)
+    assert declared_schema_versions() == dict.fromkeys(
+        EVENT_PAYLOAD_SCHEMAS, EVENT_PAYLOAD_SCHEMA_VERSION
+    )
 
 
 def test_handler_registry_and_payload_registry_are_the_same_set() -> None:

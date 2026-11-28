@@ -340,9 +340,7 @@ def constraint_pack_params(
         "groups": shot_group_ids if shot_group_ids is not None else [],
         "applicability": applicability,
         "dims": locked_dimensions if locked_dimensions is not None else ["cut_points"],
-        "entries": json.dumps(
-            constraints if constraints is not None else [CONSTRAINT_ENTRY]
-        ),
+        "entries": json.dumps(constraints if constraints is not None else [CONSTRAINT_ENTRY]),
         "version": version,
         "status": status,
         "approved_by": approved_by,

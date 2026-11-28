@@ -34,8 +34,15 @@ _TENANT = uuid.UUID("00000000-0000-0000-0000-000000000091")
 
 
 class _Task:
-    def __init__(self, *, entity_id: str, tenant_id: uuid.UUID, asset_version_id: str,
-                 project_id: str, quality_profile_version: str) -> None:
+    def __init__(
+        self,
+        *,
+        entity_id: str,
+        tenant_id: uuid.UUID,
+        asset_version_id: str,
+        project_id: str,
+        quality_profile_version: str,
+    ) -> None:
         self.entity_id = entity_id
         self.tenant_id = tenant_id
         self.asset_version_id = asset_version_id
@@ -85,14 +92,18 @@ async def _read_report(
 ) -> dict[str, Any] | None:
     async with admin_sessionmaker() as session:
         row = (
-            await session.execute(
-                text(
-                    "SELECT qc_report_id, findings FROM asset_service.qc_reports "
-                    "WHERE asset_version_id = :aid"
-                ),
-                {"aid": asset_id},
+            (
+                await session.execute(
+                    text(
+                        "SELECT qc_report_id, findings FROM asset_service.qc_reports "
+                        "WHERE asset_version_id = :aid"
+                    ),
+                    {"aid": asset_id},
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         return dict(row) if row is not None else None
 
 

@@ -35,9 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 logger = logging.getLogger(__name__)
 
-_DISCOVER_SQL = (
-    "SELECT tenant_id, due_count FROM qc_maintenance.enumerate_due_tasks()"
-)
+_DISCOVER_SQL = "SELECT tenant_id, due_count FROM qc_maintenance.enumerate_due_tasks()"
 
 
 class DiscoveryIdentityError(RuntimeError):
@@ -85,9 +83,7 @@ class MaintenanceTenantDiscovery:
             async with self._engine.connect() as conn:
                 rows = (await conn.execute(text(_DISCOVER_SQL))).all()
         except Exception:
-            logger.exception(
-                "QC tenant discovery failed; treat as blocked and claim nothing"
-            )
+            logger.exception("QC tenant discovery failed; treat as blocked and claim nothing")
             return None
         # due_count 为 0 的租户不该进入后续路径：让它们进来只会为每条空租户
         # 付一次租户事务，把「没有活」放大成 N 次查询。

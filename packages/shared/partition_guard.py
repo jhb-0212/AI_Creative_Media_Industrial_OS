@@ -317,8 +317,7 @@ def ops_partition_grant_do_block(*, schema: str = OUTBOX_SCHEMA) -> str:
     return _ops_partition_loop_block(
         schema=schema,
         statements=(
-            f"EXECUTE format('GRANT SELECT ON {schema}.%I TO %I', "
-            f"r.relname, '{role}');",
+            f"EXECUTE format('GRANT SELECT ON {schema}.%I TO %I', r.relname, '{role}');",
             f"EXECUTE format('GRANT UPDATE ({columns}) ON {schema}.%I TO %I', "
             f"r.relname, '{role}');",
         ),
@@ -338,10 +337,7 @@ def ops_partition_revoke_do_block(*, schema: str = OUTBOX_SCHEMA) -> str:
     role = get_settings().postgres_outbox_ops_user
     return _ops_partition_loop_block(
         schema=schema,
-        statements=(
-            f"EXECUTE format('REVOKE ALL ON {schema}.%I FROM %I', "
-            f"r.relname, '{role}');",
-        ),
+        statements=(f"EXECUTE format('REVOKE ALL ON {schema}.%I FROM %I', r.relname, '{role}');",),
     )
 
 

@@ -122,14 +122,24 @@ async def main() -> int:
     conn = await lab.lab_conn(args.host, args.port, args.user, args.password, PROBE_DB)
     try:
         removed = await lab.rewind_to(conn, args.versions_dir, KEEP_AFTER)
-        rec("P0", "基线", f"回退到 {KEEP_AFTER} 已应用（撤掉 {len(removed)} 层）",
-            True, "/".join(removed) if removed else "模板已在该状态")
+        rec(
+            "P0",
+            "基线",
+            f"回退到 {KEEP_AFTER} 已应用（撤掉 {len(removed)} 层）",
+            True,
+            "/".join(removed) if removed else "模板已在该状态",
+        )
 
         pre = await conn.fetchval(
             "SELECT count(*) FROM pg_constraint WHERE conname IN ($1, $2)", COMPOSITE_FK, PARENT_UQ
         )
-        rec("P1", "前提", "基线里批次四的约束均不存在（否则测的不是本迁移）",
-            pre == 0, f"命中 {pre} 个")
+        rec(
+            "P1",
+            "前提",
+            "基线里批次四的约束均不存在（否则测的不是本迁移）",
+            pre == 0,
+            f"命中 {pre} 个",
+        )
         if pre != 0:
             raise RuntimeError("前提不成立：基线已含批次四约束")
 
@@ -139,7 +149,9 @@ async def main() -> int:
         rec("P2", "前提", "取到同组织下两个真实项目", True, f"A={pa_id} B={pb_id} org={org[-4:]}")
 
         # 资产版本归属 pa_id —— 现有弱单列外键只要求「父行存在」，不管 project
-        ok_a, d_a = await lab.case(conn, [], av_insert("b4-av", pa_id, tenant, org), expect_changed=1)
+        ok_a, d_a = await lab.case(
+            conn, [], av_insert("b4-av", pa_id, tenant, org), expect_changed=1
+        )
         rec("P3", "前提", "插入一行属于 pa_id 的资产版本", ok_a, d_a)
 
         # ---------- 对照 + 缺口可复现 ----------
@@ -151,8 +163,13 @@ async def main() -> int:
         ok_c, d_c = await lab.case(
             conn, [], qc_insert("b4-cross", "b4-av", pb_id, tenant, org), expect_changed=1
         )
-        rec("C1", "缺口", "建约束前：报告挂在 pa_id 的资产上、项目写成 pb_id，依然插入成功",
-            ok_c, d_c)
+        rec(
+            "C1",
+            "缺口",
+            "建约束前：报告挂在 pa_id 的资产上、项目写成 pb_id，依然插入成功",
+            ok_c,
+            d_c,
+        )
 
         # ---------- 升级 ----------
         n = await lab.apply_steps(conn, lab.upgrade_sqls(mig))
@@ -160,23 +177,24 @@ async def main() -> int:
 
         st = await conn.fetchrow(
             "SELECT convalidated FROM pg_constraint WHERE conname = $1 AND conrelid = $2::regclass",
-            COMPOSITE_FK, QC,
+            COMPOSITE_FK,
+            QC,
         )
-        rec("S1", "结构", "复合外键已建且为 NOT VALID（存量未扫）",
+        rec(
+            "S1",
+            "结构",
+            "复合外键已建且为 NOT VALID（存量未扫）",
             st is not None and st["convalidated"] is False,
-            f"exists={st is not None} convalidated={st['convalidated'] if st else '-'}")
-
-        weak = await conn.fetchval(
-            "SELECT count(*) FROM pg_constraint WHERE conname = $1", WEAK_FK
+            f"exists={st is not None} convalidated={st['convalidated'] if st else '-'}",
         )
-        rec("S2", "结构", "被取代的单列外键已删除（不是两条键并存）",
-            weak == 0, f"count={weak}")
+
+        weak = await conn.fetchval("SELECT count(*) FROM pg_constraint WHERE conname = $1", WEAK_FK)
+        rec("S2", "结构", "被取代的单列外键已删除（不是两条键并存）", weak == 0, f"count={weak}")
 
         uq = await conn.fetchval(
             "SELECT count(*) FROM pg_constraint WHERE conname = $1 AND contype = 'u'", PARENT_UQ
         )
-        rec("S3", "结构", "父表四列唯一键已建（复合外键的可引用目标）",
-            uq == 1, f"count={uq}")
+        rec("S3", "结构", "父表四列唯一键已建（复合外键的可引用目标）", uq == 1, f"count={uq}")
 
         # ---------- 新写入被拦，且不误伤 ----------
         ok_n, d_n = await lab.case(
@@ -187,8 +205,7 @@ async def main() -> int:
         ok_n2, d_n2 = await lab.case(
             conn, [], qc_insert("b4-new-ok", "b4-av", pa_id, tenant, org), expect_changed=1
         )
-        rec("N2", "拦截", "同一约束不误伤项目一致的写入（否则 N1 是别的原因）",
-            ok_n2, d_n2)
+        rec("N2", "拦截", "同一约束不误伤项目一致的写入（否则 N1 是别的原因）", ok_n2, d_n2)
 
         # ---------- VALIDATE 非恒真 ----------
         # 模板库自带一行真实存量脏数据（`qc-1`：挂在 proj-alpha 的资产上、
@@ -199,11 +216,18 @@ async def main() -> int:
                  WHERE (p.project_id, p.tenant_id, p.organization_id)
                     IS DISTINCT FROM (t.project_id, t.tenant_id, t.organization_id)"""
         )
-        rec("V0", "验证", "存量中存在「真实但不一致」的行（VALIDATE 的必然后果）",
-            stale >= 1, f"违规行 {stale} 条")
+        rec(
+            "V0",
+            "验证",
+            "存量中存在「真实但不一致」的行（VALIDATE 的必然后果）",
+            stale >= 1,
+            f"违规行 {stale} 条",
+        )
 
         ok_v, d_v = await lab.case(
-            conn, [], f"ALTER TABLE {QC} VALIDATE CONSTRAINT {COMPOSITE_FK}",
+            conn,
+            [],
+            f"ALTER TABLE {QC} VALIDATE CONSTRAINT {COMPOSITE_FK}",
             expect_state="23503",
         )
         rec("V1", "验证", "有「真实但不一致」存量行时 VALIDATE 必须 23503", ok_v, d_v)
@@ -227,8 +251,13 @@ async def main() -> int:
                 await conn.execute(f"ALTER TABLE {QC} VALIDATE CONSTRAINT {COMPOSITE_FK}")
             rec("V3", "验证", "清掉脏行后 VALIDATE 通过（成功路径可达）", True, "VALIDATE OK")
         except asyncpg.PostgresError as exc:
-            rec("V3", "验证", "清掉脏行后 VALIDATE 通过（成功路径可达）", False,
-                f"{exc.sqlstate}: {str(exc).splitlines()[0][:80]}")
+            rec(
+                "V3",
+                "验证",
+                "清掉脏行后 VALIDATE 通过（成功路径可达）",
+                False,
+                f"{exc.sqlstate}: {str(exc).splitlines()[0][:80]}",
+            )
 
         # ---------- 重复执行必须失败（约束唯一存在） ----------
         # 第一条语句是 `ADD CONSTRAINT ... UNIQUE`，背后会建同名索引，
@@ -238,16 +267,25 @@ async def main() -> int:
             await conn.execute(lab.upgrade_sqls(mig)[0])
             rec("I1", "幂等", "重复 ADD CONSTRAINT 必须失败（42P07/42710）", False, "竟然成功")
         except asyncpg.PostgresError as exc:
-            rec("I1", "幂等", "重复 ADD CONSTRAINT 必须失败（42P07/42710）",
-                exc.sqlstate in {"42710", "42P07"}, f"{exc.sqlstate}")
+            rec(
+                "I1",
+                "幂等",
+                "重复 ADD CONSTRAINT 必须失败（42P07/42710）",
+                exc.sqlstate in {"42710", "42P07"},
+                f"{exc.sqlstate}",
+            )
 
         # ---------- 与闸门一致 ----------
         report = await consistency.evaluate(conn)
         blocked = report.count("NO_FK") + report.count("FK_NOT_COMPOSITE")
-        rec("Q1", "闸门", "升级后一致闸门无 NO_FK / FK_NOT_COMPOSITE（DANGLING 不计）",
+        rec(
+            "Q1",
+            "闸门",
+            "升级后一致闸门无 NO_FK / FK_NOT_COMPOSITE（DANGLING 不计）",
             blocked == 0,
             f"NO_FK={report.count('NO_FK')} FK_NOT_COMPOSITE={report.count('FK_NOT_COMPOSITE')} "
-            f"PENDING={report.count('PENDING_VALIDATE')} DANGLING={report.count('DANGLING')}")
+            f"PENDING={report.count('PENDING_VALIDATE')} DANGLING={report.count('DANGLING')}",
+        )
 
         # ---------- 降级 ----------
         n = await lab.apply_steps(conn, lab._downgrade_sqls(mig))
@@ -281,8 +319,13 @@ async def main() -> int:
         restored = await conn.fetchval(
             "SELECT count(*) FROM pg_constraint WHERE conname = $1", WEAK_FK
         )
-        rec("D3", "降级", "被取代的单列外键已恢复（回退到 g7b8 时刻等价）",
-            restored == 1, f"count={restored}")
+        rec(
+            "D3",
+            "降级",
+            "被取代的单列外键已恢复（回退到 g7b8 时刻等价）",
+            restored == 1,
+            f"count={restored}",
+        )
 
         ok_r, d_r = await lab.case(
             conn, [], qc_insert("b4-after-down", "b4-av", pb_id, tenant, org), expect_changed=1

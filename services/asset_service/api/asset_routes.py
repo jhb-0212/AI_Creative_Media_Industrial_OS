@@ -236,9 +236,7 @@ async def approve_asset_version(
         parent_type="AssetVersion",
         parent_id=asset_version_id,
     )
-    asset = await service.approve(
-        asset_version_id=asset_version_id, principal=principal
-    )
+    asset = await service.approve(asset_version_id=asset_version_id, principal=principal)
     await uow.commit()
     return asset.to_dict()
 

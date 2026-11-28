@@ -37,9 +37,7 @@ class EpisodeRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def get_by_project_ref(
-        self, project_id: str, episode_ref: str
-    ) -> Episode | None:
+    async def get_by_project_ref(self, project_id: str, episode_ref: str) -> Episode | None:
         """按项目 + 集数标识查询集数，不存在返回 None。
 
         这是「归属验证」的核心查询：确认某个 episode_ref 确实归属于

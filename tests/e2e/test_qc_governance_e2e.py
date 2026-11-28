@@ -97,9 +97,7 @@ def _actor(subject_id: str, roles: list[str]) -> AsyncClient:
     需要组织的那条用例自己用 ``_org_actor`` 造带组织签发的 token——组织必须来自
     验签 Principal，而不是测试自己在请求体里写一个字符串。
     """
-    token = make_test_token(
-        subject_id=subject_id, roles=roles, tenant_id=_TENANT
-    )
+    token = make_test_token(subject_id=subject_id, roles=roles, tenant_id=_TENANT)
     return AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
@@ -135,9 +133,7 @@ async def _create_asset(client: AsyncClient, project_id: str) -> str:
     return resp.json()["asset_version_id"]
 
 
-async def _create_report(
-    client: AsyncClient, asset_version_id: str, report_id: str
-) -> str:
+async def _create_report(client: AsyncClient, asset_version_id: str, report_id: str) -> str:
     resp = await client.post(
         f"/assets/{asset_version_id}/qc-reports",
         json={
@@ -213,9 +209,7 @@ async def _recover(
     return resp.json()["entity_id"]
 
 
-async def _task_row(
-    admin_sm: async_sessionmaker[AsyncSession], task_id: str
-) -> Any:
+async def _task_row(admin_sm: async_sessionmaker[AsyncSession], task_id: str) -> Any:
     async with admin_sm() as session:
         return (
             await session.execute(
@@ -234,25 +228,17 @@ async def _task_organization(
     """读待检任务行里的组织归属（``NULL`` 就是租户级项目，不是「读失败」）。"""
     async with admin_sm() as session:
         value = await session.scalar(
-            text(
-                "SELECT organization_id FROM qc_governance.qc_tasks "
-                "WHERE entity_id = :id"
-            ),
+            text("SELECT organization_id FROM qc_governance.qc_tasks WHERE entity_id = :id"),
             {"id": task_id},
         )
     return value
 
 
-async def _projection_count(
-    admin_sm: async_sessionmaker[AsyncSession], task_id: str
-) -> int:
+async def _projection_count(admin_sm: async_sessionmaker[AsyncSession], task_id: str) -> int:
     async with admin_sm() as session:
         return int(
             await session.scalar(
-                text(
-                    "SELECT count(*) FROM qc_maintenance.task_projection "
-                    "WHERE task_id = :id"
-                ),
+                text("SELECT count(*) FROM qc_maintenance.task_projection WHERE task_id = :id"),
                 {"id": task_id},
             )
         )
@@ -311,12 +297,8 @@ async def test_http_recovery_task_is_picked_up_and_finished_with_real_report(
         generation_task_id = await _seed_generation_task(
             admin_sessionmaker, project_id=project_id, asset_version_id=asset_id
         )
-        task_id = await _recover(
-            recover, generation_task_id, project_id, "漏入队补一次"
-        )
-        report_id = await _create_report(
-            qc_worker, asset_id, f"rep_e2e_{uuid.uuid4().hex[:8]}"
-        )
+        task_id = await _recover(recover, generation_task_id, project_id, "漏入队补一次")
+        report_id = await _create_report(qc_worker, asset_id, f"rep_e2e_{uuid.uuid4().hex[:8]}")
 
         assert await _projection_count(admin_sessionmaker, task_id) == 1, (
             "入队必须同事务落一条调度投影，否则调度永远看不见这条待检任务"
@@ -335,9 +317,7 @@ async def test_http_recovery_task_is_picked_up_and_finished_with_real_report(
             lease_seconds=120,
         )
         scheduler = TenantScheduler(
-            discovery=_ScopedDiscovery(
-                engine=scheduler_engine, tenants={_TENANT}
-            ),
+            discovery=_ScopedDiscovery(engine=scheduler_engine, tenants={_TENANT}),
             worker=worker,
         )
         outcome = await scheduler.run_once()
@@ -421,9 +401,7 @@ async def test_org_scoped_task_runs_the_whole_chain_and_persists_organization(
             asset_version_id=asset_id,
             organization_id=org,
         )
-        task_id = await _recover(
-            recover, generation_task_id, project_id, "组织级项目恢复"
-        )
+        task_id = await _recover(recover, generation_task_id, project_id, "组织级项目恢复")
 
         stored_org = await _task_organization(admin_sessionmaker, task_id)
         assert stored_org == org, (
@@ -432,9 +410,7 @@ async def test_org_scoped_task_runs_the_whole_chain_and_persists_organization(
         )
         assert await _projection_count(admin_sessionmaker, task_id) == 1
 
-        report_id = await _create_report(
-            qc_worker, asset_id, f"rep_org_{uuid.uuid4().hex[:8]}"
-        )
+        report_id = await _create_report(qc_worker, asset_id, f"rep_org_{uuid.uuid4().hex[:8]}")
 
         qc_engine, scheduler_engine = qc_engines
         sm = create_sessionmaker(qc_engine)
@@ -455,8 +431,7 @@ async def test_org_scoped_task_runs_the_whole_chain_and_persists_organization(
 
         assert outcome.blocked is False
         assert outcome.tenant_errors == 0, (
-            "组织级任务若因组织上下文缺失而失败，这里必须表现为租户错误，"
-            "不能悄悄跳过"
+            "组织级任务若因组织上下文缺失而失败，这里必须表现为租户错误，不能悄悄跳过"
         )
 
         row = await _task_row(admin_sessionmaker, task_id)
@@ -466,9 +441,7 @@ async def test_org_scoped_task_runs_the_whole_chain_and_persists_organization(
         assert await _projection_count(admin_sessionmaker, task_id) == 0
 
 
-async def test_foreign_asset_report_is_refused_and_task_stays_running(
-    admin_sessionmaker
-) -> None:
+async def test_foreign_asset_report_is_refused_and_task_stays_running(admin_sessionmaker) -> None:
     """负向：持有租约，但报告属于**另一个资产** → 拒绝，任务留在 RUNNING。
 
     「有报告 id」不等于「有证据」。若这条用例通过，说明核验只查了报告存在、
@@ -489,9 +462,7 @@ async def test_foreign_asset_report_is_refused_and_task_stays_running(
         )
         task_id = await _recover(recover, generation_task_id, project_id, "重复入队检查")
 
-        lease = await qc_worker.post(
-            f"/qc-tasks/{task_id}/lease", json={"lease_seconds": 120}
-        )
+        lease = await qc_worker.post(f"/qc-tasks/{task_id}/lease", json={"lease_seconds": 120})
         assert lease.status_code == 200, lease.text
         generation = lease.json()["lease_generation"]
 

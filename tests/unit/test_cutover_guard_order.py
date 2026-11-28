@@ -23,7 +23,10 @@ def _module():
 def test_all_locks_precede_any_count() -> None:
     mod = _module()
     sql = mod._cutover_guard_sql()
-    lock_positions = [sql.index(f"LOCK TABLE project_planning.{t} IN ACCESS EXCLUSIVE MODE") for t in mod._CUTOVER_TABLES]
+    lock_positions = [
+        sql.index(f"LOCK TABLE project_planning.{t} IN ACCESS EXCLUSIVE MODE")
+        for t in mod._CUTOVER_TABLES
+    ]
     assert lock_positions == sorted(lock_positions), "锁必须按固定顺序取得"
     first_count = sql.index("count(*)")
     assert max(lock_positions) < first_count, "必须五表全部加锁后才开始 count"
@@ -32,8 +35,11 @@ def test_all_locks_precede_any_count() -> None:
 def test_lock_order_matches_declared_tuple() -> None:
     mod = _module()
     sql = mod._cutover_guard_sql()
-    locks = [line.split("LOCK TABLE project_planning.")[1].split(" ")[0]
-             for line in sql.splitlines() if "LOCK TABLE" in line]
+    locks = [
+        line.split("LOCK TABLE project_planning.")[1].split(" ")[0]
+        for line in sql.splitlines()
+        if "LOCK TABLE" in line
+    ]
     assert tuple(locks) == mod._CUTOVER_TABLES
 
 

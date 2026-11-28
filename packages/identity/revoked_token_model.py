@@ -32,8 +32,6 @@ class RevokedTokenModel(Base):
     revoked_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
-    expires_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
     revoked_by: Mapped[str] = mapped_column(String(64), nullable=False)

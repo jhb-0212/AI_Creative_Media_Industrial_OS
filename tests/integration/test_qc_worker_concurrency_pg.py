@@ -64,9 +64,7 @@ async def _seed_project(admin_sessionmaker, *, tenant: uuid.UUID, suffix: str) -
     return project_id
 
 
-async def _enqueue(
-    *, tenant: uuid.UUID, project_id: str, suffix: str
-) -> str:
+async def _enqueue(*, tenant: uuid.UUID, project_id: str, suffix: str) -> str:
     async with _qc_sm()() as session:
         await set_test_scope(session, tenant_id=tenant)
         service = QCTaskService(
@@ -172,8 +170,7 @@ async def test_skip_locked_bypasses_row_held_by_uncommitted_claim(
         pending = asyncio.create_task(
             session.execute(
                 text(
-                    "SELECT entity_id FROM qc_governance.qc_tasks "
-                    "WHERE entity_id = :id FOR UPDATE"
+                    "SELECT entity_id FROM qc_governance.qc_tasks WHERE entity_id = :id FOR UPDATE"
                 ),
                 {"id": task_id},
             )
@@ -212,9 +209,7 @@ async def test_two_workers_claim_distinct_tasks_without_blocking(
             candidate = await repo.next_claimable_for_claim()
             assert candidate is not None
             service = QCTaskService(repo, SqlAlchemyOutboxWriter(session))
-            await service.claim(
-                task_id=candidate.entity_id, worker_id=name, lease_seconds=60
-            )
+            await service.claim(task_id=candidate.entity_id, worker_id=name, lease_seconds=60)
             await session.commit()
             claimed[name] = candidate.entity_id
 
@@ -311,8 +306,7 @@ async def test_expired_lease_blocks_old_worker_renew_and_finish(
     async with admin_sessionmaker() as session:
         await session.execute(
             text(
-                "UPDATE qc_governance.qc_tasks "
-                "SET lease_expires_at = :past WHERE entity_id = :id"
+                "UPDATE qc_governance.qc_tasks SET lease_expires_at = :past WHERE entity_id = :id"
             ),
             {"past": datetime.now(UTC) - timedelta(seconds=5), "id": task_id},
         )
@@ -363,8 +357,7 @@ async def test_concurrent_reclaim_only_one_succeeds(admin_sessionmaker) -> None:
     async with admin_sessionmaker() as session:
         await session.execute(
             text(
-                "UPDATE qc_governance.qc_tasks "
-                "SET lease_expires_at = :past WHERE entity_id = :id"
+                "UPDATE qc_governance.qc_tasks SET lease_expires_at = :past WHERE entity_id = :id"
             ),
             {"past": datetime.now(UTC) - timedelta(seconds=5), "id": task_id},
         )
@@ -420,8 +413,7 @@ async def test_late_finish_after_reclaim_rejected(admin_sessionmaker) -> None:
     async with admin_sessionmaker() as session:
         await session.execute(
             text(
-                "UPDATE qc_governance.qc_tasks "
-                "SET lease_expires_at = :past WHERE entity_id = :id"
+                "UPDATE qc_governance.qc_tasks SET lease_expires_at = :past WHERE entity_id = :id"
             ),
             {"past": datetime.now(UTC) - timedelta(seconds=5), "id": task_id},
         )

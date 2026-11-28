@@ -83,7 +83,9 @@ class GenerationTaskModel(Base, EntityMixin):
         # 产物清单与登记回执的复合外键目标：跨任务/跨租户伪造登记依据必须被拒。
         # 约束名由迁移 e1f2a3b4c5d6 建立，这里同步声明，避免 alembic check 漂移。
         UniqueConstraint(
-            "generation_task_id", "project_id", "tenant_id",
+            "generation_task_id",
+            "project_id",
+            "tenant_id",
             name="uq_generation_tasks_task_project_tenant",
         ),
         # 归属外键：本表此前对 projects **一条外键都没有**。生成任务是
@@ -105,20 +107,14 @@ class GenerationTaskModel(Base, EntityMixin):
     budget_ref: Mapped[str] = mapped_column(String(128), nullable=False)
     prompt_ref: Mapped[str] = mapped_column(String(200), nullable=False)
     # 租约：领取者、到期时间、领取次数（Phase 2，GENERATION.PROCESS）。
-    lease_owner: Mapped[str] = mapped_column(
-        String(128), nullable=False, server_default=""
-    )
+    lease_owner: Mapped[str] = mapped_column(String(128), nullable=False, server_default="")
     lease_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    attempt_count: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default="0"
-    )
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     # 产物引用（Phase 3 后续）：成功任务把产物与质量标准版本落库，
     # QC 入队与「成功但漏入队」的对账扫描都以这两列为唯一依据。
-    asset_version_id: Mapped[str] = mapped_column(
-        String(64), nullable=False, server_default=""
-    )
+    asset_version_id: Mapped[str] = mapped_column(String(64), nullable=False, server_default="")
     quality_profile_version: Mapped[str] = mapped_column(
         String(64), nullable=False, server_default=""
     )
@@ -139,12 +135,11 @@ class ArtifactManifestModel(Base, EntityMixin):
     __tablename__ = "artifact_manifests"
     __table_args__ = (
         UniqueConstraint(
-            "generation_task_id", "attempt_id",
+            "generation_task_id",
+            "attempt_id",
             name="uq_artifact_manifests_task_attempt",
         ),
-        UniqueConstraint(
-            "project_id", "entity_id", name="uq_artifact_manifests_entity_project"
-        ),
+        UniqueConstraint("project_id", "entity_id", name="uq_artifact_manifests_entity_project"),
         project_tenant_fk("artifact_manifests"),
         ForeignKeyConstraint(
             ["generation_task_id", "project_id", "tenant_id"],
@@ -158,12 +153,8 @@ class ArtifactManifestModel(Base, EntityMixin):
         Index("ix_artifact_manifests_project_id", "project_id"),
         Index("ix_production_planning_artifact_manifests_tenant_id", "tenant_id"),
         Index("ix_artifact_manifests_generation_task_id", "generation_task_id"),
-        status_check(
-            (s.value for s in ArtifactManifestStatus), table="artifact_manifests"
-        ),
-        CheckConstraint(
-            sql_locator_check("locator"), name="ck_artifact_manifests_locator_sha256"
-        ),
+        status_check((s.value for s in ArtifactManifestStatus), table="artifact_manifests"),
+        CheckConstraint(sql_locator_check("locator"), name="ck_artifact_manifests_locator_sha256"),
         {"schema": SCHEMA_NAME},
     )
 

@@ -161,13 +161,9 @@ def main(argv: list[str] | None = None) -> int:
     for spec in specs:
         for group in spec.member_of:
             if (spec.name, group) not in memberships:
-                problems.append(
-                    f"{spec.name}：声明的成员关系 {group} 在集群里不存在"
-                )
+                problems.append(f"{spec.name}：声明的成员关系 {group} 在集群里不存在")
         if spec.lifecycle_owner == "migration":
-            problems.append(
-                f"{spec.name}：bootstrap 声明集里出现 lifecycle_owner=migration 的角色"
-            )
+            problems.append(f"{spec.name}：bootstrap 声明集里出现 lifecycle_owner=migration 的角色")
 
     undeclared = sorted(
         name for name in present if name not in declared and not _is_system_role(name)

@@ -96,9 +96,7 @@ def test_projection_objects_use_sentinel(name: str, basis: str) -> None:
     assert entry["basis"] == basis
     assert entry["reason"].strip() and entry["unblocks_when"].strip()
     assert name not in {o["object"] for o in _sm_objects()}
-    sentinel = cc.envelope_only_sentinel(
-        yaml.safe_load(LAYERS_PATH.read_text(encoding="utf-8"))
-    )
+    sentinel = cc.envelope_only_sentinel(yaml.safe_load(LAYERS_PATH.read_text(encoding="utf-8")))
     assert _definitions()[name]["properties"]["status"]["enum"] == [sentinel]
 
 
@@ -200,9 +198,7 @@ def test_simplifying_baseline_value_set_breaks_derived_files(
         if entry["object"] == "ShotTierChangeRequest":
             entry["allowed_states"] = ["DRAFT", "PENDING", "APPROVED", "REJECTED"]
     tampered = tmp_path / "state_machines.yaml"
-    tampered.write_text(
-        yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8"
-    )
+    tampered.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
     monkeypatch.setattr(gs, "STATE_MACHINES", tampered)
 
     problems = gs.drift_problems()

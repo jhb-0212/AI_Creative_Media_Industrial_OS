@@ -64,9 +64,7 @@ class EnqueueOrigin:
 
     def __post_init__(self) -> None:
         if _blank(self.operator_id):
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="入队来源缺少 operator_id"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="入队来源缺少 operator_id")
         if self.source == "MANUAL" and _blank(self.reason):
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,
@@ -116,9 +114,7 @@ class QCTask(Entity):
             "quality_profile_version",
         ):
             if _blank(getattr(self, name)):
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
         for name, max_len in (
             ("qc_task_id", 64),
             ("project_id", 64),
@@ -134,9 +130,7 @@ class QCTask(Entity):
                     detail=f"{name} 长度超过上限 {max_len}",
                 )
         if self.lease_generation < 0:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="lease_generation 不能为负"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="lease_generation 不能为负")
 
     def transition_to(
         self,
@@ -258,9 +252,7 @@ class QCTask(Entity):
                 detail=f"QC 判定只能是 PASSED 或 REJECTED，实际为 {target.value}",
             )
         if _blank(qc_report_id):
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="qc_report_id 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="qc_report_id 不能为空")
         self.transition_to(target, audit_ref, QC_TASK_PROCESS_ACTION)
         self.qc_report_id = qc_report_id
         return self
@@ -295,9 +287,7 @@ class QCTask(Entity):
                 "status": self.status.value,
                 "lease_owner": self.lease_owner,
                 "lease_expires_at": (
-                    self.lease_expires_at.isoformat()
-                    if self.lease_expires_at is not None
-                    else None
+                    self.lease_expires_at.isoformat() if self.lease_expires_at is not None else None
                 ),
                 "attempt_count": self.attempt_count,
                 "lease_generation": self.lease_generation,

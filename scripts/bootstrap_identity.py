@@ -116,7 +116,10 @@ async def _run(args: argparse.Namespace) -> int:
     settings = get_settings()
 
     if args.dry_run:
-        phases = [roles_phase(settings), grants_phase(server_version_num=args.server_version or 160000)]
+        phases = [
+            roles_phase(settings),
+            grants_phase(server_version_num=args.server_version or 160000),
+        ]
         for phase in phases:
             print(f"-- {phase.name}: {len(phase.statements)} statements")
             for statement in phase.statements:
@@ -165,8 +168,7 @@ async def _run(args: argparse.Namespace) -> int:
             missing = missing_objects(await _existing_tables(conn))
             if missing:
                 print(
-                    "[BLOCKED] schema 未到 head，缺少对象：\n  "
-                    + "\n  ".join(missing),
+                    "[BLOCKED] schema 未到 head，缺少对象：\n  " + "\n  ".join(missing),
                     file=sys.stderr,
                 )
                 return EXIT_BLOCKED
@@ -193,9 +195,7 @@ def main(argv: list[str] | None = None) -> int:
         help="--dry-run 时假定的 server_version_num（默认 160000）",
     )
     args = parser.parse_args(argv)
-    if not any(
-        (args.roles, args.grants, args.all, args.verify, args.dry_run)
-    ):
+    if not any((args.roles, args.grants, args.all, args.verify, args.dry_run)):
         parser.error("至少选一个动作：--roles / --grants / --all / --verify / --dry-run")
     if args.verify and (args.roles or args.grants or args.all):
         parser.error("--verify 是只读动作，不能与写入动作混用")

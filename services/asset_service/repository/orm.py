@@ -71,9 +71,7 @@ class AssetVersionModel(EntityMixin, Base):
         # 回执跨表引用的目标键：entity_id 是全局主键，但「项目内资产」
         # 还需要 (project_id, entity_id) 唯一，才能让回执用复合外键锁死
         # 「资产必须属于回执所属项目」，而不是只验资产 ID 存在。
-        UniqueConstraint(
-            "project_id", "entity_id", name="uq_asset_versions_project_entity"
-        ),
+        UniqueConstraint("project_id", "entity_id", name="uq_asset_versions_project_entity"),
         # status 收口（十态）：资产版本是唯一允许「GOLD / QUARANTINED」等旁支的
         # 对象，库里若只认有入边的五态，真实数据一出现旁支就会被 CHECK 打回。
         status_check((s.value for s in AssetStatus), table="asset_versions"),
@@ -123,11 +121,13 @@ class AssetRegistrationReceiptModel(Base, EntityMixin):
     __tablename__ = "asset_registration_receipts"
     __table_args__ = (
         UniqueConstraint(
-            "tenant_id", "generation_task_id",
+            "tenant_id",
+            "generation_task_id",
             name="uq_asset_registration_receipts_tenant_task",
         ),
         UniqueConstraint(
-            "project_id", "entity_id",
+            "project_id",
+            "entity_id",
             name="uq_asset_registration_receipts_entity_project",
         ),
         project_tenant_fk("asset_registration_receipts"),
@@ -144,8 +144,7 @@ class AssetRegistrationReceiptModel(Base, EntityMixin):
         # A 项目的回执引用 B 项目的资产。目标唯一键在 AssetVersionModel 上声明。
         ForeignKeyConstraint(
             ["project_id", "asset_version_id"],
-            [f"{SCHEMA_NAME}.asset_versions.project_id",
-             f"{SCHEMA_NAME}.asset_versions.entity_id"],
+            [f"{SCHEMA_NAME}.asset_versions.project_id", f"{SCHEMA_NAME}.asset_versions.entity_id"],
             name="fk_asset_registration_receipts_asset_version",
         ),
         Index("ix_asset_registration_receipts_project_id", "project_id"),

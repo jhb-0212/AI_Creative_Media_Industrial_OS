@@ -68,9 +68,7 @@ class ShotService:
     ) -> Shot:
         changed_by = changed_by.strip()
         if not changed_by:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="changed_by 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="changed_by 不能为空")
 
         # fail-closed（contract_amendments.yaml V205-R14-A14 残留风险）：CANCELLED 的
         # 可解析授权记录对象仍未建模，cancellation_ref 只是调用方自报的字符串——
@@ -119,9 +117,7 @@ class ShotService:
         # SC-5 的并发侧：进入在产前必须先与父场次的归档侧串行化。
         # 触发条件同样由边表派生（三条进入 IN_PRODUCTION 的边都声明了它），
         # 不是这里手写 ``if target is IN_PRODUCTION``。
-        parent_precondition = SHOT_LIFECYCLE.parent_precondition(
-            shot.status, target_status
-        )
+        parent_precondition = SHOT_LIFECYCLE.parent_precondition(shot.status, target_status)
         if parent_precondition is not None:
             await self._assert_parent_accepts(shot, parent_precondition)
 
@@ -156,9 +152,7 @@ class ShotService:
         )
         return shot
 
-    async def _assert_parent_accepts(
-        self, shot: Shot, precondition: ParentPrecondition
-    ) -> None:
+    async def _assert_parent_accepts(self, shot: Shot, precondition: ParentPrecondition) -> None:
         """持共享行锁确认父场次未归档（SC-5 的并发侧，与归档侧的排他锁配对）。
 
         为什么子对象也要管这件事：只堵归档那一侧仍有一个窗口——归档事务已经锁住
@@ -175,10 +169,6 @@ class ShotService:
         """
         parent = await self._scene_repository.lock_for_child_write(shot.scene_id)
         if parent is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"父场次不存在: {shot.scene_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"父场次不存在: {shot.scene_id}")
         if parent.status.value == precondition.forbidden_status:
-            raise DomainError(
-                ErrorRegistry.STATE_TRANSITION_DENIED, detail=precondition.message
-            )
+            raise DomainError(ErrorRegistry.STATE_TRANSITION_DENIED, detail=precondition.message)

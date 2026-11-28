@@ -88,15 +88,11 @@ def _create_table() -> None:
         sa.Column("decided_by", sa.String(64), nullable=False),
         sa.Column("decided_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("gate_instance_id", sa.String(64), nullable=False, server_default=""),
-        sa.Column(
-            "constraint_snapshot_id", sa.String(128), nullable=False, server_default=""
-        ),
+        sa.Column("constraint_snapshot_id", sa.String(128), nullable=False, server_default=""),
         sa.Column("entry_criteria", sa.String(500), nullable=False, server_default=""),
         sa.Column("reason_code", sa.String(64), nullable=False, server_default=""),
         sa.Column("comment", sa.String(500), nullable=False, server_default=""),
-        sa.Column(
-            "required_artifacts", sa.String(500), nullable=False, server_default=""
-        ),
+        sa.Column("required_artifacts", sa.String(500), nullable=False, server_default=""),
         sa.Column("evidence_refs", JSONB, nullable=False, server_default="[]"),
         sa.Column("reviewers", JSONB, nullable=False, server_default="[]"),
         sa.Column("ruleset_version", sa.Integer(), nullable=False, server_default="1"),
@@ -134,8 +130,7 @@ def _create_indexes() -> None:
 def _enable_rls() -> None:
     op.execute(f"ALTER TABLE {_SCHEMA}.{_TABLE} ENABLE ROW LEVEL SECURITY")
     op.execute(
-        f"CREATE POLICY tenant_isolation_{_TABLE} ON {_SCHEMA}.{_TABLE} "
-        f"{_project_visibility()}"
+        f"CREATE POLICY tenant_isolation_{_TABLE} ON {_SCHEMA}.{_TABLE} {_project_visibility()}"
     )
     op.execute(f"ALTER TABLE {_SCHEMA}.{_TABLE} FORCE ROW LEVEL SECURITY")
 

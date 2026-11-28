@@ -50,18 +50,14 @@ class MaintenanceCommandClient:
     RECONCILE = "reconcile_tenant_tasks"
     REPAIR = "repair_tenant_task"
 
-    def __init__(
-        self, engine: AsyncEngine, *, logger: logging.Logger | None = None
-    ) -> None:
+    def __init__(self, engine: AsyncEngine, *, logger: logging.Logger | None = None) -> None:
         self._engine = engine
         self._logger = logger
 
     # ------------------------------------------------------------------ #
     # 对外入口
     # ------------------------------------------------------------------ #
-    async def reconcile(
-        self, work_order_id: str, *, attempt_id: str
-    ) -> MaintenanceCallResult:
+    async def reconcile(self, work_order_id: str, *, attempt_id: str) -> MaintenanceCallResult:
         """在工单授权租户内对账；被拒时另开事务补记 DENIED。"""
         return await self._run(
             sql=f"SELECT * FROM qc_maintenance.{self.RECONCILE}(:work_order_id)",
@@ -97,8 +93,7 @@ class MaintenanceCommandClient:
         """
         return await self._run(
             sql=(
-                f"SELECT * FROM qc_maintenance.{self.REPAIR}"
-                "(:work_order_id, :task_id, :attempt_id)"
+                f"SELECT * FROM qc_maintenance.{self.REPAIR}(:work_order_id, :task_id, :attempt_id)"
             ),
             params={
                 "work_order_id": work_order_id,

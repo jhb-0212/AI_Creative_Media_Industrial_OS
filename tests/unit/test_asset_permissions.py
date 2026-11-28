@@ -46,9 +46,7 @@ def test_asset_action_principals_are_machine_readable(action_key: str) -> None:
 
 def test_approve_allows_director_via_parenthesized_qualifier() -> None:
     """「导演（按职责）」必须解析成「导演」，而不是「导演按职责」。"""
-    assert allowed_roles("ASSET.VERSION.APPROVE") == frozenset(
-        {"授权审核人", "QC", "导演"}
-    )
+    assert allowed_roles("ASSET.VERSION.APPROVE") == frozenset({"授权审核人", "QC", "导演"})
 
 
 def test_read_is_low_risk_and_does_not_overlap_write_only_roles() -> None:

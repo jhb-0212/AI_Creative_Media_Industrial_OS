@@ -384,14 +384,11 @@ def _report(
             "scope": "cluster-wide（逐库枚举 ACL / 属主 / 成员关系，以 pg_shdepend 为准）",
         },
         "targets": list(roles),
-        "lifecycle_state": _lifecycle_state(
-            roles, retired_names=retired_names, result=result
-        ),
+        "lifecycle_state": _lifecycle_state(roles, retired_names=retired_names, result=result),
         "existing": list(result.existing),
         "deletable": result.deletable,
         "shadow_dependencies": [
-            {"database": database, "count": count}
-            for database, count in result.shadow_dependencies
+            {"database": database, "count": count} for database, count in result.shadow_dependencies
         ],
         "prechecks": {
             "databases_surveyed": list(surveyed),
@@ -446,9 +443,7 @@ def main(argv: list[str] | None = None) -> int:
         outcome = "BLOCKED"
     else:  # 理论上不可达：deletable=False 必有一类引用
         outcome = "BLOCKED"
-    report = _report(
-        result, roles=roles, retired_names=retired_names, surveyed=surveyed
-    )
+    report = _report(result, roles=roles, retired_names=retired_names, surveyed=surveyed)
     report["result"] = outcome if not args.drop else "PRECHECK"
 
     if not args.drop:
@@ -481,8 +476,6 @@ def main(argv: list[str] | None = None) -> int:
     }
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return EXIT_CLEAN
-
-
 
 
 if __name__ == "__main__":

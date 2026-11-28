@@ -32,9 +32,7 @@ class _RecordingRegistrar:
         self._fail = fail
         self.pending: list = []
 
-    async def prepare(
-        self, task, *, locator: str, sha256: str, media_type: str, attempt_id: str
-    ):
+    async def prepare(self, task, *, locator: str, sha256: str, media_type: str, attempt_id: str):
         self.calls.append(("prepare", locator))
         if self._fail:
             raise AssetRegistrationUnavailableError("模拟未接线")
@@ -119,9 +117,7 @@ async def test_unresolvable_prompt_never_calls_gateway(tmp_path: Path) -> None:
         ("misconfigured", "gateway-misconfigured"),
     ],
 )
-async def test_gateway_failures_are_classified(
-    tmp_path: Path, mode: str, prefix: str
-) -> None:
+async def test_gateway_failures_are_classified(tmp_path: Path, mode: str, prefix: str) -> None:
     executor = _executor(tmp_path, gateway=FakeModelGateway(fail_mode=mode))
 
     outcome = await executor.execute(_task())
@@ -185,9 +181,7 @@ async def test_declared_digest_mismatch_is_caught_as_storage_failure(
 
 async def test_evidence_ref_is_bounded(tmp_path: Path) -> None:
     """证据串有长度上限：超长会撑爆列宽或被截断成不可读的残句。"""
-    executor = _executor(
-        tmp_path, gateway=FakeModelGateway(fail_mode="rejected")
-    )
+    executor = _executor(tmp_path, gateway=FakeModelGateway(fail_mode="rejected"))
     outcome = await executor.execute(_task())
     assert len(outcome.evidence_ref) <= 200
 

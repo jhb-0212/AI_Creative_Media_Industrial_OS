@@ -19,9 +19,7 @@ import structlog
 from structlog.typing import FilteringBoundLogger
 
 # 当前请求/任务链路的 trace 标识，由中间件或 OTel 写入。
-trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "trace_id", default=None
-)
+trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("trace_id", default=None)
 
 # URL/DSN 中的 userinfo（``scheme://user:pass@host``）→ 只保留 scheme 与 @。
 _URL_CREDENTIALS = re.compile(r"(?P<scheme>[a-zA-Z][a-zA-Z0-9+.-]*://)[^/@\s]+@")
@@ -60,9 +58,7 @@ def _redact_value(value: Any, *, key_hint: str | None = None) -> Any:
     if isinstance(value, tuple):
         return tuple(_redact_value(item) for item in value)
     if isinstance(value, str):
-        return _URL_CREDENTIALS.sub(
-            lambda m: f"{m.group('scheme')}***REDACTED***@", value
-        )
+        return _URL_CREDENTIALS.sub(lambda m: f"{m.group('scheme')}***REDACTED***@", value)
     return value
 
 

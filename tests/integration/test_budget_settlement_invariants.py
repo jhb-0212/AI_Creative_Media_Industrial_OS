@@ -155,9 +155,7 @@ async def test_db_rejects_settlement_exceeding_reserve(budget_sessionmaker) -> N
         assert "1001" in str(excinfo.value.orig)
 
     # 失败的那一笔没有落库：账本上仍然只有那笔 1000 的 RELEASE。
-    assert await _settled_total(
-        budget_sessionmaker, tenant=tenant, reserve_id=reserve_id
-    ) == 1000
+    assert await _settled_total(budget_sessionmaker, tenant=tenant, reserve_id=reserve_id) == 1000
 
 
 async def test_db_allows_settlement_within_reserve(budget_sessionmaker) -> None:
@@ -185,9 +183,7 @@ async def test_db_allows_settlement_within_reserve(budget_sessionmaker) -> None:
         )
         await session.commit()
 
-    assert await _settled_total(
-        budget_sessionmaker, tenant=tenant, reserve_id=reserve_id
-    ) == 1000
+    assert await _settled_total(budget_sessionmaker, tenant=tenant, reserve_id=reserve_id) == 1000
 
 
 async def test_db_rejects_settlement_pointing_at_missing_reserve(
@@ -277,9 +273,7 @@ async def test_concurrent_settlements_cannot_both_take_full_amount(
         async def _second_settlement() -> str:
             async with budget_sessionmaker() as session2:
                 await set_test_scope(session2, tenant_id=tenant)
-                await session2.execute(
-                    text(f"SET LOCAL lock_timeout = '{_LOCK_TIMEOUT}'")
-                )
+                await session2.execute(text(f"SET LOCAL lock_timeout = '{_LOCK_TIMEOUT}'"))
                 await _insert(
                     session2,
                     tenant=tenant,
@@ -311,9 +305,9 @@ async def test_concurrent_settlements_cannot_both_take_full_amount(
         with pytest.raises(DBAPIError):
             await task
 
-    assert await _settled_total(
-        budget_sessionmaker, tenant=tenant, reserve_id=reserve_id
-    ) == 1000, "两笔满额结算都落库了：累计不变量被并发绕过"
+    assert (
+        await _settled_total(budget_sessionmaker, tenant=tenant, reserve_id=reserve_id) == 1000
+    ), "两笔满额结算都落库了：累计不变量被并发绕过"
 
 
 # --------------------------------------------------------------------------- #

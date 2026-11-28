@@ -133,15 +133,14 @@ async def test_scheduler_identity_can_only_discover(admin_sessionmaker) -> None:
     engine = create_qc_scheduler_engine()
     try:
         async with engine.connect() as conn:
-            rows = (await conn.execute(text(
-                "SELECT tenant_id, due_count "
-                "FROM qc_maintenance.enumerate_due_tasks()"
-            ))).all()
+            rows = (
+                await conn.execute(
+                    text("SELECT tenant_id, due_count FROM qc_maintenance.enumerate_due_tasks()")
+                )
+            ).all()
             assert rows, "发现函数应可执行并返回结果"
             keys = set(rows[0]._mapping.keys())
-            assert keys == {"tenant_id", "due_count"}, (
-                f"发现结果只暴露租户与条数，实际 {keys}"
-            )
+            assert keys == {"tenant_id", "due_count"}, f"发现结果只暴露租户与条数，实际 {keys}"
             with pytest.raises(exc.DBAPIError, match="permission denied"):
                 await conn.execute(text("SELECT count(*) FROM qc_governance.qc_tasks"))
     finally:

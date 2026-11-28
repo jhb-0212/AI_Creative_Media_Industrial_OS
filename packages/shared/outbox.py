@@ -89,15 +89,11 @@ class OutboxEventModel(Base):
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     # 已投递标记：NULL 表示未投递，Worker 消费后写入投递时间。
-    published_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # 投递重试与死信（P2-2 / 迁移 f3a4b5c6d7e8）：
     # attempts 记录失败次数，next_attempt_at 控制指数退避，
     # dead_lettered_at 非空即"已放弃投递"（不再被 CLAIM 领取，但保留可查）。
-    attempts: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default="0"
-    )
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     next_attempt_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -106,6 +102,7 @@ class OutboxEventModel(Base):
     dead_lettered_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
 
 class DeadLetterReplayModel(Base):
     """outbox.dead_letter_replays（死信人工重放的 append-only 审计）。
@@ -176,9 +173,7 @@ class MaintenanceRunModel(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    finished_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     applied: Mapped[bool] = mapped_column(Boolean, nullable=False)
     created: Mapped[int] = mapped_column(Integer, nullable=False)
     detached: Mapped[int] = mapped_column(Integer, nullable=False)

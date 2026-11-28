@@ -35,9 +35,7 @@ def _settings(password: str, *, master: bool = False) -> SimpleNamespace:
             password if not master else "project_planning"
         ),
         postgres_asset_service_user="asset_service_role",
-        postgres_asset_service_password=SecretStr(
-            password if not master else "asset_service"
-        ),
+        postgres_asset_service_password=SecretStr(password if not master else "asset_service"),
     )
 
 
@@ -51,9 +49,7 @@ def test_app_url_encodes_space_as_percent20(monkeypatch) -> None:
 
 
 def test_migration_url_encodes_space_as_percent20(monkeypatch) -> None:
-    monkeypatch.setattr(
-        database, "get_settings", lambda: _settings("m a s t e r", master=True)
-    )
+    monkeypatch.setattr(database, "get_settings", lambda: _settings("m a s t e r", master=True))
 
     url = database.build_migration_url()
 
@@ -73,9 +69,7 @@ def test_relay_url_uses_dedicated_role(monkeypatch) -> None:
 
 def test_relay_url_encodes_space_as_percent20(monkeypatch) -> None:
     """relay 密码含空格时按 userinfo 语义编码为 %20（与 app/migration 一致）。"""
-    monkeypatch.setattr(
-        database, "get_settings", lambda: _settings("r e l a y")
-    )
+    monkeypatch.setattr(database, "get_settings", lambda: _settings("r e l a y"))
 
     url = database.build_relay_database_url()
 
@@ -85,9 +79,7 @@ def test_relay_url_encodes_space_as_percent20(monkeypatch) -> None:
 
 def test_project_planning_url_uses_dedicated_role(monkeypatch) -> None:
     """project_planning 域使用专用角色（DATA-1 模块级角色隔离）。"""
-    monkeypatch.setattr(
-        database, "get_settings", lambda: _settings("pp-pass")
-    )
+    monkeypatch.setattr(database, "get_settings", lambda: _settings("pp-pass"))
 
     url = database.build_project_planning_database_url()
 
@@ -97,9 +89,7 @@ def test_project_planning_url_uses_dedicated_role(monkeypatch) -> None:
 
 def test_asset_service_url_uses_dedicated_role(monkeypatch) -> None:
     """asset_service 域使用专用角色（DATA-1 模块级角色隔离）。"""
-    monkeypatch.setattr(
-        database, "get_settings", lambda: _settings("as-pass")
-    )
+    monkeypatch.setattr(database, "get_settings", lambda: _settings("as-pass"))
 
     url = database.build_asset_service_database_url()
 
@@ -109,9 +99,7 @@ def test_asset_service_url_uses_dedicated_role(monkeypatch) -> None:
 
 def test_domain_urls_encodes_space_as_percent20(monkeypatch) -> None:
     """业务域角色密码含空格时按 userinfo 语义编码为 %20。"""
-    monkeypatch.setattr(
-        database, "get_settings", lambda: _settings("d o m a i n")
-    )
+    monkeypatch.setattr(database, "get_settings", lambda: _settings("d o m a i n"))
 
     pp_url = database.build_project_planning_database_url()
     as_url = database.build_asset_service_database_url()

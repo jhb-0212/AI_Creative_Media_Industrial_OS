@@ -160,9 +160,7 @@ async def _event_count(engine: AsyncEngine, tenant_id: uuid.UUID) -> int:
     async with engine.connect() as conn:
         return (
             await conn.execute(
-                text(
-                    "SELECT count(*) FROM outbox.outbox_events WHERE tenant_id = :tid"
-                ),
+                text("SELECT count(*) FROM outbox.outbox_events WHERE tenant_id = :tid"),
                 {"tid": tenant_id},
             )
         ).scalar_one()
@@ -220,9 +218,7 @@ async def test_replay_requeues_event_and_records_pre_replay_facts(
     assert after["event_id"] == before["event_id"]
     assert after["event_type"] == before["event_type"]
     assert after["payload"] == before["payload"]
-    assert await _event_count(admin_engine, TEST_TENANT_ID) == count_before, (
-        "重放不得复制新事件"
-    )
+    assert await _event_count(admin_engine, TEST_TENANT_ID) == count_before, "重放不得复制新事件"
 
     assert event_id in await _claimable_ids(admin_engine), (
         "重放后的事件必须落进 relay 的 claim 结果集，否则「已交回」只是标记位好看"
@@ -299,9 +295,7 @@ async def test_live_event_cannot_be_replayed(admin_engine: AsyncEngine) -> None:
 
 async def test_published_event_cannot_be_replayed(admin_engine: AsyncEngine) -> None:
     """已投递成功 → 409：重放不是「再投一次」。"""
-    event_id = await _seed_dead_letter(
-        admin_engine, dead_lettered=False, published=True
-    )
+    event_id = await _seed_dead_letter(admin_engine, dead_lettered=False, published=True)
     async with _client(roles=[_REPLAY_ROLE]) as client:
         resp = await client.post(
             f"/outbox/dead-letters/{event_id}/replay", json={"reason": "已投递"}
@@ -358,9 +352,7 @@ async def test_missing_reason_is_rejected(admin_engine: AsyncEngine) -> None:
     """没有理由的重放不可接受：审计行的意义就是记住「为什么」。"""
     event_id = await _seed_dead_letter(admin_engine)
     async with _client(roles=[_REPLAY_ROLE]) as client:
-        resp = await client.post(
-            f"/outbox/dead-letters/{event_id}/replay", json={"reason": ""}
-        )
+        resp = await client.post(f"/outbox/dead-letters/{event_id}/replay", json={"reason": ""})
     assert resp.status_code == 422, resp.text
     assert await _audit_rows(admin_engine, event_id) == []
 
@@ -389,12 +381,8 @@ async def test_concurrent_replay_yields_one_success(
     count_before = await _event_count(admin_engine, TEST_TENANT_ID)
     async with _client(roles=[_REPLAY_ROLE]) as client:
         first, second = await asyncio.gather(
-            client.post(
-                f"/outbox/dead-letters/{event_id}/replay", json={"reason": "并发 A"}
-            ),
-            client.post(
-                f"/outbox/dead-letters/{event_id}/replay", json={"reason": "并发 B"}
-            ),
+            client.post(f"/outbox/dead-letters/{event_id}/replay", json={"reason": "并发 A"}),
+            client.post(f"/outbox/dead-letters/{event_id}/replay", json={"reason": "并发 B"}),
         )
     codes = sorted([first.status_code, second.status_code])
     assert codes == [200, 409], (first.text, second.text)
@@ -415,9 +403,7 @@ async def test_audit_rows_are_append_only(admin_engine: AsyncEngine) -> None:
     """
     event_id = await _seed_dead_letter(admin_engine)
     async with _client(roles=[_REPLAY_ROLE]) as client:
-        resp = await client.post(
-            f"/outbox/dead-letters/{event_id}/replay", json={"reason": "留痕"}
-        )
+        resp = await client.post(f"/outbox/dead-letters/{event_id}/replay", json={"reason": "留痕"})
     assert resp.status_code == 200, resp.text
 
     with pytest.raises(DBAPIError) as update_exc:
@@ -513,5 +499,3 @@ async def test_replay_increments_counter_only_on_success(
         )
     assert ok.status_code == 200, ok.text
     assert _replay_counter() == before + 1, "提交成功的重放必须 +1"
-
-

@@ -82,15 +82,13 @@ $$;
 """
 
 _CREATE_TRIGGERS = (
-    "DROP TRIGGER IF EXISTS trg_asset_versions_guard "
-    "ON asset_service.asset_versions",
+    "DROP TRIGGER IF EXISTS trg_asset_versions_guard ON asset_service.asset_versions",
     """
 CREATE TRIGGER trg_asset_versions_guard
     BEFORE UPDATE OR DELETE ON asset_service.asset_versions
     FOR EACH ROW EXECUTE FUNCTION asset_service.asset_versions_guard()
 """,
-    "DROP TRIGGER IF EXISTS trg_qc_reports_guard "
-    "ON asset_service.qc_reports",
+    "DROP TRIGGER IF EXISTS trg_qc_reports_guard ON asset_service.qc_reports",
     """
 CREATE TRIGGER trg_qc_reports_guard
     BEFORE UPDATE OR DELETE ON asset_service.qc_reports
@@ -99,8 +97,7 @@ CREATE TRIGGER trg_qc_reports_guard
 )
 
 _DROP_ALL = (
-    "DROP TRIGGER IF EXISTS trg_asset_versions_guard "
-    "ON asset_service.asset_versions",
+    "DROP TRIGGER IF EXISTS trg_asset_versions_guard ON asset_service.asset_versions",
     "DROP TRIGGER IF EXISTS trg_qc_reports_guard ON asset_service.qc_reports",
     "DROP FUNCTION IF EXISTS asset_service.asset_versions_guard()",
     "DROP FUNCTION IF EXISTS asset_service.qc_reports_guard()",

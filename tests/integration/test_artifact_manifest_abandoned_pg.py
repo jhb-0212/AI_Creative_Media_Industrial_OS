@@ -137,8 +137,7 @@ async def seeded(admin_engine: AsyncEngine) -> AsyncIterator[dict[str, object]]:
         async with admin_engine.begin() as conn:
             await conn.execute(
                 sa.text(
-                    "DELETE FROM production_planning.artifact_manifests "
-                    "WHERE entity_id = :eid"
+                    "DELETE FROM production_planning.artifact_manifests WHERE entity_id = :eid"
                 ),
                 {"eid": manifest_id},
             )
@@ -150,9 +149,7 @@ async def seeded(admin_engine: AsyncEngine) -> AsyncIterator[dict[str, object]]:
                 {"tid": task_id},
             )
             await conn.execute(
-                sa.text(
-                    "DELETE FROM project_planning.projects WHERE entity_id = :pid"
-                ),
+                sa.text("DELETE FROM project_planning.projects WHERE entity_id = :pid"),
                 {"pid": project_id},
             )
 
@@ -176,8 +173,7 @@ async def test_abandoned_is_writable_and_unknown_state_still_rejected(
     async with admin_engine.connect() as conn:
         status = await conn.scalar(
             sa.text(
-                "SELECT status FROM production_planning.artifact_manifests "
-                "WHERE entity_id = :eid"
+                "SELECT status FROM production_planning.artifact_manifests WHERE entity_id = :eid"
             ),
             {"eid": manifest_id},
         )
@@ -201,8 +197,7 @@ async def test_abandoned_is_writable_and_unknown_state_still_rejected(
     async with admin_engine.connect() as conn:
         status = await conn.scalar(
             sa.text(
-                "SELECT status FROM production_planning.artifact_manifests "
-                "WHERE entity_id = :eid"
+                "SELECT status FROM production_planning.artifact_manifests WHERE entity_id = :eid"
             ),
             {"eid": manifest_id},
         )

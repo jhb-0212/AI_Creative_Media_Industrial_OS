@@ -87,9 +87,7 @@ class Entity:
         for name, max_len in _ENVELOPE_MAX_LEN.items():
             value = getattr(self, name)
             if value is None or (isinstance(value, str) and not value.strip()):
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
             if len(value) > max_len:
                 raise DomainError(
                     ErrorRegistry.VALIDATION_ERROR,

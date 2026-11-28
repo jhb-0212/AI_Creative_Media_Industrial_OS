@@ -58,19 +58,13 @@
 
 ```python
 # 迁移内常量：只写本迁移撤过的东西，不在运行时推导
-_LEGACY_DEFAULTS = (
-    ("project_planning", "TABLES"),
-    ("project_planning", "SEQUENCES"),
-    ...
-)
+_LEGACY_DEFAULTS = (("project_planning", "TABLES"), ("project_planning", "SEQUENCES"), ...)
+
 
 def downgrade() -> None:
     ...
     for schema, kind in _LEGACY_DEFAULTS:
-        op.execute(
-            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
-            f"GRANT ALL ON {kind} TO {role}"
-        )
+        op.execute(f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT ALL ON {kind} TO {role}")
 ```
 
 三条硬约束：

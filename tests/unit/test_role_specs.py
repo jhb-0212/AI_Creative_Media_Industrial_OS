@@ -14,9 +14,7 @@ from packages.shared.role_specs import LiveRole, RoleSpec, diff_role_attributes
 
 
 def _spec(name: str, *, login: bool = True) -> RoleSpec:
-    return RoleSpec(
-        name=name, login=login, password_setting=None, purpose="测试用身份"
-    )
+    return RoleSpec(name=name, login=login, password_setting=None, purpose="测试用身份")
 
 
 def _live(name: str, *, login: bool = True, **flags: bool) -> LiveRole:

@@ -36,6 +36,7 @@ OWNERSHIP_COLS = ("project_id", "organization_id", "tenant_id")
 # 需要额外存在的前置行（避免表和表之间的外键把夹具卡住）
 ROUTE_ID = "rt-coverage-base"
 
+
 def _env(entity_type: str, status: str, module: str, **extra: str) -> dict[str, str]:
     """10 列信封 + 表特有业务列。信封列顺序固定，读写方便对照 schema。"""
     return {
@@ -53,6 +54,7 @@ def _env(entity_type: str, status: str, module: str, **extra: str) -> dict[str, 
         **extra,
     }
 
+
 _JSON_EMPTY = "'[]'::jsonb"
 _JSON_OBJ = "'{}'::jsonb"
 
@@ -68,7 +70,7 @@ FIXTURES: dict[str, dict[str, str]] = {
         project_id="'${project}'",
         asset_type="'VIDEO'",
         sha256="repeat('a',64)",
-        storage_ref="'{\"bucket\":\"b\",\"key\":\"${key}\"}'::jsonb",
+        storage_ref='\'{"bucket":"b","key":"${key}"}\'::jsonb',
         source_asset_version_ids=_JSON_EMPTY,
     ),
     "asset_service.delivery_manifests": _env(
@@ -161,8 +163,8 @@ FIXTURES: dict[str, dict[str, str]] = {
         asset_version_id="'av-ref-${key}'",
         qc_report_ref="'qr-${key}'",
         reference_set=_JSON_OBJ,
-        reviewers="'[{\"reviewer\":\"migx\"}]'::jsonb",
-        findings="'[{\"finding\":\"coverage\"}]'::jsonb",
+        reviewers='\'[{"reviewer":"migx"}]\'::jsonb',
+        findings='\'[{"finding":"coverage"}]\'::jsonb',
         decisions=_JSON_EMPTY,
     ),
     "shot_planning.constraint_packs": _env(

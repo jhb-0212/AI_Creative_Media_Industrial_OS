@@ -44,9 +44,7 @@ async def admin_conn(host: str, port: int, user: str, password: str) -> asyncpg.
     )
 
 
-async def fresh_clone(
-    admin: asyncpg.Connection, lab: str, template: str
-) -> None:
+async def fresh_clone(admin: asyncpg.Connection, lab: str, template: str) -> None:
     """重建实验库。克隆而非直连：任何 DDL/数据损坏都只影响一次性副本。"""
     await admin.execute(f'DROP DATABASE IF EXISTS "{lab}" WITH (FORCE)')
     await admin.execute(f'CREATE DATABASE "{lab}" TEMPLATE "{template}"')
@@ -56,12 +54,8 @@ async def drop_lab(admin: asyncpg.Connection, lab: str) -> None:
     await admin.execute(f'DROP DATABASE IF EXISTS "{lab}" WITH (FORCE)')
 
 
-async def lab_conn(
-    host: str, port: int, user: str, password: str, lab: str
-) -> asyncpg.Connection:
-    return await asyncpg.connect(
-        host=host, port=port, user=user, password=password, database=lab
-    )
+async def lab_conn(host: str, port: int, user: str, password: str, lab: str) -> asyncpg.Connection:
+    return await asyncpg.connect(host=host, port=port, user=user, password=password, database=lab)
 
 
 async def reset_role(admin: asyncpg.Connection, role: str, *, bypass_rls: bool = True) -> None:
@@ -187,7 +181,9 @@ OWNERSHIP_STACK: tuple[str, ...] = (
 def _resolve_revision(versions_dir: Path, rev: str) -> Path:
     hits = sorted(versions_dir.glob(f"{rev}_*.py"))
     if len(hits) != 1:
-        raise RuntimeError(f"revision {rev} 在 {versions_dir} 命中 {len(hits)} 个文件，无法确定迁移体")
+        raise RuntimeError(
+            f"revision {rev} 在 {versions_dir} 命中 {len(hits)} 个文件，无法确定迁移体"
+        )
     return hits[0]
 
 
@@ -286,7 +282,7 @@ async def rewind_to(
     if keep not in stack:
         raise ValueError(f"{keep} 不在归属栈中：{stack}")
     applied: list[str] = []
-    for rev in reversed(stack[stack.index(keep) + 1:]):
+    for rev in reversed(stack[stack.index(keep) + 1 :]):
         mod = load_migration(_resolve_revision(vd, rev), f"mig_rewind_{rev}")
         probe = applied_probe(mod)
         if probe is not None and not await conn.fetchval(probe):
@@ -509,9 +505,7 @@ async def insert_minimal_row(
 
     cols = ", ".join(values)
     marks = ", ".join(f"${i}" for i in range(1, len(values) + 1))
-    await conn.execute(
-        f'INSERT INTO {table} ({cols}) VALUES ({marks})', *values.values()
-    )
+    await conn.execute(f"INSERT INTO {table} ({cols}) VALUES ({marks})", *values.values())
     return values
 
 

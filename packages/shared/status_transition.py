@@ -95,9 +95,7 @@ class StatusTransitionModel(Base):
     evidence_refs: Mapped[list[str]] = mapped_column(
         ARRAY(String(64)), nullable=False, default=list
     )
-    occurred_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     # 非空：无事件的迁移不存在（迁移侧另有提交时校验，两者缺一不可——
     # NOT NULL 挡「忘传」，约束触发器挡「传了个不存在的」）。
     event_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)

@@ -112,16 +112,11 @@ async def _status(admin_sm: async_sessionmaker[AsyncSession], task_id: str) -> A
         ).one()
 
 
-async def _projection_tenants(
-    admin_sm: async_sessionmaker[AsyncSession], task_id: str
-) -> int:
+async def _projection_tenants(admin_sm: async_sessionmaker[AsyncSession], task_id: str) -> int:
     async with admin_sm() as session:
         return int(
             await session.scalar(
-                text(
-                    "SELECT count(*) FROM qc_maintenance.task_projection "
-                    "WHERE task_id = :id"
-                ),
+                text("SELECT count(*) FROM qc_maintenance.task_projection WHERE task_id = :id"),
                 {"id": task_id},
             )
         )
@@ -148,9 +143,7 @@ async def test_discovery_drives_claim_inspect_and_terminal_state(
             lease_seconds=120,
         )
         scheduler = TenantScheduler(
-            discovery=_ScopedDiscovery(
-                engine=scheduler_engine, tenants={tenant_a, tenant_b}
-            ),
+            discovery=_ScopedDiscovery(engine=scheduler_engine, tenants={tenant_a, tenant_b}),
             worker=worker,
         )
         outcome = await scheduler.run_once()

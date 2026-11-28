@@ -64,9 +64,7 @@ class StatusRepository(Protocol):
 
 
 class OutboxRecorder(Protocol):
-    def record_transition(
-        self, *, fact: TransitionFact, event: TransitionEvent
-    ) -> UUID: ...
+    def record_transition(self, *, fact: TransitionFact, event: TransitionEvent) -> UUID: ...
 
     def record(
         self,
@@ -265,9 +263,7 @@ async def save_versioned_entity(
     try:
         await repository.save(entity, expected_version)
     except ConcurrentModificationError as exc:
-        raise DomainError(
-            ErrorRegistry.CONCURRENT_MODIFICATION, detail=conflict_detail
-        ) from exc
+        raise DomainError(ErrorRegistry.CONCURRENT_MODIFICATION, detail=conflict_detail) from exc
     outbox_writer.record(
         aggregate_type=aggregate_type,
         aggregate_id=aggregate_id,
@@ -277,9 +273,7 @@ async def save_versioned_entity(
     )
 
 
-def _effective_organization_id(
-    entity: VersionedStatusEntity, explicit: UUID | None
-) -> UUID | None:
+def _effective_organization_id(entity: VersionedStatusEntity, explicit: UUID | None) -> UUID | None:
     """事实里的组织归属：显式参数优先，否则取实体自身的组织键。
 
     实体没有 ``organization_id`` 属性（集数/剧本/资产版本）时返回 None——

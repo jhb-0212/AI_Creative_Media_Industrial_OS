@@ -130,9 +130,7 @@ async def main() -> int:
 
             async def try_archive() -> tuple[bool, str]:
                 try:
-                    await archiver.execute(
-                        text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT_MS}ms'")
-                    )
+                    await archiver.execute(text(f"SET LOCAL lock_timeout = '{LOCK_TIMEOUT_MS}ms'"))
                     p = await arch_repo.get_by_id(PROJECT)
                     if p is None:
                         return False, "项目不存在（前置失败，非锁问题）"
@@ -167,9 +165,7 @@ async def main() -> int:
             ok_after, note_after = await asyncio.wait_for(try_archive(), timeout=15)
             # 归档后新的带锁读
             await enter_scope(archiver)
-            again = await SqlAlchemyProjectRepository(archiver).get_by_id_for_child_write(
-                PROJECT
-            )
+            again = await SqlAlchemyProjectRepository(archiver).get_by_id_for_child_write(PROJECT)
             await archiver.rollback()
             record(
                 "R3",
@@ -186,8 +182,10 @@ async def main() -> int:
         await admin.close()
 
     failed = [r["id"] for r in results if r["status"] == "FAIL"]
-    print(f"\n判定：{len(results) - len(failed)}/{len(results)} PASS"
-          + (f"，FAIL={failed}" if failed else ""))
+    print(
+        f"\n判定：{len(results) - len(failed)}/{len(results)} PASS"
+        + (f"，FAIL={failed}" if failed else "")
+    )
     print(f"总体：{'PASS' if not failed else 'FAIL'}")
     out = Path(__file__).with_suffix(".json")
     out.write_text(

@@ -71,53 +71,105 @@ def read_chain(worktree: Path) -> list[str]:
 def q(port: str, sql: str, database: str = "ai_film_industrial") -> list[list[str]]:
     env = dict(os.environ, PGPASSWORD="<ROTATED-2026-11-28>")
     out = subprocess.run(
-        [PSQL, "-h", "localhost", "-p", port, "-U", "postgres", "-X", "-A", "-F", "|",
-         "-t", "-d", database, "-c", sql],
-        capture_output=True, text=True, env=env, check=True,
+        [
+            PSQL,
+            "-h",
+            "localhost",
+            "-p",
+            port,
+            "-U",
+            "postgres",
+            "-X",
+            "-A",
+            "-F",
+            "|",
+            "-t",
+            "-d",
+            database,
+            "-c",
+            sql,
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=True,
     ).stdout
     return [line.split("|") for line in out.splitlines() if line]
 
 
 def snapshot(port: str) -> dict[str, object]:
-    schemas = [r[0] for r in q(port, """
+    schemas = [
+        r[0]
+        for r in q(
+            port,
+            """
         SELECT nspname FROM pg_namespace
-        WHERE nspname NOT LIKE 'pg_%' AND nspname <> 'information_schema' ORDER BY 1;""")]
+        WHERE nspname NOT LIKE 'pg_%' AND nspname <> 'information_schema' ORDER BY 1;""",
+        )
+    ]
     tables = {
-        f"{r[0]}.{r[1]}": int(r[2]) for r in q(port, """
+        f"{r[0]}.{r[1]}": int(r[2])
+        for r in q(
+            port,
+            """
         SELECT n.nspname, c.relname, count(a.attname)
         FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
         LEFT JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
         WHERE c.relkind IN ('r','p') AND n.nspname NOT IN ('pg_catalog','information_schema')
-        GROUP BY 1,2 ORDER BY 1,2;""")
+        GROUP BY 1,2 ORDER BY 1,2;""",
+        )
     }
     constraints = sorted(
-        f"{r[0]}.{r[1]}.{r[2]}" for r in q(port, """
+        f"{r[0]}.{r[1]}.{r[2]}"
+        for r in q(
+            port,
+            """
         SELECT n.nspname, c.relname, con.conname
         FROM pg_constraint con JOIN pg_class c ON c.oid=con.conrelid
         JOIN pg_namespace n ON n.oid=c.relnamespace
-        WHERE n.nspname NOT IN ('pg_catalog','information_schema') ORDER BY 1,2,3;""")
+        WHERE n.nspname NOT IN ('pg_catalog','information_schema') ORDER BY 1,2,3;""",
+        )
     )
     roles = {
-        r[0]: {"login": r[1], "super": r[2], "bypassrls": r[3], "createdb": r[4], "createrole": r[5]}
-        for r in q(port, """
+        r[0]: {
+            "login": r[1],
+            "super": r[2],
+            "bypassrls": r[3],
+            "createdb": r[4],
+            "createrole": r[5],
+        }
+        for r in q(
+            port,
+            """
         SELECT rolname, rolcanlogin, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole
-        FROM pg_roles WHERE rolname NOT LIKE 'pg\\_%' ORDER BY 1;""", database="postgres")
+        FROM pg_roles WHERE rolname NOT LIKE 'pg\\_%' ORDER BY 1;""",
+            database="postgres",
+        )
     }
     grants = {
-        r[0]: {"objs": int(r[1]), "privs": r[2]} for r in q(port, """
+        r[0]: {"objs": int(r[1]), "privs": r[2]}
+        for r in q(
+            port,
+            """
         SELECT pg_get_userbyid(a.grantee), count(*),
                string_agg(DISTINCT a.privilege_type, '+' ORDER BY a.privilege_type)
         FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) a
         JOIN pg_namespace n ON n.oid=c.relnamespace
         WHERE n.nspname NOT IN ('pg_catalog','information_schema')
           AND a.grantee <> c.relowner AND a.grantee <> 0
-        GROUP BY 1 ORDER BY 1;""")
+        GROUP BY 1 ORDER BY 1;""",
+        )
     }
     memberships = sorted(
-        f"{r[0]}->{r[1]}" for r in q(port, """
+        f"{r[0]}->{r[1]}"
+        for r in q(
+            port,
+            """
         SELECT parent.rolname, member.rolname FROM pg_auth_members am
         JOIN pg_roles parent ON parent.oid=am.roleid
-        JOIN pg_roles member ON member.oid=am.member ORDER BY 1,2;""", database="postgres")
+        JOIN pg_roles member ON member.oid=am.member ORDER BY 1,2;""",
+            database="postgres",
+        )
     )
     return {
         "schemas": schemas,
@@ -131,8 +183,8 @@ def snapshot(port: str) -> dict[str, object]:
 
 
 def main() -> None:
-    side = sys.argv[1]        # main | feat
-    port = sys.argv[2]        # 15443 | 15444
+    side = sys.argv[1]  # main | feat
+    port = sys.argv[2]  # 15443 | 15444
     worktree = Path(sys.argv[3])
     outdir = Path(sys.argv[4])
     outdir.mkdir(parents=True, exist_ok=True)
@@ -142,23 +194,31 @@ def main() -> None:
 
     env = dict(
         os.environ,
-        POSTGRES_HOST="localhost", POSTGRES_PORT=port,
-        POSTGRES_DB="ai_film_industrial", POSTGRES_USER="postgres",
+        POSTGRES_HOST="localhost",
+        POSTGRES_PORT=port,
+        POSTGRES_DB="ai_film_industrial",
+        POSTGRES_USER="postgres",
         POSTGRES_PASSWORD="<ROTATED-2026-11-28>",
         POSTGRES_APP_PASSWORD="replay_app_pw",
         POSTGRES_RELAY_PASSWORD="replay_relay_pw",
         POSTGRES_PROJECT_PLANNING_PASSWORD="replay_pp_pw",
         POSTGRES_ASSET_SERVICE_PASSWORD="replay_as_pw",
-        APP_ENV="development", PYTHONPATH=str(worktree),
+        APP_ENV="development",
+        PYTHONPATH=str(worktree),
     )
 
     def upgrade(target: str) -> None:
         result = subprocess.run(
             [sys.executable, "-m", "alembic", "-c", "alembic.ini", "upgrade", target],
-            cwd=worktree, env=env, capture_output=True, text=True,
+            cwd=worktree,
+            env=env,
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 0:
-            raise SystemExit(f"upgrade {target} 失败:\n{result.stdout[-2000:]}\n{result.stderr[-3000:]}")
+            raise SystemExit(
+                f"upgrade {target} 失败:\n{result.stdout[-2000:]}\n{result.stderr[-3000:]}"
+            )
 
     for index, rev in enumerate(chain, 1):
         if rev not in CONFLICT_REVS:
@@ -169,13 +229,17 @@ def main() -> None:
         state["_step"] = index
         path = outdir / f"{index:02d}-{rev}.json"
         path.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
-        print(f"  [{index:02d}] {rev} 表 {state['table_count']} 角色 {len(state['roles'])} "
-              f"授权对象数 {sum(g['objs'] for g in state['grants'].values())}")
+        print(
+            f"  [{index:02d}] {rev} 表 {state['table_count']} 角色 {len(state['roles'])} "
+            f"授权对象数 {sum(g['objs'] for g in state['grants'].values())}"
+        )
 
     upgrade("head")
     head = snapshot(port)
     head["_revision"] = chain[-1]
-    (outdir / "zz-head.json").write_text(json.dumps(head, indent=2, ensure_ascii=False), encoding="utf-8")
+    (outdir / "zz-head.json").write_text(
+        json.dumps(head, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     print(f"  head {chain[-1]}: 表 {head['table_count']} 角色 {len(head['roles'])}")
 
 

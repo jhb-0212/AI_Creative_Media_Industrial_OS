@@ -88,9 +88,7 @@ async def _record_denial(work_order_id: str, reason: str, attempt_id: str) -> No
         async with engine.begin() as conn:
             await conn.execute(text(f'SET SESSION AUTHORIZATION "{_LOGIN}"'))
             await conn.execute(
-                text(
-                    "SELECT qc_maintenance.record_maintenance_denial(:wo, :reason, :attempt)"
-                ),
+                text("SELECT qc_maintenance.record_maintenance_denial(:wo, :reason, :attempt)"),
                 {"wo": work_order_id, "reason": reason, "attempt": attempt_id},
             )
     finally:
@@ -107,9 +105,7 @@ async def _call_records(func: str, args: tuple = ()) -> list:
             await conn.execute(text(f'SET SESSION AUTHORIZATION "{_LOGIN}"'))
             placeholders = ", ".join(f":a{i}" for i in range(len(args)))
             sql = f"SELECT * FROM qc_maintenance.{func}({placeholders})"
-            return (
-                await conn.execute(text(sql), {f"a{i}": v for i, v in enumerate(args)})
-            ).all()
+            return (await conn.execute(text(sql), {f"a{i}": v for i, v in enumerate(args)})).all()
     finally:
         await engine.dispose()
 
@@ -197,9 +193,7 @@ async def test_reconcile_requires_approved_work_order_of_right_kind(
     async with admin_sessionmaker() as session:
         tenant = uuid.uuid4()
         pending = await create_work_order(session, tenant=tenant, approve=False)
-        detect_kind = await create_work_order(
-            session, tenant=tenant, kind="DETECT", approve=True
-        )
+        detect_kind = await create_work_order(session, tenant=tenant, kind="DETECT", approve=True)
 
     for wo, reason in ((pending, "not_approved"), (detect_kind, "kind_mismatch")):
         with pytest.raises(exc.DBAPIError):
@@ -252,9 +246,7 @@ async def test_denial_attempt_is_idempotent_and_requires_key(
 
         with pytest.raises(exc.DBAPIError, match="attempt_id"):
             await session.execute(
-                text(
-                    "SELECT qc_maintenance.record_maintenance_denial(:wo, :reason, :attempt)"
-                ),
+                text("SELECT qc_maintenance.record_maintenance_denial(:wo, :reason, :attempt)"),
                 {"wo": wo, "reason": "not_approved", "attempt": "  "},
             )
         await session.rollback()
@@ -348,27 +340,19 @@ async def test_detect_reports_seven_categories_and_no_payload(
     }, "七类差异必须各自独立成行；合并成一类会让排障无从下手"
 
 
-async def test_enumerate_returns_tenant_and_count_only(
-    qc_sessionmaker, admin_sessionmaker
-) -> None:
+async def test_enumerate_returns_tenant_and_count_only(qc_sessionmaker, admin_sessionmaker) -> None:
     """发现结果只暴露「租户 + 条数」：它是调度入口，不能变成跨租户读数接口。"""
     tenant = uuid.uuid4()
     suffix = uuid.uuid4().hex[:8]
     project_id = f"proj-maint-{suffix}"
     await seed_project(admin_sessionmaker, project_id=project_id, tenant=tenant)
-    await _seed_task(
-        qc_sessionmaker, tenant=tenant, project_id=project_id, suffix=suffix
-    )
+    await _seed_task(qc_sessionmaker, tenant=tenant, project_id=project_id, suffix=suffix)
 
     rows = await _call_records("enumerate_due_tasks")
     assert rows, "至少要能看到刚入队的那个租户"
     keys = set(rows[0]._mapping.keys())
-    assert keys == {"tenant_id", "due_count"}, (
-        f"发现函数不得返回租户与条数之外的列，实际 {keys}"
-    )
-    matched = [
-        r for r in rows if str(r._mapping["tenant_id"]) == str(tenant)
-    ]
+    assert keys == {"tenant_id", "due_count"}, f"发现函数不得返回租户与条数之外的列，实际 {keys}"
+    matched = [r for r in rows if str(r._mapping["tenant_id"]) == str(tenant)]
     assert matched and matched[0]._mapping["due_count"] >= 1
 
 
@@ -383,9 +367,7 @@ async def test_permissions_are_read_only_and_whitelist_bound(
     一项（不得顺势拿到 INSERT/DELETE/TRUNCATE）。
     """
     async with admin_sessionmaker() as session:
-        version = int(
-            await session.scalar(text("SELECT current_setting('server_version_num')"))
-        )
+        version = int(await session.scalar(text("SELECT current_setting('server_version_num')")))
         owner_select = await session.scalar(
             text("SELECT has_table_privilege(:r, 'qc_governance.qc_tasks', 'SELECT')"),
             {"r": _OWNER},
@@ -449,17 +431,13 @@ async def test_permissions_are_read_only_and_whitelist_bound(
     assert owner_truncate is False, "修复只需要锁表，不需要任何行级删除能力"
     if version >= 170000:
         maintain = await session.scalar(
-            text(
-                "SELECT has_table_privilege(:r, 'qc_governance.qc_tasks', 'MAINTAIN')"
-            ),
+            text("SELECT has_table_privilege(:r, 'qc_governance.qc_tasks', 'MAINTAIN')"),
             {"r": _OWNER},
         )
         assert maintain is True, "PG17+ 必须走 MAINTAIN"
         assert owner_update is False, "升上 MAINTAIN 后旧 UPDATE 必须收回"
     else:
-        assert owner_update is True, (
-            f"PG{version} 无 MAINTAIN，复用 UPDATE 取锁是已记录的版本例外"
-        )
+        assert owner_update is True, f"PG{version} 无 MAINTAIN，复用 UPDATE 取锁是已记录的版本例外"
     assert worker_exec is False, "质检 Worker 不得调用维护命令"
     assert helper_exec is False, "内部取数函数不得对任何身份开放"
     assert owner_login is False
@@ -474,9 +452,7 @@ async def test_login_cannot_write_source_tasks_and_worker_cannot_call() -> None:
             _LOGIN, "UPDATE qc_governance.qc_tasks SET lease_owner='x' WHERE false"
         )
     with pytest.raises(exc.DBAPIError, match="permission denied"):
-        await _as_role_scalar(
-            _WORKER, "SELECT * FROM qc_maintenance.enumerate_due_tasks()"
-        )
+        await _as_role_scalar(_WORKER, "SELECT * FROM qc_maintenance.enumerate_due_tasks()")
 
 
 async def test_operator_is_a_group_not_a_login_identity(admin_sessionmaker) -> None:

@@ -33,9 +33,9 @@ QC_TASK_LIFECYCLE = Lifecycle(
     frozen_states=(),
 )
 
-QC_TASK_ALLOWED_TRANSITIONS: dict[
-    QCTaskStatus, frozenset[QCTaskStatus]
-] = QC_TASK_LIFECYCLE.allowed_transitions()
+QC_TASK_ALLOWED_TRANSITIONS: dict[QCTaskStatus, frozenset[QCTaskStatus]] = (
+    QC_TASK_LIFECYCLE.allowed_transitions()
+)
 
 
 __all__ = [

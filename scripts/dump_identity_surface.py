@@ -72,8 +72,13 @@ async def _roles(conn: asyncpg.Connection) -> list[list[Any]]:
     )
     return [
         [
-            row["rolname"], row["rolcanlogin"], row["rolsuper"], row["rolcreatedb"],
-            row["rolcreaterole"], row["rolbypassrls"], row["rolinherit"],
+            row["rolname"],
+            row["rolcanlogin"],
+            row["rolsuper"],
+            row["rolcreatedb"],
+            row["rolcreaterole"],
+            row["rolbypassrls"],
+            row["rolinherit"],
             row["password_present"],
         ]
         for row in rows
@@ -92,8 +97,13 @@ async def _memberships(conn: asyncpg.Connection) -> list[list[Any]]:
         """
     )
     return [
-        [row["granted"], row["member"], row["admin_option"], row["inherit_option"],
-         row["set_option"]]
+        [
+            row["granted"],
+            row["member"],
+            row["admin_option"],
+            row["inherit_option"],
+            row["set_option"],
+        ]
         for row in rows
     ]
 
@@ -122,10 +132,7 @@ async def _ownership(conn: asyncpg.Connection) -> list[list[Any]]:
 
 
 def _acl_rows(rows: Iterable[asyncpg.Record], kind_col: str = "object") -> list[list[Any]]:
-    return [
-        [row[kind_col], row["privilege"], row["grantee"], row["is_grantable"]]
-        for row in rows
-    ]
+    return [[row[kind_col], row["privilege"], row["grantee"], row["is_grantable"]] for row in rows]
 
 
 async def _schema_acl(conn: asyncpg.Connection) -> list[list[Any]]:
@@ -188,8 +195,7 @@ async def _default_acl(conn: asyncpg.Connection) -> list[list[Any]]:
         """
     )
     return [
-        [row["schema_name"], row["defaclobjtype"], row["owner"], row["privilege"],
-         row["grantee"]]
+        [row["schema_name"], row["defaclobjtype"], row["owner"], row["privilege"], row["grantee"]]
         for row in rows
     ]
 
@@ -219,8 +225,16 @@ async def _policies(conn: asyncpg.Connection) -> list[list[Any]]:
         """
     )
     return [
-        [row["schemaname"], row["tablename"], row["policyname"], row["permissive"],
-         row["roles"], row["cmd"], row["qual"], row["with_check"]]
+        [
+            row["schemaname"],
+            row["tablename"],
+            row["policyname"],
+            row["permissive"],
+            row["roles"],
+            row["cmd"],
+            row["qual"],
+            row["with_check"],
+        ]
         for row in rows
     ]
 
@@ -277,7 +291,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="身份面快照 / 比对")
     parser.add_argument("--dump", metavar="PATH", help="把快照写入 JSON 文件")
     parser.add_argument(
-        "--compare", nargs=2, metavar=("LEFT", "RIGHT"),
+        "--compare",
+        nargs=2,
+        metavar=("LEFT", "RIGHT"),
         help="比较两份快照 JSON（LEFT 减 RIGHT 与 RIGHT 减 LEFT 都报）",
     )
     parser.add_argument("--summary", action="store_true", help="只打印各层条数")
@@ -317,9 +333,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not _BASELINE_PATH.exists():
             print(f"[BLOCKED] 基线不存在：{_BASELINE_PATH}", file=sys.stderr)
             return EXIT_BLOCKED
-        problems = diff(
-            json.loads(_BASELINE_PATH.read_text(encoding="utf-8")), surface
-        )
+        problems = diff(json.loads(_BASELINE_PATH.read_text(encoding="utf-8")), surface)
         for problem in problems[:50]:
             print(problem, file=sys.stderr)
         print(f"[{'PASS' if not problems else 'DRIFT'}] 与基线差异 {len(problems)} 条")

@@ -166,9 +166,7 @@ def downgrade() -> None:
     for schema, table, _ in reversed(_SCOPED_TABLES):
         policy = _policy_name(table)
         op.execute(f"DROP POLICY IF EXISTS {policy} ON {schema}.{table}")
-        op.execute(
-            f"CREATE POLICY {policy} ON {schema}.{table} " + _tenant_only()
-        )
+        op.execute(f"CREATE POLICY {policy} ON {schema}.{table} " + _tenant_only())
 
 
 __all__: Sequence[str] = ("downgrade", "upgrade")

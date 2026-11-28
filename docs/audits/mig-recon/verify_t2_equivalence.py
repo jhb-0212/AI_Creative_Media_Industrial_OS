@@ -49,7 +49,9 @@ def normalize(source: str) -> list[str]:
     return [
         line
         for line in lines
-        if line.strip() and not ROLE_DEF_RE.match(line.strip()) and not DB_ROLES_IMPORT_RE.match(line)
+        if line.strip()
+        and not ROLE_DEF_RE.match(line.strip())
+        and not DB_ROLES_IMPORT_RE.match(line)
     ]
 
 
@@ -82,11 +84,11 @@ def main() -> int:
             continue
         matcher = difflib.SequenceMatcher(None, left, right, autojunk=False)
         residue = sum(
-            (i2 - i1) + (j2 - j1)
-            for tag, i1, i2, j1, j2 in matcher.get_opcodes()
-            if tag != "equal"
+            (i2 - i1) + (j2 - j1) for tag, i1, i2, j1, j2 in matcher.get_opcodes() if tag != "equal"
         )
-        print(f"{revision}: 归一化后残差 {residue} 行（相似度 {matcher.ratio():.3f}，main {len(left)} 行 / feat {len(right)} 行）")
+        print(
+            f"{revision}: 归一化后残差 {residue} 行（相似度 {matcher.ratio():.3f}，main {len(left)} 行 / feat {len(right)} 行）"
+        )
         shown = 0
         for tag, i1, i2, j1, j2 in matcher.get_opcodes():
             if tag == "equal" or shown >= 6:

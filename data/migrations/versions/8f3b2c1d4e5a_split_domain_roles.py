@@ -36,6 +36,7 @@ Revision ID: 8f3b2c1d4e5a
 Revises: 7a8b9c0d1e2f
 Create Date: 2026-11-18
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -90,18 +91,14 @@ def _assert_domain_role(role: str) -> None:
 def _grant_business_schema(role: str, schema: str) -> None:
     """授予业务 schema 的读写权限（USAGE + 表 DML + 序列 + 未来对象默认权限）。"""
     op.execute(f"GRANT USAGE ON SCHEMA {schema} TO {role}")
-    op.execute(
-        f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {schema} "
-        f"TO {role}"
-    )
+    op.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {schema} TO {role}")
     op.execute(f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO {role}")
     op.execute(
         f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
         f"GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {role}"
     )
     op.execute(
-        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
-        f"GRANT USAGE, SELECT ON SEQUENCES TO {role}"
+        f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT USAGE, SELECT ON SEQUENCES TO {role}"
     )
 
 
@@ -123,20 +120,14 @@ def _revoke_append_only_overreach(role: str) -> None:
 def _grant_outbox_write(role: str) -> None:
     """授予 outbox 事件总线写权限（跨域同事务投递，INSERT + 序列）。"""
     op.execute(f"GRANT USAGE ON SCHEMA {OUTBOX_SCHEMA} TO {role}")
-    op.execute(
-        f"GRANT SELECT, INSERT ON {OUTBOX_SCHEMA}.outbox_events TO {role}"
-    )
-    op.execute(
-        f"GRANT USAGE ON ALL SEQUENCES IN SCHEMA {OUTBOX_SCHEMA} TO {role}"
-    )
+    op.execute(f"GRANT SELECT, INSERT ON {OUTBOX_SCHEMA}.outbox_events TO {role}")
+    op.execute(f"GRANT USAGE ON ALL SEQUENCES IN SCHEMA {OUTBOX_SCHEMA} TO {role}")
 
 
 def _grant_auth_read(role: str) -> None:
     """授予 auth.revoked_tokens 只读（认证路径吊销检查）。"""
     op.execute(f'GRANT USAGE ON SCHEMA "{AUTH_SCHEMA}" TO {role}')
-    op.execute(
-        f'GRANT SELECT ON TABLE "{AUTH_SCHEMA}"."{AUTH_TABLE}" TO {role}'
-    )
+    op.execute(f'GRANT SELECT ON TABLE "{AUTH_SCHEMA}"."{AUTH_TABLE}" TO {role}')
 
 
 def _grant_revision_read(role: str) -> None:
@@ -236,13 +227,9 @@ def downgrade() -> None:
     ):
         op.execute(f"REVOKE ALL ON ALL TABLES IN SCHEMA {schema} FROM {role}")
         op.execute(f"REVOKE ALL ON ALL SEQUENCES IN SCHEMA {schema} FROM {role}")
+        op.execute(f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} REVOKE ALL ON TABLES FROM {role}")
         op.execute(
-            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
-            f"REVOKE ALL ON TABLES FROM {role}"
-        )
-        op.execute(
-            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} "
-            f"REVOKE ALL ON SEQUENCES FROM {role}"
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} REVOKE ALL ON SEQUENCES FROM {role}"
         )
         op.execute(f"REVOKE USAGE ON SCHEMA {schema} FROM {role}")
     # WP-04 D-08 归因补充：upgrade 是"schema × 角色"全量授予，降级必须按同一张
@@ -253,23 +240,17 @@ def downgrade() -> None:
         (asset_role, "project_planning"),
     ):
         op.execute(
-            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {cross_schema} "
-            f"REVOKE ALL ON TABLES FROM {role}"
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {cross_schema} REVOKE ALL ON TABLES FROM {role}"
         )
         op.execute(
-            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {cross_schema} "
-            f"REVOKE ALL ON SEQUENCES FROM {role}"
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {cross_schema} REVOKE ALL ON SEQUENCES FROM {role}"
         )
         op.execute(f"REVOKE USAGE ON SCHEMA public FROM {role}")
     # 共享基础设施与就绪探针的授权也要撤（本库范围内必须收干净）。
     for role in (project_role, asset_role):
         op.execute(f"REVOKE ALL ON {OUTBOX_SCHEMA}.outbox_events FROM {role}")
-        op.execute(
-            f"REVOKE ALL ON ALL SEQUENCES IN SCHEMA {OUTBOX_SCHEMA} FROM {role}"
-        )
+        op.execute(f"REVOKE ALL ON ALL SEQUENCES IN SCHEMA {OUTBOX_SCHEMA} FROM {role}")
         op.execute(f"REVOKE USAGE ON SCHEMA {OUTBOX_SCHEMA} FROM {role}")
-        op.execute(
-            f'REVOKE ALL ON TABLE "{AUTH_SCHEMA}"."{AUTH_TABLE}" FROM {role}'
-        )
+        op.execute(f'REVOKE ALL ON TABLE "{AUTH_SCHEMA}"."{AUTH_TABLE}" FROM {role}')
         op.execute(f'REVOKE USAGE ON SCHEMA "{AUTH_SCHEMA}" FROM {role}')
         op.execute(f"REVOKE SELECT ON {ALEMBIC_VERSION} FROM {role}")

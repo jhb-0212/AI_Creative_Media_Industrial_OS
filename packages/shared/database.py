@@ -81,9 +81,7 @@ def build_database_url(settings: Settings | None = None) -> str:
     （见下列构造器）；本函数保留给「以单一应用角色连接」的测试与工具。
     """
     cfg = _settings_or_default(settings)
-    return _build_url(
-        cfg.postgres_app_user, cfg.postgres_app_password.get_secret_value(), cfg
-    )
+    return _build_url(cfg.postgres_app_user, cfg.postgres_app_password.get_secret_value(), cfg)
 
 
 def build_migration_url(settings: Settings | None = None) -> str:
@@ -98,9 +96,7 @@ def build_migration_url(settings: Settings | None = None) -> str:
     「连库角色」与「进程身份」一致。
     """
     cfg = _settings_or_default(settings)
-    return _build_url(
-        cfg.postgres_user, cfg.postgres_password.get_secret_value(), cfg
-    )
+    return _build_url(cfg.postgres_user, cfg.postgres_password.get_secret_value(), cfg)
 
 
 def build_relay_database_url(settings: Settings | None = None) -> str:
@@ -112,9 +108,7 @@ def build_relay_database_url(settings: Settings | None = None) -> str:
     任何业务 schema 的写权限，也不持有事件业务内容的 UPDATE 权限。
     """
     cfg = _settings_or_default(settings)
-    return _build_url(
-        cfg.postgres_relay_user, cfg.postgres_relay_password.get_secret_value(), cfg
-    )
+    return _build_url(cfg.postgres_relay_user, cfg.postgres_relay_password.get_secret_value(), cfg)
 
 
 def build_outbox_ops_database_url(settings: Settings | None = None) -> str:
@@ -377,12 +371,8 @@ async def probe_domain_databases(app: FastAPI) -> ReadinessResult:
             ).scalar_one_or_none()
     except Exception:
         # 版本表读的是 project 池：归因到它就够定位，不必再编一个 check 名。
-        logger.error(
-            "readiness_check_failed", check="schema_revision", exc_info=True
-        )
-        return ReadinessResult(
-            ready=False, checks={"project_planning_database": "down"}
-        )
+        logger.error("readiness_check_failed", check="schema_revision", exc_info=True)
+        return ReadinessResult(ready=False, checks={"project_planning_database": "down"})
     return ReadinessResult(ready=True, checks=checks, schema_revision=revision)
 
 

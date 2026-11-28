@@ -114,8 +114,7 @@ def _create_indexes() -> None:
 def _enable_rls() -> None:
     op.execute(f"ALTER TABLE {_SCHEMA}.{_TABLE} ENABLE ROW LEVEL SECURITY")
     op.execute(
-        f"CREATE POLICY tenant_isolation_{_TABLE} ON {_SCHEMA}.{_TABLE} "
-        f"{_project_visibility()}"
+        f"CREATE POLICY tenant_isolation_{_TABLE} ON {_SCHEMA}.{_TABLE} {_project_visibility()}"
     )
     op.execute(f"ALTER TABLE {_SCHEMA}.{_TABLE} FORCE ROW LEVEL SECURITY")
 
@@ -137,10 +136,6 @@ def downgrade() -> None:
         table_name=_TABLE,
         schema=_SCHEMA,
     )
-    op.drop_index(
-        op.f(f"ix_qc_governance_{_TABLE}_status"), table_name=_TABLE, schema=_SCHEMA
-    )
-    op.drop_index(
-        op.f(f"ix_qc_governance_{_TABLE}_tenant_id"), table_name=_TABLE, schema=_SCHEMA
-    )
+    op.drop_index(op.f(f"ix_qc_governance_{_TABLE}_status"), table_name=_TABLE, schema=_SCHEMA)
+    op.drop_index(op.f(f"ix_qc_governance_{_TABLE}_tenant_id"), table_name=_TABLE, schema=_SCHEMA)
     op.drop_table(_TABLE, schema=_SCHEMA)

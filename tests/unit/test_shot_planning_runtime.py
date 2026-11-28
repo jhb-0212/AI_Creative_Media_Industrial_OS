@@ -252,9 +252,7 @@ def test_draft_return_requires_reason() -> None:
 def test_rework_rejected_has_no_entry_edge() -> None:
     task = _rework()
     with pytest.raises(DomainError):
-        task.transition_to(
-            ReworkTaskStatus.REJECTED, "audit-1", REWORK_TASK_STATUS_CHANGE_ACTION
-        )
+        task.transition_to(ReworkTaskStatus.REJECTED, "audit-1", REWORK_TASK_STATUS_CHANGE_ACTION)
 
 
 def test_rework_happy_path() -> None:

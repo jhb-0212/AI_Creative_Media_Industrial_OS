@@ -90,9 +90,7 @@ async def test_failure_backs_off_and_is_not_reclaimed(
 ) -> None:
     writer_sm = db_sessionmaker
     event_id = await _append_event(writer_sm)
-    relay = OutboxRelay(
-        relay_sessionmaker, {"SCRIPT_LOCK_APPROVED": _failing_handler}
-    )
+    relay = OutboxRelay(relay_sessionmaker, {"SCRIPT_LOCK_APPROVED": _failing_handler})
 
     stats = await relay.drain_tenant(TENANT)
     assert stats.failed == 1

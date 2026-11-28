@@ -132,9 +132,7 @@ async def test_foreign_tenant_is_reported_as_not_found() -> None:
 
 async def test_published_event_cannot_be_replayed() -> None:
     """已投递成功 → 409：重放只用于处置死信，不是「再投一次」。"""
-    repo = _FakeRepository(
-        _row(published_at=datetime(2026, 11, 24, 4, 0, tzinfo=UTC))
-    )
+    repo = _FakeRepository(_row(published_at=datetime(2026, 11, 24, 4, 0, tzinfo=UTC)))
     with pytest.raises(DomainError) as exc:
         await _replay(repo)
     assert exc.value.error_code is ErrorRegistry.STATE_TRANSITION_DENIED

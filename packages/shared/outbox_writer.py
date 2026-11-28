@@ -49,9 +49,7 @@ class OutboxWriter(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def record_transition(
-        self, *, fact: TransitionFact, event: TransitionEvent
-    ) -> uuid.UUID:
+    def record_transition(self, *, fact: TransitionFact, event: TransitionEvent) -> uuid.UUID:
         """把「迁移事实 + 事件」作为一对互指记录写入（同一事务，不 commit）。
 
         为什么合成一个方法而不是两个调用：两者缺一即为非法状态——事实的
@@ -86,9 +84,7 @@ class SqlAlchemyOutboxWriter(OutboxWriter):
             payload=payload,
         )
 
-    def record_transition(
-        self, *, fact: TransitionFact, event: TransitionEvent
-    ) -> uuid.UUID:
+    def record_transition(self, *, fact: TransitionFact, event: TransitionEvent) -> uuid.UUID:
         """写入互指的一对记录：事件（含 transition_id）+ 事实（含 event_id）。
 
         事件先写以拿到 ``event_id``（迁移侧的提交时校验要求它真实存在），
@@ -120,7 +116,6 @@ class SqlAlchemyOutboxWriter(OutboxWriter):
             )
         )
         return event_id
-
 
 
 def record_event(

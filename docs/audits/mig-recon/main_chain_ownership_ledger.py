@@ -199,9 +199,7 @@ async def _edges(conn: asyncpg.Connection) -> list[Edge]:
                 child=child,
                 parent=parent,
                 child_cols=child_cols,
-                parent_cols=tuple(
-                    await _colnames(conn, parent, [int(k) for k in row["confkey"]])
-                ),
+                parent_cols=tuple(await _colnames(conn, parent, [int(k) for k in row["confkey"]])),
                 validated=bool(row["convalidated"]),
                 strong=strong,
             )
@@ -209,9 +207,7 @@ async def _edges(conn: asyncpg.Connection) -> list[Edge]:
     return out
 
 
-def _reachable_tables(
-    edges: list[Edge], projects: str
-) -> tuple[dict[str, str], dict[str, str]]:
+def _reachable_tables(edges: list[Edge], projects: str) -> tuple[dict[str, str], dict[str, str]]:
     """不动点求「项目真实」可达表，返回 ``(强可达, 弱可达)``，值为依据说明。
 
     强可达只允许全程 NOT NULL 的边；弱可达额外允许含可空列的边。
@@ -222,9 +218,7 @@ def _reachable_tables(
         return edge.parent == projects and "project_id" in edge.child_cols
 
     def _inherit(edge: Edge) -> bool:
-        return (
-            "project_id" in edge.child_cols and "project_id" in edge.parent_cols
-        )
+        return "project_id" in edge.child_cols and "project_id" in edge.parent_cols
 
     strong: dict[str, str] = {}
     for edge in edges:
@@ -377,8 +371,7 @@ def _judge(
     if has_tenant and not covers_tenant:
         return (
             GAP_TENANT_UNCOVERED,
-            "项目真实但 tenant_id 未被任何外键约束："
-            "本行租户可与父项目租户不一致（实测可写入）",
+            "项目真实但 tenant_id 未被任何外键约束：本行租户可与父项目租户不一致（实测可写入）",
         )
     if mismatch > 0:
         return FAIL_DIRTY, f"存在 {mismatch} 行 tenant_id 与父项目不一致"
@@ -396,8 +389,7 @@ async def _consistency(
         if "project_id" not in edge.child_cols or "project_id" not in edge.parent_cols:
             continue
         cond = " AND ".join(
-            f"c.{a} = p.{b}"
-            for a, b in zip(edge.child_cols, edge.parent_cols, strict=True)
+            f"c.{a} = p.{b}" for a, b in zip(edge.child_cols, edge.parent_cols, strict=True)
         )
         not_null = " AND ".join(f"c.{a} IS NOT NULL" for a in edge.child_cols)
         dangling = int(
@@ -409,19 +401,14 @@ async def _consistency(
                 """
             )
         )
-        verdict = (
-            FAIL_NOT_VALIDATED
-            if not edge.validated
-            else (FAIL_DIRTY if dangling else PASS)
-        )
+        verdict = FAIL_NOT_VALIDATED if not edge.validated else (FAIL_DIRTY if dangling else PASS)
         out.append(
             ConsistencyRow(
                 child=edge.child,
                 parent=edge.parent,
                 constraint=edge.constraint,
                 columns=", ".join(
-                    f"{a}={b}"
-                    for a, b in zip(edge.child_cols, edge.parent_cols, strict=True)
+                    f"{a}={b}" for a, b in zip(edge.child_cols, edge.parent_cols, strict=True)
                 ),
                 validated=edge.validated,
                 dangling_rows=dangling,
@@ -436,11 +423,7 @@ def _render_md(
 ) -> str:
     passed = [t for t in tables if t.verdict == PASS]
     c_passed = [c for c in consistency if c.verdict == PASS]
-    overall = (
-        "PASS"
-        if len(passed) == len(tables) and len(c_passed) == len(consistency)
-        else "FAIL"
-    )
+    overall = "PASS" if len(passed) == len(tables) and len(c_passed) == len(consistency) else "FAIL"
 
     lines = [
         "# 正式链归属验收台账（机器生成，勿手改）",
@@ -540,9 +523,7 @@ async def _tenant_fk_name(conn: asyncpg.Connection, rel: str, projects: str) -> 
     for row in rows:
         if sorted(row["cols"]) == ["project_id", "tenant_id"]:
             return str(row["conname"])
-    raise SystemExit(
-        f"{rel} 上没有覆盖 (project_id, tenant_id) 的归属外键：先跑迁移 c9d0e1f2a3b4"
-    )
+    raise SystemExit(f"{rel} 上没有覆盖 (project_id, tenant_id) 的归属外键：先跑迁移 c9d0e1f2a3b4")
 
 
 _SELFTEST_INSERT = """

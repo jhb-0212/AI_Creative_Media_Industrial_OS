@@ -130,19 +130,13 @@ class ShotDraftService:
             ("created_by", created_by),
         ):
             if not value:
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
         if not scene_breakdowns:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="scene_breakdowns 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="scene_breakdowns 不能为空")
 
         project = await self._project_repository.get_by_id(project_id)
         if project is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"项目不存在: {project_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"项目不存在: {project_id}")
 
         if entity_id is not None:
             existing = await self._repository.get_by_id(entity_id)
@@ -183,18 +177,12 @@ class ShotDraftService:
             ) from exc
         except DuplicateEntityError as exc:
             existing = (
-                await self._repository.get_by_id(entity_id)
-                if entity_id is not None
-                else None
+                await self._repository.get_by_id(entity_id) if entity_id is not None else None
             )
             if existing is not None:
-                _assert_same_draft(
-                    existing, project_id, basis_script_revision_id, plan_name
-                )
+                _assert_same_draft(existing, project_id, basis_script_revision_id, plan_name)
                 return existing
-            raise DomainError(
-                ErrorRegistry.INTERNAL_ERROR, detail="拆镜草案写入冲突"
-            ) from exc
+            raise DomainError(ErrorRegistry.INTERNAL_ERROR, detail="拆镜草案写入冲突") from exc
 
         self._outbox_writer.record(
             aggregate_type="ShotBreakdownDraft",
@@ -216,9 +204,7 @@ class ShotDraftService:
     async def get_draft(self, entity_id: str) -> ShotBreakdownDraft:
         draft = await self._repository.get_by_id(entity_id)
         if draft is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"拆镜草案不存在: {entity_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"拆镜草案不存在: {entity_id}")
         return draft
 
     async def confirm_draft(
@@ -227,14 +213,10 @@ class ShotDraftService:
         """人工确认：认领 → 落定 → 产出 Shot + ShotRevision（同一事务）。"""
         confirmed_by = confirmed_by.strip()
         if not confirmed_by:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="confirmed_by 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="confirmed_by 不能为空")
         draft = await self._repository.get_by_id(entity_id)
         if draft is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"拆镜草案不存在: {entity_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"拆镜草案不存在: {entity_id}")
         if draft.status is not ShotDraftStatus.PENDING_CONFIRM and (
             draft.status is not ShotDraftStatus.IN_REVIEW
         ):
@@ -362,9 +344,7 @@ class ShotDraftService:
     async def _require_draft(self, entity_id: str) -> ShotBreakdownDraft:
         draft = await self._repository.get_by_id(entity_id)
         if draft is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"拆镜草案不存在: {entity_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"拆镜草案不存在: {entity_id}")
         return draft
 
     async def _lock_parent_scenes(self, draft: ShotBreakdownDraft) -> dict[str, Scene]:
@@ -394,9 +374,7 @@ class ShotDraftService:
             # 场次归档即冻结子集合（与「归档前不得有在产镜头」是同一规则的两侧）：
             # 归档之后仍能新增镜头，会让归档场次下长出一堆永远无法进产的僵尸镜头，
             # 而它们会被下游的进度与预算统计当作真实对象。
-            SCENE_LIFECYCLE.assert_child_creation_allowed(
-                scene.status, child_object="Shot"
-            )
+            SCENE_LIFECYCLE.assert_child_creation_allowed(scene.status, child_object="Shot")
             locked[scene_id] = scene
         return locked
 
@@ -438,9 +416,7 @@ class ShotDraftService:
             for shot_index, spec in enumerate(shots):
                 where = f"scene_breakdowns[{index}].shots[{shot_index}]"
                 if not isinstance(spec, dict):
-                    raise DomainError(
-                        ErrorRegistry.VALIDATION_ERROR, detail=f"{where} 必须是对象"
-                    )
+                    raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{where} 必须是对象")
                 revision_refs.append(
                     await self._create_shot_with_revision(
                         draft,
@@ -470,9 +446,7 @@ class ShotDraftService:
         text = {key: _required_text(spec, key, where) for key in _SPEC_REQUIRED_TEXT}
         for key in _SPEC_REQUIRED_JSON:
             if key not in spec:
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{where}.{key} 缺失"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{where}.{key} 缺失")
 
         shot_id = uuid.uuid4().hex
         revision_id = uuid.uuid4().hex
@@ -592,9 +566,7 @@ class ShotDraftService:
         )
         return revision.entity_id
 
-    async def _shot_code_conflict(
-        self, draft: ShotBreakdownDraft, shot_code: str
-    ) -> DomainError:
+    async def _shot_code_conflict(self, draft: ShotBreakdownDraft, shot_code: str) -> DomainError:
         """把镜头编号的唯一冲突解释成调用方能执行的修复动作（ADR-R28 §6.4）。
 
         为什么必须回读一次：端口层对**所有**唯一冲突都给同一个异常，而这条路径
@@ -606,9 +578,7 @@ class ShotDraftService:
         否则是本项目已存在的镜头。区分这两个来源不需要额外查询：占用行自带
         ``source_draft_ref``。
         """
-        taken = await self._shot_repository.get_by_project_code(
-            draft.project_id, shot_code
-        )
+        taken = await self._shot_repository.get_by_project_code(draft.project_id, shot_code)
         if taken is None:
             return DomainError(
                 ErrorRegistry.INTERNAL_ERROR,
@@ -648,9 +618,7 @@ def _scene_ids_of(draft: ShotBreakdownDraft) -> set[str]:
 def _required_text(container: dict[str, Any], key: str, where: str) -> str:
     value = container.get(key)
     if not isinstance(value, str) or not value.strip():
-        raise DomainError(
-            ErrorRegistry.VALIDATION_ERROR, detail=f"{where}.{key} 缺失或为空"
-        )
+        raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{where}.{key} 缺失或为空")
     return value.strip()
 
 

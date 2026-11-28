@@ -15,6 +15,7 @@ Revision ID: b2c3d4e5f6a7
 Revises: 9e3b4c5d6e7f
 Create Date: 2026-11-14
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -37,12 +38,9 @@ _POLICY = "tenant_isolation_outbox_events"
 
 def upgrade() -> None:
     """加 tenant_id 列 + 回填 + 收紧 + 索引 + RLS 策略。"""
-    op.add_column(
-        _TABLE, sa.Column("tenant_id", sa.Uuid(), nullable=True), schema=SCHEMA
-    )
+    op.add_column(_TABLE, sa.Column("tenant_id", sa.Uuid(), nullable=True), schema=SCHEMA)
     op.execute(
-        f"UPDATE {SCHEMA}.{_TABLE} SET tenant_id = '{_DEFAULT_TENANT}' "
-        f"WHERE tenant_id IS NULL"
+        f"UPDATE {SCHEMA}.{_TABLE} SET tenant_id = '{_DEFAULT_TENANT}' WHERE tenant_id IS NULL"
     )
     op.alter_column(_TABLE, "tenant_id", nullable=False, schema=SCHEMA)
     op.create_index(_INDEX, _TABLE, ["tenant_id"], unique=False, schema=SCHEMA)

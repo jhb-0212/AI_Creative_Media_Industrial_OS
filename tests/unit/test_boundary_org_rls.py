@@ -67,8 +67,7 @@ def _good_statements() -> list[str]:
         for schema, table, form, _correlations in _TABLES
     ]
     statements += [
-        f"ALTER TABLE {schema}.{table} FORCE ROW LEVEL SECURITY"
-        for schema, table in _FORCED
+        f"ALTER TABLE {schema}.{table} FORCE ROW LEVEL SECURITY" for schema, table in _FORCED
     ]
     return statements
 
@@ -106,8 +105,7 @@ def _replace_table_policy(
     """把某张表的策略换成 ``replacement``（其余不动，保证单变量）。"""
     needle = f" ON {schema}.{table} "
     return [
-        replacement if statement.startswith("CREATE POLICY ") and needle in statement
-        else statement
+        replacement if statement.startswith("CREATE POLICY ") and needle in statement else statement
         for statement in statements
     ]
 
@@ -136,19 +134,13 @@ def test_unregistered_business_table_is_reported() -> None:
     这正是 A13 的失效形态：五张新表建了、矩阵声明了、授权也配了，唯独没人把它们
     加进这份登记。判据于是对它们不闻不问，五张表在库层零策略却报 PASS。
     """
-    problems = _evaluate(
-        tenant_tables=_declared() | {("project_planning", "storyboards")}
-    )
-    assert any(
-        "project_planning.storyboards 是业务表但未登记" in p for p in problems
-    ), problems
+    problems = _evaluate(tenant_tables=_declared() | {("project_planning", "storyboards")})
+    assert any("project_planning.storyboards 是业务表但未登记" in p for p in problems), problems
 
 
 def test_stale_registration_is_reported() -> None:
     """登记了但矩阵里没有这张表 → 判据在验一个不存在的东西。"""
-    problems = _evaluate(
-        tenant_tables=_declared() - {("project_planning", "scenes")}
-    )
+    problems = _evaluate(tenant_tables=_declared() - {("project_planning", "scenes")})
     assert any("project_planning.scenes 登记了" in p for p in problems), problems
 
 
@@ -201,8 +193,7 @@ def test_policy_order_permutation_keeps_verdict() -> None:
     """
     good = _good_statements()
     isolation = [
-        s for s in good
-        if s.startswith("CREATE POLICY ") and " ON qc_governance.qc_tasks " in s
+        s for s in good if s.startswith("CREATE POLICY ") and " ON qc_governance.qc_tasks " in s
     ]
     rest = [s for s in good if s not in isolation]
     statements = [
@@ -220,9 +211,7 @@ def test_public_permissive_everything_is_reported() -> None:
         "CREATE POLICY debug_read_all ON project_planning.episodes USING (true)",
     ]
     problems = _evaluate(statements)
-    assert any(
-        "对 PUBLIC 完全放行的策略 debug_read_all" in p for p in problems
-    ), problems
+    assert any("对 PUBLIC 完全放行的策略 debug_read_all" in p for p in problems), problems
 
 
 def test_dropped_policy_is_treated_as_missing() -> None:
@@ -349,7 +338,9 @@ def test_half_correlated_exists_is_reported() -> None:
         "WHERE p.entity_id = asset_service.asset_versions.project_id)))",
     )
     problems = _evaluate(statements)
-    assert any("p.tenant_id = asset_service.asset_versions.tenant_id" in p for p in problems), problems
+    assert any("p.tenant_id = asset_service.asset_versions.tenant_id" in p for p in problems), (
+        problems
+    )
 
 
 def test_two_hop_chain_missing_link_is_reported() -> None:
@@ -365,7 +356,9 @@ def test_two_hop_chain_missing_link_is_reported() -> None:
         "WHERE a.entity_id = asset_service.qc_reports.asset_version_id)))",
     )
     problems = _evaluate(statements)
-    assert any("p.tenant_id = a.tenant_id" in p or "a.tenant_id = " in p for p in problems), problems
+    assert any("p.tenant_id = a.tenant_id" in p or "a.tenant_id = " in p for p in problems), (
+        problems
+    )
 
 
 def test_downgrade_does_not_weaken_upstream_forceless_audit_table() -> None:
@@ -406,9 +399,7 @@ def test_policy_without_tenant_predicate_is_reported() -> None:
         "CREATE POLICY tenant_isolation_projects ON project_planning.projects "
         f"USING ({organization_scope_predicate()})",
     )
-    assert any(
-        "projects 策略缺租户谓词" in p for p in _evaluate(statements)
-    )
+    assert any("projects 策略缺租户谓词" in p for p in _evaluate(statements))
 
 
 def test_missing_force_is_reported() -> None:
@@ -418,9 +409,7 @@ def test_missing_force_is_reported() -> None:
         for statement in _good_statements()
         if statement != "ALTER TABLE audit.status_transitions FORCE ROW LEVEL SECURITY"
     ]
-    assert any(
-        "audit.status_transitions 未 FORCE" in p for p in _evaluate(statements)
-    )
+    assert any("audit.status_transitions 未 FORCE" in p for p in _evaluate(statements))
 
 
 def test_business_code_injecting_scope_is_reported() -> None:

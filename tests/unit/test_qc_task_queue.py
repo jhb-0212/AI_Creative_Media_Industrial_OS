@@ -107,9 +107,7 @@ async def test_claim_and_second_claim_rejected() -> None:
     service, repo, outbox = _service()
     task = await _enqueued(service)
 
-    claimed = await service.claim(
-        task_id=task.entity_id, worker_id="qc-1", lease_seconds=120
-    )
+    claimed = await service.claim(task_id=task.entity_id, worker_id="qc-1", lease_seconds=120)
     assert claimed.status is QCTaskStatus.RUNNING
     assert claimed.lease_owner == "qc-1"
     assert claimed.attempt_count == 1
@@ -143,9 +141,7 @@ async def test_release_then_reclaim_advances_generation_but_heartbeat_does_not()
     )
     assert renewed.lease_generation == 1, "心跳不得推进代次"
 
-    repo.snapshot()[task.entity_id].lease_expires_at = datetime.now(UTC) - timedelta(
-        seconds=5
-    )
+    repo.snapshot()[task.entity_id].lease_expires_at = datetime.now(UTC) - timedelta(seconds=5)
     await service.release_expired(task_id=task.entity_id)
     assert task.lease_generation == 2, "回收即撤销租约，代次必须前移"
 
@@ -163,9 +159,7 @@ async def test_stale_generation_is_rejected_for_renew_and_finish() -> None:
     service, repo, _outbox = _service()
     task = await _enqueued(service)
     await service.claim(task_id=task.entity_id, worker_id="qc-1", lease_seconds=60)
-    repo.snapshot()[task.entity_id].lease_expires_at = datetime.now(UTC) - timedelta(
-        seconds=5
-    )
+    repo.snapshot()[task.entity_id].lease_expires_at = datetime.now(UTC) - timedelta(seconds=5)
     await service.release_expired(task_id=task.entity_id)
     await service.claim(task_id=task.entity_id, worker_id="qc-1", lease_seconds=60)
     assert task.lease_generation == 3
@@ -195,10 +189,18 @@ async def test_renew_requires_owner() -> None:
     before = task.lease_expires_at
 
     with pytest.raises(DomainError):
-        await service.renew(task_id=task.entity_id, worker_id="qc-2", expected_lease_generation=task.lease_generation, lease_seconds=60)
+        await service.renew(
+            task_id=task.entity_id,
+            worker_id="qc-2",
+            expected_lease_generation=task.lease_generation,
+            lease_seconds=60,
+        )
 
     renewed = await service.renew(
-        task_id=task.entity_id, worker_id="qc-1", expected_lease_generation=task.lease_generation, lease_seconds=300
+        task_id=task.entity_id,
+        worker_id="qc-1",
+        expected_lease_generation=task.lease_generation,
+        lease_seconds=300,
     )
     assert renewed.lease_expires_at > before
     assert outbox.events[-1]["event_type"] == "QC_TASK_LEASE_RENEWED"
@@ -264,9 +266,7 @@ async def test_release_expired_only_after_expiry() -> None:
     with pytest.raises(DomainError):
         await service.release_expired(task_id=task.entity_id)
 
-    repo.snapshot()[task.entity_id].lease_expires_at = datetime.now(UTC) - timedelta(
-        seconds=5
-    )
+    repo.snapshot()[task.entity_id].lease_expires_at = datetime.now(UTC) - timedelta(seconds=5)
     released = await service.release_expired(task_id=task.entity_id)
     assert released.status is QCTaskStatus.QUEUED
     assert released.lease_owner == ""
@@ -380,9 +380,7 @@ async def test_reclaim_and_stale_writes_are_counted() -> None:
         "正常心跳不得计入 fencing 拒绝"
     )
 
-    repo.snapshot()[task.entity_id].lease_expires_at = datetime.now(UTC) - timedelta(
-        seconds=5
-    )
+    repo.snapshot()[task.entity_id].lease_expires_at = datetime.now(UTC) - timedelta(seconds=5)
     await service.release_expired(task_id=task.entity_id)
     assert _counter("qc_lease_expired_total") == lease_base + 1, (
         "回收成功必须 +1（这就是「Worker 悄悄死掉」的规模）"
@@ -436,6 +434,4 @@ async def test_finish_is_single_use_within_one_generation() -> None:
             result="PASSED",
             qc_report_id="report-1",
         )
-    assert len(outbox.events) == events_before, (
-        "被拒的重复提交不得产生第二条终态事件"
-    )
+    assert len(outbox.events) == events_before, "被拒的重复提交不得产生第二条终态事件"

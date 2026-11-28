@@ -94,9 +94,7 @@ class RoleSpec:
 # 全部运行时角色都必须「不可提权」。这不是四条独立策略，而是一条：任何一条
 # 为真都会让 RLS 或权限矩阵失效——``rolsuper`` / ``rolbypassrls`` 直接绕过策略，
 # ``rolcreatedb`` 能另建一个不受迁移约束的库，``rolcreaterole`` 能造出新身份。
-_NO_ESCALATION_INVARIANT = (
-    "NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS INHERIT"
-)
+_NO_ESCALATION_INVARIANT = "NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS INHERIT"
 
 # 不可登录的身份只有维护权限组与维护对象属主：它们的存在意义就是「只能被
 # 成员关系或属主引用」，一旦可登录，「账号存在」与「能维护」就分不开了。
@@ -196,9 +194,7 @@ def role_specs() -> tuple[RoleSpec, ...]:
                 RoleSpec(
                     name=registry_domain.legacy_role,
                     login=True,
-                    password_setting=_domain_password_setting(
-                        registry_domain.legacy_role
-                    ),
+                    password_setting=_domain_password_setting(registry_domain.legacy_role),
                     purpose=f"域 {registry_domain.id} 的遗留角色（与 runtime_role 并存）",
                 )
             )
@@ -298,9 +294,7 @@ def _domain_mappings() -> list[str]:
 #: 生命周期字段的合法取值。新增取值前先想清楚"谁有权做这个动作"。
 LIFECYCLE_OWNERS = frozenset({"bootstrap", "migration", "governance"})
 LIFECYCLE_STATES = frozenset({"active", "deprecated", "retired"})
-DELETION_POLICIES = frozenset(
-    {"bootstrap_retire_only", "migration_owned", "governance_gate"}
-)
+DELETION_POLICIES = frozenset({"bootstrap_retire_only", "migration_owned", "governance_gate"})
 
 
 def spec_problems(specs: tuple[RoleSpec, ...] | None = None) -> list[str]:
@@ -314,9 +308,7 @@ def spec_problems(specs: tuple[RoleSpec, ...] | None = None) -> list[str]:
     problems: list[str] = []
     for spec in items:
         if any((spec.superuser, spec.createdb, spec.createrole, spec.bypassrls)):
-            problems.append(
-                f"{spec.name}：声明里出现提权属性（必须 {_NO_ESCALATION_INVARIANT}）"
-            )
+            problems.append(f"{spec.name}：声明里出现提权属性（必须 {_NO_ESCALATION_INVARIANT}）")
         if not spec.inherit:
             problems.append(f"{spec.name}：声明关闭了 INHERIT，成员关系会静默失效")
         if spec.lifecycle_owner not in LIFECYCLE_OWNERS:
@@ -336,9 +328,7 @@ def spec_problems(specs: tuple[RoleSpec, ...] | None = None) -> list[str]:
                 f"{spec.lifecycle_owner}（删除权与所有权必须同源）"
             )
         if not spec.login and spec.password_setting:
-            problems.append(
-                f"{spec.name}：NOLOGIN 角色不应声明口令字段（{spec.password_setting}）"
-            )
+            problems.append(f"{spec.name}：NOLOGIN 角色不应声明口令字段（{spec.password_setting}）")
     return problems
 
 
@@ -396,9 +386,7 @@ class LiveRole:
     inherit: bool
 
 
-def diff_role_attributes(
-    specs: tuple[RoleSpec, ...], live: tuple[LiveRole, ...]
-) -> list[str]:
+def diff_role_attributes(specs: tuple[RoleSpec, ...], live: tuple[LiveRole, ...]) -> list[str]:
     """比较声明与活库，返回人类可读的差异清单（空 = 一致）。
 
     判据与理由：
@@ -436,9 +424,7 @@ def diff_role_attributes(
                 f"{spec.name}：出现提权属性 {escalations}（必须 {_NO_ESCALATION_INVARIANT}）"
             )
         if row.login != spec.login:
-            problems.append(
-                f"{spec.name}：可登录性不符，声明={spec.login} 实际={row.login}"
-            )
+            problems.append(f"{spec.name}：可登录性不符，声明={spec.login} 实际={row.login}")
         if not row.inherit:
             problems.append(
                 f"{spec.name}：INHERIT 被关闭，成员关系不再传递"
@@ -626,9 +612,7 @@ def retired_role_problems() -> list[str]:
         # "已退役" ≠ "本系统管理范围撤干净" ≠ "集群范围零授权"。
         if item.cluster_wide_zero_authorization_verified:
             if not item.managed_scope_revoked:
-                problems.append(
-                    f"{revision}：声称集群零授权，但 managed_scope_revoked=False"
-                )
+                problems.append(f"{revision}：声称集群零授权，但 managed_scope_revoked=False")
             if item.external_dependencies:
                 problems.append(
                     f"{revision}：声称集群零授权，但仍登记 external_dependencies="
@@ -659,4 +643,3 @@ def retired_registry_payload() -> list[dict[str, object]]:
         }
         for name, item in retired_roles_by_name().items()
     ]
-

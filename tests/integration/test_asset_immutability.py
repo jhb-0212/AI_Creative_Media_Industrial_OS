@@ -142,8 +142,7 @@ async def test_asset_content_column_update_is_rejected(
         with pytest.raises(DBAPIError) as exc_info:
             await conn.execute(
                 sa.text(
-                    "UPDATE asset_service.asset_versions SET sha256 = :sha "
-                    "WHERE entity_id = :id"
+                    "UPDATE asset_service.asset_versions SET sha256 = :sha WHERE entity_id = :id"
                 ),
                 {"sha": "f" * 64, "id": entity_id},
             )

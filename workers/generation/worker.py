@@ -98,9 +98,7 @@ class GenerationWorker:
         try:
             outcome = await self._execute_with_heartbeat(claimed)
         except LeaseLostError:
-            logger.warning(
-                "lease lost while running task %s, abandon result", claimed.entity_id
-            )
+            logger.warning("lease lost while running task %s, abandon result", claimed.entity_id)
             return True
         # R42：SUCCEEDED 不是 Worker 可写的终态。执行器成功意味着 T1 已提交
         # AWAITING 与登记请求；终态由 relay 的 T2/T3 依据资产回执推进。
@@ -170,9 +168,7 @@ class GenerationWorker:
                 try:
                     await self._renew(task.entity_id)
                 except DomainError as exc:
-                    raise LeaseLostError(
-                        f"renew denied for {task.entity_id}: {exc}"
-                    ) from exc
+                    raise LeaseLostError(f"renew denied for {task.entity_id}: {exc}") from exc
         except LeaseLostError:
             raise
         except Exception as exc:  # 执行器把异常抛出来也必须落终态

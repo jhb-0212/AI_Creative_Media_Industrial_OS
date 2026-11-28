@@ -59,9 +59,7 @@ def test_round_trip_decode_to_principal(key: SigningKey) -> None:
         issuer=ISSUER,
         audience=AUDIENCE,
     )
-    principal = decode_token(
-        token, public_pem=k.public_pem, issuer=ISSUER, audience=AUDIENCE
-    )
+    principal = decode_token(token, public_pem=k.public_pem, issuer=ISSUER, audience=AUDIENCE)
     assert isinstance(principal, Principal)
     assert principal.subject_id == "user-001"
     assert str(principal.tenant_id) == TENANT_ID
@@ -74,8 +72,12 @@ def test_tampered_token_rejected(key: SigningKey) -> None:
     """篡改 payload 后验签失败（签名真实性）。"""
     k = key
     token = encode_token(
-        k, subject_id="user-001", tenant_id=TENANT_ID, roles=["导演"],
-        issuer=ISSUER, audience=AUDIENCE,
+        k,
+        subject_id="user-001",
+        tenant_id=TENANT_ID,
+        roles=["导演"],
+        issuer=ISSUER,
+        audience=AUDIENCE,
     )
     # 篡改 payload（第二段，base64url 编码）：把 subject_id 换成另一个主体。
     import base64
@@ -94,8 +96,12 @@ def test_wrong_key_rejected() -> None:
     signing = generate_signing_key()
     other = generate_signing_key()
     token = encode_token(
-        signing, subject_id="user-001", tenant_id=TENANT_ID, roles=["导演"],
-        issuer=ISSUER, audience=AUDIENCE,
+        signing,
+        subject_id="user-001",
+        tenant_id=TENANT_ID,
+        roles=["导演"],
+        issuer=ISSUER,
+        audience=AUDIENCE,
     )
     with pytest.raises(TokenError):
         decode_token(token, public_pem=other.public_pem, issuer=ISSUER, audience=AUDIENCE)
@@ -105,8 +111,12 @@ def test_wrong_issuer_rejected(key: SigningKey) -> None:
     """issuer 不匹配拒绝（跨服务令牌隔离）。"""
     k = key
     token = encode_token(
-        k, subject_id="user-001", tenant_id=TENANT_ID, roles=["导演"],
-        issuer=ISSUER, audience=AUDIENCE,
+        k,
+        subject_id="user-001",
+        tenant_id=TENANT_ID,
+        roles=["导演"],
+        issuer=ISSUER,
+        audience=AUDIENCE,
     )
     with pytest.raises(TokenError):
         decode_token(token, public_pem=k.public_pem, issuer="evil-issuer", audience=AUDIENCE)
@@ -116,8 +126,12 @@ def test_wrong_audience_rejected(key: SigningKey) -> None:
     """audience 不匹配拒绝。"""
     k = key
     token = encode_token(
-        k, subject_id="user-001", tenant_id=TENANT_ID, roles=["导演"],
-        issuer=ISSUER, audience=AUDIENCE,
+        k,
+        subject_id="user-001",
+        tenant_id=TENANT_ID,
+        roles=["导演"],
+        issuer=ISSUER,
+        audience=AUDIENCE,
     )
     with pytest.raises(TokenError):
         decode_token(token, public_pem=k.public_pem, issuer=ISSUER, audience="evil-aud")
@@ -128,8 +142,13 @@ def test_expired_token_rejected(key: SigningKey) -> None:
     k = key
     # 过期 60 秒（超出 30 秒 leeway 窗口），确保被拒绝。
     token = encode_token(
-        k, subject_id="user-001", tenant_id=TENANT_ID, roles=["导演"],
-        issuer=ISSUER, audience=AUDIENCE, ttl_seconds=-60,
+        k,
+        subject_id="user-001",
+        tenant_id=TENANT_ID,
+        roles=["导演"],
+        issuer=ISSUER,
+        audience=AUDIENCE,
+        ttl_seconds=-60,
     )
     with pytest.raises(TokenError):
         decode_token(token, public_pem=k.public_pem, issuer=ISSUER, audience=AUDIENCE)
@@ -139,8 +158,12 @@ def test_invalid_tenant_rejected(key: SigningKey) -> None:
     """tenant_id 非 UUID 拒绝（RLS 注入防线）。"""
     k = key
     token = encode_token(
-        k, subject_id="user-001", tenant_id="not-a-uuid' OR '1'='1", roles=["导演"],
-        issuer=ISSUER, audience=AUDIENCE,
+        k,
+        subject_id="user-001",
+        tenant_id="not-a-uuid' OR '1'='1",
+        roles=["导演"],
+        issuer=ISSUER,
+        audience=AUDIENCE,
     )
     with pytest.raises(TokenError):
         decode_token(token, public_pem=k.public_pem, issuer=ISSUER, audience=AUDIENCE)
@@ -224,9 +247,7 @@ def test_roles_claim_must_be_string_array(key: SigningKey) -> None:
         headers={"kid": key.kid},
     )
     with pytest.raises(TokenError, match="roles"):
-        decode_token(
-            token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE
-        )
+        decode_token(token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE)
 
 
 def test_capabilities_round_trip(key: SigningKey) -> None:
@@ -240,9 +261,7 @@ def test_capabilities_round_trip(key: SigningKey) -> None:
         issuer=ISSUER,
         audience=AUDIENCE,
     )
-    principal = decode_token(
-        token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE
-    )
+    principal = decode_token(token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE)
     assert principal.capabilities == frozenset({"Project:*", "PROJECT.CREATE"})
     assert principal.has_capability("Project:*")
 
@@ -250,12 +269,14 @@ def test_capabilities_round_trip(key: SigningKey) -> None:
 def test_capabilities_default_to_empty(key: SigningKey) -> None:
     """未签发 caps 时验签后 capabilities 为空集（未授予任何能力范围）。"""
     token = encode_token(
-        key, subject_id="user-001", tenant_id=TENANT_ID, roles=["导演"],
-        issuer=ISSUER, audience=AUDIENCE,
+        key,
+        subject_id="user-001",
+        tenant_id=TENANT_ID,
+        roles=["导演"],
+        issuer=ISSUER,
+        audience=AUDIENCE,
     )
-    principal = decode_token(
-        token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE
-    )
+    principal = decode_token(token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE)
     assert principal.capabilities == frozenset()
 
 
@@ -275,9 +296,7 @@ def test_caps_claim_must_be_string_array(key: SigningKey) -> None:
         headers={"kid": key.kid},
     )
     with pytest.raises(TokenError, match="caps"):
-        decode_token(
-            token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE
-        )
+        decode_token(token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE)
 
 
 # ---------------------------------------------------------------------------
@@ -297,9 +316,7 @@ def test_org_claim_round_trip(key: SigningKey) -> None:
         audience=AUDIENCE,
         organization_id=org_id,
     )
-    principal = decode_token(
-        token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE
-    )
+    principal = decode_token(token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE)
     assert principal.organization_id is not None
     assert str(principal.organization_id) == org_id
 
@@ -314,9 +331,7 @@ def test_org_claim_absent_means_no_organization(key: SigningKey) -> None:
         issuer=ISSUER,
         audience=AUDIENCE,
     )
-    principal = decode_token(
-        token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE
-    )
+    principal = decode_token(token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE)
     assert principal.organization_id is None
 
 
@@ -344,6 +359,4 @@ def test_org_claim_invalid_value_rejected(key: SigningKey, bad_org: object) -> N
     }
     token = jwt.encode(payload, key.private_pem, algorithm="RS256", headers={"kid": key.kid})
     with pytest.raises(TokenError, match="org"):
-        decode_token(
-            token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE
-        )
+        decode_token(token, public_pem=key.public_pem, issuer=ISSUER, audience=AUDIENCE)

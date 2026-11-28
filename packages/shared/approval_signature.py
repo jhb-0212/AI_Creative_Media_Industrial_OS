@@ -101,9 +101,7 @@ class ApprovalSignatureModel(Base):
     evidence_refs: Mapped[list[str]] = mapped_column(
         ARRAY(String(64)), nullable=False, default=list
     )
-    occurred_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     event_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
 
 

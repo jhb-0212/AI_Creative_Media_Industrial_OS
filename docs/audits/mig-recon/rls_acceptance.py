@@ -25,6 +25,7 @@
 
     python rls_acceptance.py --port 15444
 """
+
 from __future__ import annotations
 
 import argparse
@@ -82,8 +83,11 @@ async def main() -> int:
 
     cases: list[Case] = []
     conn = await asyncpg.connect(
-        host=args.host, port=args.port, user=args.user,
-        password=args.password, database=args.db,
+        host=args.host,
+        port=args.port,
+        user=args.user,
+        password=args.password,
+        database=args.db,
     )
 
     async def scalar_as(role: str, guc, sql: str, *params):
@@ -107,38 +111,54 @@ async def main() -> int:
     try:
         # ── A. 业务主体：projects 域用 svc_project_planning，asset 域用 svc_asset ──
         n = await scalar_as(
-            "svc_project_planning", business_guc,
-            f"SELECT count(*) FROM {PROJECTS} WHERE entity_id = $1", QUARANTINE_ID,
+            "svc_project_planning",
+            business_guc,
+            f"SELECT count(*) FROM {PROJECTS} WHERE entity_id = $1",
+            QUARANTINE_ID,
         )
-        _rec(cases, "A1", "业务主体查隔离项目 → 不可见（即使 current_projects='*'）",
-             n == 0, f"返回 {n} 行（期望 0）")
+        _rec(
+            cases,
+            "A1",
+            "业务主体查隔离项目 → 不可见（即使 current_projects='*'）",
+            n == 0,
+            f"返回 {n} 行（期望 0）",
+        )
 
         n = await scalar_as(
-            "svc_asset", business_guc,
-            f"SELECT count(*) FROM {ASSETS} WHERE entity_id = $1", SENTINEL_ROW,
+            "svc_asset",
+            business_guc,
+            f"SELECT count(*) FROM {ASSETS} WHERE entity_id = $1",
+            SENTINEL_ROW,
         )
-        _rec(cases, "A2", "业务主体查隔离区内的哨兵行 → 不可见", n == 0,
-             f"返回 {n} 行（期望 0）")
+        _rec(cases, "A2", "业务主体查隔离区内的哨兵行 → 不可见", n == 0, f"返回 {n} 行（期望 0）")
 
         # 写：断言影响行数。0 行 = RLS 静默过滤，是「拒绝」而非「成功」。
         status = await exec_as(
-            "svc_asset", business_guc,
+            "svc_asset",
+            business_guc,
             f"UPDATE {ASSETS} SET project_id = 'proj-alpha' WHERE entity_id = $1",
             SENTINEL_ROW,
         )
         affected = int(status.split()[-1])
         got = await scalar_as(
-            "svc_asset", business_guc,
+            "svc_asset",
+            business_guc,
             "SELECT count(*) FROM asset_service.asset_versions "
-            "WHERE entity_id = $1 AND project_id = 'proj-alpha'", SENTINEL_ROW,
+            "WHERE entity_id = $1 AND project_id = 'proj-alpha'",
+            SENTINEL_ROW,
         )
-        _rec(cases, "A3", "业务主体改哨兵行归属 → 0 行且值未变（静默拒绝）",
-             affected == 0 and got == 0,
-             f"影响 {affected} 行；回读已改为 proj-alpha 的行数={got}")
+        _rec(
+            cases,
+            "A3",
+            "业务主体改哨兵行归属 → 0 行且值未变（静默拒绝）",
+            affected == 0 and got == 0,
+            f"影响 {affected} 行；回读已改为 proj-alpha 的行数={got}",
+        )
 
         try:
             await exec_as(
-                "svc_asset", business_guc,
+                "svc_asset",
+                business_guc,
                 "INSERT INTO asset_service.asset_versions "
                 "(entity_id, entity_type, schema_version, entity_version, status, "
                 "owner_module, tenant_id, organization_id, created_at, created_by, "
@@ -146,89 +166,138 @@ async def main() -> int:
                 "source_asset_version_ids) VALUES "
                 "('av-intrude','AssetVersion',2,1,'GENERATED','asset_service',$1,$2,"
                 "now(),'rls-test',now(),$3,'VIDEO',repeat('b',64),"
-                "'{\"bucket\":\"b\",\"key\":\"av-intrude\"}'::jsonb,'[]'::jsonb)",
-                TENANT, ORG1, QUARANTINE_ID,
+                '\'{"bucket":"b","key":"av-intrude"}\'::jsonb,\'[]\'::jsonb)',
+                TENANT,
+                ORG1,
+                QUARANTINE_ID,
             )
             inserted = await scalar_as(
-                "postgres", business_guc,
+                "postgres",
+                business_guc,
                 "SELECT count(*) FROM asset_service.asset_versions WHERE entity_id='av-intrude'",
             )
-            _rec(cases, "A4", "业务主体向隔离项目新增行 → 被拒", inserted == 0,
-                 f"无异常但写入 {inserted} 行")
+            _rec(
+                cases,
+                "A4",
+                "业务主体向隔离项目新增行 → 被拒",
+                inserted == 0,
+                f"无异常但写入 {inserted} 行",
+            )
         except asyncpg.PostgresError as e:
-            _rec(cases, "A4", "业务主体向隔离项目新增行 → 被拒", True,
-                 f"{type(e).__name__}: {str(e).splitlines()[0][:60]}")
+            _rec(
+                cases,
+                "A4",
+                "业务主体向隔离项目新增行 → 被拒",
+                True,
+                f"{type(e).__name__}: {str(e).splitlines()[0][:60]}",
+            )
 
         # ── B. 审计主体 ────────────────────────────────────────────────
         n = await scalar_as(
-            "afs_audit", audit_guc,
-            f"SELECT count(*) FROM {PROJECTS} WHERE entity_id = $1", QUARANTINE_ID,
+            "afs_audit",
+            audit_guc,
+            f"SELECT count(*) FROM {PROJECTS} WHERE entity_id = $1",
+            QUARANTINE_ID,
         )
-        _rec(cases, "B1", "审计主体（include_quarantine=on）查隔离项目 → 可见",
-             n == 1, f"返回 {n} 行（期望 1）")
+        _rec(
+            cases,
+            "B1",
+            "审计主体（include_quarantine=on）查隔离项目 → 可见",
+            n == 1,
+            f"返回 {n} 行（期望 1）",
+        )
 
         n = await scalar_as(
-            "afs_audit", audit_guc,
-            f"SELECT count(*) FROM {ASSETS} WHERE entity_id = $1", SENTINEL_ROW,
+            "afs_audit",
+            audit_guc,
+            f"SELECT count(*) FROM {ASSETS} WHERE entity_id = $1",
+            SENTINEL_ROW,
         )
         _rec(cases, "B2", "审计主体查隔离区哨兵行 → 可见", n == 1, f"返回 {n} 行（期望 1）")
 
         status = await exec_as(
-            "afs_audit", audit_guc,
+            "afs_audit",
+            audit_guc,
             f"UPDATE {PROJECTS} SET project_name = project_name WHERE entity_id = $1",
             QUARANTINE_ID,
         )
         affected = int(status.split()[-1])
-        _rec(cases, "B3", "审计主体改写隔离项目 → 影响 1 行（可写是真的可写）",
-             affected == 1, f"影响 {affected} 行")
+        _rec(
+            cases,
+            "B3",
+            "审计主体改写隔离项目 → 影响 1 行（可写是真的可写）",
+            affected == 1,
+            f"影响 {affected} 行",
+        )
 
         try:
             status = await exec_as(
-                "afs_audit", audit_guc,
+                "afs_audit",
+                audit_guc,
                 f"UPDATE {PROJECTS} SET status = 'ACTIVE' WHERE entity_id = $1",
                 QUARANTINE_ID,
             )
             affected = int(status.split()[-1])
             now = await scalar_as(
-                "postgres", audit_guc,
-                f"SELECT status FROM {PROJECTS} WHERE entity_id = $1", QUARANTINE_ID,
+                "postgres",
+                audit_guc,
+                f"SELECT status FROM {PROJECTS} WHERE entity_id = $1",
+                QUARANTINE_ID,
             )
-            _rec(cases, "B4", "把隔离项目改回 ACTIVE → 被拒（CHECK 拦）",
-                 affected == 0 and now == "ARCHIVED",
-                 f"影响 {affected} 行；回读 status={now}")
+            _rec(
+                cases,
+                "B4",
+                "把隔离项目改回 ACTIVE → 被拒（CHECK 拦）",
+                affected == 0 and now == "ARCHIVED",
+                f"影响 {affected} 行；回读 status={now}",
+            )
         except asyncpg.PostgresError as e:
             now = await scalar_as(
-                "postgres", audit_guc,
-                f"SELECT status FROM {PROJECTS} WHERE entity_id = $1", QUARANTINE_ID,
+                "postgres",
+                audit_guc,
+                f"SELECT status FROM {PROJECTS} WHERE entity_id = $1",
+                QUARANTINE_ID,
             )
-            _rec(cases, "B4", "把隔离项目改回 ACTIVE → 被拒（CHECK 拦）",
-                 now == "ARCHIVED",
-                 f"{type(e).__name__}；回读 status={now}")
+            _rec(
+                cases,
+                "B4",
+                "把隔离项目改回 ACTIVE → 被拒（CHECK 拦）",
+                now == "ARCHIVED",
+                f"{type(e).__name__}；回读 status={now}",
+            )
 
         # ── C. 已盖章工单：修复通道应失效 ──────────────────────────────
         async def repair_guc(c):
             await c.execute(f"SELECT set_config('app.ownership_repair_ticket', '{TICKET}', true)")
 
         n = await scalar_as(
-            "afs_data_repair", repair_guc,
-            f"SELECT count(*) FROM {ASSETS} WHERE entity_id = $1", SENTINEL_ROW,
+            "afs_data_repair",
+            repair_guc,
+            f"SELECT count(*) FROM {ASSETS} WHERE entity_id = $1",
+            SENTINEL_ROW,
         )
         stamped = await scalar_as(
-            "postgres", repair_guc,
+            "postgres",
+            repair_guc,
             "SELECT count(*) FROM project_planning.ownership_repair_map "
-            "WHERE ticket_ref = $1 AND applied_at IS NOT NULL", TICKET,
+            "WHERE ticket_ref = $1 AND applied_at IS NOT NULL",
+            TICKET,
         )
-        _rec(cases, "C1", "工单已盖章后 repair 不再看见该行（例外随盖章失效）",
-             n == 0 and stamped > 0,
-             f"可见 {n} 行；已盖章映射 {stamped} 条")
+        _rec(
+            cases,
+            "C1",
+            "工单已盖章后 repair 不再看见该行（例外随盖章失效）",
+            n == 0 and stamped > 0,
+            f"可见 {n} 行；已盖章映射 {stamped} 条",
+        )
 
         # ── D. 干净对照未被误伤 ───────────────────────────────────────
         n = await scalar_as(
-            "svc_asset", business_guc,
+            "svc_asset",
+            business_guc,
             f"SELECT count(*) FROM {ASSETS} WHERE entity_id = 'av-clean'",
         )
-        _rec(cases, "D1", "干净对照行对业务主体仍可见（未误伤）", n == 1,
-             f"返回 {n} 行（期望 1）")
+        _rec(cases, "D1", "干净对照行对业务主体仍可见（未误伤）", n == 1, f"返回 {n} 行（期望 1）")
 
         passed = sum(1 for c in cases if c.ok)
         print("-" * 88)

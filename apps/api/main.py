@@ -132,12 +132,8 @@ async def request_guard_middleware(
         if request.url.path not in _PROBE_PATHS:
             limiter = getattr(app.state, "rate_limiter", None)
             if limiter is not None:
-                decision: RateLimitDecision = await limiter.acquire(
-                    _client_identity(request)
-                )
-                RATE_LIMIT_DECISIONS_TOTAL.labels(
-                    decision=_decision_label(decision)
-                ).inc()
+                decision: RateLimitDecision = await limiter.acquire(_client_identity(request))
+                RATE_LIMIT_DECISIONS_TOTAL.labels(decision=_decision_label(decision)).inc()
                 if not decision.allowed:
                     status_code = ErrorRegistry.RATE_LIMIT.http_status
                     envelope = DomainError(ErrorRegistry.RATE_LIMIT)
@@ -151,12 +147,8 @@ async def request_guard_middleware(
         status_code = response.status_code
         return response
     finally:
-        HTTP_REQUESTS_TOTAL.labels(
-            method=method, status_code=str(status_code)
-        ).inc()
-        HTTP_REQUEST_DURATION_SECONDS.labels(method=method).observe(
-            time.perf_counter() - start
-        )
+        HTTP_REQUESTS_TOTAL.labels(method=method, status_code=str(status_code)).inc()
+        HTTP_REQUEST_DURATION_SECONDS.labels(method=method).observe(time.perf_counter() - start)
 
 
 def _decision_label(decision: RateLimitDecision) -> str:
@@ -236,9 +228,7 @@ async def domain_error_handler(_: Request, exc: DomainError) -> JSONResponse:
 
 
 @app.exception_handler(RequestValidationError)
-async def request_validation_handler(
-    _: Request, exc: RequestValidationError
-) -> JSONResponse:
+async def request_validation_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
     """把框架层参数校验失败统一到 C.3.2 错误信封（原先走 FastAPI 默认 detail 格式）。
 
     只透出 loc/msg/type，不含原始输入值（避免回显用户数据）。

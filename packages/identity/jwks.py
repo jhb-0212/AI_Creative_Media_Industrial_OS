@@ -37,7 +37,9 @@ class KeyStore:
         seen: set[str] = set()
         for key in keys:
             if key.kid in seen:
-                raise ValueError(f"KeyStore 中存在重复 kid：{key.kid}（同 kid 会静默覆盖前一把密钥）")
+                raise ValueError(
+                    f"KeyStore 中存在重复 kid：{key.kid}（同 kid 会静默覆盖前一把密钥）"
+                )
             seen.add(key.kid)
         self._by_kid: dict[str, SigningKey] = {k.kid: k for k in keys}
         # 当前密钥取列表最后一个（约定：新轮换的密钥追加在末尾）。

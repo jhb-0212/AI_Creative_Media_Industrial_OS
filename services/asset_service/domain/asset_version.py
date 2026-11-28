@@ -76,19 +76,13 @@ class AssetVersion(Entity):
                 detail="project_id 不能为空：资产必须归属一个项目",
             )
         if len(self.project_id) > 64:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="project_id 长度超过上限 64"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="project_id 长度超过上限 64")
         self.project_id = self.project_id.strip()
 
         if not self.asset_type.strip():
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="asset_type 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="asset_type 不能为空")
         if len(self.asset_type) > 32:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="asset_type 长度超过上限 32"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="asset_type 长度超过上限 32")
 
         # 资产可用性最低要求：必须能校验完整性（sha256）、必须能定位内容
         # （storage_ref 是受控定位符）。缺任一项的「资产」是空壳，不得入库。
@@ -133,9 +127,7 @@ class AssetVersion(Entity):
                     detail="source_asset_version_ids 含空值",
                 )
 
-    def transition_to(
-        self, target: AssetStatus, audit_ref: str, action: str
-    ) -> AssetVersion:
+    def transition_to(self, target: AssetStatus, audit_ref: str, action: str) -> AssetVersion:
         """执行状态迁移：结构合法性 + 边所有权（31.5 / N-07）。
 
         所有权在这里**再判一次**，与 ``asset_service`` 服务层的前置 ``edge_owned_by``

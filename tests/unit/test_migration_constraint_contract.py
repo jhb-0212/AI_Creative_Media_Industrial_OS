@@ -56,12 +56,12 @@ def test_marker_definition_mismatch_blocks_instead_of_blind_drop() -> None:
 def test_migrations_execute_helper_sql_explicitly() -> None:
     for path in MIGRATIONS:
         text = path.read_text(encoding="utf-8")
-        assert re.search(
-            r"op\.execute\(\s*mark_created_constraint", text
-        ), f"{path.name}: upgrade 必须显式执行标记语句"
-        assert re.search(
-            r"op\.execute\(\s*drop_marked_constraint", text
-        ), f"{path.name}: downgrade 必须显式执行来源判定语句"
+        assert re.search(r"op\.execute\(\s*mark_created_constraint", text), (
+            f"{path.name}: upgrade 必须显式执行标记语句"
+        )
+        assert re.search(r"op\.execute\(\s*drop_marked_constraint", text), (
+            f"{path.name}: downgrade 必须显式执行来源判定语句"
+        )
 
 
 def test_contract_document_exists_and_covers_four_rules() -> None:

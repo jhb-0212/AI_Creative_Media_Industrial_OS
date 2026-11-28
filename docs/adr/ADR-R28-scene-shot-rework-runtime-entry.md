@@ -258,10 +258,14 @@ A14 把「归档前确认其下无 IN_PRODUCTION 镜头」实现成「同事务�
 
 ```python
 SHOT_IN_PRODUCTION_PARENT_PRECONDITION = ParentPrecondition(
-    object_name="Scene", forbidden_status="ARCHIVED", message="父场次已归档，镜头不可进入 IN_PRODUCTION（SC-5 的并发侧）"
+    object_name="Scene",
+    forbidden_status="ARCHIVED",
+    message="父场次已归档，镜头不可进入 IN_PRODUCTION（SC-5 的并发侧）",
 )
 SCENE_ARCHIVE_CHILD_PRECONDITION = ChildPrecondition(
-    object_name="Shot", forbidden_status="IN_PRODUCTION", message="场次下仍有 IN_PRODUCTION 的镜头，拒绝归档（SC-5）"
+    object_name="Shot",
+    forbidden_status="IN_PRODUCTION",
+    message="场次下仍有 IN_PRODUCTION 的镜头，拒绝归档（SC-5）",
 )
 ```
 

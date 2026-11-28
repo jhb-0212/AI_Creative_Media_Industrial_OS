@@ -231,9 +231,7 @@ async def test_half_open_probe_recovers_circuit() -> None:
     """冷却期满放行一个探测；探测成功即关闭熔断，恢复正常限流语义。"""
     clock = _Clock()
     redis = _CountingRedis(ConnectionError("down"))
-    breaker = CircuitBreaker(
-        failure_threshold=1, recovery_timeout_seconds=10.0, clock=clock
-    )
+    breaker = CircuitBreaker(failure_threshold=1, recovery_timeout_seconds=10.0, clock=clock)
     limiter = RateLimiter(
         redis,  # type: ignore[arg-type]
         limit=1,
@@ -264,9 +262,7 @@ async def test_cancelled_request_releases_half_open_probe() -> None:
 
     clock = _Clock()
     redis = _CountingRedis(ConnectionError("down"), asyncio.CancelledError())
-    breaker = CircuitBreaker(
-        failure_threshold=1, recovery_timeout_seconds=5.0, clock=clock
-    )
+    breaker = CircuitBreaker(failure_threshold=1, recovery_timeout_seconds=5.0, clock=clock)
     limiter = RateLimiter(
         redis,  # type: ignore[arg-type]
         limit=10,

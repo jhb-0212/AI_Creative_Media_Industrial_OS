@@ -104,9 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     problems = diff_role_attributes(specs, live)
     declared = {spec.name for spec in specs}
     undeclared = sorted(
-        role.name
-        for role in live
-        if role.name not in declared and not _is_system_role(role.name)
+        role.name for role in live if role.name not in declared and not _is_system_role(role.name)
     )
 
     report: dict[str, object] = {

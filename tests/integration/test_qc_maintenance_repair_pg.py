@@ -117,10 +117,7 @@ async def _call_repair(work_order_id: str, task_id: str, attempt_id: str) -> lis
             await conn.execute(text(f'SET SESSION AUTHORIZATION "{_LOGIN}"'))
             return (
                 await conn.execute(
-                    text(
-                        "SELECT * FROM qc_maintenance.repair_tenant_task"
-                        "(:wo, :task, :attempt)"
-                    ),
+                    text("SELECT * FROM qc_maintenance.repair_tenant_task(:wo, :task, :attempt)"),
                     {"wo": work_order_id, "task": task_id, "attempt": attempt_id},
                 )
             ).all()
@@ -217,9 +214,7 @@ async def test_repair_rebuilds_projection_to_match_source(
         qc_sessionmaker, admin_sessionmaker, tenant=tenant, suffix=uuid.uuid4().hex[:8]
     )
     async with admin_sessionmaker() as session:
-        wo = await create_work_order(
-            session, tenant=tenant, kind="REPAIR", target_task_id=task_id
-        )
+        wo = await create_work_order(session, tenant=tenant, kind="REPAIR", target_task_id=task_id)
     await _corrupt_projection(admin_sessionmaker, task_id)
 
     rows = await _call_repair(wo, task_id, f"repair-{uuid.uuid4().hex}")
@@ -252,9 +247,7 @@ async def test_repair_prunes_projection_whose_source_row_is_gone(
     """源行不存在、投影还留着 → 剪除。幽灵候选不会被调度永远重试。"""
     tenant = uuid.uuid4()
     project_id = f"proj-ghost-{uuid.uuid4().hex[:8]}"
-    await seed_project(
-        admin_sessionmaker, project_id=project_id, tenant=tenant
-    )
+    await seed_project(admin_sessionmaker, project_id=project_id, tenant=tenant)
     ghost = str(uuid.uuid4())
     async with admin_sessionmaker() as session:
         await session.execute(
@@ -267,9 +260,7 @@ async def test_repair_prunes_projection_whose_source_row_is_gone(
             {"id": ghost, "tenant": tenant, "project": project_id},
         )
         await session.commit()
-        wo = await create_work_order(
-            session, tenant=tenant, kind="REPAIR", target_task_id=ghost
-        )
+        wo = await create_work_order(session, tenant=tenant, kind="REPAIR", target_task_id=ghost)
 
     rows = await _call_repair(wo, ghost, f"prune-{uuid.uuid4().hex}")
     assert [(r.outcome, int(r.rows_affected)) for r in rows] == [("pruned", 1)]
@@ -288,16 +279,11 @@ async def test_repair_retires_projection_for_terminal_task(
     )
     async with admin_sessionmaker() as session:
         await session.execute(
-            text(
-                "UPDATE qc_governance.qc_tasks SET status = 'PASSED' "
-                "WHERE entity_id = :id"
-            ),
+            text("UPDATE qc_governance.qc_tasks SET status = 'PASSED' WHERE entity_id = :id"),
             {"id": task_id},
         )
         await session.commit()
-        wo = await create_work_order(
-            session, tenant=tenant, kind="REPAIR", target_task_id=task_id
-        )
+        wo = await create_work_order(session, tenant=tenant, kind="REPAIR", target_task_id=task_id)
     await _corrupt_projection(admin_sessionmaker, task_id)
 
     rows = await _call_repair(wo, task_id, f"retire-{uuid.uuid4().hex}")
@@ -305,9 +291,7 @@ async def test_repair_retires_projection_for_terminal_task(
     assert await _projection(admin_sessionmaker, task_id) is None
 
 
-async def test_repair_refuses_unauthorized_calls(
-    qc_sessionmaker, admin_sessionmaker
-) -> None:
+async def test_repair_refuses_unauthorized_calls(qc_sessionmaker, admin_sessionmaker) -> None:
     """四类授权失败必须被库拒绝，且原因可区分、可补记。"""
     tenant_a, tenant_b = uuid.uuid4(), uuid.uuid4()
     task_a, _ = await _seed_task(
@@ -317,9 +301,7 @@ async def test_repair_refuses_unauthorized_calls(
         qc_sessionmaker, admin_sessionmaker, tenant=tenant_b, suffix=uuid.uuid4().hex[:8]
     )
     async with admin_sessionmaker() as session:
-        wrong_kind = await create_work_order(
-            session, tenant=tenant_a, kind="RECONCILE"
-        )
+        wrong_kind = await create_work_order(session, tenant=tenant_a, kind="RECONCILE")
         pending = await create_work_order(
             session,
             tenant=tenant_a,
@@ -358,27 +340,21 @@ async def test_repair_refuses_unauthorized_calls(
         )
 
 
-async def test_repair_is_idempotent_per_attempt(
-    qc_sessionmaker, admin_sessionmaker
-) -> None:
+async def test_repair_is_idempotent_per_attempt(qc_sessionmaker, admin_sessionmaker) -> None:
     """同一 attempt 重放返回 already_applied 且不再写数据；换 attempt 才会重做。"""
     tenant = uuid.uuid4()
     task_id, _ = await _seed_task(
         qc_sessionmaker, admin_sessionmaker, tenant=tenant, suffix=uuid.uuid4().hex[:8]
     )
     async with admin_sessionmaker() as session:
-        wo = await create_work_order(
-            session, tenant=tenant, kind="REPAIR", target_task_id=task_id
-        )
+        wo = await create_work_order(session, tenant=tenant, kind="REPAIR", target_task_id=task_id)
     await _corrupt_projection(admin_sessionmaker, task_id)
 
     attempt = f"idem-{uuid.uuid4().hex}"
     first = await _call_repair(wo, task_id, attempt)
     assert [(r.outcome, int(r.rows_affected)) for r in first] == [("repaired", 1)]
     second = await _call_repair(wo, task_id, attempt)
-    assert [(r.outcome, int(r.rows_affected)) for r in second] == [
-        ("already_applied", 0)
-    ]
+    assert [(r.outcome, int(r.rows_affected)) for r in second] == [("already_applied", 0)]
 
     audit = await _audit_rows(admin_sessionmaker, wo)
     assert len(audit) == 1, "同一次尝试不得记两行"
@@ -398,9 +374,7 @@ async def test_repair_lock_timeout_leaves_projection_untouched(
         qc_sessionmaker, admin_sessionmaker, tenant=tenant, suffix=uuid.uuid4().hex[:8]
     )
     async with admin_sessionmaker() as session:
-        wo = await create_work_order(
-            session, tenant=tenant, kind="REPAIR", target_task_id=task_id
-        )
+        wo = await create_work_order(session, tenant=tenant, kind="REPAIR", target_task_id=task_id)
     await _corrupt_projection(admin_sessionmaker, task_id)
     before = await _projection(admin_sessionmaker, task_id)
 
@@ -409,9 +383,7 @@ async def test_repair_lock_timeout_leaves_projection_untouched(
     try:
         async with blocker.connect() as hold:
             await hold.execute(
-                text(
-                    "LOCK TABLE qc_governance.qc_tasks IN SHARE ROW EXCLUSIVE MODE"
-                )
+                text("LOCK TABLE qc_governance.qc_tasks IN SHARE ROW EXCLUSIVE MODE")
             )
 
             async def _attempt() -> None:
@@ -419,8 +391,7 @@ async def test_repair_lock_timeout_leaves_projection_untouched(
                     await conn.execute(text(f'SET SESSION AUTHORIZATION "{_LOGIN}"'))
                     await conn.execute(
                         text(
-                            "SELECT * FROM qc_maintenance.repair_tenant_task"
-                            "(:wo, :task, :attempt)"
+                            "SELECT * FROM qc_maintenance.repair_tenant_task(:wo, :task, :attempt)"
                         ),
                         {
                             "wo": wo,
@@ -439,9 +410,7 @@ async def test_repair_lock_timeout_leaves_projection_untouched(
     assert await _projection(admin_sessionmaker, task_id) == before, (
         "拿不到锁就必须整体回滚：不允许改了一半的投影"
     )
-    assert await _audit_rows(admin_sessionmaker, wo) == [], (
-        "失败事务里的 SUCCEEDED 审计行不能残留"
-    )
+    assert await _audit_rows(admin_sessionmaker, wo) == [], "失败事务里的 SUCCEEDED 审计行不能残留"
 
 
 async def test_repair_privileges_match_server_version(admin_sessionmaker) -> None:
@@ -451,16 +420,12 @@ async def test_repair_privileges_match_server_version(admin_sessionmaker) -> Non
     所以这里同时钉住「只有 UPDATE」以及「login 仍无写权限」，把风险面量化。
     """
     async with admin_sessionmaker() as session:
-        version = int(
-            await session.scalar(text("SELECT current_setting('server_version_num')"))
-        )
+        version = int(await session.scalar(text("SELECT current_setting('server_version_num')")))
 
         async def _priv(role: str, privilege: str) -> bool:
             return bool(
                 await session.scalar(
-                    text(
-                        "SELECT has_table_privilege(:r, 'qc_governance.qc_tasks', :p)"
-                    ),
+                    text("SELECT has_table_privilege(:r, 'qc_governance.qc_tasks', :p)"),
                     {"r": role, "p": privilege},
                 )
             )
@@ -521,9 +486,7 @@ async def _has_maintain(admin_sm, role: str) -> bool:
     async with admin_sm() as session:
         return bool(
             await session.scalar(
-                text(
-                    "SELECT has_table_privilege(:r, 'qc_governance.qc_tasks', 'MAINTAIN')"
-                ),
+                text("SELECT has_table_privilege(:r, 'qc_governance.qc_tasks', 'MAINTAIN')"),
                 {"r": role},
             )
         )
@@ -546,37 +509,27 @@ async def test_client_repair_records_denial_with_repair_action(
             approve=False,
         )
 
-    result = await client.repair_task(
-        pending, task_id, attempt_id=f"cli-deny-{uuid.uuid4().hex}"
-    )
+    result = await client.repair_task(pending, task_id, attempt_id=f"cli-deny-{uuid.uuid4().hex}")
     assert result.denial == "not_approved"
     assert result.denial_recorded is True
     assert result.rows == []
 
     audit = await _audit_rows(admin_sessionmaker, pending)
-    assert [(row.action, row.outcome) for row in audit] == [
-        ("repair_tenant_task", "DENIED")
-    ]
+    assert [(row.action, row.outcome) for row in audit] == [("repair_tenant_task", "DENIED")]
     assert audit[0].reason == "not_approved"
     assert audit[0].actor == _LOGIN
 
 
-async def test_client_repair_success_path(
-    client, qc_sessionmaker, admin_sessionmaker
-) -> None:
+async def test_client_repair_success_path(client, qc_sessionmaker, admin_sessionmaker) -> None:
     tenant = uuid.uuid4()
     task_id, _ = await _seed_task(
         qc_sessionmaker, admin_sessionmaker, tenant=tenant, suffix=uuid.uuid4().hex[:8]
     )
     async with admin_sessionmaker() as session:
-        wo = await create_work_order(
-            session, tenant=tenant, kind="REPAIR", target_task_id=task_id
-        )
+        wo = await create_work_order(session, tenant=tenant, kind="REPAIR", target_task_id=task_id)
     await _corrupt_projection(admin_sessionmaker, task_id)
 
-    result = await client.repair_task(
-        wo, task_id, attempt_id=f"cli-ok-{uuid.uuid4().hex}"
-    )
+    result = await client.repair_task(wo, task_id, attempt_id=f"cli-ok-{uuid.uuid4().hex}")
     assert result.denial is None
     assert result.denial_recorded is True
     assert result.rows == [{"outcome": "repaired", "rows_affected": 1}]

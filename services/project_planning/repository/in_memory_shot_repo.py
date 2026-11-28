@@ -29,9 +29,7 @@ class InMemoryShotRepository(ShotRepository):
         if shot.entity_id in self._store:
             raise DuplicateEntityError(shot.entity_id, constraint="pk_shot_planning_shots")
         if await self.get_by_project_code(shot.project_id, shot.shot_code):
-            raise DuplicateEntityError(
-                shot.entity_id, constraint="uq_shots_project_code"
-            )
+            raise DuplicateEntityError(shot.entity_id, constraint="uq_shots_project_code")
         self._store[shot.entity_id] = deepcopy(shot)
 
     async def save(self, shot: Shot, expected_version: int) -> None:
@@ -44,9 +42,7 @@ class InMemoryShotRepository(ShotRepository):
         stored = self._store.get(entity_id)
         return deepcopy(stored) if stored is not None else None
 
-    async def get_by_project_code(
-        self, project_id: str, shot_code: str
-    ) -> Shot | None:
+    async def get_by_project_code(self, project_id: str, shot_code: str) -> Shot | None:
         for shot in self._store.values():
             if shot.project_id == project_id and shot.shot_code == shot_code:
                 return deepcopy(shot)
@@ -63,9 +59,7 @@ class InMemoryShotRevisionRepository(ShotRevisionRepository):
                 revision.entity_id, constraint="pk_shot_planning_shot_revisions"
             )
         if await self.get_by_revision_no(revision.shot_id, revision.revision_no):
-            raise DuplicateEntityError(
-                revision.entity_id, constraint="uq_shot_revision_shot_no"
-            )
+            raise DuplicateEntityError(revision.entity_id, constraint="uq_shot_revision_shot_no")
         self._store[revision.entity_id] = deepcopy(revision)
 
     async def save(self, revision: ShotRevision, expected_version: int) -> None:
@@ -82,16 +76,13 @@ class InMemoryShotRevisionRepository(ShotRevisionRepository):
         candidates = [
             revision
             for revision in self._store.values()
-            if revision.shot_id == shot_id
-            and revision.status is ShotRevisionStatus.ACTIVE
+            if revision.shot_id == shot_id and revision.status is ShotRevisionStatus.ACTIVE
         ]
         if not candidates:
             return None
         return deepcopy(max(candidates, key=lambda revision: revision.revision_no))
 
-    async def get_by_revision_no(
-        self, shot_id: str, revision_no: int
-    ) -> ShotRevision | None:
+    async def get_by_revision_no(self, shot_id: str, revision_no: int) -> ShotRevision | None:
         for revision in self._store.values():
             if revision.shot_id == shot_id and revision.revision_no == revision_no:
                 return deepcopy(revision)

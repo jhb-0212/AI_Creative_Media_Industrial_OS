@@ -33,7 +33,9 @@ DOWN_RE = re.compile(r"^down_revision(?:\s*:[^=]+)?\s*=\s*(.+)$", re.MULTILINE)
 
 # ---- 源码抽取规则 --------------------------------------------------------- #
 CREATE_TABLE_RE = re.compile(r"op\.create_table\(\s*[\"'](\w+)[\"']")
-ADD_COLUMN_RE = re.compile(r"op\.add_column\(\s*[\"'](\w+)[\"']\s*,\s*sa\.Column\(\s*[\"'](\w+)[\"']")
+ADD_COLUMN_RE = re.compile(
+    r"op\.add_column\(\s*[\"'](\w+)[\"']\s*,\s*sa\.Column\(\s*[\"'](\w+)[\"']"
+)
 CREATE_INDEX_RE = re.compile(r"op\.create_index\(\s*[\"'](\w+)[\"']")
 C_FK_RE = re.compile(r"op\.create_foreign_key\(\s*(?:[\"'](\w+)[\"']|None)")
 C_CHECK_RE = re.compile(r"op\.create_check_constraint\(\s*[\"'](\w+)[\"']")
@@ -110,7 +112,11 @@ class Revision:
 
 def _git(repo: Path, *args: str) -> str:
     return subprocess.run(
-        ["git", "-C", str(repo), *args], check=True, capture_output=True, text=True, encoding="utf-8"
+        ["git", "-C", str(repo), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
     ).stdout
 
 
@@ -293,9 +299,7 @@ def matches(marker: tuple[str, ...], objects: set[tuple[str, ...]]) -> bool:
         return any(obj[0] == marker[0] and obj[2] == marker[2] for obj in objects)
     if marker[0].endswith("_prefix"):
         real_kind = marker[0][: -len("_prefix")]
-        return any(
-            obj[0] == real_kind and obj[1].startswith(marker[1]) for obj in objects
-        )
+        return any(obj[0] == real_kind and obj[1].startswith(marker[1]) for obj in objects)
     # 函数未限定 schema 时，dump 里存的是 schema.name，按后缀匹配。
     if marker[0] == "function" and "." not in marker[1]:
         return any(obj[0] == "function" and obj[1].endswith(f".{marker[1]}") for obj in objects)
@@ -310,7 +314,9 @@ def main() -> int:
 
     left = load(repo, refs[0])
     right = load(repo, refs[1])
-    left_chain = head_and_chain(left, sorted({r.revision for r in left} - {r.down_revision for r in left})[0])
+    left_chain = head_and_chain(
+        left, sorted({r.revision for r in left} - {r.down_revision for r in left})[0]
+    )
     right_chain = head_and_chain(
         right, sorted({r.revision for r in right} - {r.down_revision for r in right})[0]
     )
@@ -337,7 +343,11 @@ def main() -> int:
                 cells.append(f"**0/{len(live)}**")
             else:
                 cells.append(f"**部分 {hit}/{len(live)}**")
-        print(f"| {index} | `{item.revision}` | {item.filename} | {len(live)} | " + " | ".join(cells) + " |")
+        print(
+            f"| {index} | `{item.revision}` | {item.filename} | {len(live)} | "
+            + " | ".join(cells)
+            + " |"
+        )
 
     print("\n## 功能分支独有 revision（主支链中不存在）\n")
     left_ids = {item.revision for item in left}
@@ -348,7 +358,11 @@ def main() -> int:
         for name in sorted(databases):
             hit = sum(1 for marker in item.markers if matches(marker, databases[name]))
             cells.append(f"{hit}/{len(item.markers)}" if item.markers else "无静态标记")
-        print(f"| {index} | `{item.revision}` | {item.filename} | {len(item.markers)} | " + " | ".join(cells) + " |")
+        print(
+            f"| {index} | `{item.revision}` | {item.filename} | {len(item.markers)} | "
+            + " | ".join(cells)
+            + " |"
+        )
     return 0
 
 

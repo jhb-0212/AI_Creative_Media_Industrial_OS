@@ -123,9 +123,7 @@ async def _seed(
     return event_id
 
 
-async def _list(
-    client: AsyncClient, **params: Any
-) -> Any:
+async def _list(client: AsyncClient, **params: Any) -> Any:
     return await client.get("/outbox/dead-letters", params=params)
 
 
@@ -258,9 +256,7 @@ async def test_tenant_parameter_is_not_accepted(admin_engine: AsyncEngine) -> No
     mine = await _seed(admin_engine, dead_lettered_at=now)
 
     async with _client(roles=[_OPS_ROLE]) as client:
-        resp = await _list(
-            client, tenant_id=str(uuid.UUID("00000000-0000-0000-0000-0000000000d8"))
-        )
+        resp = await _list(client, tenant_id=str(uuid.UUID("00000000-0000-0000-0000-0000000000d8")))
     assert resp.status_code == 200, resp.text
     assert [i["event_id"] for i in resp.json()["items"]] == [str(mine)]
 

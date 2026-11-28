@@ -42,9 +42,7 @@ _QC_SCHEMA = "qc_governance"
 _QC_TASKS = "qc_tasks"
 _PROJECTION_SCHEMA = "qc_maintenance"
 _PROJECTION = "task_projection"
-_LEASE_GENERATION_CHECK = (
-    "ck_qc_governance_qc_tasks_lease_generation_non_negative"
-)
+_LEASE_GENERATION_CHECK = "ck_qc_governance_qc_tasks_lease_generation_non_negative"
 
 
 def _add_lease_generation() -> None:
@@ -65,8 +63,7 @@ def _add_lease_generation() -> None:
         "CHECK (lease_generation >= 0) NOT VALID"
     )
     op.execute(
-        f"ALTER TABLE {_QC_SCHEMA}.{_QC_TASKS} "
-        f"VALIDATE CONSTRAINT {_LEASE_GENERATION_CHECK}"
+        f"ALTER TABLE {_QC_SCHEMA}.{_QC_TASKS} VALIDATE CONSTRAINT {_LEASE_GENERATION_CHECK}"
     )
 
 
@@ -129,18 +126,14 @@ def _projection_visibility() -> str:
 
 
 def _enable_projection_rls() -> None:
-    op.execute(
-        f"ALTER TABLE {_PROJECTION_SCHEMA}.{_PROJECTION} ENABLE ROW LEVEL SECURITY"
-    )
+    op.execute(f"ALTER TABLE {_PROJECTION_SCHEMA}.{_PROJECTION} ENABLE ROW LEVEL SECURITY")
     op.execute(
         f"CREATE POLICY tenant_isolation_{_PROJECTION} "
         f"ON {_PROJECTION_SCHEMA}.{_PROJECTION} {_projection_visibility()}"
     )
     # FORCE：表所有者自己也走策略。否则「以所有者身份跑的维护脚本」会成为
     # 一个不需要租户上下文的旁路。
-    op.execute(
-        f"ALTER TABLE {_PROJECTION_SCHEMA}.{_PROJECTION} FORCE ROW LEVEL SECURITY"
-    )
+    op.execute(f"ALTER TABLE {_PROJECTION_SCHEMA}.{_PROJECTION} FORCE ROW LEVEL SECURITY")
 
 
 def upgrade() -> None:
@@ -161,16 +154,10 @@ def downgrade() -> None:
         f"DROP POLICY IF EXISTS tenant_isolation_{_PROJECTION} "
         f"ON {_PROJECTION_SCHEMA}.{_PROJECTION}"
     )
-    op.execute(
-        f"ALTER TABLE {_PROJECTION_SCHEMA}.{_PROJECTION} DISABLE ROW LEVEL SECURITY"
-    )
+    op.execute(f"ALTER TABLE {_PROJECTION_SCHEMA}.{_PROJECTION} DISABLE ROW LEVEL SECURITY")
     op.execute(f"DROP INDEX {_PROJECTION_SCHEMA}.ix_qc_projection_running")
     op.execute(f"DROP INDEX {_PROJECTION_SCHEMA}.ix_qc_projection_queued")
     op.drop_table(_PROJECTION, schema=_PROJECTION_SCHEMA)
     op.execute(f"DROP SCHEMA IF EXISTS {_PROJECTION_SCHEMA}")
-    op.execute(
-        f"ALTER TABLE {_QC_SCHEMA}.{_QC_TASKS} DROP CONSTRAINT {_LEASE_GENERATION_CHECK}"
-    )
-    op.execute(
-        f"ALTER TABLE {_QC_SCHEMA}.{_QC_TASKS} DROP COLUMN lease_generation"
-    )
+    op.execute(f"ALTER TABLE {_QC_SCHEMA}.{_QC_TASKS} DROP CONSTRAINT {_LEASE_GENERATION_CHECK}")
+    op.execute(f"ALTER TABLE {_QC_SCHEMA}.{_QC_TASKS} DROP COLUMN lease_generation")

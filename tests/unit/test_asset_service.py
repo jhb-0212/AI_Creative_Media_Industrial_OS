@@ -30,9 +30,7 @@ _SHA = "b" * 64
 _LOCATOR = build_locator(_SHA, "png")
 _LOCATOR_MP4 = build_locator(_SHA, "mp4")
 
-_CATALOG_PATH = (
-    Path(__file__).resolve().parents[2] / "contracts/runtime/event_catalog.yaml"
-)
+_CATALOG_PATH = Path(__file__).resolve().parents[2] / "contracts/runtime/event_catalog.yaml"
 # 事件契约的必填字段（模块导入时读一次；用例只做比对，不做 IO）。
 _EVENT_REQUIRED: dict[str, list[str]] = {
     entry["event_type"]: entry["payload_required"]
@@ -71,9 +69,7 @@ class FakeQCRepository(QCReportRepository):
         return self.rows.get(qc_report_id)
 
     async def count_by_asset(self, asset_version_id: str) -> int:
-        return sum(
-            1 for r in self.rows.values() if r.asset_version_id == asset_version_id
-        )
+        return sum(1 for r in self.rows.values() if r.asset_version_id == asset_version_id)
 
 
 class FakeOutboxWriter:
@@ -118,9 +114,7 @@ class FakeOutboxWriter:
 
 
 def _principal(subject: str, *roles: str) -> Principal:
-    return Principal(
-        subject_id=subject, tenant_id=_TENANT, roles=frozenset(roles)
-    )
+    return Principal(subject_id=subject, tenant_id=_TENANT, roles=frozenset(roles))
 
 
 @pytest.fixture
@@ -350,9 +344,7 @@ async def test_approve_missing_asset_returns_not_found(
 ) -> None:
     svc, _, _, _ = service
     with pytest.raises(DomainError) as exc:
-        await svc.approve(
-            asset_version_id="nope", principal=_principal("director-1", "导演")
-        )
+        await svc.approve(asset_version_id="nope", principal=_principal("director-1", "导演"))
     assert exc.value.error_code is ErrorRegistry.NOT_FOUND
 
 
@@ -369,9 +361,7 @@ async def test_qc_report_on_approved_asset_is_rejected(
         findings=[{"code": "BLUR"}],
         principal=_principal("qc-1", "QC Worker"),
     )
-    await svc.approve(
-        asset_version_id=asset.entity_id, principal=_principal("director-1", "导演")
-    )
+    await svc.approve(asset_version_id=asset.entity_id, principal=_principal("director-1", "导演"))
     with pytest.raises(DomainError):
         await svc.create_qc_report(
             asset_version_id=asset.entity_id,
@@ -426,9 +416,9 @@ class _ConcurrentAssetRepository(FakeAssetRepository):
         await super().add(asset)
 
 
-def _concurrent_service(pre_existing: AssetVersion) -> tuple[
-    AssetService, _ConcurrentAssetRepository, FakeQCRepository, FakeOutboxWriter
-]:
+def _concurrent_service(
+    pre_existing: AssetVersion,
+) -> tuple[AssetService, _ConcurrentAssetRepository, FakeQCRepository, FakeOutboxWriter]:
     assets = _ConcurrentAssetRepository(pre_existing)
     qc = FakeQCRepository()
     outbox = FakeOutboxWriter()
@@ -587,9 +577,7 @@ async def test_approve_and_change_status_share_evidence_rule() -> None:
             principal=_principal("director-1", "导演"),
         )
 
-    gold_svc, _, gold_qc, _ = _concurrent_service(
-        _asset_in(AssetStatus.APPROVED, rights=None)
-    )
+    gold_svc, _, gold_qc, _ = _concurrent_service(_asset_in(AssetStatus.APPROVED, rights=None))
     await gold_qc.add(_report())
     with pytest.raises(DomainError) as gold_exc:
         await gold_svc.change_status(
@@ -612,9 +600,7 @@ def test_service_layer_holds_no_evidence_rules() -> None:
     """
     from pathlib import Path
 
-    source = Path(
-        "services/asset_service/service/asset_service.py"
-    ).read_text(encoding="utf-8")
+    source = Path("services/asset_service/service/asset_service.py").read_text(encoding="utf-8")
     assert "if not asset.rights_manifest_ref" not in source
     assert "report_count == 0" not in source
 
@@ -639,9 +625,7 @@ async def test_asset_events_carry_catalog_required_payload_keys(
         findings=[{"code": "BLUR"}],
         principal=_principal("qc-1", "QC Worker"),
     )
-    await svc.approve(
-        asset_version_id=asset.entity_id, principal=_principal("director-1", "导演")
-    )
+    await svc.approve(asset_version_id=asset.entity_id, principal=_principal("director-1", "导演"))
     await svc.change_status(
         asset_version_id=asset.entity_id,
         target_status=AssetStatus.GOLD,

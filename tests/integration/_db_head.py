@@ -57,9 +57,7 @@ def _describe(revisions: tuple[str, ...]) -> str:
     return "、".join(revisions)
 
 
-def check_database_at_head(
-    current_revisions: tuple[str, ...], heads: tuple[str, ...]
-) -> None:
+def check_database_at_head(current_revisions: tuple[str, ...], heads: tuple[str, ...]) -> None:
     """断言库 revision 集合等于仓库 head 集合，不等即抛。
 
     用集合而不是单值比较：``alembic_version`` 支持多行（多 head 分叉），
@@ -96,9 +94,7 @@ async def read_current_revisions(engine: AsyncEngine | None = None) -> tuple[str
         engine = create_async_engine(build_migration_url())
     try:
         async with engine.connect() as conn:
-            exists = await conn.scalar(
-                text("SELECT to_regclass('alembic_version') IS NOT NULL")
-            )
+            exists = await conn.scalar(text("SELECT to_regclass('alembic_version') IS NOT NULL"))
             if not exists:
                 return ()
             rows = await conn.execute(text("SELECT version_num FROM alembic_version"))

@@ -175,12 +175,8 @@ def _create_indexes() -> None:
 def _enable_rls() -> None:
     for table in _TABLES:
         op.execute(f"ALTER TABLE {_SCHEMA}.{table} ENABLE ROW LEVEL SECURITY")
-        predicate = (
-            _tenant_visibility() if table == _LEDGER else _project_visibility(table)
-        )
-        op.execute(
-            f"CREATE POLICY tenant_isolation_{table} ON {_SCHEMA}.{table} {predicate}"
-        )
+        predicate = _tenant_visibility() if table == _LEDGER else _project_visibility(table)
+        op.execute(f"CREATE POLICY tenant_isolation_{table} ON {_SCHEMA}.{table} {predicate}")
         op.execute(f"ALTER TABLE {_SCHEMA}.{table} FORCE ROW LEVEL SECURITY")
 
 
@@ -195,9 +191,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     for table in _TABLES:
-        op.execute(
-            f"DROP POLICY IF EXISTS tenant_isolation_{table} ON {_SCHEMA}.{table}"
-        )
+        op.execute(f"DROP POLICY IF EXISTS tenant_isolation_{table} ON {_SCHEMA}.{table}")
         op.execute(f"ALTER TABLE {_SCHEMA}.{table} DISABLE ROW LEVEL SECURITY")
     for table in (_ROUTES, _TASKS, _REQUESTS):
         op.drop_index(

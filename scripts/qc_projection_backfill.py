@@ -95,9 +95,7 @@ async def _backfill(batch: int, dry_run: bool) -> int:
     try:
         while True:
             async with sm() as session:
-                result = await session.execute(
-                    text(_UPSERT), {"cursor": cursor, "batch": batch}
-                )
+                result = await session.execute(text(_UPSERT), {"cursor": cursor, "batch": batch})
                 rows = int(result.rowcount or 0)
                 last = await session.execute(
                     text(

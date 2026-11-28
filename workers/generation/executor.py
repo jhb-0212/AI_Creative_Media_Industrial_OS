@@ -351,9 +351,7 @@ class StorageBackedGenerationExecutor:
                     intent.attempt_id,
                     exc,
                 )
-                if not await self._abandon_intent(
-                    task, intent, "content-integrity", task_id
-                ):
+                if not await self._abandon_intent(task, intent, "content-integrity", task_id):
                     return _failed(
                         "recovery-abandon-failed",
                         f"放弃损坏意图失败（attempt={intent.attempt_id}）",
@@ -362,9 +360,7 @@ class StorageBackedGenerationExecutor:
             except StorageError as exc:
                 # 无法判定（后端不可用 / 定位符损坏）：不做任何破坏性动作，
                 # 保留意图，交给后续重试。
-                logger.warning(
-                    "recovery: storage undetermined for task %s: %s", task_id, exc
-                )
+                logger.warning("recovery: storage undetermined for task %s: %s", task_id, exc)
                 return _failed(f"storage-undetermined-{type(exc).__name__}", str(exc))
 
             # 内容已读回并复核：沿用原 attempt_id 完成 T1，不重新调用模型。
@@ -389,9 +385,7 @@ class StorageBackedGenerationExecutor:
             )
             return GenerationOutcome(
                 result="SUCCEEDED",
-                evidence_ref=_clip(
-                    f"{intent.locator}|sha256={intent.sha256}|recovered"
-                ),
+                evidence_ref=_clip(f"{intent.locator}|sha256={intent.sha256}|recovered"),
             )
 
         return None

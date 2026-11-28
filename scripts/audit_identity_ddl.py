@@ -86,13 +86,9 @@ _PATTERNS: dict[str, re.compile[str]] = {
     ),
     CATEGORY_GRANT: re.compile(rf"{_BOUNDARY}\s*GRANT\s+\S", re.IGNORECASE),
     CATEGORY_REVOKE: re.compile(rf"{_BOUNDARY}\s*REVOKE\s+\S", re.IGNORECASE),
-    CATEGORY_POLICY: re.compile(
-        rf"{_BOUNDARY}\s*(?:CREATE|ALTER|DROP)\s+POLICY\b", re.IGNORECASE
-    ),
+    CATEGORY_POLICY: re.compile(rf"{_BOUNDARY}\s*(?:CREATE|ALTER|DROP)\s+POLICY\b", re.IGNORECASE),
     CATEGORY_SET_ROLE: re.compile(rf"{_BOUNDARY}\s*SET\s+(?:LOCAL\s+)?ROLE\b", re.IGNORECASE),
-    CATEGORY_EXTENSION: re.compile(
-        rf"{_BOUNDARY}\s*CREATE\s+EXTENSION\b", re.IGNORECASE
-    ),
+    CATEGORY_EXTENSION: re.compile(rf"{_BOUNDARY}\s*CREATE\s+EXTENSION\b", re.IGNORECASE),
     CATEGORY_SCHEMA: re.compile(rf"{_BOUNDARY}\s*CREATE\s+SCHEMA\b", re.IGNORECASE),
     CATEGORY_OWNER: re.compile(r"\bOWNER\s+TO\b", re.IGNORECASE),
 }
@@ -176,9 +172,7 @@ def _report(audits: list[MigrationAudit]) -> dict[str, object]:
                 **item.categories,
                 **{f"gen:{name}": v for name, v in item.generators.items()},
             }
-            for item in sorted(
-                audits, key=lambda a: a.identity_actions, reverse=True
-            )
+            for item in sorted(audits, key=lambda a: a.identity_actions, reverse=True)
         },
     }
 

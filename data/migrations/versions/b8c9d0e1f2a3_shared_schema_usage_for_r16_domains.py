@@ -100,18 +100,14 @@ def _frozen_schemas(domain: str) -> tuple[str, ...]:
     ``schema "qc_maintenance" does not exist``——已升级的库不会重跑，缺口只在
     从零建库时暴露。
     """
-    return tuple(
-        schema for schema in referenced_schemas(domain) if schema != MAINTENANCE_SCHEMA
-    )
+    return tuple(schema for schema in referenced_schemas(domain) if schema != MAINTENANCE_SCHEMA)
 
 
 def upgrade() -> None:
     """按矩阵派生结果补齐 USAGE（幂等：已授予时重复 GRANT 无副作用）。"""
     for domain in DOMAINS:
         role = domain_role(domain)
-        for statement in schema_usage_statements(
-            role, domain, schemas=_frozen_schemas(domain)
-        ):
+        for statement in schema_usage_statements(role, domain, schemas=_frozen_schemas(domain)):
             op.execute(statement)
 
 

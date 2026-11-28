@@ -11,7 +11,9 @@ sys.path.insert(0, str(SCRIPTS))
 import reversibility_matrix as rm  # noqa: E402
 
 
-def _row(rev: str, direction: str, sql: str, operation: str, roles: list[str] | None = None) -> dict:
+def _row(
+    rev: str, direction: str, sql: str, operation: str, roles: list[str] | None = None
+) -> dict:
     return {
         "revision": rev,
         "chain_index": 0,
@@ -28,7 +30,9 @@ def _inventory(rows: list[dict]) -> dict[str, object]:
     per_rev: dict[str, dict[str, dict[str, int]]] = {}
     for row in rows:
         bucket = per_rev.setdefault(row["revision"], {"upgrade": {}, "downgrade": {}})
-        bucket[row["direction"]][row["operation"]] = bucket[row["direction"]].get(row["operation"], 0) + 1
+        bucket[row["direction"]][row["operation"]] = (
+            bucket[row["direction"]].get(row["operation"], 0) + 1
+        )
     return {"chain_length": 1, "head": "head", "rows": rows, "per_revision": per_rev}
 
 
@@ -36,8 +40,18 @@ def test_grant_and_revoke_same_set_is_symmetric() -> None:
     payload = rm.build_matrix(
         _inventory(
             [
-                _row("r1", "upgrade", "GRANT SELECT ON project_planning.projects TO app_role", "grant"),
-                _row("r1", "downgrade", "REVOKE SELECT ON project_planning.projects FROM app_role", "revoke"),
+                _row(
+                    "r1",
+                    "upgrade",
+                    "GRANT SELECT ON project_planning.projects TO app_role",
+                    "grant",
+                ),
+                _row(
+                    "r1",
+                    "downgrade",
+                    "REVOKE SELECT ON project_planning.projects FROM app_role",
+                    "revoke",
+                ),
             ]
         )
     )
@@ -110,7 +124,12 @@ def test_all_tables_revoke_covers_table_grant() -> None:
     payload = rm.build_matrix(
         _inventory(
             [
-                _row("r1", "upgrade", "GRANT SELECT ON audit.audit_logs TO project_planning_role", "grant"),
+                _row(
+                    "r1",
+                    "upgrade",
+                    "GRANT SELECT ON audit.audit_logs TO project_planning_role",
+                    "grant",
+                ),
                 _row(
                     "r1",
                     "downgrade",
@@ -234,7 +253,8 @@ def test_snapshot_unknown_ignore_rule_does_not_swallow_diff() -> None:
 def test_snapshot_restore_required_and_unproven_block() -> None:
     snap = {"results": [_entry("r1", "restore_required"), _entry("r2", "unproven_blocking")]}
     out = rm.evaluate_snapshot(
-        snap, _payload(_matrix_row("r1", "restore_required"), _matrix_row("r2", "unproven_blocking"))
+        snap,
+        _payload(_matrix_row("r1", "restore_required"), _matrix_row("r2", "unproven_blocking")),
     )
     joined = " | ".join(out["blocks"])
     assert "restore_required" in joined
@@ -252,7 +272,10 @@ def test_snapshot_one_way_needs_safety_contract() -> None:
 
 def test_snapshot_must_cover_source_restore_required() -> None:
     snap = {"results": [_entry("r2", "no_restore_proven")]}
-    out = rm.evaluate_snapshot(snap, _payload(_matrix_row("r1", "restore_required"), _matrix_row("r2", "no_restore_proven")))
+    out = rm.evaluate_snapshot(
+        snap,
+        _payload(_matrix_row("r1", "restore_required"), _matrix_row("r2", "no_restore_proven")),
+    )
     assert any("快照未证明修复" in b for b in out["blocks"])
 
 
@@ -267,7 +290,9 @@ def test_snapshot_zero_identity_revision_in_chain_is_not_applicable() -> None:
 
     它实测过、却没有身份面可比较；把它当漂移会让「正确整改」把闸门弄红。
     """
-    snap = {"results": [_entry("r1", "no_restore_proven"), _entry("f2b3c4d5e6a7", "no_restore_proven")]}
+    snap = {
+        "results": [_entry("r1", "no_restore_proven"), _entry("f2b3c4d5e6a7", "no_restore_proven")]
+    }
     payload = _payload(_matrix_row("r1", "no_restore_proven"))
     payload["chain_coverage"] = {"r1": "STATIC_COMPLETE", "f2b3c4d5e6a7": "STATIC_COMPLETE"}
     out = rm.evaluate_snapshot(snap, payload)
@@ -278,9 +303,11 @@ def test_snapshot_zero_identity_revision_in_chain_is_not_applicable() -> None:
 def test_snapshot_ignore_rules_are_narrow() -> None:
     assert set(rm.SNAPSHOT_IGNORE_RULES) == {"pg_toast_oid", "acl_item_order"}
 
+
 def test_snapshot_missing_entry_blocks_even_if_classified() -> None:
     snap = {"results": [_entry("r2", "no_restore_proven")]}
     out = rm.evaluate_snapshot(
-        snap, _payload(_matrix_row("r1", "no_restore_proven"), _matrix_row("r2", "no_restore_proven"))
+        snap,
+        _payload(_matrix_row("r1", "no_restore_proven"), _matrix_row("r2", "no_restore_proven")),
     )
     assert any("缺少 P/D 往返快照证据" in b for b in out["blocks"])

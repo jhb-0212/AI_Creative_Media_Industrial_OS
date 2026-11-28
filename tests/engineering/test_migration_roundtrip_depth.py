@@ -28,8 +28,7 @@ _GIT = shutil.which("git")
 
 def test_added_and_modified_are_counted() -> None:
     output = (
-        "A\tdata/migrations/versions/aaaa_first.py\n"
-        "M\tdata/migrations/versions/bbbb_second.py\n"
+        "A\tdata/migrations/versions/aaaa_first.py\nM\tdata/migrations/versions/bbbb_second.py\n"
     )
     assert depth.count_branch_migrations(output) == 2
 

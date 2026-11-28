@@ -43,9 +43,7 @@ class _Shots(ShotRepository):
         self.rows: dict[str, Shot] = {shot.entity_id: shot}
         self.saved: list[tuple[str, int]] = []
 
-    async def existing_ids_in_project(
-        self, project_id: str, shot_ids: list[str]
-    ) -> set[str]:
+    async def existing_ids_in_project(self, project_id: str, shot_ids: list[str]) -> set[str]:
         # 本文件不建约束包：镜头归属查询只服务 CONSTRAINT.PACK.CREATE。
         # 让它直接失败，是为了把「别处误用这个端口」变成红灯，而不是返回一个
         # 看起来合理的空集（空集会让「镜头都不属于本项目」变成静默通过）。
@@ -164,9 +162,7 @@ def _shot(status: ShotStatus = ShotStatus.NOT_STARTED) -> Shot:
     )
 
 
-def _service(
-    *, shot: Shot, scenes: _Scenes
-) -> tuple[ShotService, _Shots, _Outbox]:
+def _service(*, shot: Shot, scenes: _Scenes) -> tuple[ShotService, _Shots, _Outbox]:
     shots = _Shots(shot)
     outbox = _Outbox()
     service = ShotService(shots, _ReworkTasks(), scenes, outbox)  # type: ignore[arg-type]

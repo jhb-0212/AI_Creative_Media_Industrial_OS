@@ -81,9 +81,7 @@ def _tenant_predicate(column: str = "tenant_id") -> str:
     避免 ``''::uuid`` 转换错误；``x = NULL`` 恒为 NULL → 无行可见/不可插入。
     与 ``8f2a1b3c4d5e`` / ``b2c3d4e5f6a7`` 的同一条写法保持一字不差。
     """
-    return (
-        f"{column} = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid"
-    )
+    return f"{column} = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid"
 
 
 def upgrade() -> None:
@@ -243,21 +241,14 @@ def downgrade() -> None:
     op.execute(f"DROP POLICY IF EXISTS tenant_isolation_{TABLE} ON {SCHEMA}.{TABLE}")
     op.execute(f"ALTER TABLE {SCHEMA}.{TABLE} DISABLE ROW LEVEL SECURITY")
 
-    op.execute(
-        f"DROP TRIGGER IF EXISTS trg_status_transitions_event_exists "
-        f"ON {SCHEMA}.{TABLE}"
-    )
+    op.execute(f"DROP TRIGGER IF EXISTS trg_status_transitions_event_exists ON {SCHEMA}.{TABLE}")
     op.execute(f"DROP FUNCTION IF EXISTS {SCHEMA}.assert_transition_event_exists()")
 
     for schema, table in _EXISTING_APPEND_ONLY:
         op.execute(f"DROP TRIGGER IF EXISTS trg_{table}_no_truncate ON {schema}.{table}")
 
-    op.execute(
-        f"DROP TRIGGER IF EXISTS trg_status_transitions_no_truncate ON {SCHEMA}.{TABLE}"
-    )
-    op.execute(
-        f"DROP TRIGGER IF EXISTS trg_status_transitions_guard ON {SCHEMA}.{TABLE}"
-    )
+    op.execute(f"DROP TRIGGER IF EXISTS trg_status_transitions_no_truncate ON {SCHEMA}.{TABLE}")
+    op.execute(f"DROP TRIGGER IF EXISTS trg_status_transitions_guard ON {SCHEMA}.{TABLE}")
     op.execute(f"DROP FUNCTION IF EXISTS {SCHEMA}.reject_truncate()")
     op.execute(f"DROP FUNCTION IF EXISTS {SCHEMA}.reject_mutation()")
 

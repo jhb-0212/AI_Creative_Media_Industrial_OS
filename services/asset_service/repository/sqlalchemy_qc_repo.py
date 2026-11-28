@@ -41,9 +41,7 @@ def _to_domain(model: QCReportModel) -> QCReport:
         benchmark_version=model.benchmark_version,
         deviation_class=_optional_enum(DeviationClass, model.deviation_class),
         deviation_intent_ref=model.deviation_intent_ref,
-        intent_match_status=_optional_enum(
-            IntentMatchStatus, model.intent_match_status
-        ),
+        intent_match_status=_optional_enum(IntentMatchStatus, model.intent_match_status),
         human_decision=model.human_decision,
         created_at=model.created_at,
         updated_at=model.updated_at,
@@ -59,9 +57,7 @@ def _to_orm(report: QCReport) -> QCReportModel:
         benchmark_version=report.benchmark_version,
         detector_versions=report.detector_versions,
         findings=report.findings,
-        deviation_class=(
-            report.deviation_class.value if report.deviation_class else None
-        ),
+        deviation_class=(report.deviation_class.value if report.deviation_class else None),
         deviation_intent_ref=report.deviation_intent_ref,
         intent_match_status=(
             report.intent_match_status.value if report.intent_match_status else None

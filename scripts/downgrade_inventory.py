@@ -142,13 +142,17 @@ def _collect(node: ast.AST, facts: RevisionFacts, direction: str) -> None:
             continue
         if name == "execute":
             literals = [
-                a.value for a in sub.args if isinstance(a, ast.Constant) and isinstance(a.value, str)
+                a.value
+                for a in sub.args
+                if isinstance(a, ast.Constant) and isinstance(a.value, str)
             ]
             text = "\n".join(literals)
             for hint in _DATA_HINTS:
                 if hint in text:
                     facts.data_hints.append(f"{direction}:{hint}")
-            for table in re.findall(r"(?:FROM|INTO|ON|TABLE|UPDATE)\s+([a-z_]+(?:\.[a-z_]+)?)", text):
+            for table in re.findall(
+                r"(?:FROM|INTO|ON|TABLE|UPDATE)\s+([a-z_]+(?:\.[a-z_]+)?)", text
+            ):
                 if table not in tables:
                     tables.append(table)
             ops.append("execute")
@@ -336,4 +340,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

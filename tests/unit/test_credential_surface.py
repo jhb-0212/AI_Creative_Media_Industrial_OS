@@ -91,7 +91,9 @@ def test_superuser_credentials_confined_to_ddl_units() -> None:
     """
     services = ba.load_compose_services()
     leaked = {
-        name: sorted(_postgres_keys(ba.resolve_service_env(spec)) & {"POSTGRES_USER", "POSTGRES_PASSWORD"})
+        name: sorted(
+            _postgres_keys(ba.resolve_service_env(spec)) & {"POSTGRES_USER", "POSTGRES_PASSWORD"}
+        )
         for name, spec in services.items()
         if name not in DDL_UNITS
     }
@@ -136,6 +138,4 @@ def test_registered_service_missing_from_compose_is_reported() -> None:
     否则白名单会腐化：服务删了、条目留着，「已覆盖」是个假象。
     """
     problems = ba.evaluate_process_credential_surface({})
-    assert any("声明了不存在的服务" in p for p in problems), (
-        f"白名单僵尸条目未被检出: {problems}"
-    )
+    assert any("声明了不存在的服务" in p for p in problems), f"白名单僵尸条目未被检出: {problems}"

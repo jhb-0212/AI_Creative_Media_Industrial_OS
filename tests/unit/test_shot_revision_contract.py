@@ -38,9 +38,7 @@ PROPS = DEF["properties"]
 STATE_MACHINES = yaml.safe_load(
     (ROOT / "contracts/state_machines/state_machines.yaml").read_text(encoding="utf-8")
 )
-ENUMS = yaml.safe_load(
-    (ROOT / "contracts/enums/enum_registry.yaml").read_text(encoding="utf-8")
-)
+ENUMS = yaml.safe_load((ROOT / "contracts/enums/enum_registry.yaml").read_text(encoding="utf-8"))
 ACTIONS = yaml.safe_load(
     (ROOT / "contracts/action_registry/action_registry.yaml").read_text(encoding="utf-8")
 )
@@ -68,11 +66,7 @@ def _entry(entries, key: str):
 
 def _rule_for(field: str) -> dict:
     """取出以某个字段为条件的 if/then 规则。"""
-    rules = [
-        rule
-        for rule in DEF["allOf"]
-        if field in rule.get("if", {}).get("properties", {})
-    ]
+    rules = [rule for rule in DEF["allOf"] if field in rule.get("if", {}).get("properties", {})]
     assert rules, f"缺少以 {field} 为条件的规则"
     return rules
 
@@ -145,7 +139,9 @@ def test_version_chain_rules() -> None:
     rules = _rule_for("revision_no")
     assert len(rules) == 2, "版本链规则应有两条（首版 / 非首版）"
 
-    first = next(rule for rule in rules if rule["if"]["properties"]["revision_no"].get("const") == 1)
+    first = next(
+        rule for rule in rules if rule["if"]["properties"]["revision_no"].get("const") == 1
+    )
     assert first["then"]["properties"]["supersedes_shot_revision_id"] == {"type": "null"}
 
     later = next(rule for rule in rules if "minimum" in rule["if"]["properties"]["revision_no"])
@@ -167,7 +163,9 @@ def test_draft_confirm_requires_source_draft() -> None:
     """草案确认产生的修订必须指回草案版本，否则「确认即绑定」只能单向追。"""
     rules = _rule_for("change_origin")
     rule = next(
-        item for item in rules if item["if"]["properties"]["change_origin"].get("const") == "BREAKDOWN_CONFIRM"
+        item
+        for item in rules
+        if item["if"]["properties"]["change_origin"].get("const") == "BREAKDOWN_CONFIRM"
     )
     assert "source_draft_ref" in rule["then"]["required"]
 
@@ -186,7 +184,9 @@ def test_no_field_that_belongs_elsewhere() -> None:
         "production_status",
     }
     leaked = forbidden & set(PROPS)
-    assert not leaked, f"这些字段属于其他对象（ConstraintPack/ShotSpec/Shot/剧本），不得进修订: {sorted(leaked)}"
+    assert not leaked, (
+        f"这些字段属于其他对象（ConstraintPack/ShotSpec/Shot/剧本），不得进修订: {sorted(leaked)}"
+    )
 
 
 def test_exclusions_are_documented() -> None:

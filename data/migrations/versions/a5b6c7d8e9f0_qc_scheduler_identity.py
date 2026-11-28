@@ -159,9 +159,7 @@ def downgrade() -> None:
     for statement in maintenance_function_public_reclaim_restore_statements():
         op.execute(statement)
     op.execute(_ENUMERATE_WITHOUT_DISCOVERY)
-    op.execute(
-        f"DROP FUNCTION IF EXISTS {MAINTENANCE_SCHEMA}.{_DISCOVERY_GUARD}()"
-    )
+    op.execute(f"DROP FUNCTION IF EXISTS {MAINTENANCE_SCHEMA}.{_DISCOVERY_GUARD}()")
     # 角色不删：downgrade 是「回到上一版结构」，不是「删掉部署方可能已在用的
     # 登录身份」——删角色会连带清掉成员关系与口令，属于数据丢失。而且角色是
     # **集群级**对象：本库收干净了，别的库还授着权限，``DROP ROLE`` 照样失败，

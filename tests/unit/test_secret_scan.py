@@ -30,8 +30,7 @@ def test_injected_private_key_is_detected(tmp_path: Path) -> None:
     """注入 PEM 私钥块必须报红并点名文件。"""
     target = tmp_path / "leak.py"
     target.write_text(
-        f"KEY = '{"-----" + "BEGIN " + "PRIVATE KEY-----"}'\n"
-        "DATA = 'abc'\n",
+        f"KEY = '{'-----' + 'BEGIN ' + 'PRIVATE KEY-----'}'\nDATA = 'abc'\n",
         encoding="utf-8",
     )
     problems = ss.scan(tmp_path, check_allowlist=False)
@@ -49,7 +48,9 @@ def test_injected_aws_key_is_detected(tmp_path: Path) -> None:
 def test_injected_api_token_is_detected(tmp_path: Path) -> None:
     """注入 sk- token 形状必须报红。"""
     target = tmp_path / "settings.json"
-    target.write_text('{"token": "sk-' + 'abcdefghijklmnopqrstuvwxyz012345' + '"}\n', encoding="utf-8")
+    target.write_text(
+        '{"token": "sk-' + "abcdefghijklmnopqrstuvwxyz012345" + '"}\n', encoding="utf-8"
+    )
     problems = ss.scan(tmp_path, check_allowlist=False)
     assert any("settings.json" in p and "token" in p for p in problems)
 

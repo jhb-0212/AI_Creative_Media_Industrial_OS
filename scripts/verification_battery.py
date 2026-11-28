@@ -148,9 +148,7 @@ class Battery:
 # --------------------------------------------------------------------------- #
 # 执行辅助
 # --------------------------------------------------------------------------- #
-def _run(
-    cmd: list[str], *, timeout: int = 1800
-) -> tuple[int | None, str]:
+def _run(cmd: list[str], *, timeout: int = 1800) -> tuple[int | None, str]:
     """执行命令，返回 (退出码, 合并输出)。退出码 None 表示环境阻塞。"""
     try:
         completed = subprocess.run(
@@ -624,9 +622,7 @@ def _parse_pytest_counts(output: str) -> dict[str, int]:
 _SAFE_DELETE_MARKER = "SAFE_DELETE_BULK_CONFIRM_REQUIRED"
 
 
-def _pytest_observation_state(
-    code: int, counts: dict[str, int], output: str
-) -> tuple[str, str]:
+def _pytest_observation_state(code: int, counts: dict[str, int], output: str) -> tuple[str, str]:
     """宿主拦截出现时，整次观测都不可信——判 BLOCKED，不逐条数失败。
 
     安全钩子拦的是 pytest 的临时目录回收，报错会伪装成 pytest 的 setup error。
@@ -635,8 +631,7 @@ def _pytest_observation_state(
     if _SAFE_DELETE_MARKER in output:
         return (
             BLOCKED,
-            "宿主安全钩子拦截 pytest 临时目录回收，退出码与统计摘要均不可信；"
-            "需在非拦截环境复跑",
+            "宿主安全钩子拦截 pytest 临时目录回收，退出码与统计摘要均不可信；需在非拦截环境复跑",
         )
     return _pytest_state(code, counts)
 
@@ -677,7 +672,8 @@ def probe_tests(battery: Battery, *, skip: bool) -> None:
         )
     for check_id, paths in sorted(layers.items()):
         label = "、".join(
-            label for key, (cid, label) in _TEST_DIR_LAYERS.items()
+            label
+            for key, (cid, label) in _TEST_DIR_LAYERS.items()
             if cid == check_id and _TEST_ROOT / key in paths
         )
         if skip:
@@ -744,9 +740,8 @@ def probe_tests(battery: Battery, *, skip: bool) -> None:
                 ("E4", "E5") if check_id != "C7.1" else ("E4",),
                 f"pytest {' '.join(str(p.relative_to(ROOT)) for p in paths)}",
                 limitation,
-                detail=f"passed={passed} failed={failed}" + (
-                    f"；{_expect_format_hint(output)}" if state == FAILED else ""
-                ),
+                detail=f"passed={passed} failed={failed}"
+                + (f"；{_expect_format_hint(output)}" if state == FAILED else ""),
             )
         )
 
@@ -858,8 +853,10 @@ def main() -> int:
     else:
         sha, _ = _git_context()
         today = datetime.now(UTC).strftime("%Y-%m-%d")
-        out = Path(args.out) if args.out else (
-            ROOT / "docs" / "evidence" / "verification" / f"{today}-{sha}.md"
+        out = (
+            Path(args.out)
+            if args.out
+            else (ROOT / "docs" / "evidence" / "verification" / f"{today}-{sha}.md")
         )
         out.parent.mkdir(parents=True, exist_ok=True)
         # 显式 LF：Windows 上 write_text 默认换行转换会把证据文件翻成 CRLF，

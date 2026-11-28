@@ -27,14 +27,9 @@ from collections.abc import Sequence
 MARK_PREFIX = "wp04-created-by:"
 
 
-def mark_created_constraint(
-    table: str, name: str, schema: str, revision: str
-) -> str:
+def mark_created_constraint(table: str, name: str, schema: str, revision: str) -> str:
     """返回给本 revision 新建约束打来源标记的 SQL（幂等）。"""
-    return (
-        f"COMMENT ON CONSTRAINT {name} ON {schema}.{table} "
-        f"IS '{MARK_PREFIX}{revision}'"
-    )
+    return f"COMMENT ON CONSTRAINT {name} ON {schema}.{table} IS '{MARK_PREFIX}{revision}'"
 
 
 def drop_marked_constraint(

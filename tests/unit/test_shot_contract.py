@@ -47,9 +47,7 @@ PROPS = DEF["properties"]
 STATE_MACHINES = yaml.safe_load(
     (ROOT / "contracts/state_machines/state_machines.yaml").read_text(encoding="utf-8")
 )
-ENUMS = yaml.safe_load(
-    (ROOT / "contracts/enums/enum_registry.yaml").read_text(encoding="utf-8")
-)
+ENUMS = yaml.safe_load((ROOT / "contracts/enums/enum_registry.yaml").read_text(encoding="utf-8"))
 ACTIONS = yaml.safe_load(
     (ROOT / "contracts/action_registry/action_registry.yaml").read_text(encoding="utf-8")
 )
@@ -141,9 +139,7 @@ def _matches_condition(cond: dict, instance: dict) -> bool:
             return False
         if "const" in spec and value != spec["const"]:
             return False
-        if "minimum" in spec and (
-            not isinstance(value, int) or value < spec["minimum"]
-        ):
+        if "minimum" in spec and (not isinstance(value, int) or value < spec["minimum"]):
             return False
     return True
 
@@ -191,11 +187,7 @@ def _shot(**overrides):
 
 def _guard(transition: tuple[str, str]) -> dict:
     guards = SM_ENTRY.get("guards") or []
-    return next(
-        g
-        for g in guards
-        if (g["transition"]["from"], g["transition"]["to"]) == transition
-    )
+    return next(g for g in guards if (g["transition"]["from"], g["transition"]["to"]) == transition)
 
 
 # --------------------------------------------------------------------------- #
@@ -269,10 +261,7 @@ def test_rework_edge_exists_and_carries_basis_guard() -> None:
 
 def test_every_blocked_and_cancelled_edge_has_a_guard() -> None:
     """所有进入 BLOCKED / CANCELLED 的边都必须要求证据。"""
-    declared = {
-        (g["transition"]["from"], g["transition"]["to"])
-        for g in SM_ENTRY["guards"]
-    }
+    declared = {(g["transition"]["from"], g["transition"]["to"]) for g in SM_ENTRY["guards"]}
     expected = {
         ("NOT_STARTED", "BLOCKED"),
         ("IN_PRODUCTION", "BLOCKED"),
@@ -455,15 +444,15 @@ def test_content_and_spec_fields_are_not_on_shot() -> None:
         "duration_ms",
     }
     leaked = forbidden & set(PROPS)
-    assert not leaked, f"这些字段属于 ShotRevision / ShotSpec / ConstraintPack，不该出现在 Shot: {leaked}"
+    assert not leaked, (
+        f"这些字段属于 ShotRevision / ShotSpec / ConstraintPack，不该出现在 Shot: {leaked}"
+    )
 
 
 def test_episode_id_is_not_stored_on_shot() -> None:
     """归属链 scene_id → Scene → Episode → Project，多存一份就是第三套归属事实。"""
     assert "episode_id" not in PROPS
-    excluded = {
-        e.get("field") for e in DEF["x-afs-exclusions"] if isinstance(e, dict)
-    }
+    excluded = {e.get("field") for e in DEF["x-afs-exclusions"] if isinstance(e, dict)}
     assert "episode_id" in excluded, "排除项必须写明，否则下一个人会以为是漏了"
 
 
@@ -516,19 +505,13 @@ def test_runtime_only_invariants_are_declared_pending() -> None:
       （shot_revision_id 不是外键），只由服务写入时保证。
     把这两条也标成 ENFORCED 就是把"服务写对了"当成"不变量被强制了"。
     """
-    pending = {
-        i["id"] for i in DEF["x-afs-invariants"] if i["enforced_by"] == "RUNTIME_PENDING"
-    }
+    pending = {i["id"] for i in DEF["x-afs-invariants"] if i["enforced_by"] == "RUNTIME_PENDING"}
     assert pending == {"SH-2", "SH-4"}, f"缺口集合变了，请逐条复核而不是改断言：{pending}"
 
 
 def test_confirm_action_covers_both_objects() -> None:
     """首次确认原子创建 Shot + 首个 ShotRevision，资源类型必须两者都声明。"""
-    action = next(
-        a
-        for a in ACTIONS["actions"]
-        if a["action_key"] == "SHOT.REVISION.CONFIRM"
-    )
+    action = next(a for a in ACTIONS["actions"] if a["action_key"] == "SHOT.REVISION.CONFIRM")
     covered = {part.strip() for part in action["resource_type"].split("/")}
     assert covered == {"Shot", "ShotRevision"}
     assert "原子创建" in action["approval_requirement"]
@@ -550,6 +533,7 @@ def test_coverage_ledger_counts_match_definitions() -> None:
 def test_registry_counts_are_consistent() -> None:
     assert STATE_MACHINES["total_objects"] == len(STATE_MACHINES["objects"])
     assert ENUMS["object_count"] == len(ENUMS["objects"])
+
 
 # --------------------------------------------------------------------------- #
 # 7. 跨对象一致性：契约的可执行示例（不是运行时实现）
@@ -577,9 +561,7 @@ def _collection_violations(shots: list[dict], revisions: list[dict]) -> list[str
         by_shot.setdefault(revision["shot_id"], []).append(revision)
 
     for shot_id, revs in by_shot.items():
-        parents = {
-            (r["project_id"], r["episode_id"], r["scene_id"]) for r in revs
-        }
+        parents = {(r["project_id"], r["episode_id"], r["scene_id"]) for r in revs}
         if len(parents) > 1:
             out.append(f"{shot_id} 的修订父级不一致: {sorted(parents)}")
         shot = index.get(shot_id)

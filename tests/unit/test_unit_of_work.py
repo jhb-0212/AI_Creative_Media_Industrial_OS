@@ -44,9 +44,7 @@ async def cleanup_uow_events() -> AsyncIterator[None]:
         await engine.dispose()
 
 
-async def _insert_event(
-    session: AsyncSession, *, aggregate_id: str, event_id: uuid.UUID
-) -> None:
+async def _insert_event(session: AsyncSession, *, aggregate_id: str, event_id: uuid.UUID) -> None:
     """插入一条 outbox 事件（不提交，提交语义由被测工作单元决定）。"""
     await set_test_scope(session)
     await session.execute(
@@ -83,9 +81,7 @@ async def test_worker_unit_of_work_commits_persistently(
     aggregate_id = f"uow-worker-{uuid.uuid4().hex[:8]}"
 
     async with unit_of_work(db_sessionmaker) as uow:
-        await _insert_event(
-            uow.session, aggregate_id=aggregate_id, event_id=uuid.uuid4()
-        )
+        await _insert_event(uow.session, aggregate_id=aggregate_id, event_id=uuid.uuid4())
         await uow.commit()
 
     assert await _count_events(db_sessionmaker, aggregate_id=aggregate_id) == 1
@@ -99,9 +95,7 @@ async def test_unit_of_work_rolls_back_on_failure(
 
     with pytest.raises(RuntimeError):
         async with unit_of_work(db_sessionmaker) as uow:
-            await _insert_event(
-                uow.session, aggregate_id=aggregate_id, event_id=uuid.uuid4()
-            )
+            await _insert_event(uow.session, aggregate_id=aggregate_id, event_id=uuid.uuid4())
             raise RuntimeError("worker crashed mid-transaction")
 
     assert await _count_events(db_sessionmaker, aggregate_id=aggregate_id) == 0
@@ -114,9 +108,7 @@ async def test_unit_of_work_without_commit_does_not_persist(
     aggregate_id = f"uow-nocommit-{uuid.uuid4().hex[:8]}"
 
     async with unit_of_work(db_sessionmaker) as uow:
-        await _insert_event(
-            uow.session, aggregate_id=aggregate_id, event_id=uuid.uuid4()
-        )
+        await _insert_event(uow.session, aggregate_id=aggregate_id, event_id=uuid.uuid4())
 
     assert await _count_events(db_sessionmaker, aggregate_id=aggregate_id) == 0
 
@@ -129,8 +121,6 @@ async def test_read_only_unit_rejects_writes(
 
     with pytest.raises(DBAPIError, match="read-only"):
         async with unit_of_work(db_sessionmaker, read_only=True) as uow:
-            await _insert_event(
-                uow.session, aggregate_id=aggregate_id, event_id=uuid.uuid4()
-            )
+            await _insert_event(uow.session, aggregate_id=aggregate_id, event_id=uuid.uuid4())
 
     assert await _count_events(db_sessionmaker, aggregate_id=aggregate_id) == 0

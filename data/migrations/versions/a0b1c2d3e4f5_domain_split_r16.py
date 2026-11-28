@@ -133,9 +133,7 @@ def _table_ddl(table: str) -> list[sa.schema.SchemaItem]:
             sa.UniqueConstraint(
                 "project_id", "entity_id", name="uq_production_routes_entity_project"
             ),
-            status_check(
-                (s.value for s in ProductionRouteStatus), table=_ROUTES
-            ),
+            status_check((s.value for s in ProductionRouteStatus), table=_ROUTES),
         ]
     if table == _TASKS:
         return [
@@ -164,12 +162,8 @@ def _table_ddl(table: str) -> list[sa.schema.SchemaItem]:
             sa.Column("amount_limit", sa.Integer(), nullable=False),
             sa.Column("requested_by", sa.String(64), nullable=False),
             sa.Column("approver", sa.String(64), nullable=False, server_default=""),
-            sa.Column(
-                "decision_reason", sa.String(200), nullable=False, server_default=""
-            ),
-            sa.CheckConstraint(
-                "amount_limit >= 0", name="ck_shot_budget_requests_amount_nonneg"
-            ),
+            sa.Column("decision_reason", sa.String(200), nullable=False, server_default=""),
+            sa.CheckConstraint("amount_limit >= 0", name="ck_shot_budget_requests_amount_nonneg"),
             status_check((s.value for s in ShotBudgetRequestStatus), table=_REQUESTS),
         ]
     if table == _LEDGER:
@@ -192,9 +186,7 @@ def _table_ddl(table: str) -> list[sa.schema.SchemaItem]:
         sa.Column("decided_by", sa.String(64), nullable=False),
         sa.Column("decided_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("gate_instance_id", sa.String(64), nullable=False, server_default=""),
-        sa.Column(
-            "constraint_snapshot_id", sa.String(128), nullable=False, server_default=""
-        ),
+        sa.Column("constraint_snapshot_id", sa.String(128), nullable=False, server_default=""),
         sa.Column("entry_criteria", sa.String(500), nullable=False, server_default=""),
         sa.Column("reason_code", sa.String(64), nullable=False, server_default=""),
         sa.Column("comment", sa.String(500), nullable=False, server_default=""),
@@ -363,9 +355,7 @@ def upgrade() -> None:
 
     # 4) 授权只经矩阵：每域一次收敛（含平台共享表与跨域列级只读）
     for domain in (PRODUCTION_PLANNING, BUDGET_QUOTA, QC_GOVERNANCE):
-        for statement in converge_statements(
-            domain_role(domain), domain, tables=_GRANT_SCOPE
-        ):
+        for statement in converge_statements(domain_role(domain), domain, tables=_GRANT_SCOPE):
             op.execute(statement)
 
     # 5) 旧表退出：不保留双份事实源。

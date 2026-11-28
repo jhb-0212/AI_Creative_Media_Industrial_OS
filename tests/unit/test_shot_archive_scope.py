@@ -65,9 +65,7 @@ def migration():
 @pytest.fixture(scope="module")
 def shot_states() -> set[str]:
     data = yaml.safe_load(
-        (_ROOT / "contracts" / "state_machines" / "state_machines.yaml").read_text(
-            encoding="utf-8"
-        )
+        (_ROOT / "contracts" / "state_machines" / "state_machines.yaml").read_text(encoding="utf-8")
     )
     entry = next(o for o in data["objects"] if o.get("object") == "Shot")
     return set(entry["allowed_states"])
@@ -146,9 +144,7 @@ def test_downgrade_restores_guards_before_dropping_function(migration) -> None:
     所以顺序必须被断言，而不是靠注释提醒。
     """
     steps = [step.sql for step in migration.downgrade_steps()]
-    drop_index = next(
-        i for i, sql in enumerate(steps) if "DROP FUNCTION" in sql.upper()
-    )
+    drop_index = next(i for i, sql in enumerate(steps) if "DROP FUNCTION" in sql.upper())
     assert drop_index == len(steps) - 1, "删函数必须是回退的最后一步"
     restored = " ".join(steps[:drop_index])
     assert "scenes_archive_guard" in restored
@@ -157,9 +153,7 @@ def test_downgrade_restores_guards_before_dropping_function(migration) -> None:
     assert "'IN_PRODUCTION'" in restored
 
 
-def test_partition_check_detects_unclassified_state(
-    migration, shot_states: set[str]
-) -> None:
+def test_partition_check_detects_unclassified_state(migration, shot_states: set[str]) -> None:
     """变异反证：新增一个契约状态时，划分检查必须报出它。
 
     不做这一步，「划分完备」只是当前数据下为真的陈述；写成

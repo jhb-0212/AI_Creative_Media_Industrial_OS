@@ -22,6 +22,7 @@ Revision ID: f6a7b8c9d1e2
 Revises: e5f6a7b8c9d0
 Create Date: 2026-11-14
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -105,9 +106,7 @@ def _create_indexes() -> None:
 
 def _grant_and_protect() -> None:
     # 父表授权，不单独授权分区子表：应用永远通过父表名访问。
-    op.execute(
-        f"GRANT SELECT, INSERT, UPDATE ON {SCHEMA}.{_TABLE} TO {app_role_name()}"
-    )
+    op.execute(f"GRANT SELECT, INSERT, UPDATE ON {SCHEMA}.{_TABLE} TO {app_role_name()}")
     # append-only：DELETE 一律不给（与 d4e5f6a7b8c9 的口径一致）。
     op.execute(f"REVOKE DELETE ON {SCHEMA}.{_TABLE} FROM {app_role_name()}")
     op.execute(f"ALTER TABLE {SCHEMA}.{_TABLE} ENABLE ROW LEVEL SECURITY")
@@ -154,15 +153,11 @@ def upgrade() -> None:
         month = _add_months(month, 1)
 
     # DEFAULT 分区兜底：维护任务漏建月份时写入不会失败，代价是行落进 default。
-    op.execute(
-        f"CREATE TABLE {SCHEMA}.{_DEFAULT_PARTITION} "
-        f"PARTITION OF {SCHEMA}.{_TABLE} DEFAULT"
-    )
+    op.execute(f"CREATE TABLE {SCHEMA}.{_DEFAULT_PARTITION} PARTITION OF {SCHEMA}.{_TABLE} DEFAULT")
 
     columns = ", ".join(_COLUMNS)
     op.execute(
-        f"INSERT INTO {SCHEMA}.{_TABLE} ({columns}) "
-        f"SELECT {columns} FROM {SCHEMA}.{_LEGACY}"
+        f"INSERT INTO {SCHEMA}.{_TABLE} ({columns}) SELECT {columns} FROM {SCHEMA}.{_LEGACY}"
     )
 
     _create_indexes()
@@ -191,15 +186,13 @@ def downgrade() -> None:
     )
     columns = ", ".join(_COLUMNS)
     op.execute(
-        f"INSERT INTO {SCHEMA}.{legacy_flat} ({columns}) "
-        f"SELECT {columns} FROM {SCHEMA}.{_TABLE}"
+        f"INSERT INTO {SCHEMA}.{legacy_flat} ({columns}) SELECT {columns} FROM {SCHEMA}.{_TABLE}"
     )
 
     op.execute(f"DROP TABLE {SCHEMA}.{_TABLE} CASCADE")
     op.execute(f"ALTER TABLE {SCHEMA}.{legacy_flat} RENAME TO {_TABLE}")
     op.execute(
-        f"ALTER TABLE {SCHEMA}.{_TABLE} "
-        f"RENAME CONSTRAINT {legacy_flat}_pkey TO outbox_events_pkey"
+        f"ALTER TABLE {SCHEMA}.{_TABLE} RENAME CONSTRAINT {legacy_flat}_pkey TO outbox_events_pkey"
     )
 
     _create_indexes()

@@ -132,9 +132,7 @@ def test_missing_statement_in_migration_is_reported() -> None:
 def test_missing_default_privilege_revoke_is_reported() -> None:
     """少撤销一条默认权限也算不一致：那正是「未来新表自动带权限」的入口。"""
     rendered = [
-        statement
-        for statement in _rendered()
-        if "REVOKE ALL ON SEQUENCES" not in statement
+        statement for statement in _rendered() if "REVOKE ALL ON SEQUENCES" not in statement
     ]
     problems = _evaluate(rendered=rendered)
     assert any("迁移少执行" in p for p in problems), problems
@@ -159,8 +157,7 @@ def test_default_privilege_grant_is_also_handwritten_grant() -> None:
     problems = _evaluate(
         grant_forbidden_literals={
             "data/migrations/versions/zzz_later.py": [
-                "ALTER DEFAULT PRIVILEGES IN SCHEMA project_planning "
-                "GRANT SELECT ON TABLES TO role"
+                "ALTER DEFAULT PRIVILEGES IN SCHEMA project_planning GRANT SELECT ON TABLES TO role"
             ]
         }
     )

@@ -107,9 +107,7 @@ class SqlAlchemyEpisodeRepository(EpisodeRepository):
         model = result.scalar_one_or_none()
         return _to_domain(model) if model is not None else None
 
-    async def get_by_project_ref(
-        self, project_id: str, episode_ref: str
-    ) -> Episode | None:
+    async def get_by_project_ref(self, project_id: str, episode_ref: str) -> Episode | None:
         """按项目 + 集数标识查询集数（归属验证核心查询）。"""
         stmt = select(EpisodeModel).where(
             EpisodeModel.project_id == project_id,

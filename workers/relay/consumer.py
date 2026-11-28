@@ -172,9 +172,7 @@ class OutboxRelay:
 
         async with self._sessionmaker() as session:
             try:
-                tenants = (
-                    await session.execute(_LIST_TENANTS)
-                ).mappings().all()
+                tenants = (await session.execute(_LIST_TENANTS)).mappings().all()
             except Exception:
                 # 枚举失败（函数缺失/权限收回）必须显式暴露，不能静默空转。
                 OUTBOX_RELAY_RUN_ERRORS.labels(stage="enumerate").inc()
@@ -201,9 +199,7 @@ class OutboxRelay:
             except Exception:
                 # 单租户失败不影响其他租户：租户之间没有共享事务，隔离在此处体现。
                 OUTBOX_RELAY_RUN_ERRORS.labels(stage="tenant").inc()
-                logger.exception(
-                    "outbox_relay_tenant_failed", tenant_id=str(row["tenant_id"])
-                )
+                logger.exception("outbox_relay_tenant_failed", tenant_id=str(row["tenant_id"]))
 
         if stats.delivered or stats.unrouted or stats.failed or stats.deferred:
             logger.info(

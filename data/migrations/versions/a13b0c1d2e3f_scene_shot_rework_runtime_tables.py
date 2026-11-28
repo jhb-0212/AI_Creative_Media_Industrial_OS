@@ -101,6 +101,7 @@ _NEW_TABLES: frozenset[str] = frozenset(
     }
 )
 
+
 # C.3.1 信封列（与 packages/shared/orm.py::EntityMixin 逐列一致）。
 # 不抽公共函数到迁移之外：迁移是时间胶囊，必须能在未来代码演进而它不变的情况下
 # 仍然准确描述「这一刻的表长什么样」。
@@ -149,9 +150,10 @@ def _ensure_episodes_entity_unique() -> None:
     列顺序不参与比较：唯一性对列顺序不敏感，PG 外键引用只要求列集唯一。
     """
     bind = op.get_bind()
-    existing = bind.execute(
-        sa.text(
-            """
+    existing = (
+        bind.execute(
+            sa.text(
+                """
             SELECT a.attname
             FROM pg_constraint c
             JOIN unnest(c.conkey) AS k(attnum) ON true
@@ -161,9 +163,12 @@ def _ensure_episodes_entity_unique() -> None:
               AND c.conname = :name
               AND c.contype = 'u'
             """
-        ),
-        {"rel": f"{_SCHEMA}.episodes", "name": "uq_episodes_entity_project"},
-    ).scalars().all()
+            ),
+            {"rel": f"{_SCHEMA}.episodes", "name": "uq_episodes_entity_project"},
+        )
+        .scalars()
+        .all()
+    )
     wanted = {"project_id", "entity_id"}
     if existing and set(existing) != wanted:
         raise RuntimeError(
@@ -180,11 +185,7 @@ def _ensure_episodes_entity_unique() -> None:
     )
     # WP-04：给"本 revision 创建"的约束留来源标记，降级只删带标记的约束，
     # 不误删更早 revision 已存在的同名约束（见 migration_constraints 模块说明）。
-    op.execute(
-        mark_created_constraint(
-            "episodes", "uq_episodes_entity_project", _SCHEMA, revision
-        )
-    )
+    op.execute(mark_created_constraint("episodes", "uq_episodes_entity_project", _SCHEMA, revision))
 
 
 def upgrade() -> None:
@@ -216,9 +217,7 @@ def upgrade() -> None:
         sa.Column("constraint_pack_ref", sa.String(64), nullable=True),
         # 复合外键引用目标：shots(project_id, rework_basis_ref) → 本表
         # (project_id, entity_id)，跨项目借用返工授权在库层即被拒（P1-03）。
-        sa.UniqueConstraint(
-            "project_id", "entity_id", name="uq_rework_tasks_entity_project"
-        ),
+        sa.UniqueConstraint("project_id", "entity_id", name="uq_rework_tasks_entity_project"),
         sa.ForeignKeyConstraint(
             ["project_id"],
             [f"{_SCHEMA}.projects.entity_id"],
@@ -228,10 +227,16 @@ def upgrade() -> None:
         schema=_SCHEMA,
     )
     op.create_index(
-        op.f("ix_project_planning_rework_tasks_tenant_id"), "rework_tasks", ["tenant_id"], schema=_SCHEMA
+        op.f("ix_project_planning_rework_tasks_tenant_id"),
+        "rework_tasks",
+        ["tenant_id"],
+        schema=_SCHEMA,
     )
     op.create_index(
-        op.f("ix_project_planning_rework_tasks_project_id"), "rework_tasks", ["project_id"], schema=_SCHEMA
+        op.f("ix_project_planning_rework_tasks_project_id"),
+        "rework_tasks",
+        ["project_id"],
+        schema=_SCHEMA,
     )
 
     # --- scenes ---
@@ -242,12 +247,8 @@ def upgrade() -> None:
         sa.Column("scene_code", sa.String(64), nullable=False),
         sa.Column("project_id", sa.String(64), nullable=False),
         sa.Column("episode_id", sa.String(64), nullable=False),
-        sa.UniqueConstraint(
-            "project_id", "entity_id", name="uq_scenes_entity_project"
-        ),
-        sa.UniqueConstraint(
-            "project_id", "scene_code", name="uq_scene_code_per_project"
-        ),
+        sa.UniqueConstraint("project_id", "entity_id", name="uq_scenes_entity_project"),
+        sa.UniqueConstraint("project_id", "scene_code", name="uq_scene_code_per_project"),
         sa.ForeignKeyConstraint(
             ["project_id", "episode_id"],
             [
@@ -260,9 +261,15 @@ def upgrade() -> None:
         status_check((s.value for s in SceneStatus), table="scenes"),
         schema=_SCHEMA,
     )
-    op.create_index(op.f("ix_project_planning_scenes_tenant_id"), "scenes", ["tenant_id"], schema=_SCHEMA)
-    op.create_index(op.f("ix_project_planning_scenes_project_id"), "scenes", ["project_id"], schema=_SCHEMA)
-    op.create_index(op.f("ix_project_planning_scenes_episode_id"), "scenes", ["episode_id"], schema=_SCHEMA)
+    op.create_index(
+        op.f("ix_project_planning_scenes_tenant_id"), "scenes", ["tenant_id"], schema=_SCHEMA
+    )
+    op.create_index(
+        op.f("ix_project_planning_scenes_project_id"), "scenes", ["project_id"], schema=_SCHEMA
+    )
+    op.create_index(
+        op.f("ix_project_planning_scenes_episode_id"), "scenes", ["episode_id"], schema=_SCHEMA
+    )
 
     # --- shots ---
     op.create_table(
@@ -279,9 +286,7 @@ def upgrade() -> None:
         sa.Column("cancelled_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("source_draft_ref", postgresql.JSONB(), nullable=True),
         sa.UniqueConstraint("project_id", "entity_id", name="uq_shots_entity_project"),
-        sa.UniqueConstraint(
-            "project_id", "shot_code", name="uq_shot_code_per_project"
-        ),
+        sa.UniqueConstraint("project_id", "shot_code", name="uq_shot_code_per_project"),
         sa.ForeignKeyConstraint(
             ["project_id", "scene_id"],
             [f"{_SCHEMA}.scenes.project_id", f"{_SCHEMA}.scenes.entity_id"],
@@ -309,9 +314,15 @@ def upgrade() -> None:
         status_check((s.value for s in ShotStatus), table="shots"),
         schema=_SCHEMA,
     )
-    op.create_index(op.f("ix_project_planning_shots_tenant_id"), "shots", ["tenant_id"], schema=_SCHEMA)
-    op.create_index(op.f("ix_project_planning_shots_scene_id"), "shots", ["scene_id"], schema=_SCHEMA)
-    op.create_index(op.f("ix_project_planning_shots_project_id"), "shots", ["project_id"], schema=_SCHEMA)
+    op.create_index(
+        op.f("ix_project_planning_shots_tenant_id"), "shots", ["tenant_id"], schema=_SCHEMA
+    )
+    op.create_index(
+        op.f("ix_project_planning_shots_scene_id"), "shots", ["scene_id"], schema=_SCHEMA
+    )
+    op.create_index(
+        op.f("ix_project_planning_shots_project_id"), "shots", ["project_id"], schema=_SCHEMA
+    )
 
     # --- shot_revisions ---
     op.create_table(
@@ -358,10 +369,16 @@ def upgrade() -> None:
         schema=_SCHEMA,
     )
     op.create_index(
-        op.f("ix_project_planning_shot_revisions_tenant_id"), "shot_revisions", ["tenant_id"], schema=_SCHEMA
+        op.f("ix_project_planning_shot_revisions_tenant_id"),
+        "shot_revisions",
+        ["tenant_id"],
+        schema=_SCHEMA,
     )
     op.create_index(
-        op.f("ix_project_planning_shot_revisions_shot_id"), "shot_revisions", ["shot_id"], schema=_SCHEMA
+        op.f("ix_project_planning_shot_revisions_shot_id"),
+        "shot_revisions",
+        ["shot_id"],
+        schema=_SCHEMA,
     )
     op.create_index(
         op.f("ix_project_planning_shot_revisions_project_id"),
@@ -456,9 +473,7 @@ def downgrade() -> None:
     # 先撤策略再删表：删表会连带删掉策略，但显式撤销让回滚文本自己说清
     # 「这张表曾经带过什么安全属性」，而不是依赖 DDL 的副作用。
     for _table in sorted(_NEW_TABLES, reverse=True):
-        op.execute(
-            f"DROP POLICY IF EXISTS tenant_isolation_{_table} ON {_SCHEMA}.{_table}"
-        )
+        op.execute(f"DROP POLICY IF EXISTS tenant_isolation_{_table} ON {_SCHEMA}.{_table}")
         op.execute(f"ALTER TABLE {_SCHEMA}.{_table} DISABLE ROW LEVEL SECURITY")
 
     op.drop_index(
@@ -473,17 +488,21 @@ def downgrade() -> None:
     )
     op.drop_table("shot_breakdown_drafts", schema=_SCHEMA)
 
+    op.drop_index("ux_shot_active_revision", table_name="shot_revisions", schema=_SCHEMA)
     op.drop_index(
-        "ux_shot_active_revision", table_name="shot_revisions", schema=_SCHEMA
+        op.f("ix_project_planning_shot_revisions_project_id"),
+        table_name="shot_revisions",
+        schema=_SCHEMA,
     )
     op.drop_index(
-        op.f("ix_project_planning_shot_revisions_project_id"), table_name="shot_revisions", schema=_SCHEMA
+        op.f("ix_project_planning_shot_revisions_shot_id"),
+        table_name="shot_revisions",
+        schema=_SCHEMA,
     )
     op.drop_index(
-        op.f("ix_project_planning_shot_revisions_shot_id"), table_name="shot_revisions", schema=_SCHEMA
-    )
-    op.drop_index(
-        op.f("ix_project_planning_shot_revisions_tenant_id"), table_name="shot_revisions", schema=_SCHEMA
+        op.f("ix_project_planning_shot_revisions_tenant_id"),
+        table_name="shot_revisions",
+        schema=_SCHEMA,
     )
     op.drop_table("shot_revisions", schema=_SCHEMA)
 
@@ -492,16 +511,24 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_project_planning_shots_tenant_id"), table_name="shots", schema=_SCHEMA)
     op.drop_table("shots", schema=_SCHEMA)
 
-    op.drop_index(op.f("ix_project_planning_scenes_episode_id"), table_name="scenes", schema=_SCHEMA)
-    op.drop_index(op.f("ix_project_planning_scenes_project_id"), table_name="scenes", schema=_SCHEMA)
+    op.drop_index(
+        op.f("ix_project_planning_scenes_episode_id"), table_name="scenes", schema=_SCHEMA
+    )
+    op.drop_index(
+        op.f("ix_project_planning_scenes_project_id"), table_name="scenes", schema=_SCHEMA
+    )
     op.drop_index(op.f("ix_project_planning_scenes_tenant_id"), table_name="scenes", schema=_SCHEMA)
     op.drop_table("scenes", schema=_SCHEMA)
 
     op.drop_index(
-        op.f("ix_project_planning_rework_tasks_project_id"), table_name="rework_tasks", schema=_SCHEMA
+        op.f("ix_project_planning_rework_tasks_project_id"),
+        table_name="rework_tasks",
+        schema=_SCHEMA,
     )
     op.drop_index(
-        op.f("ix_project_planning_rework_tasks_tenant_id"), table_name="rework_tasks", schema=_SCHEMA
+        op.f("ix_project_planning_rework_tasks_tenant_id"),
+        table_name="rework_tasks",
+        schema=_SCHEMA,
     )
     op.drop_table("rework_tasks", schema=_SCHEMA)
 

@@ -70,9 +70,7 @@ def declared_event_types() -> frozenset[str]:
     """
     data = load_yaml_file(_EVENT_CATALOG_PATH)
     events = data.get("events") or []
-    return frozenset(
-        str(item["event_type"]) for item in events if item.get("event_type")
-    )
+    return frozenset(str(item["event_type"]) for item in events if item.get("event_type"))
 
 
 @dataclass(frozen=True)

@@ -52,9 +52,7 @@ def infra_role(infra: str) -> str:
     try:
         field = _INFRA_ROLE_FIELDS[infra]
     except KeyError:
-        raise LookupError(
-            f"未知运维角色 {infra!r}；已知：{sorted(_INFRA_ROLE_FIELDS)}"
-        ) from None
+        raise LookupError(f"未知运维角色 {infra!r}；已知：{sorted(_INFRA_ROLE_FIELDS)}") from None
     value: str = getattr(get_settings(), field)
     return value
 
@@ -110,9 +108,7 @@ def scheduler_role(key: str = "discovery") -> str:
     try:
         field = _SCHEDULER_ROLE_FIELDS[key]
     except KeyError:
-        raise LookupError(
-            f"未知调度角色 {key!r}；已知：{sorted(_SCHEDULER_ROLE_FIELDS)}"
-        ) from None
+        raise LookupError(f"未知调度角色 {key!r}；已知：{sorted(_SCHEDULER_ROLE_FIELDS)}") from None
     value: str = getattr(get_settings(), field)
     return value
 
@@ -139,9 +135,7 @@ def domain_role(domain: str) -> str:
     try:
         field = _DOMAIN_ROLE_FIELDS[domain]
     except KeyError:
-        raise LookupError(
-            f"未知业务域 {domain!r}；已知域：{sorted(_DOMAIN_ROLE_FIELDS)}"
-        ) from None
+        raise LookupError(f"未知业务域 {domain!r}；已知域：{sorted(_DOMAIN_ROLE_FIELDS)}") from None
     # 用带注解的中间变量而不是直接 return getattr(...)：字段名是运行期字符串，
     # getattr 的返回类型是 Any，直接返回会把「角色名是字符串」这个事实丢掉。
     value: str = getattr(get_settings(), field)

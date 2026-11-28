@@ -111,9 +111,7 @@ class ShotSpecService:
             ("created_by", created_by),
         ):
             if not value:
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
 
         # 1. 幂等（先于父链锁读与冻结判定，理由见 docstring）
         if entity_id is not None:
@@ -132,18 +130,12 @@ class ShotSpecService:
 
         # 2. 项目存在性
         if await self._project_repository.get_by_id(project_id) is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"项目不存在: {project_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"项目不存在: {project_id}")
 
         # 3. 带共享锁读修订（与「修订被取代」串行化）
-        revision = await self._shot_revision_repository.lock_for_child_write(
-            shot_revision_id
-        )
+        revision = await self._shot_revision_repository.lock_for_child_write(shot_revision_id)
         if revision is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"镜头修订不存在: {shot_revision_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"镜头修订不存在: {shot_revision_id}")
 
         # 4a. 跨项目绑定：读写都在同一租户上下文内，所以「读到了」不等于「有权挂」。
         #     让可读错误先于 23503 出现，是为了让调用方知道该改哪个参数。
@@ -215,9 +207,7 @@ class ShotSpecService:
                         "同一修订至多一份规格，改规格须新修订 + 新规格"
                     ),
                 ) from exc
-            raise DomainError(
-                ErrorRegistry.INTERNAL_ERROR, detail="镜头规格写入冲突"
-            ) from exc
+            raise DomainError(ErrorRegistry.INTERNAL_ERROR, detail="镜头规格写入冲突") from exc
 
         self._outbox_writer.record(
             aggregate_type="ShotSpec",
@@ -240,9 +230,7 @@ class ShotSpecService:
     async def get_spec(self, entity_id: str) -> ShotSpec:
         spec = await self._repository.get_by_id(entity_id)
         if spec is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"镜头规格不存在: {entity_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"镜头规格不存在: {entity_id}")
         return spec
 
     async def lock_spec(
@@ -265,9 +253,7 @@ class ShotSpecService:
         locked_by = locked_by.strip()
         lock_basis_ref = lock_basis_ref.strip()
         if not locked_by:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="locked_by 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="locked_by 不能为空")
         if not lock_basis_ref:
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,
@@ -276,9 +262,7 @@ class ShotSpecService:
 
         spec = await self._repository.get_by_id(entity_id)
         if spec is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"镜头规格不存在: {entity_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"镜头规格不存在: {entity_id}")
 
         # 终态不可原地复活：边表里 LOCKED 没有出边，重复锁定会被 edge_owned_by
         # 以「非法状态转移 LOCKED -> LOCKED」拒绝。这里提前给出更贴切的文案，

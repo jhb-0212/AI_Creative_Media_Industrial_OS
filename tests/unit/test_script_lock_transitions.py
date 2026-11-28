@@ -159,9 +159,7 @@ def _service(script: ScriptRevision) -> tuple[ScriptService, _RecordingOutboxWri
 
 
 def _principal(subject_id: str) -> Principal:
-    return Principal(
-        subject_id=subject_id, tenant_id=_TENANT, roles=frozenset({"导演", "编剧"})
-    )
+    return Principal(subject_id=subject_id, tenant_id=_TENANT, roles=frozenset({"导演", "编剧"}))
 
 
 async def test_lock_request_writes_transition_fact() -> None:
@@ -218,8 +216,6 @@ async def test_separation_violation_writes_no_fact() -> None:
     facts_after_request = len(writer.transitions)
 
     with pytest.raises(DomainError):
-        await service.approve_lock(
-            entity_id="scr_lock", principal=_principal("writer_001")
-        )
+        await service.approve_lock(entity_id="scr_lock", principal=_principal("writer_001"))
 
     assert len(writer.transitions) == facts_after_request

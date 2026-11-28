@@ -62,9 +62,7 @@ class Principal:
         return {
             "subject_id": self.subject_id,
             "tenant_id": str(self.tenant_id),
-            "organization_id": (
-                str(self.organization_id) if self.organization_id else None
-            ),
+            "organization_id": (str(self.organization_id) if self.organization_id else None),
             "roles": sorted(self.roles),
             "capabilities": sorted(self.capabilities),
             "jti": self.jti,

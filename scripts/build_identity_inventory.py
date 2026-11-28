@@ -148,7 +148,11 @@ def _module_header(tree: ast.Module) -> tuple[str, str | None]:
     for node in tree.body:
         if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
             name, value = node.target.id, node.value
-        elif isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+        elif (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+        ):
             name, value = node.targets[0].id, node.value
         else:
             continue
@@ -235,7 +239,12 @@ def build(base_inventory: Path) -> dict[str, Any]:
                 spec.loader.exec_module(module)
             except Exception as exc:
                 failures.append(
-                    {"revision": revision, "direction": "import", "error": f"{type(exc).__name__}: {exc}"[:160], "unproven": True}
+                    {
+                        "revision": revision,
+                        "direction": "import",
+                        "error": f"{type(exc).__name__}: {exc}"[:160],
+                        "unproven": True,
+                    }
                 )
                 module = None
             modules[revision] = module
@@ -252,15 +261,26 @@ def build(base_inventory: Path) -> dict[str, Any]:
             if statements_or_none is not None:
                 statements = statements_or_none
             else:
-                carried_rows = [r for r in base_rows if r.get("revision") == revision and r.get("direction") == direction]
+                carried_rows = [
+                    r
+                    for r in base_rows
+                    if r.get("revision") == revision and r.get("direction") == direction
+                ]
                 if path.name not in modified and carried_rows:
                     statements = [str(r.get("sql") or "") for r in carried_rows]
                     source = "carried_forward"
-                    carried.append({"revision": revision, "direction": direction, "rows": len(carried_rows)})
+                    carried.append(
+                        {"revision": revision, "direction": direction, "rows": len(carried_rows)}
+                    )
                 else:
                     statements = []
                     failures.append(
-                        {"revision": revision, "direction": direction, "error": reason or "offline 展开失败", "unproven": True}
+                        {
+                            "revision": revision,
+                            "direction": direction,
+                            "error": reason or "offline 展开失败",
+                            "unproven": True,
+                        }
                     )
                     status = "UNPROVEN"
             for sql in statements:
@@ -328,7 +348,9 @@ def build(base_inventory: Path) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="重建身份迁移语句清单（脱敏）")
-    parser.add_argument("--base-inventory", required=True, help="旧清单路径（只读，用于未修改迁移的 carry-forward）")
+    parser.add_argument(
+        "--base-inventory", required=True, help="旧清单路径（只读，用于未修改迁移的 carry-forward）"
+    )
     parser.add_argument("--out", required=True, help="输出 JSON 路径")
     args = parser.parse_args(argv)
 

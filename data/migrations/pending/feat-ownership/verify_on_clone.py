@@ -20,6 +20,7 @@
 
     python data/migrations/pending/feat-ownership/verify_on_clone.py
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -70,9 +71,7 @@ def check(code: str, title: str, ok: bool, detail: str = "") -> None:
 
 
 async def connect(db: str) -> asyncpg.Connection:
-    return await asyncpg.connect(
-        host=HOST, port=PORT, user=USER, password=PASSWORD, database=db
-    )
+    return await asyncpg.connect(host=HOST, port=PORT, user=USER, password=PASSWORD, database=db)
 
 
 async def recreate(db: str) -> None:
@@ -305,14 +304,10 @@ async def case_downgrade() -> None:
             "SELECT count(*) FROM pg_constraint WHERE contype IN ('f','u')"
         )
         await run_steps(conn, MIG.upgrade_steps())
-        mid = await conn.fetchval(
-            "SELECT count(*) FROM pg_constraint WHERE contype IN ('f','u')"
-        )
+        mid = await conn.fetchval("SELECT count(*) FROM pg_constraint WHERE contype IN ('f','u')")
         await run_steps(conn, MIG.downgrade_steps())
 
-        after = await conn.fetchval(
-            "SELECT count(*) FROM pg_constraint WHERE contype IN ('f','u')"
-        )
+        after = await conn.fetchval("SELECT count(*) FROM pg_constraint WHERE contype IN ('f','u')")
         check(
             "D4a",
             "downgrade 后约束数回到基线（无残留）",

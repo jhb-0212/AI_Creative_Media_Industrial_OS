@@ -16,6 +16,7 @@ Revision ID: b8c9d1e2f3a4
 Revises: f6a7b8c9d1e2
 Create Date: 2026-11-14
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -57,7 +58,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(
-        "ix_outbox_maintenance_runs_started", table_name=_TABLE, schema=SCHEMA
-    )
+    op.drop_index("ix_outbox_maintenance_runs_started", table_name=_TABLE, schema=SCHEMA)
     op.drop_table(_TABLE, schema=SCHEMA)

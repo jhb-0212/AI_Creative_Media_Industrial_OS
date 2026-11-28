@@ -274,9 +274,7 @@ async def test_maintenance_objects_are_owned_by_non_login_owner(
     assert table is not None
     assert table.owner_name == owner, "投影表属主必须是不可登录的 owner"
     assert table.relrowsecurity is True, "投影表必须开启行级安全"
-    assert table.relforcerowsecurity is True, (
-        "投影表必须 FORCE RLS——否则属主身份自己就能看全表"
-    )
+    assert table.relforcerowsecurity is True, "投影表必须 FORCE RLS——否则属主身份自己就能看全表"
 
 
 async def test_secdef_signature_function_no_longer_public(admin_sessionmaker) -> None:

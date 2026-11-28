@@ -109,9 +109,7 @@ def test_can_transition_helper_semantics() -> None:
     [(edge.source, edge.target) for edge in ASSET_TRANSITIONS],
     ids=[edge.label for edge in ASSET_TRANSITIONS],
 )
-def test_edge_ownership_is_enforced_by_aggregate(
-    source: AssetStatus, target: AssetStatus
-) -> None:
+def test_edge_ownership_is_enforced_by_aggregate(source: AssetStatus, target: AssetStatus) -> None:
     """每条边只对它自己的动作可达（N-07）。
 
     这是「所有权被记录」与「所有权被执行」的分界线：整改前 ``owner_action``

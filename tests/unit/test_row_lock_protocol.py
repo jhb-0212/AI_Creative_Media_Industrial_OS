@@ -48,9 +48,7 @@ from services.project_planning.repository.shot_planning_sqlalchemy_repos import 
         (False, "FOR SHARE"),
     ],
 )
-def test_lock_statement_renders_the_agreed_clause(
-    exclusive: bool, expected_clause: str
-) -> None:
+def test_lock_statement_renders_the_agreed_clause(exclusive: bool, expected_clause: str) -> None:
     """两侧锁模式逐字钉住。
 
     子对象侧必须是 ``FOR SHARE`` 而非 ``FOR KEY SHARE``：后者与 ``FOR NO KEY
@@ -58,9 +56,9 @@ def test_lock_statement_renders_the_agreed_clause(
     只靠它会漏掉「父侧没显式加排他锁的归档」。方言升级、参数写漏、或有人
     「简化」这个调用，都必须在这里变红，而不是在生产里表现为「偶发的归档失效」。
     """
-    sql = str(scene_lock_statement("scene-1", exclusive=exclusive).compile(
-        dialect=postgresql.dialect()
-    ))
+    sql = str(
+        scene_lock_statement("scene-1", exclusive=exclusive).compile(dialect=postgresql.dialect())
+    )
     assert sql.rstrip().endswith(expected_clause), sql
     assert "FOR NO KEY UPDATE" not in sql
     if not exclusive:
@@ -78,8 +76,7 @@ def test_every_edge_into_production_declares_the_parent_barrier() -> None:
     assert edges, "Shot 没有任何进入在产的边：状态机结构已变，本判据失效"
     missing = [e.label for e in edges if e.parent_precondition is None]
     assert not missing, (
-        f"这些进入在产的边没有声明父场次屏障：{missing}。"
-        "漏一条，不变量就能从那条边被绕过"
+        f"这些进入在产的边没有声明父场次屏障：{missing}。漏一条，不变量就能从那条边被绕过"
     )
 
 
@@ -94,15 +91,9 @@ def test_every_edge_into_archive_declares_the_child_barrier() -> None:
 def test_the_two_sides_declare_the_same_pair() -> None:
     """家长与孩子必须指向同一对（对象, 状态），否则两条屏障各挡各的。"""
     assert SHOT_IN_PRODUCTION_PARENT_PRECONDITION.object_name == "Scene"
-    assert (
-        SHOT_IN_PRODUCTION_PARENT_PRECONDITION.forbidden_status
-        == SceneStatus.ARCHIVED.value
-    )
+    assert SHOT_IN_PRODUCTION_PARENT_PRECONDITION.forbidden_status == SceneStatus.ARCHIVED.value
     assert SCENE_ARCHIVE_CHILD_PRECONDITION.object_name == "Shot"
-    assert (
-        SCENE_ARCHIVE_CHILD_PRECONDITION.forbidden_status
-        == ShotStatus.IN_PRODUCTION.value
-    )
+    assert SCENE_ARCHIVE_CHILD_PRECONDITION.forbidden_status == ShotStatus.IN_PRODUCTION.value
     # 说明文本要能独立成句地解释「为什么被拒」，它会被原样放进错误详情。
     assert SHOT_IN_PRODUCTION_PARENT_PRECONDITION.message.strip()
     assert SCENE_ARCHIVE_CHILD_PRECONDITION.message.strip()

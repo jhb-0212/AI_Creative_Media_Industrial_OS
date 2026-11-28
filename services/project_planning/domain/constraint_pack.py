@@ -96,14 +96,10 @@ def validate_constraint_entries(entries: list[dict[str, Any]]) -> None:
         if not isinstance(entry, dict):
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,
-                detail=(
-                    f"constraints[{index}] 必须是对象，实际为 {type(entry).__name__}"
-                ),
+                detail=(f"constraints[{index}] 必须是对象，实际为 {type(entry).__name__}"),
             )
         missing = [
-            key
-            for key in CONSTRAINT_ENTRY_REQUIRED
-            if key not in entry or _blank(entry[key])
+            key for key in CONSTRAINT_ENTRY_REQUIRED if key not in entry or _blank(entry[key])
         ]
         if missing:
             raise DomainError(
@@ -227,15 +223,11 @@ class ConstraintPack(Entity):
         # 契约（SC-1/SH-1/SR-1）明确要求「身份单一」且没有跨行版本；本对象不同，
         # 照抄那种形态会把版本语义抹掉。
         # 缺省取 entity_id：首个版本两者自然相同，调用方不必关心这个区别。
-        self.constraint_pack_id = (
-            (self.constraint_pack_id or "").strip() or self.entity_id
-        )
+        self.constraint_pack_id = (self.constraint_pack_id or "").strip() or self.entity_id
 
         for name in ("constraint_pack_id", "project_id"):
             if not getattr(self, name).strip():
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
         for name, max_len in (
             ("constraint_pack_id", 64),
             ("project_id", 64),
@@ -263,9 +255,7 @@ class ConstraintPack(Entity):
 
         # shot_ids 引用的是 Shot（逻辑镜头），不是 ShotRevision：约束作用在
         # 「这个镜头」而不在「某一版」。空集合会让包没有作用对象。
-        self.shot_ids = normalize_id_set(
-            self.shot_ids, field_name="shot_ids", required=True
-        )
+        self.shot_ids = normalize_id_set(self.shot_ids, field_name="shot_ids", required=True)
         # shot_group_ids 是**可选**字段（7.9 required 不含它）：空数组表示
         # 「本包不绑定连续镜头组」，是合法输入，不能套用 shot_ids 的非空要求。
         self.shot_group_ids = normalize_id_set(
@@ -278,9 +268,7 @@ class ConstraintPack(Entity):
 
         # CP-4：NOT_APPLICABLE 的字面含义就是「没有锁定约束」。若同时列了锁定
         # 维度或约束条目，这份包在自述矛盾——下游无论信哪一半都会错。
-        if self.applicability == NOT_APPLICABLE and (
-            self.locked_dimensions or self.constraints
-        ):
+        if self.applicability == NOT_APPLICABLE and (self.locked_dimensions or self.constraints):
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,
                 detail=(
@@ -297,9 +285,7 @@ class ConstraintPack(Entity):
                 detail=f"version 必须是整数，实际为 {self.version!r}",
             )
         if self.version < 1:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="version 必须为正整数"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="version 必须为正整数")
         if self.approved_at is not None and not isinstance(self.approved_at, datetime):
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,
@@ -377,17 +363,13 @@ class ConstraintPack(Entity):
                 "approved_by": self.approved_by,
                 # 契约类型是 string；DRAFT 阶段无审批时间，输出空串而不是 null
                 # （required 字段不出现 null 形态，避免客户端把它读成「已审批但时间未知」）。
-                "approved_at": (
-                    self.approved_at.isoformat() if self.approved_at else ""
-                ),
+                "approved_at": (self.approved_at.isoformat() if self.approved_at else ""),
             }
         )
         return data
 
 
-def normalize_id_set(
-    raw: list[str], *, field_name: str, required: bool
-) -> list[str]:
+def normalize_id_set(raw: list[str], *, field_name: str, required: bool) -> list[str]:
     """规范化 id 集合：去空白、去空串、保序去重。
 
     保序（而不是排序）：``shot_ids`` 的顺序在契约里没有语义，但「保序去重」

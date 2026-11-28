@@ -68,9 +68,7 @@ def test_disabled_tables_are_reported() -> None:
 
 def test_owned_tables_without_force_are_reported() -> None:
     """当前角色是表所有者且未 FORCE：查询会绕过策略。"""
-    problems = _enforcement(
-        owned_tables_without_force=("project_planning.projects",)
-    ).problems()
+    problems = _enforcement(owned_tables_without_force=("project_planning.projects",)).problems()
     assert any("project_planning.projects" in p for p in problems)
 
 
@@ -110,6 +108,8 @@ async def test_non_production_only_warns(
 
     captured = capfd.readouterr()
     emitted = captured.out + captured.err
-    assert "rls_enforcement_degraded" in emitted, "非生产环境必须留下可见的降级告警（静默放行等于没人知道 RLS 没生效）"
+    assert "rls_enforcement_degraded" in emitted, (
+        "非生产环境必须留下可见的降级告警（静默放行等于没人知道 RLS 没生效）"
+    )
     assert '"role": "postgres"' in emitted, "降级告警必须平铺携带角色字段，不能塞进 extra 包"
     assert '"app_env": "development"' in emitted

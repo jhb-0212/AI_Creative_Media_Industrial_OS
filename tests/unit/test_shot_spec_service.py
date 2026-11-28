@@ -137,9 +137,7 @@ class _Specs(ShotSpecRepository):
 @dataclass
 class _Outbox:
     records: list[dict[str, Any]] = field(default_factory=list)
-    transitions: list[tuple[TransitionFact, TransitionEvent]] = field(
-        default_factory=list
-    )
+    transitions: list[tuple[TransitionFact, TransitionEvent]] = field(default_factory=list)
 
     def record(
         self,
@@ -269,9 +267,7 @@ async def test_idempotent_replay_returns_existing_before_touching_parents() -> N
     「创建失败」，与实际（第一次已生效）相反。
     """
     existing = _spec(entity_id="spec-1")
-    service, specs, revisions, projects, outbox = _service(
-        specs=_Specs(seed=[existing])
-    )
+    service, specs, revisions, projects, outbox = _service(specs=_Specs(seed=[existing]))
 
     spec = await _create(service, entity_id="spec-1")
 
@@ -322,9 +318,7 @@ async def test_missing_revision_is_not_found() -> None:
 @pytest.mark.asyncio
 async def test_cross_project_binding_is_rejected_with_a_readable_error() -> None:
     """库层复合外键是最后防线；服务层先给出「该改哪个参数」的错误。"""
-    service, specs, _, _, outbox = _service(
-        revision=_RevisionView(project_id="proj-2")
-    )
+    service, specs, _, _, outbox = _service(revision=_RevisionView(project_id="proj-2"))
 
     with pytest.raises(DomainError) as exc:
         await _create(service, entity_id="spec-1", project_id="proj-1")
@@ -337,9 +331,7 @@ async def test_cross_project_binding_is_rejected_with_a_readable_error() -> None
 @pytest.mark.asyncio
 async def test_superseded_revision_rejects_new_spec() -> None:
     """已取代的修订是冻结态，不是「暂时不可用」：其规格只作历史证据。"""
-    service, specs, _, _, _ = _service(
-        revision=_RevisionView(status=ShotRevisionStatus.SUPERSEDED)
-    )
+    service, specs, _, _, _ = _service(revision=_RevisionView(status=ShotRevisionStatus.SUPERSEDED))
 
     with pytest.raises(DomainError) as exc:
         await _create(service, entity_id="spec-1")
@@ -411,9 +403,7 @@ async def _lock(
         ({"locked_dimensions": " , "}, "锁定维度"),
     ],
 )
-async def test_lock_requires_all_four_evidence_parts(
-    kwargs: dict[str, str], expected: str
-) -> None:
+async def test_lock_requires_all_four_evidence_parts(kwargs: dict[str, str], expected: str) -> None:
     specs = _Specs(seed=[_spec(entity_id="spec-1")])
     service, _, _, _, outbox = _service(specs=specs)
 

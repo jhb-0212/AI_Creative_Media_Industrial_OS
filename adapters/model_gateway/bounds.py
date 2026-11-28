@@ -60,9 +60,7 @@ def is_media_type(response: httpx.Response, prefix: str) -> bool:
     return declared_media_type(response).startswith(prefix)
 
 
-async def read_capped(
-    response: httpx.Response, *, limit: int, task_id: str
-) -> bytes:
+async def read_capped(response: httpx.Response, *, limit: int, task_id: str) -> bytes:
     """流式读取响应体，超过 ``limit`` 立即拒绝。
 
     先看声明、再累计计数：声明值可以是假的，累计计数才是兜底。
@@ -82,8 +80,6 @@ async def read_capped(
     async for chunk in response.aiter_bytes():
         total += len(chunk)
         if total > limit:
-            raise GatewayRejectedError(
-                f"产物实际大小超过上限 {limit}（task={task_id}）"
-            )
+            raise GatewayRejectedError(f"产物实际大小超过上限 {limit}（task={task_id}）")
         chunks.append(chunk)
     return b"".join(chunks)

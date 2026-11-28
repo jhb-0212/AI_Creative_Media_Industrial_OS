@@ -36,10 +36,7 @@ def _to_domain(model: ProjectModel) -> Project:
     except ValueError as exc:
         raise DomainError(
             ErrorRegistry.INTERNAL_ERROR,
-            detail=(
-                f"projects 存量枚举非法: tier={model.project_tier!r}, "
-                f"status={model.status!r}"
-            ),
+            detail=(f"projects 存量枚举非法: tier={model.project_tier!r}, status={model.status!r}"),
         ) from exc
     return Project(
         entity_id=model.entity_id,

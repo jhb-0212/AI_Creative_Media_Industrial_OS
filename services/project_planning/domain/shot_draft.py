@@ -59,9 +59,7 @@ class ShotBreakdownDraft(Entity):
 
     def __post_init__(self) -> None:
         super()._validate_envelope()
-        if self.shot_breakdown_draft_id and (
-            self.shot_breakdown_draft_id != self.entity_id
-        ):
+        if self.shot_breakdown_draft_id and (self.shot_breakdown_draft_id != self.entity_id):
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,
                 detail="shot_breakdown_draft_id 必须与 entity_id 一致",
@@ -77,18 +75,14 @@ class ShotBreakdownDraft(Entity):
         ):
             value = getattr(self, name)
             if not value or not str(value).strip():
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
             if len(value) > max_len:
                 raise DomainError(
                     ErrorRegistry.VALIDATION_ERROR,
                     detail=f"{name} 长度超过上限 {max_len}",
                 )
         if self.draft_version < 1:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="draft_version 从 1 开始"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="draft_version 从 1 开始")
 
     def transition_to(
         self, target: ShotDraftStatus, audit_ref: str, action: str
@@ -116,9 +110,7 @@ class ShotBreakdownDraft(Entity):
         elif target is ShotDraftStatus.RETURNED:
             _require(self.returned_by, "退回必须给出 returned_by")
             if self.returned_at is None:
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail="退回必须给出 returned_at"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="退回必须给出 returned_at")
             _require(self.return_reason, "退回必须给出 return_reason")
         elif target is ShotDraftStatus.DISCARDED:
             _require(self.discarded_reason, "废弃必须给出 discarded_reason")
@@ -144,14 +136,10 @@ class ShotBreakdownDraft(Entity):
                 "scene_breakdowns": self.scene_breakdowns,
                 "review_records": self.review_records,
                 "confirmed_by": self.confirmed_by,
-                "confirmed_at": (
-                    self.confirmed_at.isoformat() if self.confirmed_at else None
-                ),
+                "confirmed_at": (self.confirmed_at.isoformat() if self.confirmed_at else None),
                 "confirmed_shot_revision_refs": self.confirmed_shot_revision_refs,
                 "returned_by": self.returned_by,
-                "returned_at": (
-                    self.returned_at.isoformat() if self.returned_at else None
-                ),
+                "returned_at": (self.returned_at.isoformat() if self.returned_at else None),
                 "return_reason": self.return_reason,
                 "discarded_reason": self.discarded_reason,
             }

@@ -64,10 +64,7 @@ _TASK_PROJECTION = "task_projection"
 
 def _add_organization_id(schema: str, table: str) -> None:
     """幂等加列：可空 UUID，不建索引（不是过滤条件，是随行携带的事实）。"""
-    op.execute(
-        f"ALTER TABLE {schema}.{table} "
-        "ADD COLUMN IF NOT EXISTS organization_id UUID NULL"
-    )
+    op.execute(f"ALTER TABLE {schema}.{table} ADD COLUMN IF NOT EXISTS organization_id UUID NULL")
 
 
 def _policy_with_project_exists(schema: str, table: str) -> str:
@@ -155,10 +152,7 @@ def downgrade() -> None:
     # 回滚**只**删列：组织这份事实没有别处存过，谈不上「还原」——删列后组织级
     # 项目的 QC 会退回到 Worker 侧 fail-closed（入口的 409 守卫已随之移除）。
     # 这是刻意的不对称：结构可逆，事实不可重建。
-    op.execute(
-        f"ALTER TABLE {_QC_SCHEMA}.{_QC_TASKS} "
-        "DROP COLUMN IF EXISTS organization_id"
-    )
+    op.execute(f"ALTER TABLE {_QC_SCHEMA}.{_QC_TASKS} DROP COLUMN IF EXISTS organization_id")
     op.execute(
         f"ALTER TABLE {_PRODUCTION_SCHEMA}.{_GENERATION_TASKS} "
         "DROP COLUMN IF EXISTS organization_id"

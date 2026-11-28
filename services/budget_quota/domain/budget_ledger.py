@@ -60,9 +60,7 @@ class BudgetLedger(Entity):
             "source",
         ):
             if _blank(getattr(self, name)):
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
         # 受控维度：不在枚举里就当场拒绝。库层还有 CHECK，两者同一集合派生。
         try:
             kind = BudgetTransactionKind(self.transaction_kind)
@@ -79,9 +77,7 @@ class BudgetLedger(Entity):
                 detail=f"{kind.value} 必须携带 reservation_ref（指回被处理的 RESERVE 流水）",
             )
         if self.amount < 0:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="amount 不能为负"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="amount 不能为负")
         for name, max_len in (
             ("transaction_id", 64),
             ("account_type", 32),

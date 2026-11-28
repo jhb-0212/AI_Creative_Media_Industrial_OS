@@ -158,18 +158,14 @@ async def _db_verdict(
     async with sessionmaker() as session:
         await set_test_scope(session, principal_org, tenant_id=tenant_id)
         visible = await session.scalar(
-            text(
-                "SELECT count(*) FROM project_planning.projects WHERE entity_id = :eid"
-            ),
+            text("SELECT count(*) FROM project_planning.projects WHERE entity_id = :eid"),
             {"eid": entity_id},
         )
         await session.rollback()
         return bool(visible)
 
 
-async def test_matrix_verdict_matches_between_layers(
-    db_sessionmaker, admin_sessionmaker
-) -> None:
+async def test_matrix_verdict_matches_between_layers(db_sessionmaker, admin_sessionmaker) -> None:
     """同一张矩阵打两层：应用层裁决必须与数据库可见性逐一相同。
 
     只比较 **裁决**（允许/拒绝），不比较响应形态：应用层拒绝是 403，数据库层
@@ -199,16 +195,12 @@ async def test_matrix_verdict_matches_between_layers(
         if db_allows != expected:
             mismatches.append(f"{label}: 数据库层可见性={db_allows}，期望={expected}")
         if app_allows != db_allows:
-            mismatches.append(
-                f"{label}: 两层裁决不一致（应用={app_allows} / 数据库={db_allows}）"
-            )
+            mismatches.append(f"{label}: 两层裁决不一致（应用={app_allows} / 数据库={db_allows}）")
 
     assert not mismatches, "组织范围判定两层不一致：\n" + "\n".join(mismatches)
 
 
-async def test_other_organization_rows_are_invisible(
-    db_sessionmaker, admin_sessionmaker
-) -> None:
+async def test_other_organization_rows_are_invisible(db_sessionmaker, admin_sessionmaker) -> None:
     """他组织的行不是「可见但被拒」，而是**查不到**（RLS 过滤，ADR-R24 D3a-2）。"""
     tenant_id = uuid.uuid4()
     org_a, org_b = uuid.uuid4(), uuid.uuid4()
@@ -223,9 +215,7 @@ async def test_other_organization_rows_are_invisible(
     assert await _db_verdict(db_sessionmaker, tenant_id, project_id, None) is False
 
 
-async def test_child_resource_follows_parent_scope(
-    db_sessionmaker, admin_sessionmaker
-) -> None:
+async def test_child_resource_follows_parent_scope(db_sessionmaker, admin_sessionmaker) -> None:
     """子资源（集数）随父项目的组织一起收敛：组织规则只写一次，靠父表传递。
 
     这是 ADR-R24 §D3a-3 的行为证据：episodes 没有 organization_id 列，若它的
@@ -263,10 +253,7 @@ async def test_child_resource_follows_parent_scope(
         async with db_sessionmaker() as session:
             await set_test_scope(session, organization_id, tenant_id=tenant_id)
             count = await session.scalar(
-                text(
-                    "SELECT count(*) FROM project_planning.episodes "
-                    "WHERE entity_id = :eid"
-                ),
+                text("SELECT count(*) FROM project_planning.episodes WHERE entity_id = :eid"),
                 {"eid": episode_id},
             )
             await session.rollback()
@@ -286,6 +273,6 @@ def test_app_layer_matrix_is_self_consistent() -> None:
     tenant_id = uuid.uuid4()
     org_a, org_b = uuid.uuid4(), uuid.uuid4()
     for resource_org, principal_org, allow in _matrix(org_a, org_b):
-        assert (
-            _app_verdict(tenant_id, resource_org, principal_org) is allow
-        ), f"矩阵行 ({resource_org}, {principal_org}) 期望 {allow}"
+        assert _app_verdict(tenant_id, resource_org, principal_org) is allow, (
+            f"矩阵行 ({resource_org}, {principal_org}) 期望 {allow}"
+        )

@@ -102,9 +102,7 @@ async def test_enqueue_and_claim_keep_projection_in_sync(
     suffix = uuid.uuid4().hex[:10]
     project_id = f"proj-prj-{suffix}"
     await seed_project(admin_sessionmaker, project_id=project_id, tenant=tenant)
-    task_id = await _enqueue(
-        qc_sessionmaker, tenant=tenant, project_id=project_id, suffix=suffix
-    )
+    task_id = await _enqueue(qc_sessionmaker, tenant=tenant, project_id=project_id, suffix=suffix)
 
     row = await _projection_row(admin_sessionmaker, task_id)
     assert row is not None, "入队后投影必须存在（同一事务）"
@@ -164,9 +162,7 @@ async def test_older_snapshot_cannot_overwrite_newer_projection(
     suffix = uuid.uuid4().hex[:10]
     project_id = f"proj-ver-{suffix}"
     await seed_project(admin_sessionmaker, project_id=project_id, tenant=tenant)
-    task_id = await _enqueue(
-        qc_sessionmaker, tenant=tenant, project_id=project_id, suffix=suffix
-    )
+    task_id = await _enqueue(qc_sessionmaker, tenant=tenant, project_id=project_id, suffix=suffix)
 
     async with qc_sessionmaker() as session:
         await set_test_scope(session, tenant_id=tenant)
@@ -196,17 +192,13 @@ async def test_older_snapshot_cannot_overwrite_newer_projection(
     assert row is not None and row.entity_version == 1
 
 
-async def test_terminal_state_retires_projection_row(
-    qc_sessionmaker, admin_sessionmaker
-) -> None:
+async def test_terminal_state_retires_projection_row(qc_sessionmaker, admin_sessionmaker) -> None:
     """终态删除投影行，且投影可由源任务重建。"""
     tenant = uuid.uuid4()
     suffix = uuid.uuid4().hex[:10]
     project_id = f"proj-fin-{suffix}"
     await seed_project(admin_sessionmaker, project_id=project_id, tenant=tenant)
-    task_id = await _enqueue(
-        qc_sessionmaker, tenant=tenant, project_id=project_id, suffix=suffix
-    )
+    task_id = await _enqueue(qc_sessionmaker, tenant=tenant, project_id=project_id, suffix=suffix)
 
     async with qc_sessionmaker() as session:
         await set_test_scope(session, tenant_id=tenant)

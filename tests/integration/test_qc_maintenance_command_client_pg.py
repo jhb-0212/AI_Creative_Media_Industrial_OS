@@ -61,15 +61,11 @@ async def test_success_path_records_no_denial(client, admin_sessionmaker) -> Non
     assert denied == 0
 
 
-async def test_denial_is_rolled_back_then_recorded_by_adapter(
-    client, admin_sessionmaker
-) -> None:
+async def test_denial_is_rolled_back_then_recorded_by_adapter(client, admin_sessionmaker) -> None:
     """命令失败 → 事务回滚 → 适配层用**独立**连接补记一行 DENIED。"""
     async with admin_sessionmaker() as session:
         wo = await create_work_order(session, tenant=uuid.uuid4(), approve=False)
-        other = await create_work_order(
-            session, tenant=uuid.uuid4(), kind="DETECT", approve=True
-        )
+        other = await create_work_order(session, tenant=uuid.uuid4(), kind="DETECT", approve=True)
 
     attempt = f"deny-{uuid.uuid4().hex}"
     pending = await client.reconcile(wo, attempt_id=attempt)
@@ -125,9 +121,7 @@ async def test_retry_with_same_attempt_is_idempotent(client, admin_sessionmaker)
     assert count == 1, "重试不得把一次拒绝记成多次"
 
 
-async def test_record_failure_alarms_instead_of_silence(
-    client, admin_sessionmaker, caplog
-) -> None:
+async def test_record_failure_alarms_instead_of_silence(client, admin_sessionmaker, caplog) -> None:
     """补记本身失败：返回 ``denial_recorded=False`` 并告警，不允许静默。
 
     真实失败是「login 没有补记函数的 EXECUTE」——入口被权限拒时，被拒的那个
@@ -152,9 +146,9 @@ async def test_record_failure_alarms_instead_of_silence(
         result = await client.reconcile(wo, attempt_id=f"alarm-{uuid.uuid4().hex}")
         assert result.denial == "not_approved", "原拒绝原因不能被补记失败掩盖"
         assert result.denial_recorded is False
-        assert any(
-            "补记失败" in record.message for record in caplog.records
-        ), "补记失败必须有告警，否则丢的是无声的审计缺口"
+        assert any("补记失败" in record.message for record in caplog.records), (
+            "补记失败必须有告警，否则丢的是无声的审计缺口"
+        )
     finally:
         for role in (_LOGIN, _OPERATOR):
             async with admin.begin() as conn:
@@ -168,9 +162,7 @@ async def test_record_failure_alarms_instead_of_silence(
         await admin.dispose()
 
 
-async def test_enumerate_denial_without_work_order_is_alarmed(
-    client, caplog
-) -> None:
+async def test_enumerate_denial_without_work_order_is_alarmed(client, caplog) -> None:
     """发现/检测没有工单维度：拒绝无法挂账时必须告警，而不是当作已记录。"""
     admin = create_async_engine(build_migration_url())
     try:
@@ -192,9 +184,7 @@ async def test_enumerate_denial_without_work_order_is_alarmed(
             async with admin.begin() as conn:
                 await conn.execute(
                     text(
-                        "GRANT EXECUTE ON FUNCTION "
-                        "qc_maintenance.enumerate_due_tasks() "
-                        f"TO {role}"
+                        f"GRANT EXECUTE ON FUNCTION qc_maintenance.enumerate_due_tasks() TO {role}"
                     )
                 )
         await admin.dispose()

@@ -81,9 +81,7 @@ def test_lazy_import_still_counts_as_direction_violation(tmp_path: Path) -> None
     )
     _write(tmp_path, "workers/relay/consumer.py", "VALUE = 1\n")
     violations = arch.check_layer_direction(arch.collect_imports(tmp_path))
-    assert [v.message.split("（")[0] for v in violations] == [
-        "packages 不得依赖 workers"
-    ]
+    assert [v.message.split("（")[0] for v in violations] == ["packages 不得依赖 workers"]
 
 
 def test_type_checking_import_counts_as_direction_violation(tmp_path: Path) -> None:
@@ -153,7 +151,9 @@ def test_non_literal_dynamic_import_is_not_guessed(tmp_path: Path) -> None:
 # R2 服务间直连
 # --------------------------------------------------------------------------- #
 def test_detects_cross_service_import(tmp_path: Path) -> None:
-    _write(tmp_path, "services/asset_service/api.py", "from services.qc_governance.rules import R\n")
+    _write(
+        tmp_path, "services/asset_service/api.py", "from services.qc_governance.rules import R\n"
+    )
     _write(tmp_path, "services/qc_governance/rules.py", "R = 1\n")
     violations = arch.check_cross_service(arch.collect_imports(tmp_path))
     assert len(violations) == 1

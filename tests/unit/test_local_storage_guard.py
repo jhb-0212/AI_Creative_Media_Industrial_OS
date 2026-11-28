@@ -108,9 +108,7 @@ async def test_oversize_is_rejected_before_writing(tmp_path: Path) -> None:
     with pytest.raises(StorageSizeLimitError, match="超出上限"):
         await storage.put(data=_PNG, media_type="image/png")
     # 前置判定的证据：磁盘上什么都没留下（不是「写完再删」）。
-    assert not (tmp_path / "objects").exists() or not any(
-        (tmp_path / "objects").rglob("*.png")
-    )
+    assert not (tmp_path / "objects").exists() or not any((tmp_path / "objects").rglob("*.png"))
 
 
 async def test_upstream_declared_digest_mismatch_is_rejected(tmp_path: Path) -> None:
@@ -121,9 +119,7 @@ async def test_upstream_declared_digest_mismatch_is_rejected(tmp_path: Path) -> 
     """
     storage = _storage(tmp_path)
     with pytest.raises(StorageIntegrityError, match="不符"):
-        await storage.put(
-            data=_PNG, media_type="image/png", expected_sha256="0" * 64
-        )
+        await storage.put(data=_PNG, media_type="image/png", expected_sha256="0" * 64)
 
 
 async def test_unknown_media_type_is_rejected(tmp_path: Path) -> None:

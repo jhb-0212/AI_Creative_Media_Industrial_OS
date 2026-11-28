@@ -207,17 +207,13 @@ def test_production_rejects_dev_default_domain_passwords(
     不得带入生产（否则业务域角色的口令可预测）。
     """
     _set_env(monkeypatch, _prod_env())
-    monkeypatch.setenv(
-        "POSTGRES_PROJECT_PLANNING_PASSWORD", "project_planning_dev_password"
-    )
+    monkeypatch.setenv("POSTGRES_PROJECT_PLANNING_PASSWORD", "project_planning_dev_password")
     with pytest.raises(ValueError) as exc_info:
         _make_settings(process_role="api")
     assert "project_planning_dev_password" in str(exc_info.value)
 
     _set_env(monkeypatch, _prod_env())
-    monkeypatch.setenv(
-        "POSTGRES_ASSET_SERVICE_PASSWORD", "asset_service_dev_password"
-    )
+    monkeypatch.setenv("POSTGRES_ASSET_SERVICE_PASSWORD", "asset_service_dev_password")
     with pytest.raises(ValueError) as exc_info:
         _make_settings(process_role="api")
     assert "asset_service_dev_password" in str(exc_info.value)
@@ -344,8 +340,16 @@ def test_migration_guard_rejects_dev_default_domain_passwords(
     from packages.shared.config import reject_development_default_password
 
     for field, env_name, default in (
-        ("postgres_project_planning_password", "POSTGRES_PROJECT_PLANNING_PASSWORD", "project_planning_dev_password"),
-        ("postgres_asset_service_password", "POSTGRES_ASSET_SERVICE_PASSWORD", "asset_service_dev_password"),
+        (
+            "postgres_project_planning_password",
+            "POSTGRES_PROJECT_PLANNING_PASSWORD",
+            "project_planning_dev_password",
+        ),
+        (
+            "postgres_asset_service_password",
+            "POSTGRES_ASSET_SERVICE_PASSWORD",
+            "asset_service_dev_password",
+        ),
         ("postgres_app_password", "POSTGRES_APP_PASSWORD", "app_dev_password"),
         ("postgres_outbox_ops_password", "POSTGRES_OUTBOX_OPS_PASSWORD", "outbox_ops_dev_password"),
     ):

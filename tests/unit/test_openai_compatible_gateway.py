@@ -42,9 +42,7 @@ def _request(**overrides) -> GenerationRequest:
 
 def _gateway(handler, **kwargs) -> OpenAICompatibleGateway:
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    return OpenAICompatibleGateway(
-        base_url=_BASE, api_key=_KEY, client=client, **kwargs
-    )
+    return OpenAICompatibleGateway(base_url=_BASE, api_key=_KEY, client=client, **kwargs)
 
 
 async def test_b64_response_is_decoded() -> None:
@@ -75,9 +73,7 @@ async def test_url_response_is_downloaded() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST":
             return httpx.Response(200, json={"data": [{"url": "https://cdn.example.com/a.png"}]})
-        return httpx.Response(
-            200, content=_PNG, headers={"content-type": "image/png"}
-        )
+        return httpx.Response(200, content=_PNG, headers={"content-type": "image/png"})
 
     artifact = await _gateway(handler).generate(_request())
     assert artifact.data == _PNG
@@ -147,9 +143,7 @@ async def test_oversize_declared_content_length_is_rejected() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST":
             return httpx.Response(200, json={"data": [{"url": "https://cdn.example.com/big.png"}]})
-        return httpx.Response(
-            200, content=b"x" * 64, headers={"content-length": "999999999"}
-        )
+        return httpx.Response(200, content=b"x" * 64, headers={"content-length": "999999999"})
 
     with pytest.raises(GatewayRejectedError, match="超出上限"):
         await _gateway(handler, max_bytes=1024).generate(_request())
@@ -157,6 +151,7 @@ async def test_oversize_declared_content_length_is_rejected() -> None:
 
 async def test_lying_content_length_is_caught_by_cumulative_count() -> None:
     """声明 4 字节、实际远超上限：只信 content-length 的实现会放行。"""
+
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST":
             return httpx.Response(200, json={"data": [{"url": "https://cdn.example.com/c.png"}]})
@@ -184,9 +179,7 @@ async def test_redirect_is_followed_then_capped() -> None:
         hops.append(str(request.url))
         index = int(str(request.url).rsplit("/", 1)[-1])
         if index < 9:
-            return httpx.Response(
-                302, headers={"location": f"https://cdn.example.com/{index + 1}"}
-            )
+            return httpx.Response(302, headers={"location": f"https://cdn.example.com/{index + 1}"})
         return httpx.Response(200, content=_PNG, headers={"content-type": "image/png"})
 
     with pytest.raises(GatewayRejectedError, match="跳转超过"):
@@ -196,11 +189,13 @@ async def test_redirect_is_followed_then_capped() -> None:
 
 async def test_html_error_page_is_not_accepted_as_artifact() -> None:
     """网关把错误页以 200 返回时，media_type 不能被伪造成 image/png 之外的类型。"""
+
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST":
             return httpx.Response(200, json={"data": [{"url": "https://cdn.example.com/e"}]})
-        return httpx.Response(200, content=b"<html>error</html>",
-                              headers={"content-type": "text/html"})
+        return httpx.Response(
+            200, content=b"<html>error</html>", headers={"content-type": "text/html"}
+        )
 
     artifact = await _gateway(handler).generate(_request())
     # 回落到请求声明的类型，而不是把 text/html 当成产物类型

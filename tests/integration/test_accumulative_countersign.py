@@ -45,9 +45,7 @@ async def domain_engine() -> AsyncIterator[AsyncEngine]:
 
 
 def _target(resource_id: str) -> SignatureTarget:
-    return SignatureTarget(
-        action_key=ACTION, resource_type=RESOURCE_TYPE, resource_id=resource_id
-    )
+    return SignatureTarget(action_key=ACTION, resource_type=RESOURCE_TYPE, resource_id=resource_id)
 
 
 def _principal(subject: str, tenant: uuid.UUID, role: str) -> Principal:

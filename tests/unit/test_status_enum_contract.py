@@ -65,10 +65,7 @@ def _layers() -> dict[str, Any]:
 
 
 def _classes() -> dict[str, str]:
-    return {
-        str(entry["object"]): str(entry["class"])
-        for entry in _taxonomy()["objects"]
-    }
+    return {str(entry["object"]): str(entry["class"]) for entry in _taxonomy()["objects"]}
 
 
 def _scene_def() -> dict[str, Any]:
@@ -185,9 +182,7 @@ def test_state_machine_added_state_without_schema_sync_is_reported() -> None:
             entry["allowed_states"] = sorted([*entry["allowed_states"], "SUSPENDED"])
     sm_states = cc.state_machine_states(sm_objects)
 
-    problems = cc.schema_enum_problems(
-        _definitions(), sm_states, _classes()
-    )
+    problems = cc.schema_enum_problems(_definitions(), sm_states, _classes())
     assert any("Scene.status.enum 缺权威集合里的值" in p for p in problems), problems
 
 
@@ -387,11 +382,7 @@ def test_ghost_taxonomy_entry_is_reported() -> None:
 
 
 def test_envelope_only_without_reason_is_reported() -> None:
-    taxonomy = [
-        entry
-        for entry in _taxonomy()["objects"]
-        if entry["object"] != "CameraRig"
-    ]
+    taxonomy = [entry for entry in _taxonomy()["objects"] if entry["object"] != "CameraRig"]
     taxonomy.append({"object": "CameraRig", "class": "envelope_only", "basis": "immutable_record"})
     problems = cc.taxonomy_problems(
         taxonomy, cc.state_machine_states(_sm_objects()), _definitions()
@@ -400,9 +391,7 @@ def test_envelope_only_without_reason_is_reported() -> None:
 
 
 def test_lifecycle_gap_without_debt_is_reported() -> None:
-    taxonomy = [
-        entry for entry in _taxonomy()["objects"] if entry["object"] != "CameraRig"
-    ]
+    taxonomy = [entry for entry in _taxonomy()["objects"] if entry["object"] != "CameraRig"]
     taxonomy.append({"object": "CameraRig", "class": "lifecycle_gap"})
     problems = cc.taxonomy_problems(
         taxonomy, cc.state_machine_states(_sm_objects()), _definitions()
@@ -411,9 +400,7 @@ def test_lifecycle_gap_without_debt_is_reported() -> None:
 
 
 def test_lifecycle_class_without_state_machine_is_reported() -> None:
-    taxonomy = [
-        entry for entry in _taxonomy()["objects"] if entry["object"] != "CameraRig"
-    ]
+    taxonomy = [entry for entry in _taxonomy()["objects"] if entry["object"] != "CameraRig"]
     taxonomy.append({"object": "CameraRig", "class": "lifecycle"})
     problems = cc.taxonomy_problems(
         taxonomy, cc.state_machine_states(_sm_objects()), _definitions()
@@ -422,11 +409,7 @@ def test_lifecycle_class_without_state_machine_is_reported() -> None:
 
 
 def test_envelope_only_cannot_coexist_with_state_machine() -> None:
-    taxonomy = [
-        entry
-        for entry in _taxonomy()["objects"]
-        if entry["object"] != "CameraRig"
-    ]
+    taxonomy = [entry for entry in _taxonomy()["objects"] if entry["object"] != "CameraRig"]
     taxonomy.append(
         {
             "object": "CameraRig",
@@ -456,9 +439,7 @@ def test_total_objects_mismatch_is_reported() -> None:
 
 def test_conflict_count_mismatch_is_reported() -> None:
     sm_data = {
-        "objects": [
-            {"object": "Scene", "allowed_states": ["DRAFT"], "conflict": True}
-        ],
+        "objects": [{"object": "Scene", "allowed_states": ["DRAFT"], "conflict": True}],
         "total_objects": 1,
         "conflict_count": 0,
     }
@@ -492,9 +473,7 @@ def test_asset_enum_covers_all_allowed_states() -> None:
 def test_status_check_sql_is_contract_shaped() -> None:
     from packages.shared.status_constraint import status_check_sql
 
-    assert (
-        status_check_sql({"DRAFT", "ACTIVE"}) == "status IN ('ACTIVE', 'DRAFT')"
-    )
+    assert status_check_sql({"DRAFT", "ACTIVE"}) == "status IN ('ACTIVE', 'DRAFT')"
     with pytest.raises(ValueError):
         status_check_sql([])
 
@@ -621,17 +600,15 @@ def test_status_split_without_authority_ruling_is_reported(tmp_path: Path) -> No
     removed = data["objects"].pop(0)  # ExternalToolAdapterManifest，属 status_split
     tmp = tmp_path / "field_authority.yaml"
     tmp.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
-    problems = cc.field_authority_problems(
-        tmp, _definitions(), required_split={removed["object"]}
-    )
-    assert any(removed["object"] in p and "没有 field_authority" in p for p in problems), (
-        problems
-    )
+    problems = cc.field_authority_problems(tmp, _definitions(), required_split={removed["object"]})
+    assert any(removed["object"] in p and "没有 field_authority" in p for p in problems), problems
 
 
 def test_previz_version_status_is_the_authoritative_lifecycle() -> None:
     entry = next(o for o in _sm_objects() if o["object"] == "PrevizVersion")
-    assert set(entry["allowed_states"]) == set(_definitions()["PrevizVersion"]["properties"]["status"]["enum"])
+    assert set(entry["allowed_states"]) == set(
+        _definitions()["PrevizVersion"]["properties"]["status"]["enum"]
+    )
     assert "purity_check_status" not in entry["allowed_states"]
     assert entry["transitions"] == [{"from": "APPROVED", "to": "LOCKED"}]
 

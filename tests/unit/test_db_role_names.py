@@ -98,9 +98,7 @@ def test_role_name_in_docstring_is_allowed(tmp_path: Path) -> None:
     _write(
         tmp_path,
         "packages/shared/doc.py",
-        '"""本模块说明 project_planning_role 与 asset_service_role 的分工。"""\n'
-        "\n"
-        "VALUE = 1\n",
+        '"""本模块说明 project_planning_role 与 asset_service_role 的分工。"""\n\nVALUE = 1\n',
     )
     assert ba.evaluate_role_name_literals(tmp_path) == []
 

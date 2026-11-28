@@ -47,9 +47,7 @@ from workers.relay.consumer import OutboxEvent
 from workers.relay.errors import DeliveryDeferredError, OutboxDeliveryError
 
 
-def _observe_endpoint_circuit(
-    state: CircuitState, previous: CircuitState | None
-) -> None:
+def _observe_endpoint_circuit(state: CircuitState, previous: CircuitState | None) -> None:
     """把端点熔断状态发布到 webhook 专属 Gauge。
 
     接口在 ``CircuitBreaker`` 里，指标名在这里——因为只有这里知道
@@ -114,11 +112,15 @@ class WebhookDispatcher:
         self._secret = secret.encode("utf-8")
         self._client = httpx.AsyncClient(timeout=timeout_seconds, transport=transport)
         # 熔断器：注入的 breaker 优先（测试可控时钟/状态）；否则按参数构造。
-        self._breaker = breaker if breaker is not None else CircuitBreaker(
-            failure_threshold=circuit_failure_threshold,
-            recovery_timeout_seconds=circuit_recovery_seconds,
-            enabled=circuit_enabled,
-            state_observer=_observe_endpoint_circuit,
+        self._breaker = (
+            breaker
+            if breaker is not None
+            else CircuitBreaker(
+                failure_threshold=circuit_failure_threshold,
+                recovery_timeout_seconds=circuit_recovery_seconds,
+                enabled=circuit_enabled,
+                state_observer=_observe_endpoint_circuit,
+            )
         )
 
     async def __call__(self, event: OutboxEvent) -> None:
@@ -148,8 +150,7 @@ class WebhookDispatcher:
             if is_endpoint_failure(response.status_code):
                 self._breaker.record_failure()
                 raise WebhookDeliveryError(
-                    f"webhook 返回 {response.status_code}"
-                    "（端点级失败：已计入端点熔断）"
+                    f"webhook 返回 {response.status_code}（端点级失败：已计入端点熔断）"
                 )
             # 4xx 事件级失败：端点能应答，说明它是活的——清零连续失败，
             # 失败归属这条事件，交给 relay 的事件级退避/死信处理。

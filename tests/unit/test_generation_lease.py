@@ -82,9 +82,7 @@ async def test_claim_moves_to_running_with_lease() -> None:
     service, _repo, outbox = _service()
     task = await _requested(service)
 
-    claimed = await service.claim(
-        task_id=task.entity_id, worker_id="worker-1", lease_seconds=120
-    )
+    claimed = await service.claim(task_id=task.entity_id, worker_id="worker-1", lease_seconds=120)
 
     assert claimed.status is GenerationTaskStatus.RUNNING
     assert claimed.lease_owner == "worker-1"
@@ -100,9 +98,7 @@ async def test_second_claim_is_rejected() -> None:
     await service.claim(task_id=task.entity_id, worker_id="worker-1", lease_seconds=120)
 
     with pytest.raises(DomainError):
-        await service.claim(
-            task_id=task.entity_id, worker_id="worker-2", lease_seconds=120
-        )
+        await service.claim(task_id=task.entity_id, worker_id="worker-2", lease_seconds=120)
 
 
 async def test_renew_requires_lease_owner() -> None:
@@ -112,13 +108,9 @@ async def test_renew_requires_lease_owner() -> None:
     first_expiry = task.lease_expires_at
 
     with pytest.raises(DomainError):
-        await service.renew(
-            task_id=task.entity_id, worker_id="worker-2", lease_seconds=120
-        )
+        await service.renew(task_id=task.entity_id, worker_id="worker-2", lease_seconds=120)
 
-    renewed = await service.renew(
-        task_id=task.entity_id, worker_id="worker-1", lease_seconds=300
-    )
+    renewed = await service.renew(task_id=task.entity_id, worker_id="worker-1", lease_seconds=300)
     assert renewed.lease_expires_at is not None
     assert first_expiry is not None
     assert renewed.lease_expires_at > first_expiry
@@ -179,9 +171,7 @@ async def test_reclaim_after_release_increments_attempts() -> None:
     task.lease_expires_at = datetime.now(UTC) - timedelta(seconds=5)
     await service.release_expired(task_id=task.entity_id)
 
-    again = await service.claim(
-        task_id=task.entity_id, worker_id="worker-2", lease_seconds=60
-    )
+    again = await service.claim(task_id=task.entity_id, worker_id="worker-2", lease_seconds=60)
     assert again.status is GenerationTaskStatus.RUNNING
     assert again.lease_owner == "worker-2"
     assert again.attempt_count == 2

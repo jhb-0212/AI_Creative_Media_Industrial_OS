@@ -247,9 +247,7 @@ def upgrade() -> None:
         sa.Column("constraint_pack_id", sa.String(64), nullable=False),
         sa.Column("project_id", sa.String(64), nullable=False),
         sa.Column("scene_id", sa.String(64), nullable=False, server_default=""),
-        sa.Column(
-            "shot_ids", postgresql.ARRAY(sa.String(64)), nullable=False
-        ),
+        sa.Column("shot_ids", postgresql.ARRAY(sa.String(64)), nullable=False),
         sa.Column(
             "shot_group_ids",
             postgresql.ARRAY(sa.String(64)),
@@ -274,12 +272,8 @@ def upgrade() -> None:
         sa.Column("approved_by", sa.String(64), nullable=False, server_default=""),
         sa.Column("approved_at", sa.DateTime(timezone=True), nullable=True),
         # 包标识 + 版本：7.9「同版本内唯一；变更须新建版本」。
-        sa.UniqueConstraint(
-            "constraint_pack_id", "version", name="uq_constraint_pack_version"
-        ),
-        sa.UniqueConstraint(
-            "project_id", "entity_id", name="uq_constraint_packs_entity_project"
-        ),
+        sa.UniqueConstraint("constraint_pack_id", "version", name="uq_constraint_pack_version"),
+        sa.UniqueConstraint("project_id", "entity_id", name="uq_constraint_packs_entity_project"),
         # 包与项目同租户（单列外键挡不住跨租户错配）。
         sa.ForeignKeyConstraint(
             ["project_id", "tenant_id"],
@@ -353,8 +347,7 @@ def upgrade() -> None:
     # 4. 行级安全：表一诞生就带策略，不留「以后补」的口子。
     op.execute(f"ALTER TABLE {_SCHEMA}.{_TABLE} ENABLE ROW LEVEL SECURITY")
     op.execute(
-        f"CREATE POLICY tenant_isolation_{_TABLE} "
-        f"ON {_SCHEMA}.{_TABLE} " + _row_visibility(_TABLE)
+        f"CREATE POLICY tenant_isolation_{_TABLE} ON {_SCHEMA}.{_TABLE} " + _row_visibility(_TABLE)
     )
     op.execute(f"ALTER TABLE {_SCHEMA}.{_TABLE} FORCE ROW LEVEL SECURITY")
 
@@ -365,9 +358,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute(
-        f"DROP POLICY IF EXISTS tenant_isolation_{_TABLE} ON {_SCHEMA}.{_TABLE}"
-    )
+    op.execute(f"DROP POLICY IF EXISTS tenant_isolation_{_TABLE} ON {_SCHEMA}.{_TABLE}")
     op.execute(f"ALTER TABLE {_SCHEMA}.{_TABLE} DISABLE ROW LEVEL SECURITY")
 
     op.drop_index(_ACTIVE_INDEX, table_name=_TABLE, schema=_SCHEMA)

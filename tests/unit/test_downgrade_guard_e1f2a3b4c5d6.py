@@ -14,11 +14,7 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[2]
 _MIGRATION = (
-    _ROOT
-    / "data"
-    / "migrations"
-    / "versions"
-    / "e1f2a3b4c5d6_asset_registration_saga_schema.py"
+    _ROOT / "data" / "migrations" / "versions" / "e1f2a3b4c5d6_asset_registration_saga_schema.py"
 )
 _GUARD = "_assert_no_inflight_tasks"
 _TAG = "[DOWNGRADE_BLOCKED:e1f2a3b4c5d6]"
@@ -54,7 +50,7 @@ def test_guard_is_read_only_and_targets_inflight_status() -> None:
     assert "count(*)" in text
     assert "WHERE status = :status" in text
     assert "_INFLIGHT_TASK_STATUS" in text
-    assert 'AWAITING_ASSET_REGISTRATION' in _source()
+    assert "AWAITING_ASSET_REGISTRATION" in _source()
     # 只读：守卫内不得出现任何 DML/DDL 关键字
     for keyword in ("UPDATE ", "DELETE ", "INSERT ", "ALTER ", "DROP ", "CREATE "):
         assert keyword not in text.upper(), f"守卫必须是只读的，出现了 {keyword!r}"

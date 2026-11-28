@@ -114,8 +114,9 @@ async def _count(admin_engine: AsyncEngine, sql: str, params: dict[str, object])
         return int(await conn.scalar(sa.text(sql), params) or 0)
 
 
-def _requested_event(task_id: str, project_id: str, attempt_id: str,
-                     digest: str, locator: str) -> OutboxEvent:
+def _requested_event(
+    task_id: str, project_id: str, attempt_id: str, digest: str, locator: str
+) -> OutboxEvent:
     return OutboxEvent(
         event_id=uuid4(),
         aggregate_type="GenerationTask",
@@ -143,7 +144,9 @@ def _requested_event(task_id: str, project_id: str, attempt_id: str,
 
 
 async def test_same_task_different_attempt_records_conflict(
-    admin_engine: AsyncEngine, prod_sm: object, asset_sm: object,
+    admin_engine: AsyncEngine,
+    prod_sm: object,
+    asset_sm: object,
     seeded: dict[str, object],
 ) -> None:
     task_id = str(seeded["task_id"])
@@ -162,8 +165,11 @@ async def test_same_task_different_attempt_records_conflict(
             SqlAlchemyGenerationTaskRepository(session), SqlAlchemyOutboxWriter(session)
         )
         await svc.prepare_artifact(
-            task_id=task_entity, worker_id="worker-e2e",
-            locator=locator_1, sha256=digest_1, media_type="image/png",
+            task_id=task_entity,
+            worker_id="worker-e2e",
+            locator=locator_1,
+            sha256=digest_1,
+            media_type="image/png",
             attempt_id=attempt_1,
         )
         await session.commit()
@@ -173,8 +179,12 @@ async def test_same_task_different_attempt_records_conflict(
             SqlAlchemyGenerationTaskRepository(session), SqlAlchemyOutboxWriter(session)
         )
         await svc.confirm_artifact(
-            task_id=task_entity, worker_id="worker-e2e", attempt_id=attempt_1,
-            locator=locator_1, sha256=digest_1, media_type="image/png",
+            task_id=task_entity,
+            worker_id="worker-e2e",
+            attempt_id=attempt_1,
+            locator=locator_1,
+            sha256=digest_1,
+            media_type="image/png",
         )
         await session.commit()
 
@@ -185,17 +195,23 @@ async def test_same_task_different_attempt_records_conflict(
     await handlers["ASSET_REGISTRATION_REQUESTED"](req1)
 
     # 首次登记成功：一条回执、带指纹、一个资产。
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM asset_service.asset_registration_receipts "
-        "WHERE generation_task_id=:task AND registration_fingerprint IS NOT NULL",
-        {"task": task_id},
-    ) == 1
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM asset_service.asset_versions WHERE sha256=:d",
-        {"d": digest_1},
-    ) == 1
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM asset_service.asset_registration_receipts "
+            "WHERE generation_task_id=:task AND registration_fingerprint IS NOT NULL",
+            {"task": task_id},
+        )
+        == 1
+    )
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM asset_service.asset_versions WHERE sha256=:d",
+            {"d": digest_1},
+        )
+        == 1
+    )
 
     # attempt-2：同 task 不同产物的 STORED_VERIFIED 意图。
     # 正常入口在 confirm 后 task 转 AWAITING，prepare 会被租约守卫拒绝——即
@@ -243,17 +259,23 @@ async def test_same_task_different_attempt_records_conflict(
     after_replay = await _count(admin_engine, conflict_sql, {"task": task_id})
 
     # 不建第二资产、不改写原回执。
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM asset_service.asset_versions WHERE sha256=:d",
-        {"d": digest_2},
-    ) == 0
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM asset_service.asset_registration_receipts "
-        "WHERE generation_task_id=:task",
-        {"task": task_id},
-    ) == 1
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM asset_service.asset_versions WHERE sha256=:d",
+            {"d": digest_2},
+        )
+        == 0
+    )
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM asset_service.asset_registration_receipts "
+            "WHERE generation_task_id=:task",
+            {"task": task_id},
+        )
+        == 1
+    )
     # 冲突事件：首次新增一条，重投不再增加（幂等），payload 含双指纹。
     assert after_first == before + 1, f"首次冲突应新增一条：{before}->{after_first}"
     assert after_replay == after_first, f"重投不应新增冲突证据：{after_first}->{after_replay}"
@@ -261,32 +283,41 @@ async def test_same_task_different_attempt_records_conflict(
     # 冲突事件由专用 no-op handler 正常消费（不动业务状态、不抬高积压语义）。
     conflict_event = None
     async with admin_engine.connect() as conn:
-        row = (await conn.execute(
-            sa.text(
-                "SELECT event_id, aggregate_type, aggregate_id, tenant_id, event_type, "
-                "payload, occurred_at FROM outbox.outbox_events "
-                "WHERE event_type='ASSET_REGISTRATION_CONFLICT' "
-                "AND payload->>'generation_task_id' = :task LIMIT 1"
-            ),
-            {"task": task_id},
-        )).one()
+        row = (
+            await conn.execute(
+                sa.text(
+                    "SELECT event_id, aggregate_type, aggregate_id, tenant_id, event_type, "
+                    "payload, occurred_at FROM outbox.outbox_events "
+                    "WHERE event_type='ASSET_REGISTRATION_CONFLICT' "
+                    "AND payload->>'generation_task_id' = :task LIMIT 1"
+                ),
+                {"task": task_id},
+            )
+        ).one()
         conflict_event = OutboxEvent(
-            event_id=row.event_id, aggregate_type=row.aggregate_type,
-            aggregate_id=row.aggregate_id, tenant_id=row.tenant_id,
-            event_type=row.event_type, payload=dict(row.payload),
+            event_id=row.event_id,
+            aggregate_type=row.aggregate_type,
+            aggregate_id=row.aggregate_id,
+            tenant_id=row.tenant_id,
+            event_type=row.event_type,
+            payload=dict(row.payload),
             occurred_at=row.occurred_at,
         )
     await handlers["ASSET_REGISTRATION_CONFLICT"](conflict_event)  # 不抛异常即 no-op
-    assert await _count(
-        admin_engine,
-        "SELECT count(*) FROM production_planning.generation_tasks "
-        "WHERE generation_task_id=:task AND status='AWAITING_ASSET_REGISTRATION'",
-        {"task": task_id},
-    ) == 1  # 冲突不改任务状态
+    assert (
+        await _count(
+            admin_engine,
+            "SELECT count(*) FROM production_planning.generation_tasks "
+            "WHERE generation_task_id=:task AND status='AWAITING_ASSET_REGISTRATION'",
+            {"task": task_id},
+        )
+        == 1
+    )  # 冲突不改任务状态
 
 
 async def test_receipt_unique_conflict_is_recoverable_for_handler_reread(
-    asset_sm: object, seeded: dict[str, object],
+    asset_sm: object,
+    seeded: dict[str, object],
 ) -> None:
     """G-3 的仓储契约：唯一键冲突抛可回读的 DuplicateEntityError，session 不 aborted。
 

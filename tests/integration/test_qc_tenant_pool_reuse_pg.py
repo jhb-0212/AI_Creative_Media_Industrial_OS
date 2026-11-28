@@ -38,15 +38,12 @@ from packages.shared.rls import RLS_TENANT_SETTING, set_tenant_context
 from tests.integration.qc_seed import seed_tenant_task
 
 _TENANT_SQL = text(
-    "SELECT NULLIF(current_setting(:key, true), '') AS tenant, "
-    "pg_backend_pid() AS pid"
+    "SELECT NULLIF(current_setting(:key, true), '') AS tenant, pg_backend_pid() AS pid"
 )
 
 # 一次「借出 → 读 GUC/pid → 按租户数行」的最小动作；所有序列都走它，避免
 # 每条用例各写一份 SQL 而在某一份里悄悄少了 GUC 断言。
-_COUNT_SQL = text(
-    "SELECT count(*) FROM qc_governance.qc_tasks WHERE tenant_id = :tenant"
-)
+_COUNT_SQL = text("SELECT count(*) FROM qc_governance.qc_tasks WHERE tenant_id = :tenant")
 
 
 @pytest.fixture(scope="module")

@@ -159,9 +159,8 @@ def _create_scenes_sql() -> str:
         f" REFERENCES {PLANNING}.projects (entity_id, tenant_id, organization_id)"
         # 归属锚点：Scene 唯一的上行引用。带上 project_id 是为了让「同组织不同项目」
         # 的集无法被挂进来——单列 (episode_id) 只能证明集成存在。
-        + f",\n  CONSTRAINT fk_scenes_episode_project FOREIGN KEY (episode_id, project_id)"
-        f" REFERENCES {PLANNING}.episodes (entity_id, project_id)"
-        + ")"
+         + f",\n  CONSTRAINT fk_scenes_episode_project FOREIGN KEY (episode_id, project_id)"
+        f" REFERENCES {PLANNING}.episodes (entity_id, project_id)" + ")"
     )
 
 
@@ -198,7 +197,7 @@ def _create_shots_sql() -> str:
         "('BLOCKED', 'CANCELLED', 'IN_PRODUCTION', 'NOT_STARTED', 'PRODUCTION_COMPLETE'))"
         # 双向约束，不是单向：「BLOCKED 时必填」单写时，非 BLOCKED 行仍可携带原因，
         # 于是「这一行为什么卡过」与「它现在卡不卡」变成两个可以互相矛盾的字段。
-        + ",\n  CONSTRAINT ck_shots_blocked_reason CHECK ("
+         + ",\n  CONSTRAINT ck_shots_blocked_reason CHECK ("
         "(status = 'BLOCKED' AND blocked_reason IS NOT NULL) OR "
         "(status <> 'BLOCKED' AND blocked_reason IS NULL))"
         + ",\n  CONSTRAINT ck_shots_cancelled CHECK ("
@@ -207,15 +206,14 @@ def _create_shots_sql() -> str:
         + f",\n  CONSTRAINT fk_shots_project_tenant_org FOREIGN KEY (project_id, tenant_id, organization_id)"
         f" REFERENCES {PLANNING}.projects (entity_id, tenant_id, organization_id)"
         # ADR-R19 裁定的形状：镜头归属经场次收敛到集，不由自身推导。
-        + f",\n  CONSTRAINT fk_shots_scene_project FOREIGN KEY (project_id, scene_id)"
+         + f",\n  CONSTRAINT fk_shots_scene_project FOREIGN KEY (project_id, scene_id)"
         f" REFERENCES {PLANNING}.scenes (project_id, scene_id)"
         # 与首个修订互为引用（ADR-R18：同一事务创建）。可延迟，否则事务内
         # 先插入的一方必然找不到对方——而「先建哪个」不该是调用方要操心的事。
-        + f",\n  CONSTRAINT fk_shots_current_revision FOREIGN KEY"
+         + f",\n  CONSTRAINT fk_shots_current_revision FOREIGN KEY"
         f" (shot_revision_id, project_id, tenant_id, organization_id)"
         f" REFERENCES {SHOT}.shot_revisions (entity_id, project_id, tenant_id, organization_id)"
-        f" DEFERRABLE INITIALLY DEFERRED"
-        + ")"
+        f" DEFERRABLE INITIALLY DEFERRED" + ")"
     )
 
 
@@ -307,24 +305,39 @@ GRANTS: tuple[tuple[str, str, str], ...] = (
 #: 都已备 `UNIQUE (project_id, <identity>)` 作为目标键。
 CONVERGENCE_FK: tuple[tuple[str, str, str, str, str], ...] = (
     (
-        f"{SHOT}.shot_specs", "fk_shot_specs_shot_project",
-        "project_id, shot_id", f"{SHOT}.shots", "project_id, shot_id",
+        f"{SHOT}.shot_specs",
+        "fk_shot_specs_shot_project",
+        "project_id, shot_id",
+        f"{SHOT}.shots",
+        "project_id, shot_id",
     ),
     (
-        f"{SHOT}.shot_visual_plans", "fk_shot_visual_plans_shot_project",
-        "project_id, shot_id", f"{SHOT}.shots", "project_id, shot_id",
+        f"{SHOT}.shot_visual_plans",
+        "fk_shot_visual_plans_shot_project",
+        "project_id, shot_id",
+        f"{SHOT}.shots",
+        "project_id, shot_id",
     ),
     (
-        f"{GEN}.generation_tasks", "fk_generation_tasks_shot_project",
-        "project_id, shot_id", f"{SHOT}.shots", "project_id, shot_id",
+        f"{GEN}.generation_tasks",
+        "fk_generation_tasks_shot_project",
+        "project_id, shot_id",
+        f"{SHOT}.shots",
+        "project_id, shot_id",
     ),
     (
-        f"{GEN}.shot_route_selections", "fk_shot_route_selections_shot_project",
-        "project_id, shot_id", f"{SHOT}.shots", "project_id, shot_id",
+        f"{GEN}.shot_route_selections",
+        "fk_shot_route_selections_shot_project",
+        "project_id, shot_id",
+        f"{SHOT}.shots",
+        "project_id, shot_id",
     ),
     (
-        f"{SHOT}.constraint_packs", "fk_constraint_packs_scene_project",
-        "project_id, scene_id", f"{PLANNING}.scenes", "project_id, scene_id",
+        f"{SHOT}.constraint_packs",
+        "fk_constraint_packs_scene_project",
+        "project_id, scene_id",
+        f"{PLANNING}.scenes",
+        "project_id, scene_id",
     ),
 )
 
@@ -443,15 +456,20 @@ def upgrade_steps() -> list[Step]:
     #
     #    `shot_revisions` 这条可延迟：它与 `shots.shot_revision_id` 互指
     #    （ADR-R18 要求同一事务创建），事务内先插哪一方都不该失败。
-    steps.append(Step(
-        f"ALTER TABLE {SHOT}.shot_revisions ADD CONSTRAINT fk_shot_revisions_shot_project "
-        f"FOREIGN KEY (project_id, shot_id) REFERENCES {SHOT}.shots (project_id, shot_id) "
-        "DEFERRABLE INITIALLY DEFERRED NOT VALID"
-    ))
-    steps.extend(Step(
-        f"ALTER TABLE {table} ADD CONSTRAINT {name} FOREIGN KEY ({cols}) "
-        f"REFERENCES {parent} ({pcols}) NOT VALID"
-    ) for table, name, cols, parent, pcols in CONVERGENCE_FK)
+    steps.append(
+        Step(
+            f"ALTER TABLE {SHOT}.shot_revisions ADD CONSTRAINT fk_shot_revisions_shot_project "
+            f"FOREIGN KEY (project_id, shot_id) REFERENCES {SHOT}.shots (project_id, shot_id) "
+            "DEFERRABLE INITIALLY DEFERRED NOT VALID"
+        )
+    )
+    steps.extend(
+        Step(
+            f"ALTER TABLE {table} ADD CONSTRAINT {name} FOREIGN KEY ({cols}) "
+            f"REFERENCES {parent} ({pcols}) NOT VALID"
+        )
+        for table, name, cols, parent, pcols in CONVERGENCE_FK
+    )
 
     steps.extend(Step(f"GRANT {priv} ON {table} TO {role}") for table, role, priv in GRANTS)
     return steps
@@ -470,16 +488,32 @@ def downgrade_steps() -> list[Step]:
     for table, role, priv in reversed(GRANTS):
         steps.append(Step(f"REVOKE {priv} ON {table} FROM {role}"))
 
-    steps.append(Step(f"ALTER TABLE {SHOT}.shot_revisions DROP CONSTRAINT IF EXISTS fk_shot_revisions_shot_project"))
+    steps.append(
+        Step(
+            f"ALTER TABLE {SHOT}.shot_revisions DROP CONSTRAINT IF EXISTS fk_shot_revisions_shot_project"
+        )
+    )
     for table, name, _cols, _parent, _pcols in reversed(CONVERGENCE_FK):
         steps.append(Step(f"ALTER TABLE {table} DROP CONSTRAINT IF EXISTS {name}"))
     steps.append(Step(f"DROP TABLE IF EXISTS {SHOT}.shots"))
-    steps.append(Step(f"ALTER TABLE {SHOT}.shot_revisions DROP CONSTRAINT IF EXISTS fk_shot_revisions_scene_project"))
-    steps.append(Step(f"ALTER TABLE {SHOT}.shot_revisions DROP CONSTRAINT IF EXISTS fk_shot_revisions_episode_identity"))
+    steps.append(
+        Step(
+            f"ALTER TABLE {SHOT}.shot_revisions DROP CONSTRAINT IF EXISTS fk_shot_revisions_scene_project"
+        )
+    )
+    steps.append(
+        Step(
+            f"ALTER TABLE {SHOT}.shot_revisions DROP CONSTRAINT IF EXISTS fk_shot_revisions_episode_identity"
+        )
+    )
     steps.append(Step(f"ALTER TABLE {SHOT}.shot_revisions DROP COLUMN IF EXISTS scene_id"))
     steps.append(Step(f"ALTER TABLE {SHOT}.shot_revisions DROP COLUMN IF EXISTS episode_id"))
     steps.append(Step(f"DROP TABLE IF EXISTS {PLANNING}.scenes"))
-    steps.append(Step(f"ALTER TABLE {PLANNING}.episodes DROP CONSTRAINT IF EXISTS uq_episodes_entity_project"))
+    steps.append(
+        Step(
+            f"ALTER TABLE {PLANNING}.episodes DROP CONSTRAINT IF EXISTS uq_episodes_entity_project"
+        )
+    )
     return steps
 
 

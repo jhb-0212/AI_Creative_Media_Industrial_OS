@@ -52,9 +52,7 @@ async def app_engine() -> AsyncIterator[AsyncEngine]:
 async def test_relay_can_select_outbox(relay_engine: AsyncEngine) -> None:
     """relay 能读 outbox_events（领取待投递事件的前提）。"""
     async with relay_engine.connect() as conn:
-        rows = await conn.execute(
-            text("SELECT count(*) FROM outbox.outbox_events WHERE false")
-        )
+        rows = await conn.execute(text("SELECT count(*) FROM outbox.outbox_events WHERE false"))
         assert rows.scalar() == 0
 
 
@@ -90,10 +88,7 @@ async def test_relay_cannot_update_event_content(relay_engine: AsyncEngine) -> N
         async with relay_engine.begin() as conn:
             with pytest.raises(Exception) as exc_info:
                 await conn.execute(
-                    text(
-                        f"UPDATE outbox.outbox_events SET {column} = {value} "
-                        f"WHERE false"
-                    )
+                    text(f"UPDATE outbox.outbox_events SET {column} = {value} WHERE false")
                 )
         message = str(exc_info.value).lower()
         assert "permission denied" in message, f"{column} 未被拒绝：{message}"
@@ -109,16 +104,20 @@ async def test_relay_column_privileges_match_contract(relay_engine: AsyncEngine)
 
     async with relay_engine.connect() as conn:
         columns = (
-            await conn.execute(
-                text(
-                    """
+            (
+                await conn.execute(
+                    text(
+                        """
                     SELECT column_name
                     FROM information_schema.columns
                     WHERE table_schema = 'outbox' AND table_name = 'outbox_events'
                     """
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         for column in columns:
             granted = (
@@ -163,9 +162,7 @@ async def test_relay_cannot_delete_outbox(relay_engine: AsyncEngine) -> None:
     """relay 不能 DELETE 事件（append-only 审计不可物理删除）。"""
     async with relay_engine.begin() as conn:
         with pytest.raises(Exception) as exc_info:
-            await conn.execute(
-                text("DELETE FROM outbox.outbox_events WHERE false")
-            )
+            await conn.execute(text("DELETE FROM outbox.outbox_events WHERE false"))
     assert "permission denied" in str(exc_info.value).lower()
 
 
@@ -173,9 +170,7 @@ async def test_relay_cannot_access_project_planning(relay_engine: AsyncEngine) -
     """relay 没有 project_planning schema 权限（越界读业务表被拒绝）。"""
     async with relay_engine.connect() as conn:
         with pytest.raises(Exception) as exc_info:
-            await conn.execute(
-                text("SELECT count(*) FROM project_planning.projects")
-            )
+            await conn.execute(text("SELECT count(*) FROM project_planning.projects"))
     assert "permission denied" in str(exc_info.value).lower()
 
 
@@ -183,9 +178,7 @@ async def test_relay_cannot_access_asset_service(relay_engine: AsyncEngine) -> N
     """relay 没有 asset_service schema 权限（越界写业务表被拒绝）。"""
     async with relay_engine.connect() as conn:
         with pytest.raises(Exception) as exc_info:
-            await conn.execute(
-                text("SELECT count(*) FROM asset_service.asset_versions")
-            )
+            await conn.execute(text("SELECT count(*) FROM asset_service.asset_versions"))
     assert "permission denied" in str(exc_info.value).lower()
 
 
@@ -200,10 +193,7 @@ async def test_legacy_app_role_cannot_write_outbox(app_engine: AsyncEngine) -> N
         for privilege in ("INSERT", "UPDATE", "DELETE"):
             granted = (
                 await conn.execute(
-                    text(
-                        "SELECT has_table_privilege("
-                        "current_user, 'outbox.outbox_events', :p)"
-                    ),
+                    text("SELECT has_table_privilege(current_user, 'outbox.outbox_events', :p)"),
                     {"p": privilege},
                 )
             ).scalar_one()

@@ -63,8 +63,16 @@ from packages.shared.yaml_strict import DuplicateYamlKeyError, load_yaml_file  #
 # 「游离副本」扫描时跳过的目录：它们不是仓库交付物，把基线正文放进去也不构成
 # 「读者会读到第二份正文」的风险（依赖包与工具缓存的内部文件不会被当作基线引用）。
 _SCAN_EXCLUDED_DIRS = frozenset(
-    {".git", ".venv", "venv", "node_modules", "__pycache__",
-     ".mypy_cache", ".ruff_cache", ".pytest_cache"}
+    {
+        ".git",
+        ".venv",
+        "venv",
+        "node_modules",
+        "__pycache__",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".pytest_cache",
+    }
 )
 
 # 正文 31.6 的自述数量口径：基线是「冻结时刻的快照」，它自述的 action 数必须等于
@@ -109,9 +117,15 @@ ARTIFACTS: tuple[Artifact, ...] = (
     Artifact("② OpenAPI 草案", OPENAPI, "31.6（由 Action Registry 派生）"),
     Artifact("③ 状态机", STATE_MACHINES, "31.5 / 8.6 / 32.6 / 33.3 / 34.7"),
     Artifact("④ Action Registry", ACTION_REGISTRY, "31.6 唯一注册表"),
-    Artifact("⑤ 权限矩阵", ROOT / "contracts" / "permission" / "permission_matrix.yaml", "C.5 / 31.6"),
-    Artifact("⑥ 预算与成本口径", ROOT / "contracts" / "budget" / "budget_caliber.yaml", "C.2 / 34.6"),
-    Artifact("⑦ 指标字典", ROOT / "contracts" / "metrics" / "metric_dictionary.yaml", "31.10 / 34.13"),
+    Artifact(
+        "⑤ 权限矩阵", ROOT / "contracts" / "permission" / "permission_matrix.yaml", "C.5 / 31.6"
+    ),
+    Artifact(
+        "⑥ 预算与成本口径", ROOT / "contracts" / "budget" / "budget_caliber.yaml", "C.2 / 34.6"
+    ),
+    Artifact(
+        "⑦ 指标字典", ROOT / "contracts" / "metrics" / "metric_dictionary.yaml", "31.10 / 34.13"
+    ),
     Artifact("⑧ 冻结包清单", MANIFEST_PATH, "31.11 契约证据清单", self_reference=True),
     Artifact("⑨ 枚举注册表", ROOT / "contracts" / "enums" / "enum_registry.yaml", "31.5 / C.7"),
     Artifact("⑩ ADR 主索引", ROOT / "docs" / "adr" / "adr_index.yaml", "31.12 / 32.13 / 33.15"),
@@ -485,9 +499,7 @@ def check_attachments(inventory: dict[str, Any]) -> list[str]:
     if not entries:
         return []
 
-    manifest_text = (
-        MANIFEST_PATH.read_text(encoding="utf-8") if MANIFEST_PATH.exists() else ""
-    )
+    manifest_text = MANIFEST_PATH.read_text(encoding="utf-8") if MANIFEST_PATH.exists() else ""
     problems: list[str] = []
     seen: set[str] = set()
     for entry in entries:
@@ -555,9 +567,7 @@ _REQUIRED_AMENDMENT_FIELDS = (
 )
 
 
-def _collect_names(
-    entries: Any, key: str, where: str
-) -> frozenset[str]:
+def _collect_names(entries: Any, key: str, where: str) -> frozenset[str]:
     """收集 ``[{action_key: X}, ...]`` 或 ``[{object: X}, ...]`` 的名称集合。"""
     names: list[str] = []
     for index, item in enumerate(_sequence(entries, where)):
@@ -624,9 +634,7 @@ def load_amendments() -> list[Amendment]:
         if amendment_id in seen_ids:
             raise FreezeDriftError(f"修订 id 重复：{amendment_id}")
         seen_ids.add(amendment_id)
-        missing = [
-            key for key in _REQUIRED_AMENDMENT_FIELDS if not _is_filled(entry.get(key))
-        ]
+        missing = [key for key in _REQUIRED_AMENDMENT_FIELDS if not _is_filled(entry.get(key))]
         if missing:
             # 唯一例外：只缺 source_commits 且已在 traceability_debt 登记。
             # 写成「missing == ['source_commits']」而不是「in missing」，
@@ -793,7 +801,9 @@ def check_amendment_consistency(
 
     base_actions = set(_strings(inventory.get("actions"), "frozen_inventory.actions"))
     base_objects = set(_strings(inventory.get("schema_objects"), "frozen_inventory.schema_objects"))
-    base_machines = set(_strings(inventory.get("state_machines"), "frozen_inventory.state_machines"))
+    base_machines = set(
+        _strings(inventory.get("state_machines"), "frozen_inventory.state_machines")
+    )
 
     # 清单自述数量必须与名称全集长度一致，避免「改了列表忘了改计数」。
     problems: list[str] = []
@@ -808,15 +818,27 @@ def check_amendment_consistency(
             )
 
     amendments = load_amendments() if amendments is None else amendments
-    added_actions = frozenset().union(*(a.added_actions for a in amendments)) if amendments else frozenset()
-    added_objects = frozenset().union(*(a.added_objects for a in amendments)) if amendments else frozenset()
-    added_machines = (
-        frozenset().union(*(a.added_state_machines for a in amendments)) if amendments else frozenset()
+    added_actions = (
+        frozenset().union(*(a.added_actions for a in amendments)) if amendments else frozenset()
     )
-    removed_actions = frozenset().union(*(a.removed_actions for a in amendments)) if amendments else frozenset()
-    removed_objects = frozenset().union(*(a.removed_objects for a in amendments)) if amendments else frozenset()
+    added_objects = (
+        frozenset().union(*(a.added_objects for a in amendments)) if amendments else frozenset()
+    )
+    added_machines = (
+        frozenset().union(*(a.added_state_machines for a in amendments))
+        if amendments
+        else frozenset()
+    )
+    removed_actions = (
+        frozenset().union(*(a.removed_actions for a in amendments)) if amendments else frozenset()
+    )
+    removed_objects = (
+        frozenset().union(*(a.removed_objects for a in amendments)) if amendments else frozenset()
+    )
     removed_machines = (
-        frozenset().union(*(a.removed_state_machines for a in amendments)) if amendments else frozenset()
+        frozenset().union(*(a.removed_state_machines for a in amendments))
+        if amendments
+        else frozenset()
     )
 
     # 增补项若已在基线里，说明登记写错了（重复登记 = 台账噪声）。
@@ -832,10 +854,18 @@ def check_amendment_consistency(
         "Action", base_actions, current_actions(), set(added_actions), set(removed_actions)
     )
     problems += _diff_against_baseline(
-        "Schema 对象", base_objects, current_schema_objects(), set(added_objects), set(removed_objects)
+        "Schema 对象",
+        base_objects,
+        current_schema_objects(),
+        set(added_objects),
+        set(removed_objects),
     )
     problems += _diff_against_baseline(
-        "状态机", base_machines, current_state_machines(), set(added_machines), set(removed_machines)
+        "状态机",
+        base_machines,
+        current_state_machines(),
+        set(added_machines),
+        set(removed_machines),
     )
     return problems
 
@@ -878,7 +908,9 @@ def write_manifest() -> None:
         elif size is None or digest is None:
             raise FreezeDriftError(f"{artifact.category} 文件不存在，无法登记：{rel}")
         else:
-            rows.append(f"| {artifact.category} | `{rel}` | {size} | `{digest}` | {artifact.section} |")
+            rows.append(
+                f"| {artifact.category} | `{rel}` | {size} | `{digest}` | {artifact.section} |"
+            )
 
     amendments = load_amendments()
     # 生成清单不改判据：要求侧不成立时直接拒绝出清单。--write 若照写，就会生成一份
@@ -889,9 +921,7 @@ def write_manifest() -> None:
         raise FreezeDriftError(
             "拒绝生成清单：附件要求侧与登记侧不一致——" + "；".join(authorization)
         )
-    amendment_lines = (
-        "\n".join(f"- `{a.id}`" for a in amendments) if amendments else "- （无）"
-    )
+    amendment_lines = "\n".join(f"- `{a.id}`" for a in amendments) if amendments else "- （无）"
     attachment_lines: list[str] = []
     for entry in attachment_entries(inventory):
         path = ROOT / entry.path

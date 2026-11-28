@@ -70,9 +70,7 @@ class SagaAssetRegistrar:
         """PR-G 只读：取该任务未确认意图，供恢复流程判断能否直接续上 T1。"""
         async with self._sessionmaker() as session:
             await set_tenant_context(session, task.tenant_id)
-            manifests = await self._service(session).list_pending_artifacts(
-                task_id=task.entity_id
-            )
+            manifests = await self._service(session).list_pending_artifacts(task_id=task.entity_id)
             # 只读事务：不 commit，退出上下文即释放会话。
             return [
                 PreparedIntent(

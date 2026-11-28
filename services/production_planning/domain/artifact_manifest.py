@@ -56,9 +56,7 @@ class ArtifactManifest(Entity):
         ):
             value = getattr(self, name)
             if _blank(value):
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
             if len(value) > max_len:
                 raise DomainError(
                     ErrorRegistry.VALIDATION_ERROR,

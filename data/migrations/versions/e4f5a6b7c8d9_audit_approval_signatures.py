@@ -48,11 +48,10 @@ TABLE = "approval_signatures"
 OUTBOX_SCHEMA = "outbox"
 OUTBOX_TABLE = "outbox_events"
 
+
 def _tenant_predicate(column: str = "tenant_id") -> str:
     """租户谓词：未注入租户上下文时恒为 false（fail-closed），与 D2a 一字不差。"""
-    return (
-        f"{column} = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid"
-    )
+    return f"{column} = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid"
 
 
 def upgrade() -> None:
@@ -176,17 +175,10 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute(f"DROP POLICY IF EXISTS tenant_isolation_{TABLE} ON {SCHEMA}.{TABLE}")
     op.execute(f"ALTER TABLE {SCHEMA}.{TABLE} DISABLE ROW LEVEL SECURITY")
-    op.execute(
-        f"DROP TRIGGER IF EXISTS trg_approval_signatures_event_exists "
-        f"ON {SCHEMA}.{TABLE}"
-    )
+    op.execute(f"DROP TRIGGER IF EXISTS trg_approval_signatures_event_exists ON {SCHEMA}.{TABLE}")
     op.execute(f"DROP FUNCTION IF EXISTS {SCHEMA}.assert_signature_event_exists()")
-    op.execute(
-        f"DROP TRIGGER IF EXISTS trg_approval_signatures_no_truncate ON {SCHEMA}.{TABLE}"
-    )
-    op.execute(
-        f"DROP TRIGGER IF EXISTS trg_approval_signatures_guard ON {SCHEMA}.{TABLE}"
-    )
+    op.execute(f"DROP TRIGGER IF EXISTS trg_approval_signatures_no_truncate ON {SCHEMA}.{TABLE}")
+    op.execute(f"DROP TRIGGER IF EXISTS trg_approval_signatures_guard ON {SCHEMA}.{TABLE}")
     op.execute(f"DROP TABLE IF EXISTS {SCHEMA}.{TABLE}")
 
 

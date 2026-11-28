@@ -103,9 +103,7 @@ class QCWorker:
         try:
             inspection = await self._inspect_with_heartbeat(tenant, claimed)
         except QcLeaseLostError:
-            logger.warning(
-                "lease lost while inspecting %s; abandon result", claimed.entity_id
-            )
+            logger.warning("lease lost while inspecting %s; abandon result", claimed.entity_id)
             return True
         except Exception:
             logger.exception("QC executor failed for %s", claimed.entity_id)
@@ -137,9 +135,7 @@ class QCWorker:
                 # 或有人把别处查到的行当成了本租户的行。两种都必须当场炸掉——
                 # 继续执行会以 A 的租约去改 B 的任务状态。
                 claimed_tenant = getattr(claimed, "tenant_id", None)
-                if claimed_tenant is not None and str(claimed_tenant) != str(
-                    tenant
-                ):
+                if claimed_tenant is not None and str(claimed_tenant) != str(tenant):
                     raise RuntimeError(
                         "租户上下文错配：会话租户 "
                         f"{tenant} 领到了任务 {claimed.entity_id}"
@@ -148,9 +144,7 @@ class QCWorker:
             await unit.commit()
             return claimed
 
-    async def _renew(
-        self, tenant: object | None, task_id: str, lease_generation: int
-    ) -> None:
+    async def _renew(self, tenant: object | None, task_id: str, lease_generation: int) -> None:
         async with self._unit(tenant) as unit:
             await unit.service.renew(
                 task_id=task_id,
@@ -160,9 +154,7 @@ class QCWorker:
             )
             await unit.commit()
 
-    async def _finish(
-        self, tenant: object | None, task: Any, inspection: QCInspection
-    ) -> bool:
+    async def _finish(self, tenant: object | None, task: Any, inspection: QCInspection) -> bool:
         async with self._unit(tenant) as unit:
             try:
                 await unit.service.finish(
@@ -174,9 +166,7 @@ class QCWorker:
                     evidence_refs=inspection.evidence_refs,
                 )
             except DomainError as exc:
-                logger.warning(
-                    "finish rejected for QC task %s: %s", task.entity_id, exc
-                )
+                logger.warning("finish rejected for QC task %s: %s", task.entity_id, exc)
                 return False
             await unit.commit()
             return True
@@ -194,9 +184,7 @@ class QCWorker:
                     # 代次随领取一起缓存：心跳证明的是「我是这一代」，不是「我是这任务」。
                     await self._renew(tenant, task.entity_id, task.lease_generation)
                 except DomainError as exc:
-                    raise QcLeaseLostError(
-                        f"renew denied for {task.entity_id}: {exc}"
-                    ) from exc
+                    raise QcLeaseLostError(f"renew denied for {task.entity_id}: {exc}") from exc
         finally:
             if not work.done():
                 work.cancel()

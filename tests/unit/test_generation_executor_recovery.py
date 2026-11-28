@@ -51,9 +51,7 @@ class _FakeStorage:
         self._get_error = get_error
         self.puts: list[str] = []
 
-    async def put(
-        self, *, data: bytes, media_type: str, expected_sha256: str = ""
-    ) -> StoredObject:
+    async def put(self, *, data: bytes, media_type: str, expected_sha256: str = "") -> StoredObject:
         digest = hashlib.sha256(data).hexdigest()
         locator = build_locator(digest, "png" if media_type == "image/png" else "bin")
         self._objects[locator] = data

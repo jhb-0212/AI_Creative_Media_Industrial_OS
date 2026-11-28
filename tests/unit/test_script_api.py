@@ -95,9 +95,7 @@ async def test_import_script_rejects_empty_title(auth_client: AsyncClient) -> No
     否则校验错误会变成探测他人项目是否存在的通道。因此这里用真实项目。
     """
     project_id = f"proj_empty_{uuid.uuid4().hex[:8]}"
-    await _setup_project_and_episode(
-        auth_client, project_id=project_id, episode_refs=["EP001"]
-    )
+    await _setup_project_and_episode(auth_client, project_id=project_id, episode_refs=["EP001"])
     resp = await auth_client.post(
         "/scripts/import",
         json={

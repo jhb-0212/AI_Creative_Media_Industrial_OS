@@ -139,9 +139,7 @@ def _create_tables() -> None:
         ["tenant_id", "created_at"],
         schema=_MAINT,
     )
-    op.create_index(
-        "ix_maintenance_work_order_status", _WO, ["status"], schema=_MAINT
-    )
+    op.create_index("ix_maintenance_work_order_status", _WO, ["status"], schema=_MAINT)
 
     op.create_table(
         _LOG,
@@ -240,8 +238,7 @@ def _enable_rls() -> None:
 
     # 工单只读给 owner：命令要能解析「这张工单授权了哪个租户」。
     op.execute(
-        f"CREATE POLICY maintenance_owner_read_{_WO} ON {_MAINT}.{_WO} "
-        f"TO {_owner()} USING (true)"
+        f"CREATE POLICY maintenance_owner_read_{_WO} ON {_MAINT}.{_WO} TO {_owner()} USING (true)"
     )
     # 账本给 owner 读写：命令以 owner 身份落审计行（含拒绝记录）。
     op.execute(
@@ -452,7 +449,6 @@ def _create_commands() -> None:
         """
     )
 
-
     op.execute(
         f"""
         CREATE FUNCTION {_MAINT}.record_maintenance_denial(
@@ -554,10 +550,10 @@ def downgrade() -> None:
     # 旧降级只删策略/函数/表，未撤这两条 → D 比 P 多出两处授权。
     op.execute(f"REVOKE SELECT ON TABLE {_QC}.qc_tasks FROM {_owner()}")
     op.execute(f"REVOKE USAGE ON SCHEMA {_QC} FROM {_owner()}")
-    op.execute(f"DROP POLICY IF EXISTS maintenance_owner_read_task_projection "
-               f"ON {_MAINT}.task_projection")
-    op.execute(f"DROP POLICY IF EXISTS maintenance_owner_read_qc_tasks "
-               f"ON {_QC}.qc_tasks")
+    op.execute(
+        f"DROP POLICY IF EXISTS maintenance_owner_read_task_projection ON {_MAINT}.task_projection"
+    )
+    op.execute(f"DROP POLICY IF EXISTS maintenance_owner_read_qc_tasks ON {_QC}.qc_tasks")
     for function in (
         MAINTENANCE_DENIAL,
         MAINTENANCE_RECONCILE,

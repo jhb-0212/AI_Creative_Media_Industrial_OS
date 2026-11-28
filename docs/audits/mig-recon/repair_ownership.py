@@ -24,6 +24,7 @@ ADR-R40 D-10.2.3 陷阱（b）：RLS 先于守卫生效，越权写会静默退�
     python repair_ownership.py --port 15444 --plan      # 只探测与判定，不写
     python repair_ownership.py --port 15444             # 执行订正
 """
+
 from __future__ import annotations
 
 import argparse
@@ -102,8 +103,7 @@ async def single_pk(conn: asyncpg.Connection, table: str) -> str:
     )
     if len(pk) != 1:
         raise RuntimeError(
-            f"{table} 的主键列数为 {len(pk)}，本脚本只支持单列主键；"
-            "请显式指定行键，而不是让脚本猜"
+            f"{table} 的主键列数为 {len(pk)}，本脚本只支持单列主键；请显式指定行键，而不是让脚本猜"
         )
     return pk[0]["attname"]
 
@@ -142,7 +142,8 @@ async def discover_inconsistent(conn: asyncpg.Connection) -> list[Finding]:
             """SELECT EXISTS (SELECT 1 FROM pg_attribute
                               WHERE attrelid = to_regclass($1) AND attname = $2
                                 AND attnum > 0 AND NOT attisdropped)""",
-            child, col,
+            child,
+            col,
         ):
             continue
 
@@ -169,17 +170,24 @@ async def discover_inconsistent(conn: asyncpg.Connection) -> list[Finding]:
             """
         )
         for r in rows:
-            out.append(Finding(
-                table=child, key_col=child_pk, row_key=r["k"],
-                old_project=r["project_id"], old_org=r["org"], old_tenant=r["tenant"],
-                rule="R4",
-                new_project=r["new_project"], new_org=r["new_org"],
-                new_tenant=r["new_tenant"],
-                reason=(
-                    f"{col} 所指父行（{spec.parent}）的归属与本行不一致；"
-                    "父行是归属的源、本行是副本，以父行为准"
-                ),
-            ))
+            out.append(
+                Finding(
+                    table=child,
+                    key_col=child_pk,
+                    row_key=r["k"],
+                    old_project=r["project_id"],
+                    old_org=r["org"],
+                    old_tenant=r["tenant"],
+                    rule="R4",
+                    new_project=r["new_project"],
+                    new_org=r["new_org"],
+                    new_tenant=r["new_tenant"],
+                    reason=(
+                        f"{col} 所指父行（{spec.parent}）的归属与本行不一致；"
+                        "父行是归属的源、本行是副本，以父行为准"
+                    ),
+                )
+            )
     return out
 
 
@@ -256,8 +264,12 @@ async def discover(conn: asyncpg.Connection) -> list[Finding]:
 
         for r in rows:
             f = Finding(
-                table=table, key_col=key_col, row_key=r["k"],
-                old_project=r["project_id"], old_org=r["org"], old_tenant=r["tenant"],
+                table=table,
+                key_col=key_col,
+                row_key=r["k"],
+                old_project=r["project_id"],
+                old_org=r["org"],
+                old_tenant=r["tenant"],
             )
             # R1：项目真实存在但组织/租户列与项目不一致 → 以项目为准
             if r["project_exists"] and (
@@ -281,7 +293,8 @@ async def discover(conn: asyncpg.Connection) -> list[Finding]:
                        AND organization_id = $1::uuid
                        AND tenant_id = $2::uuid
                     """,
-                    r["org"], r["tenant"],
+                    r["org"],
+                    r["tenant"],
                 )
                 if q is None:
                     f.manual = (
@@ -313,9 +326,7 @@ async def discover(conn: asyncpg.Connection) -> list[Finding]:
                         "全库唯一真实组织为其归属，按唯一候选订正"
                     )
                 else:
-                    f.manual = (
-                        f"R3 存在 {len(cands)} 个候选组织，无法唯一确定；转人工裁决"
-                    )
+                    f.manual = f"R3 存在 {len(cands)} 个候选组织，无法唯一确定；转人工裁决"
             findings.append(f)
     return findings
 
@@ -346,8 +357,16 @@ async def insert_map(conn: asyncpg.Connection, f: Finding, ticket: str) -> None:
                            reason, ticket_ref)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
         """,
-        f.table, f.row_key, f.old_project, f.old_org, f.old_tenant,
-        f.new_project, f.new_org, f.new_tenant, f.reason, ticket,
+        f.table,
+        f.row_key,
+        f.old_project,
+        f.old_org,
+        f.old_tenant,
+        f.new_project,
+        f.new_org,
+        f.new_tenant,
+        f.reason,
+        ticket,
     )
 
 
@@ -393,7 +412,9 @@ async def stamp_map(conn: asyncpg.Connection, f: Finding, ticket: str) -> None:
     await conn.execute(
         f"UPDATE {MAP} SET applied_at = now() "
         f"WHERE table_name = $1 AND row_key = $2 AND ticket_ref = $3",
-        f.table, f.row_key, ticket,
+        f.table,
+        f.row_key,
+        ticket,
     )
 
 
@@ -405,14 +426,20 @@ async def main() -> int:
     ap.add_argument("--password", default="<ROTATED-2026-11-28>")
     ap.add_argument("--db", default="ai_film_industrial")
     ap.add_argument("--plan", action="store_true", help="只探测与判定，不写库")
-    ap.add_argument("--ticket", default=DEFAULT_TICKET,
-                    help="工单号。每轮订正应开新工单：uq_ownership_repair_map 以"
-                         "(表, 行, 工单) 为唯一键，(复用旧工单会与既有授权记录冲突)")
+    ap.add_argument(
+        "--ticket",
+        default=DEFAULT_TICKET,
+        help="工单号。每轮订正应开新工单：uq_ownership_repair_map 以"
+        "(表, 行, 工单) 为唯一键，(复用旧工单会与既有授权记录冲突)",
+    )
     args = ap.parse_args()
 
     conn = await asyncpg.connect(
-        host=args.host, port=args.port, user=args.user,
-        password=args.password, database=args.db,
+        host=args.host,
+        port=args.port,
+        user=args.user,
+        password=args.password,
+        database=args.db,
     )
     try:
         # R4 先跑、并**优先于** R1~R3：一条行若既有父行可推导、自身 project 又不合法，
@@ -426,8 +453,10 @@ async def main() -> int:
         todo = [f for f in findings if not f.manual]
         manual = [f for f in findings if f.manual]
 
-        print(f"探测到归属不成立的行：{len(findings)} 行"
-              f"（可自动判定 {len(todo)}，需人工 {len(manual)}）")
+        print(
+            f"探测到归属不成立的行：{len(findings)} 行"
+            f"（可自动判定 {len(todo)}，需人工 {len(manual)}）"
+        )
         print("-" * 96)
         for f in findings:
             if f.manual:
@@ -444,8 +473,7 @@ async def main() -> int:
             print("--plan 模式：未写入任何数据。")
             return 0
         if manual:
-            print(f"拒绝执行：有 {len(manual)} 行需人工裁决。"
-                  "fail-closed，不为凑闭环而猜测目标。")
+            print(f"拒绝执行：有 {len(manual)} 行需人工裁决。fail-closed，不为凑闭环而猜测目标。")
             return 3
         if not todo:
             print("无事可做。")

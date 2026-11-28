@@ -31,9 +31,7 @@
 **证据**：`workers/relay/asset_registration.py:178-184`
 
 ```python
-existing = await receipts.get_by_tenant_task(
-    request.tenant_id, request.generation_task_id
-)
+existing = await receipts.get_by_tenant_task(request.tenant_id, request.generation_task_id)
 if existing is not None:
     # 重复投递：不新建资产、不改写回执，也不再发一次结果事件。
     await session.commit()

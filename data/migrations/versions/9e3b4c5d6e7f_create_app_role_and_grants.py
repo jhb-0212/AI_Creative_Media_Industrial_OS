@@ -21,6 +21,7 @@ Revision ID: 9e3b4c5d6e7f
 Revises: 8f2a1b3c4d5e
 Create Date: 2026-11-13
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -57,12 +58,8 @@ def _app_password() -> str:
     settings = get_settings()
     password = settings.postgres_app_password.get_secret_value()
     if not password:
-        raise RuntimeError(
-            "POSTGRES_APP_PASSWORD 未配置：拒绝以空口令创建应用角色"
-        )
-    reject_development_default_password(
-        settings, "postgres_app_password", "POSTGRES_APP_PASSWORD"
-    )
+        raise RuntimeError("POSTGRES_APP_PASSWORD 未配置：拒绝以空口令创建应用角色")
+    reject_development_default_password(settings, "postgres_app_password", "POSTGRES_APP_PASSWORD")
     return password.replace("'", "''")
 
 
@@ -76,7 +73,9 @@ def upgrade() -> None:
     # 2. 授权 schema USAGE + 表/序列权限（最小权限）。
     for schema in _SCHEMAS:
         op.execute(f"GRANT USAGE ON SCHEMA {schema} TO {app_role_name()}")
-        op.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {schema} TO {app_role_name()}")
+        op.execute(
+            f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {schema} TO {app_role_name()}"
+        )
         op.execute(f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO {app_role_name()}")
 
     # 3. 授权未来新建对象（默认权限，使后续迁移的表自动可访问）。

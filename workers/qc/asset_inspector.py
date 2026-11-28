@@ -98,13 +98,9 @@ class AssetIntegrityInspector:
             )
             asset = await assets.get_by_id(task.asset_version_id)
             if asset is None:
-                raise InspectionBlockedError(
-                    f"资产版本不存在: {task.asset_version_id}"
-                )
+                raise InspectionBlockedError(f"资产版本不存在: {task.asset_version_id}")
             if asset.status not in _REPORTABLE:
-                raise InspectionBlockedError(
-                    f"资产状态 {asset.status.value} 不接受新的 QC 报告"
-                )
+                raise InspectionBlockedError(f"资产状态 {asset.status.value} 不接受新的 QC 报告")
 
             # 归属核验是**执行的准入条件**，不是一条检测项（见函数文档）。
             assert_asset_within_task_scope(task, asset)

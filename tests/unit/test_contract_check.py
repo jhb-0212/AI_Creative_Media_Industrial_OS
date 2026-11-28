@@ -103,14 +103,10 @@ def test_action_openapi_mismatch_semantics(monkeypatch, tmp_path) -> None:
     registry_path = contracts / "action_registry" / "action_registry.yaml"
     data = yaml.safe_load(registry_path.read_text(encoding="utf-8"))
     data["actions"] = [
-        action
-        for action in data["actions"]
-        if action.get("action_key") != "SCRIPT.IMPORT"
+        action for action in data["actions"] if action.get("action_key") != "SCRIPT.IMPORT"
     ]
     data["total_actions"] = len(data["actions"])
-    registry_path.write_text(
-        yaml.safe_dump(data, allow_unicode=True), encoding="utf-8"
-    )
+    registry_path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
 
     monkeypatch.setattr(cc, "CONTRACTS", contracts)
 
@@ -156,9 +152,7 @@ def test_runtime_coverage_detects_unlogged_active_action(
 ) -> None:
     """ACTIVE action 既没实现也没登记原因 → 必须变红。"""
     original = cc._active_action_keys
-    monkeypatch.setattr(
-        cc, "_active_action_keys", lambda: original() | {"SHOT.GHOST.ACTION"}
-    )
+    monkeypatch.setattr(cc, "_active_action_keys", lambda: original() | {"SHOT.GHOST.ACTION"})
     assert cc.check_runtime_contract_coverage() is False
 
 
@@ -177,9 +171,12 @@ def test_missing_resource_schemas_reports_undefined_and_unexempted() -> None:
 
 
 def test_missing_resource_schemas_all_exempted_is_empty() -> None:
-    assert cc.missing_resource_schemas(
-        {"A.CREATE"}, {"A.CREATE": "Alpha/Beta"}, set(), {"Alpha", "Beta"}
-    ) == []
+    assert (
+        cc.missing_resource_schemas(
+            {"A.CREATE"}, {"A.CREATE": "Alpha/Beta"}, set(), {"Alpha", "Beta"}
+        )
+        == []
+    )
 
 
 def test_check_resource_schemas_passes_on_current_contract() -> None:
@@ -199,9 +196,7 @@ def test_check_resource_schemas_fails_for_redundant_exemption(
 ) -> None:
     """对象已有 schema 却仍登记豁免 = 冗余豁免，必须报红（审查 N4）。"""
     exempt = tmp_path / "exemptions.yaml"
-    exempt.write_text(
-        "exemptions:\n  Project: \"未进入 object_schemas\"\n", encoding="utf-8"
-    )
+    exempt.write_text('exemptions:\n  Project: "未进入 object_schemas"\n', encoding="utf-8")
     monkeypatch.setattr(cc, "RESOURCE_EXEMPTIONS_PATH", exempt)
     assert cc.check_implemented_resource_schemas() is False
 
@@ -212,10 +207,7 @@ def test_check_resource_schemas_fails_for_unimplemented_object(
     """把 ShotDraft（object_schemas 里没有定义）伪造成已实现 → 必须报红。"""
     ledger = tmp_path / "ledger.yaml"
     ledger.write_text(
-        "implemented:\n"
-        "  SHOT.DRAFT.CREATE:\n"
-        "    route: POST /shots/drafts\n"
-        "not_implemented: {}\n",
+        "implemented:\n  SHOT.DRAFT.CREATE:\n    route: POST /shots/drafts\nnot_implemented: {}\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(cc, "LEDGER_PATH", ledger)
@@ -227,9 +219,7 @@ def test_check_resource_schemas_fails_for_orphan_exemption(
 ) -> None:
     """豁免了没有任何已实现动作引用的类型 = 过期条目，必须报红。"""
     exempt = tmp_path / "exemptions.yaml"
-    exempt.write_text(
-        "exemptions:\n  NotReferencedAnywhere: \"过期条目\"\n", encoding="utf-8"
-    )
+    exempt.write_text('exemptions:\n  NotReferencedAnywhere: "过期条目"\n', encoding="utf-8")
     monkeypatch.setattr(cc, "RESOURCE_EXEMPTIONS_PATH", exempt)
     assert cc.check_implemented_resource_schemas() is False
 
@@ -297,16 +287,15 @@ def test_active_schema_detects_undeclared_gap(
     original_types = cc._action_resource_types()
     monkeypatch.setattr(cc, "_active_action_keys", lambda: original_keys | {fake_action})
     monkeypatch.setattr(
-        cc, "_action_resource_types",
+        cc,
+        "_action_resource_types",
         lambda: {**original_types, fake_action: fake_type},
     )
     monkeypatch.setattr(cc, "RESOURCE_GAPS_PATH", _write_gaps(tmp_path, {}))
     assert cc.check_active_resource_schemas() is False
 
 
-def test_active_schema_detects_stale_debt(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_active_schema_detects_stale_debt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """已补 schema 的类型仍挂债务 = 陈旧债务，必须报红。"""
     monkeypatch.setattr(
         cc,
@@ -326,9 +315,7 @@ def test_active_schema_detects_stale_debt(
     assert cc.check_active_resource_schemas() is False
 
 
-def test_active_schema_detects_orphan_debt(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_active_schema_detects_orphan_debt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """债务类型没有任何 ACTIVE 动作引用 = 孤儿债务，必须报红。"""
     monkeypatch.setattr(
         cc,
@@ -348,9 +335,7 @@ def test_active_schema_detects_orphan_debt(
     assert cc.check_active_resource_schemas() is False
 
 
-def test_active_schema_requires_gap_fields(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_active_schema_requires_gap_fields(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """债务缺 reason → 必须报红（债务不能含糊）。"""
     entry = {
         "referenced_by": ["SHOT.DRAFT.CREATE"],
@@ -433,8 +418,7 @@ def _event_fixture(
         yaml.safe_dump(
             {
                 "implemented": {
-                    key: {"route": "POST /demo", "module": "m.py"}
-                    for key in (implemented or [])
+                    key: {"route": "POST /demo", "module": "m.py"} for key in (implemented or [])
                 }
             },
             allow_unicode=True,
@@ -476,9 +460,7 @@ def test_event_catalog_detects_undeclared_event(
     assert cc.check_event_catalog() is False
 
 
-def test_event_catalog_detects_stale_entry(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_event_catalog_detects_stale_entry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """登记了但代码已不再发 = 陈旧台账，必须报红。"""
     _event_fixture(
         tmp_path,
@@ -529,9 +511,7 @@ def _write_schema(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, definitions: 
     monkeypatch.setattr(cc, "SCHEMA_PATH", path)
 
 
-def test_schema_rejects_empty_properties(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_schema_rejects_empty_properties(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _write_schema(tmp_path, monkeypatch, {"Demo": {"type": "object", "properties": {}}})
     assert cc.check_schema_objects() is False
 
@@ -553,9 +533,7 @@ def test_schema_rejects_required_not_in_properties(
     assert cc.check_schema_objects() is False
 
 
-def test_schema_rejects_dangling_ref(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_schema_rejects_dangling_ref(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _write_schema(
         tmp_path,
         monkeypatch,
@@ -688,9 +666,7 @@ def test_transition_entry_gaps_detects_dropped_entry(
         "_implemented_action_keys",
         lambda: original_impl() - {"CONSTRAINT.PACK.STATUS.CHANGE"},
     )
-    monkeypatch.setattr(
-        cc, "STATE_GAPS_PATH", _gaps_without("ConstraintPack", tmp_path=tmp_path)
-    )
+    monkeypatch.setattr(cc, "STATE_GAPS_PATH", _gaps_without("ConstraintPack", tmp_path=tmp_path))
     assert cc.check_transition_entry_gaps() is False
 
 
@@ -745,9 +721,7 @@ def test_transition_entry_gaps_bad_edge_detail_raises_value_error(
     monkeypatch.setattr(cc, "STATE_GAPS_PATH", bad)
     with pytest.raises(ValueError) as exc_info:
         cc.check_transition_entry_gaps()
-    assert "transition_entry_gaps.ConstraintPack.ACTIVE -> REVOKED" in str(
-        exc_info.value
-    )
+    assert "transition_entry_gaps.ConstraintPack.ACTIVE -> REVOKED" in str(exc_info.value)
 
 
 def test_transition_entry_gaps_rejects_unknown_edge(
@@ -1001,9 +975,7 @@ def test_security_boundary_detects_duplicate_invariant_id(
 # --------------------------------------------------------------------------- #
 def _write_proposal(dir_path: Path, name: str, front_matter: str, body: str = "# 提案\n") -> None:
     dir_path.mkdir(parents=True, exist_ok=True)
-    (dir_path / name).write_text(
-        f"---\n{front_matter.strip()}\n---\n\n{body}", encoding="utf-8"
-    )
+    (dir_path / name).write_text(f"---\n{front_matter.strip()}\n---\n\n{body}", encoding="utf-8")
 
 
 def test_proposal_status_passes_on_repository() -> None:
@@ -1138,8 +1110,6 @@ open_items: []
     assert cc.check_proposal_status() is False
 
 
-
-
 # --------------------------------------------------------------------------- #
 # check_child_creation_freeze_coverage：有子表引用的容器必须声明冻结
 # --------------------------------------------------------------------------- #
@@ -1169,9 +1139,7 @@ def test_freeze_coverage_detects_stale_exemption(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """豁免清单登记一张不存在的表必须报红（陈旧豁免会放过未来的新子表）。"""
-    monkeypatch.setitem(
-        cc._FREEZE_EXEMPT_PARENTS, "legacy_table_removed_long_ago", "历史遗留"
-    )
+    monkeypatch.setitem(cc._FREEZE_EXEMPT_PARENTS, "legacy_table_removed_long_ago", "历史遗留")
 
     assert cc.check_child_creation_freeze_coverage() is False
 
@@ -1225,9 +1193,7 @@ def test_frozen_state_problems_rejects_unknown_state() -> None:
     """冻结一个不在 allowed_states 里的状态 → ``in`` 恒假，必须报红。"""
     from services.project_planning.domain import state_machine
 
-    entry = _entry_for(
-        state_machine.PROJECT_LIFECYCLE, frozen_states=["ARCHIVEDD", "ARCHIVED"]
-    )
+    entry = _entry_for(state_machine.PROJECT_LIFECYCLE, frozen_states=["ARCHIVEDD", "ARCHIVED"])
 
     problems = cc.frozen_state_problems(entry, state_machine.PROJECT_LIFECYCLE)
     assert any("未声明状态" in problem for problem in problems), problems
@@ -1301,6 +1267,8 @@ def test_frozen_state_contract_detects_unregistered_lifecycle(
     monkeypatch.setattr(cc, "_implemented_lifecycles", lambda: (extra, []))
 
     assert cc.check_frozen_state_contract() is False
+
+
 # --------------------------------------------------------------------------- #
 # Gate C：阶段表派生一致性（phase_map 不得成为第二份权威）
 # --------------------------------------------------------------------------- #

@@ -126,9 +126,7 @@ INTERFACE_FORKS: tuple[tuple[str, str, str, str], ...] = (
 
 
 def show(ref: str, path: str) -> bytes:
-    return subprocess.run(
-        ["git", "show", f"{ref}:{path}"], capture_output=True, check=True
-    ).stdout
+    return subprocess.run(["git", "show", f"{ref}:{path}"], capture_output=True, check=True).stdout
 
 
 def sha256(data: bytes) -> str:
@@ -171,7 +169,10 @@ def migration_rows() -> str:
 
 
 def migration_notes() -> str:
-    lines = ["| Revision | 类型 | 差异摘要 | main blob SHA1 | feature blob SHA1 |", "| --- | --- | --- | --- | --- |"]
+    lines = [
+        "| Revision | 类型 | 差异摘要 | main blob SHA1 | feature blob SHA1 |",
+        "| --- | --- | --- | --- | --- |",
+    ]
     for rev, main_file, feat_file, kind, note in MIGRATION_FORKS:
         main_path = f"{VERSIONS}/{main_file}"
         feat_path = f"{VERSIONS}/{feat_file}"

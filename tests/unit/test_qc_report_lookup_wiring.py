@@ -85,8 +85,7 @@ def test_generation_facts_factory_is_registered() -> None:
     app = FastAPI()
     register_cross_domain_ports(app)
     assert (
-        getattr(app.state, GENERATION_FACTS_LOOKUP_FACTORY, None)
-        is build_generation_facts_lookup
+        getattr(app.state, GENERATION_FACTS_LOOKUP_FACTORY, None) is build_generation_facts_lookup
     )
 
 

@@ -281,9 +281,7 @@ def applied_probe_sql() -> str:
     用守卫函数的定义文本判断会让「批次六已应用、批次七未应用」这种中间态
     无法区分。
     """
-    return (
-        f"SELECT (to_regprocedure('{SHOT}.{FUNC_BLOCKING_STATES}()') IS NOT NULL)"
-    )
+    return f"SELECT (to_regprocedure('{SHOT}.{FUNC_BLOCKING_STATES}()') IS NOT NULL)"
 
 
 def upgrade() -> None:

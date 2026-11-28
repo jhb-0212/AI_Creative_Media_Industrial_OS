@@ -62,9 +62,7 @@ class Shot(Entity):
         ):
             value = getattr(self, name)
             if not value or not str(value).strip():
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
             if len(value) > max_len:
                 raise DomainError(
                     ErrorRegistry.VALIDATION_ERROR,
@@ -102,17 +100,11 @@ class Shot(Entity):
             # CANCELLED 对象被加载——历史事实可读，只是不再新增。
             raise DomainError(
                 ErrorRegistry.STATE_TRANSITION_DENIED,
-                detail=(
-                    "取消授权记录无法解析（可解析授权对象尚未建模），"
-                    "拒绝推进至 CANCELLED"
-                ),
+                detail=("取消授权记录无法解析（可解析授权对象尚未建模），拒绝推进至 CANCELLED"),
             )
 
         # 返工回退是唯一允许携带 rework_basis_ref 的「非阻塞非取消」边。
-        if (
-            self.status is ShotStatus.PRODUCTION_COMPLETE
-            and target is ShotStatus.IN_PRODUCTION
-        ):
+        if self.status is ShotStatus.PRODUCTION_COMPLETE and target is ShotStatus.IN_PRODUCTION:
             _require(
                 self.rework_basis_ref,
                 "返工回退必须给出 rework_basis_ref（ReworkTask 授权依据）",
@@ -155,9 +147,7 @@ class Shot(Entity):
                 "blocked_reason": self.blocked_reason,
                 "rework_basis_ref": self.rework_basis_ref,
                 "cancellation_ref": self.cancellation_ref,
-                "cancelled_at": (
-                    self.cancelled_at.isoformat() if self.cancelled_at else None
-                ),
+                "cancelled_at": (self.cancelled_at.isoformat() if self.cancelled_at else None),
                 "source_draft_ref": self.source_draft_ref,
             }
         )

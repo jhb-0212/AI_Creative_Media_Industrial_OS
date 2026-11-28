@@ -125,9 +125,7 @@ async def test_every_outbox_partition_is_protected(
     async with admin_engine.connect() as conn:
         for partition in partitions:
             rls = (
-                await conn.execute(
-                    _PARTITION_STATE, {"schema": OUTBOX_SCHEMA, "name": partition}
-                )
+                await conn.execute(_PARTITION_STATE, {"schema": OUTBOX_SCHEMA, "name": partition})
             ).scalar_one()
             assert rls is True, f"分区 {partition} 未开启 RLS"
 

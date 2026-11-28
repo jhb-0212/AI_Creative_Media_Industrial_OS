@@ -55,17 +55,13 @@ def _sqlstate(exc: BaseException) -> str:
     return getattr(orig, "sqlstate", "") or ""
 
 
-async def _chain(
-    admin_sessionmaker, *, tag: str, tenant, shots: int = 1
-) -> dict[str, object]:
+async def _chain(admin_sessionmaker, *, tag: str, tenant, shots: int = 1) -> dict[str, object]:
     """建「项目 → 集数 → 场次 → 镜头*n」，返回各级 id 与镜头 id 列表。"""
     project = f"proj_{tag}"
     episode = f"ep_{tag}"
     scene = f"scene_{tag}"
     await seed_project(admin_sessionmaker, project_id=project, tenant=tenant)
-    await seed_episode(
-        admin_sessionmaker, episode_id=episode, project_id=project, tenant=tenant
-    )
+    await seed_episode(admin_sessionmaker, episode_id=episode, project_id=project, tenant=tenant)
     await seed_scene(
         admin_sessionmaker,
         scene_id=scene,
@@ -131,9 +127,7 @@ async def test_pack_and_project_must_share_a_tenant(admin_sessionmaker) -> None:
     """``(project_id, tenant_id)`` 复合外键：单列外键会放过「包属 A、项目属 B」。"""
     tenant_a = uuid.uuid4()
     tenant_b = uuid.uuid4()
-    chain_b = await _chain(
-        admin_sessionmaker, tag=f"cp_fk_{tenant_b.hex[:6]}", tenant=tenant_b
-    )
+    chain_b = await _chain(admin_sessionmaker, tag=f"cp_fk_{tenant_b.hex[:6]}", tenant=tenant_b)
 
     async with admin_sessionmaker() as session:
         with pytest.raises(IntegrityError) as exc:
@@ -154,9 +148,7 @@ async def test_pack_and_project_must_share_a_tenant(admin_sessionmaker) -> None:
 
 
 @pytest.mark.parametrize("foreign", [False, True], ids=["cross_project", "dangling"])
-async def test_shots_must_exist_in_the_same_project(
-    admin_sessionmaker, foreign: bool
-) -> None:
+async def test_shots_must_exist_in_the_same_project(admin_sessionmaker, foreign: bool) -> None:
     """``shot_ids`` 的每个元素必须是本项目的真实镜头（数组无法外键，靠触发器）。
 
     ``foreign=True``：真实存在但属于另一个项目（服务层最难自查的那一种）；
@@ -166,9 +158,7 @@ async def test_shots_must_exist_in_the_same_project(
     tenant = uuid.uuid4()
     tag = f"cp_trg_{tenant.hex[:6]}"
     chain = await _chain(admin_sessionmaker, tag=tag, tenant=tenant)
-    other = await _chain(
-        admin_sessionmaker, tag=f"{tag}_other", tenant=tenant, shots=1
-    )
+    other = await _chain(admin_sessionmaker, tag=f"{tag}_other", tenant=tenant, shots=1)
     intruder = other["shots"][0] if foreign else f"shot_missing_{tag}"
 
     async with admin_sessionmaker() as session:

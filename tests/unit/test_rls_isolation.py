@@ -29,9 +29,7 @@ async def _count_projects_without_context(
 ) -> int:
     """无 tenant 上下文下查询（RLS 应返回 0）。"""
     async with sessionmaker() as session:
-        result = await session.execute(
-            text("SELECT count(*) FROM project_planning.projects")
-        )
+        result = await session.execute(text("SELECT count(*) FROM project_planning.projects"))
         return result.scalar_one()
 
 
@@ -41,9 +39,7 @@ async def _count_projects_with_context(
     """注入 tenant 上下文后查询。"""
     async with sessionmaker() as session:
         await set_test_scope(session, tenant_id=tenant_id)
-        result = await session.execute(
-            text("SELECT count(*) FROM project_planning.projects")
-        )
+        result = await session.execute(text("SELECT count(*) FROM project_planning.projects"))
         return result.scalar_one()
 
 
@@ -115,9 +111,7 @@ async def test_rls_blocks_cross_tenant_write(
     async with db_sessionmaker() as s2:
         await set_test_scope(s2, tenant_id=DEFAULT_TENANT)
         count = await s2.scalar(
-            text(
-                "SELECT count(*) FROM project_planning.projects WHERE entity_id = :eid"
-            ),
+            text("SELECT count(*) FROM project_planning.projects WHERE entity_id = :eid"),
             {"eid": random_id},
         )
     assert count == 0

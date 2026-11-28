@@ -47,21 +47,32 @@ class S3ObjectStorage:
     """候选 S3 对象存储适配器：与 LocalFsObjectStorage 同构的端口实现。"""
 
     def __init__(
-        self, *, endpoint_url: str, bucket: str, access_key: str, secret_key: str,
-        region: str = "us-east-1", max_bytes: int,
-        connect_timeout: float = 2.0, read_timeout: float = 5.0,
+        self,
+        *,
+        endpoint_url: str,
+        bucket: str,
+        access_key: str,
+        secret_key: str,
+        region: str = "us-east-1",
+        max_bytes: int,
+        connect_timeout: float = 2.0,
+        read_timeout: float = 5.0,
     ) -> None:
         if max_bytes <= 0:
             raise ValueError("max_bytes 必须是正数")
         self._bucket = bucket
         self._max_bytes = max_bytes
         self._client = boto3.client(
-            "s3", endpoint_url=endpoint_url,
-            aws_access_key_id=access_key, aws_secret_access_key=secret_key,
+            "s3",
+            endpoint_url=endpoint_url,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
             region_name=region,
             config=Config(
-                signature_version="s3v4", connect_timeout=connect_timeout,
-                read_timeout=read_timeout, retries={"max_attempts": 0},
+                signature_version="s3v4",
+                connect_timeout=connect_timeout,
+                read_timeout=read_timeout,
+                retries={"max_attempts": 0},
             ),
         )
 
@@ -81,9 +92,7 @@ class S3ObjectStorage:
             raise StorageLocatorError(f"{problem}（应为 {LOCATOR_SHAPE}）")
         return f"{parsed.sha256[0:2]}/{parsed.sha256[2:4]}/{parsed.sha256}.{parsed.extension}"
 
-    async def put(
-        self, *, data: bytes, media_type: str, expected_sha256: str = ""
-    ) -> StoredObject:
+    async def put(self, *, data: bytes, media_type: str, expected_sha256: str = "") -> StoredObject:
         ext = self._ext_for(media_type)
         if len(data) > self._max_bytes:
             raise StorageSizeLimitError(
@@ -117,7 +126,10 @@ class S3ObjectStorage:
             # 顶部声明要避免的事（换后端会波及所有调用方）。
             raise S3StorageError(f"put_object 网络/基础设施失败 {type(exc).__name__}") from exc
         return StoredObject(
-            locator=locator, sha256=digest, size_bytes=len(data), media_type=media_type,
+            locator=locator,
+            sha256=digest,
+            size_bytes=len(data),
+            media_type=media_type,
         )
 
     async def get(self, locator: str) -> bytes:

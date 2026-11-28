@@ -120,9 +120,7 @@ def upgrade() -> None:
     """
     for domain in DOMAINS:
         role = domain_role(domain)
-        for statement in converge_statements(
-            role, domain, tables=_GRANTED_AT_THIS_REVISION
-        ):
+        for statement in converge_statements(role, domain, tables=_GRANTED_AT_THIS_REVISION):
             op.execute(statement)
 
     # 护栏：收敛后若还有未声明的表，说明矩阵没跟上 schema 演进。
@@ -182,11 +180,7 @@ def downgrade() -> None:
     # 新建一行（见 WP-04/#62 探针）。
     for domain in ("production_planning", "budget_quota", "qc_governance"):
         role = domain_role(domain)
+        op.execute(f"ALTER DEFAULT PRIVILEGES IN SCHEMA {domain} REVOKE ALL ON TABLES FROM {role}")
         op.execute(
-            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {domain} "
-            f"REVOKE ALL ON TABLES FROM {role}"
-        )
-        op.execute(
-            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {domain} "
-            f"REVOKE ALL ON SEQUENCES FROM {role}"
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {domain} REVOKE ALL ON SEQUENCES FROM {role}"
         )

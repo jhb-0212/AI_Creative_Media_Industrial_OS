@@ -96,9 +96,7 @@ def test_exported_projection_divergence_is_reported(tmp_path: Path) -> None:
     """判据 1：导出邻接集与边表派生不一致 —— 两份真相。"""
     _write(tmp_path, _AGG_OK)
     stale = {_A: frozenset({_B}), _B: frozenset({_C}), _C: frozenset()}
-    problems = ba.evaluate_lifecycle_edge_ownership(
-        (_spec(exported=stale),), root=tmp_path
-    )
+    problems = ba.evaluate_lifecycle_edge_ownership((_spec(exported=stale),), root=tmp_path)
     assert any("两份真相" in p for p in problems)
 
 

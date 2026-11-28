@@ -63,10 +63,7 @@ def _evaluate_gate() -> None:
     except DatabaseHeadMismatchError as exc:
         _STATE.failure = str(exc)
     except Exception as exc:  # 环境不可用（连不上、权限不足）必须变成明确红灯
-        _STATE.failure = (
-            "无法读取被测库的迁移版本，集成测试拒绝执行："
-            f"{type(exc).__name__}: {exc}"
-        )
+        _STATE.failure = f"无法读取被测库的迁移版本，集成测试拒绝执行：{type(exc).__name__}: {exc}"
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:

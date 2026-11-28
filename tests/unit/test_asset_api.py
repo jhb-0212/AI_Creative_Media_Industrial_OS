@@ -327,9 +327,7 @@ async def test_asset_status_change_to_gold_with_evidence(
         await set_test_scope(session)
         row = (
             await session.execute(
-                text(
-                    "SELECT status FROM asset_service.asset_versions WHERE entity_id = :e"
-                ),
+                text("SELECT status FROM asset_service.asset_versions WHERE entity_id = :e"),
                 {"e": asset_id},
             )
         ).one()

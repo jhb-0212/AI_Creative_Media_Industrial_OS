@@ -83,9 +83,7 @@ class OwnershipPath:
 class OwnershipResolver(Protocol):
     """归属解析端口（异步：需要一次数据库读）。"""
 
-    async def resolve(
-        self, resource_type: str, resource_id: str
-    ) -> OwnershipPath | None: ...
+    async def resolve(self, resource_type: str, resource_id: str) -> OwnershipPath | None: ...
 
 
 # --------------------------------------------------------------------------- #
@@ -246,9 +244,7 @@ class SqlOwnershipResolver:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def resolve(
-        self, resource_type: str, resource_id: str
-    ) -> OwnershipPath | None:
+    async def resolve(self, resource_type: str, resource_id: str) -> OwnershipPath | None:
         sql = _RESOLVE_SQL.get(resource_type)
         if sql is None:
             # 契约新增资源类型而这里没登记，属实现缺口，必须显式失败而不是放行。
@@ -256,9 +252,7 @@ class SqlOwnershipResolver:
                 ErrorRegistry.INTERNAL_ERROR,
                 detail=f"资源类型 {resource_type} 未登记归属解析（禁止默认放行）",
             )
-        row = (
-            await self._session.execute(text(sql), {"rid": resource_id})
-        ).first()
+        row = (await self._session.execute(text(sql), {"rid": resource_id})).first()
         if row is None:
             return None
         return OwnershipPath(
@@ -313,9 +307,7 @@ def assert_ownership_scope(
                 "resource_id": resource.resource_id,
                 "resource_organization_id": str(ownership.organization_id),
                 "principal_organization_id": (
-                    str(principal.organization_id)
-                    if principal.organization_id
-                    else None
+                    str(principal.organization_id) if principal.organization_id else None
                 ),
             },
         )

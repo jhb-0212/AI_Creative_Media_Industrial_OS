@@ -55,16 +55,12 @@ def require_different_subject(
     if counterpart is None or not counterpart.strip():
         raise DomainError(
             ErrorRegistry.STATE_TRANSITION_DENIED,
-            detail=(
-                f"{action_label}：缺少{counterpart_label}，禁止批准"
-                "（职责分离不可绕过）"
-            ),
+            detail=(f"{action_label}：缺少{counterpart_label}，禁止批准（职责分离不可绕过）"),
         )
     if actor == counterpart.strip():
         raise DomainError(
             ErrorRegistry.STATE_TRANSITION_DENIED,
             detail=(
-                f"{action_label}：{actor_label}与{counterpart_label}不得为同一主体"
-                "（职责分离红线）"
+                f"{action_label}：{actor_label}与{counterpart_label}不得为同一主体（职责分离红线）"
             ),
         )

@@ -53,18 +53,14 @@ class Episode(Entity):
         ):
             value = getattr(self, name)
             if not value or not value.strip():
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
             if len(value) > max_len:
                 raise DomainError(
                     ErrorRegistry.VALIDATION_ERROR,
                     detail=f"{name} 长度超过上限 {max_len}",
                 )
 
-    def transition_to(
-        self, target: EpisodeStatus, audit_ref: str, action: str
-    ) -> Episode:
+    def transition_to(self, target: EpisodeStatus, audit_ref: str, action: str) -> Episode:
         """执行状态迁移：结构合法性 + 边所有权（31.5 / N-07）。
 
         ``action`` 是准入凭据而非标签，判定见 ``EPISODE_LIFECYCLE``；

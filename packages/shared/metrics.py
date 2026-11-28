@@ -61,6 +61,7 @@ def observe_circuit_state(gauge: Gauge, state: str, previous: str | None) -> Non
         gauge.labels(state=previous).set(0)
     gauge.labels(state=state).set(1)
 
+
 # Outbox relay（R06 消费端）。标签只放 event_type 与 result：event_type 由契约
 # 枚举约束（有限集），result 是 delivered/unrouted/failed 三值，基数可控。
 OUTBOX_RELAY_EVENTS_TOTAL = Counter(

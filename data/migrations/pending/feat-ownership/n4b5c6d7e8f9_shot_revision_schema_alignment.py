@@ -60,12 +60,12 @@ NEW_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("constraint_pack_applicability", "varchar(32)", "'NOT_APPLICABLE'"),
     ("constraint_pack_id", "varchar(64)", "NULL"),
     ("creative_autonomy", "varchar(8)", "'L1'"),
-    ("risk", "jsonb", "'{\"level\": \"LOW\"}'::jsonb"),
+    ("risk", "jsonb", '\'{"level": "LOW"}\'::jsonb'),
     ("quality_profile", "varchar(32)", "'UNIFIED_HIGH_QUALITY'"),
     (
         "intent_ref",
         "jsonb",
-        "'{\"intent_id\": \"LEGACY_BACKFILL\", \"intent_version\": 0}'::jsonb",
+        '\'{"intent_id": "LEGACY_BACKFILL", "intent_version": 0}\'::jsonb',
     ),
     ("basis_script_revision_id", "varchar(64)", "NULL"),
     ("script_anchors", "jsonb", "'[\"LEGACY_BACKFILL\"]'::jsonb"),
@@ -151,9 +151,7 @@ LEGACY_SUMMARY = "legacy backfill: fields absent from pre-contract rows"
 def upgrade_sqls() -> list[str]:
     sqls: list[str] = []
     for name, ddl_type, default_sql in NEW_COLUMNS:
-        sqls.append(
-            f"ALTER TABLE {TABLE} ADD COLUMN {name} {ddl_type} DEFAULT {default_sql}"
-        )
+        sqls.append(f"ALTER TABLE {TABLE} ADD COLUMN {name} {ddl_type} DEFAULT {default_sql}")
 
     # 存量订正：能从草案列映射的三列取真实旧值，其余保持最小合法默认；
     # 轨迹落在 change_summary / provenance，可被下游查询识别。

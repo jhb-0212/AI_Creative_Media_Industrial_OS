@@ -31,9 +31,7 @@ def test_repair_requires_task_id() -> None:
 
 
 def test_repair_accepts_stable_attempt_id() -> None:
-    args = _parse_args(
-        ["repair", "--work-order", "WO-1", "--task", "T-1", "--attempt", "a-1"]
-    )
+    args = _parse_args(["repair", "--work-order", "WO-1", "--task", "T-1", "--attempt", "a-1"])
     assert args.command == "repair"
     assert (args.work_order, args.task, args.attempt) == ("WO-1", "T-1", "a-1")
 
@@ -58,7 +56,6 @@ class _Result:
 def test_exit_code_separates_denied_from_unrecorded_denial() -> None:
     assert _exit_code(_Result(None)) == EXIT_OK
     assert _exit_code(_Result("task_not_authorized", recorded=True)) == EXIT_DENIED
-    assert (
-        _exit_code(_Result("permission_denied", recorded=False))
-        == EXIT_DENIAL_NOT_RECORDED
-    ), "账没记上不能报成普通拒绝：那会把一条丢失的失败事实当成正常结果"
+    assert _exit_code(_Result("permission_denied", recorded=False)) == EXIT_DENIAL_NOT_RECORDED, (
+        "账没记上不能报成普通拒绝：那会把一条丢失的失败事实当成正常结果"
+    )

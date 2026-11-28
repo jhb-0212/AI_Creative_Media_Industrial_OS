@@ -26,9 +26,10 @@
 
 ```python
 import yaml
+
 d = yaml.safe_load(open("contracts/enums/status_field_taxonomy.yaml", encoding="utf-8"))
-Counter(o["class"] for o in d["objects"])   # lifecycle 47 / envelope_only 18 / lifecycle_gap 18
-len(d["schema_gaps"])                        # 4
+Counter(o["class"] for o in d["objects"])  # lifecycle 47 / envelope_only 18 / lifecycle_gap 18
+len(d["schema_gaps"])  # 4
 ```
 
 缺失 Schema 的 8 项由三处显式台账合并去重得到：

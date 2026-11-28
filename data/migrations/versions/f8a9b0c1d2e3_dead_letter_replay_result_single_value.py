@@ -98,6 +98,4 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_constraint(_CONSTRAINT, _TABLE, schema=SCHEMA_NAME, type_="check")
-    op.create_check_constraint(
-        _CONSTRAINT, _TABLE, _LEGACY_CHECK, schema=SCHEMA_NAME
-    )
+    op.create_check_constraint(_CONSTRAINT, _TABLE, _LEGACY_CHECK, schema=SCHEMA_NAME)

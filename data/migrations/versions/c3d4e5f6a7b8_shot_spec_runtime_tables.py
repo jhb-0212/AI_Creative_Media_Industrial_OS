@@ -150,9 +150,7 @@ def _ensure_revision_unique_target() -> None:
     op.create_unique_constraint(
         _REVISION_UQ, "shot_revisions", ["project_id", "entity_id"], schema=_SCHEMA
     )
-    op.execute(
-        mark_created_constraint("shot_revisions", _REVISION_UQ, _SCHEMA, revision)
-    )
+    op.execute(mark_created_constraint("shot_revisions", _REVISION_UQ, _SCHEMA, revision))
 
 
 def _create_cut_points_function() -> None:
@@ -209,9 +207,7 @@ def upgrade() -> None:
         sa.Column("locked_dimensions", sa.String(512), nullable=False),
         # 同一修订至多一份规格（SHOTSPEC.CREATE 的审批要求）。
         sa.UniqueConstraint("shot_revision_id", name="uq_shot_spec_per_revision"),
-        sa.UniqueConstraint(
-            "project_id", "entity_id", name="uq_shot_specs_entity_project"
-        ),
+        sa.UniqueConstraint("project_id", "entity_id", name="uq_shot_specs_entity_project"),
         # 复合外键：跨项目绑定在库层即被拒（ACT-SPEC-NEG-002）。
         sa.ForeignKeyConstraint(
             ["project_id", "shot_revision_id"],
@@ -221,13 +217,9 @@ def upgrade() -> None:
             ],
             name="fk_shot_specs_revision",
         ),
-        sa.CheckConstraint(
-            "shot_spec_id = entity_id", name="ck_shot_specs_identity_single"
-        ),
+        sa.CheckConstraint("shot_spec_id = entity_id", name="ck_shot_specs_identity_single"),
         sa.CheckConstraint("duration_ms >= 1", name="ck_shot_specs_duration_positive"),
-        sa.CheckConstraint(
-            "fps_num >= 1 AND fps_den >= 1", name="ck_shot_specs_fps_positive"
-        ),
+        sa.CheckConstraint("fps_num >= 1 AND fps_den >= 1", name="ck_shot_specs_fps_positive"),
         sa.CheckConstraint(
             f"{_SCHEMA}.{_CUT_POINTS_FN}(cut_points_frames) "
             "AND cut_points_frames[array_length(cut_points_frames, 1)] "
@@ -253,8 +245,7 @@ def upgrade() -> None:
     # 4. 行级安全：表一诞生就带策略，不留「以后补」的口子。
     op.execute(f"ALTER TABLE {_SCHEMA}.{_TABLE} ENABLE ROW LEVEL SECURITY")
     op.execute(
-        f"CREATE POLICY tenant_isolation_{_TABLE} "
-        f"ON {_SCHEMA}.{_TABLE} " + _row_visibility(_TABLE)
+        f"CREATE POLICY tenant_isolation_{_TABLE} ON {_SCHEMA}.{_TABLE} " + _row_visibility(_TABLE)
     )
     op.execute(f"ALTER TABLE {_SCHEMA}.{_TABLE} FORCE ROW LEVEL SECURITY")
 
@@ -301,4 +292,3 @@ def _drop_table() -> None:
             ("project_id", "entity_id"),
         )
     )
-

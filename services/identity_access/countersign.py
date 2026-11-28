@@ -91,15 +91,11 @@ class CountersignatureService:
         )
         return list(result.scalars().all())
 
-    async def evaluate(
-        self, *, target: SignatureTarget, tenant_id: UUID
-    ) -> CountersignVerdict:
+    async def evaluate(self, *, target: SignatureTarget, tenant_id: UUID) -> CountersignVerdict:
         """读取当前签署组，判定是否凑齐（纯判定的唯一调用点之一）。"""
         events = await self._load_events(target=target, tenant_id=tenant_id)
         views = tuple(
-            SignatureView(
-                seat_index=e.seat_index, subject=e.subject, event_kind=e.event_kind
-            )
+            SignatureView(seat_index=e.seat_index, subject=e.subject, event_kind=e.event_kind)
             for e in events
         )
         return evaluate_countersignature(
@@ -202,10 +198,7 @@ class CountersignatureService:
         ):
             raise DomainError(
                 ErrorRegistry.AUTH_SCOPE_DENIED,
-                detail=(
-                    f"主体 {principal.subject_id} 已签署其他席位，"
-                    "会签须由不同主体分别签署"
-                ),
+                detail=(f"主体 {principal.subject_id} 已签署其他席位，会签须由不同主体分别签署"),
             )
         event = SignatureEvent(
             tenant_id=principal.tenant_id,

@@ -60,17 +60,13 @@ class TaskProjectionModel(Base):
     task_status: Mapped[str] = mapped_column(String(32), nullable=False)
     # 可调度时刻：QUEUED 取入队时间（立即可领），RUNNING 取租约到期时间。
     # 不引入第二套时间源——它必须能由 ``lease_expires_at`` / ``created_at`` 导出。
-    next_action_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    next_action_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     lease_generation: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     entity_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 __all__ = ["SCHEMA_NAME", "TABLE_NAME", "TaskProjectionModel"]

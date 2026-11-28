@@ -35,9 +35,7 @@ from adapters.model_gateway.ports import (
     GenerationRequest,
 )
 
-FakeFailureMode = Literal[
-    "timeout", "server_error", "rejected", "oversize", "misconfigured"
-]
+FakeFailureMode = Literal["timeout", "server_error", "rejected", "oversize", "misconfigured"]
 
 # 合法 PNG 签名 + 固定块：让产物看起来是图片，便于人工排查时直接打开。
 _PNG_HEAD = b"\x89PNG\r\n\x1a\n"
@@ -84,13 +82,9 @@ class FakeModelGateway:
         if mode == "server_error":
             raise GatewayRetryableError(f"假网关：503（task={request.task_id}）")
         if mode == "rejected":
-            raise GatewayRejectedError(
-                f"假网关：内容被拒（task={request.task_id}）"
-            )
+            raise GatewayRejectedError(f"假网关：内容被拒（task={request.task_id}）")
         if mode == "oversize":
-            raise GatewayRejectedError(
-                f"假网关：产物超出上限（task={request.task_id}）"
-            )
+            raise GatewayRejectedError(f"假网关：产物超出上限（task={request.task_id}）")
         if mode == "misconfigured":
             raise GatewayMisconfiguredError("假网关：模拟配置矛盾")
 

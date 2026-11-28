@@ -32,9 +32,7 @@ from packages.identity.ownership import _RESOLVE_SQL
 from packages.shared.database import build_migration_url
 
 # ``FROM a.b`` / ``JOIN a.b``（含 ``AS`` 别名），只取两级限定名。
-_TABLE_REF = re.compile(
-    r"\b(?:FROM|JOIN)\s+([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)", re.IGNORECASE
-)
+_TABLE_REF = re.compile(r"\b(?:FROM|JOIN)\s+([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)", re.IGNORECASE)
 
 
 def _table_refs(sql: str) -> list[str]:
@@ -61,9 +59,8 @@ async def test_resolve_sql_targets_exist_in_database() -> None:
                     )
                     if not exists:
                         missing.append(f"{resource_type} → {qualified}")
-            assert not missing, (
-                "归属解析 SQL 指向了不存在的表（分域迁移后未同步？）："
-                + "; ".join(missing)
+            assert not missing, "归属解析 SQL 指向了不存在的表（分域迁移后未同步？）：" + "; ".join(
+                missing
             )
     finally:
         await engine.dispose()

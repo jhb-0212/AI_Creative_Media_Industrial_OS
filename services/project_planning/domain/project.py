@@ -50,18 +50,14 @@ class Project(Entity):
         """防御性校验：信封公共字段 + 业务字段（对齐 ORM 列定义）。"""
         super()._validate_envelope()
         if not self.project_name.strip():
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="project_name 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="project_name 不能为空")
         if len(self.project_name) > 200:
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,
                 detail="project_name 长度超过上限 200",
             )
 
-    def transition_to(
-        self, target: ProjectStatus, audit_ref: str, action: str
-    ) -> Project:
+    def transition_to(self, target: ProjectStatus, audit_ref: str, action: str) -> Project:
         """执行状态迁移：结构合法性 + **边所有权**双重校验（31.5 / N-07）。
 
         ``action`` 不是记录用的标签，是准入凭据：由 ``PROJECT_LIFECYCLE``

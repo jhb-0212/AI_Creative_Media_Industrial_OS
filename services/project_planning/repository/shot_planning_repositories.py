@@ -105,9 +105,7 @@ class ShotRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def existing_ids_in_project(
-        self, project_id: str, shot_ids: list[str]
-    ) -> set[str]:
+    async def existing_ids_in_project(self, project_id: str, shot_ids: list[str]) -> set[str]:
         """返回 ``shot_ids`` 中**确实属于该项目**的那些 id（A23）。
 
         为什么需要它：约束包的 ``shot_ids`` 是数组，数组元素无法用外键表达归属，

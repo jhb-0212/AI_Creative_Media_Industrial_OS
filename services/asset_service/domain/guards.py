@@ -91,9 +91,7 @@ def required_qc_count(guards: tuple[Guard, ...]) -> bool:
     return any(g.needs_qc_count for g in guards)
 
 
-def evaluate(
-    guards: tuple[Guard, ...], asset: AssetVersion, context: GuardContext
-) -> None:
+def evaluate(guards: tuple[Guard, ...], asset: AssetVersion, context: GuardContext) -> None:
     """按声明顺序求值，任一不满足即抛错（fail-closed）。"""
     for guard in guards:
         guard.check(asset, context)

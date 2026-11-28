@@ -113,10 +113,7 @@ async def test_cross_tenant_rows_invisible_and_not_writable(
         async with sm() as session:
             await set_test_scope(session, tenant_id=TENANT_A)
             visible = await session.scalar(
-                text(
-                    "SELECT count(*) FROM project_planning.projects "
-                    "WHERE entity_id IN (:a, :b)"
-                ),
+                text("SELECT count(*) FROM project_planning.projects WHERE entity_id IN (:a, :b)"),
                 {"a": eid_a, "b": eid_b},
             )
         assert visible == 1
@@ -144,19 +141,16 @@ async def test_cross_tenant_rows_invisible_and_not_writable(
                     text("DELETE FROM project_planning.projects WHERE entity_id = :e"),
                     {"e": eid_b},
                 )
-            assert "42501" in str(exc_info.value) or "permission denied" in str(
-                exc_info.value
-            ).lower()
+            assert (
+                "42501" in str(exc_info.value) or "permission denied" in str(exc_info.value).lower()
+            )
             await session.rollback()
 
         # 4) B 的行仍在，且 B 上下文可见（A 的删除未生效）。
         async with sm() as session:
             await set_test_scope(session, tenant_id=TENANT_B)
             count_b = await session.scalar(
-                text(
-                    "SELECT count(*) FROM project_planning.projects "
-                    "WHERE entity_id = :e"
-                ),
+                text("SELECT count(*) FROM project_planning.projects WHERE entity_id = :e"),
                 {"e": eid_b},
             )
         assert count_b == 1

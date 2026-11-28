@@ -196,9 +196,7 @@ def _server_version_num() -> int:
     取最低支持版本与闸门的期望集合同源；两个分支的内容各有一条单元测试钉住，
     真实库上的 ACL 由 PG16 / PG18 的集成验收分别核对。
     """
-    row = op.get_bind().execute(
-        sa.text("SELECT current_setting('server_version_num')")
-    ).first()
+    row = op.get_bind().execute(sa.text("SELECT current_setting('server_version_num')")).first()
     return int(row[0]) if row is not None else 160000
 
 

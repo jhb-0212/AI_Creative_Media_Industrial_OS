@@ -25,9 +25,7 @@ async def client() -> AsyncClient:
     transport = ASGITransport(app=app)
     token = make_test_token()
     headers = {"Authorization": f"Bearer {token}"}
-    async with AsyncClient(
-        transport=transport, base_url="http://test", headers=headers
-    ) as c:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=headers) as c:
         yield c
 
 
@@ -52,16 +50,12 @@ async def _setup_project_and_episode(
     )
 
 
-async def _count_events(
-    sessionmaker: async_sessionmaker[AsyncSession], aggregate_id: str
-) -> int:
+async def _count_events(sessionmaker: async_sessionmaker[AsyncSession], aggregate_id: str) -> int:
     async with sessionmaker() as session:
         # outbox 表启用 RLS：查询前必须注入租户上下文，否则按 RLS 语义看不到任何行。
         await set_test_scope(session)
         result = await session.execute(
-            text(
-                "SELECT count(*) FROM outbox.outbox_events WHERE aggregate_id = :aid"
-            ),
+            text("SELECT count(*) FROM outbox.outbox_events WHERE aggregate_id = :aid"),
             {"aid": aggregate_id},
         )
         return result.scalar_one()

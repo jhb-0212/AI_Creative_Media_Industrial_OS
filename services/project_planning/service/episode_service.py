@@ -69,19 +69,13 @@ class EpisodeService:
         created_by = created_by.strip()
 
         if not project_id:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="project_id 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="project_id 不能为空")
         if not episode_ref:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="episode_ref 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="episode_ref 不能为空")
         if not title:
             raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="title 不能为空")
         if not created_by:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="created_by 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="created_by 不能为空")
 
         # 归属验证 + 父状态判定：**先锁、再判、后写**，三步同一事务。
         # 用带共享锁的读（FOR SHARE）而不是普通读，因为「项目已归档则不得再登记集数」
@@ -108,9 +102,7 @@ class EpisodeService:
         # 判定从 PROJECT_LIFECYCLE 派生，不在这里写 `if project.status == ...`——
         # 同一规则还要服务于「集数下建场次」「场次下建镜头」，写在各自的服务里
         # 就是同一规则的第 2、3、4 份实现，漏掉的那份不会报错。
-        PROJECT_LIFECYCLE.assert_child_creation_allowed(
-            project.status, child_object="Episode"
-        )
+        PROJECT_LIFECYCLE.assert_child_creation_allowed(project.status, child_object="Episode")
 
         episode = Episode(
             entity_id=entity_id or uuid.uuid4().hex,
@@ -136,16 +128,12 @@ class EpisodeService:
             existing = (
                 await self._repository.get_by_id(entity_id)
                 if entity_id is not None
-                else await self._repository.get_by_project_ref(
-                    project_id, episode_ref
-                )
+                else await self._repository.get_by_project_ref(project_id, episode_ref)
             )
             if existing is not None:
                 _assert_same_request(existing, project_id, episode_ref, title)
                 return existing
-            raise DomainError(
-                ErrorRegistry.INTERNAL_ERROR, detail="集数写入冲突"
-            ) from exc
+            raise DomainError(ErrorRegistry.INTERNAL_ERROR, detail="集数写入冲突") from exc
 
         # 与登记同事务写 EPISODE_CREATED（P2-1：集数诞生必须可被订阅）。
         self._outbox_writer.record(
@@ -193,9 +181,7 @@ class EpisodeService:
         """
         changed_by = changed_by.strip()
         if not changed_by:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="changed_by 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="changed_by 不能为空")
 
         episode = await self._repository.get_by_id(entity_id)
         if episode is None:
@@ -223,9 +209,7 @@ class EpisodeService:
         return episode
 
 
-def _assert_same_request(
-    existing: Episode, project_id: str, episode_ref: str, title: str
-) -> None:
+def _assert_same_request(existing: Episode, project_id: str, episode_ref: str, title: str) -> None:
     """幂等键复用必须是同一请求：内容不一致一律 409（P3-1）。"""
     if (
         existing.project_id != project_id
@@ -234,7 +218,5 @@ def _assert_same_request(
     ):
         raise DomainError(
             ErrorRegistry.IDEMPOTENCY_CONFLICT,
-            detail=(
-                "同一 entity_id 已存在且内容不同：幂等键不能复用于另一个请求"
-            ),
+            detail=("同一 entity_id 已存在且内容不同：幂等键不能复用于另一个请求"),
         )

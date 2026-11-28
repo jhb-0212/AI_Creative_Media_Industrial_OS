@@ -246,9 +246,7 @@ async def test_same_project_asset_passes_scope_guard_and_leaves_verified_evidenc
 
     insp = _inspector(_storage(tmp_path))
     task = type("T", (), {"project_id": "proj-1"})()
-    asset = _Asset(
-        project_id="proj-1", sha256="a" * 64, storage_ref=build_locator("a" * 64, "png")
-    )
+    asset = _Asset(project_id="proj-1", sha256="a" * 64, storage_ref=build_locator("a" * 64, "png"))
 
     assert_asset_within_task_scope(task, asset)  # 不抛即通过
 
@@ -269,9 +267,7 @@ async def test_integrity_checks_verify_content_hash(tmp_path) -> None:
 
     insp = _inspector(storage)
     task = type("T", (), {"project_id": "proj-1"})()
-    asset = _Asset(
-        project_id="proj-1", sha256=digest, storage_ref=stored.locator
-    )
+    asset = _Asset(project_id="proj-1", sha256=digest, storage_ref=stored.locator)
     findings = await insp._check(task, asset)
     assert all(f["passed"] for f in findings)
     content = next(f for f in findings if f["check"] == "content_verifiable")

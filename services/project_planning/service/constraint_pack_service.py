@@ -116,9 +116,7 @@ class ConstraintPackService:
         created_by = created_by.strip()
         for name, value in (("project_id", project_id), ("created_by", created_by)):
             if not value:
-                raise DomainError(
-                    ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空"
-                )
+                raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail=f"{name} 不能为空")
 
         # 入参先规范化一次，后续「幂等比对」与「构造」都用这一份结果。
         # 两处各规范化一次会得到两个可能不同的值：比对用原始串、入库用规范化串，
@@ -129,12 +127,8 @@ class ConstraintPackService:
         # （首个版本两者自然一致）。它与 entity_id 是两个维度，理由见领域层
         # __post_init__ 的注释：混为一谈会让 CP-6 与版本唯一性同时退化。
         expected_pack_id = (constraint_pack_id or "").strip() or (entity_id or "")
-        normalized_shots = normalize_id_set(
-            shot_ids, field_name="shot_ids", required=True
-        )
-        groups = normalize_id_set(
-            shot_group_ids or [], field_name="shot_group_ids", required=False
-        )
+        normalized_shots = normalize_id_set(shot_ids, field_name="shot_ids", required=True)
+        groups = normalize_id_set(shot_group_ids or [], field_name="shot_group_ids", required=False)
         dimensions = normalize_dimensions(list(locked_dimensions or []))
         entries = list(constraints or [])
 
@@ -159,16 +153,12 @@ class ConstraintPackService:
 
         # 2. 项目存在性
         if await self._project_repository.get_by_id(project_id) is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"项目不存在: {project_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"项目不存在: {project_id}")
 
         # 3. 作用镜头必须真实存在且属于同一项目。
         #    RLS 已经保证「查不到他租户的镜头」，所以「查不到」既可能是跨租户
         #    也可能是跨项目——对调用方是同一件事：这些 id 不能用作本包的作用范围。
-        found = await self._shot_repository.existing_ids_in_project(
-            project_id, normalized_shots
-        )
+        found = await self._shot_repository.existing_ids_in_project(project_id, normalized_shots)
         unknown = sorted(set(normalized_shots) - found)
         if unknown:
             raise DomainError(
@@ -229,9 +219,7 @@ class ConstraintPackService:
                     return existing
             # 占用者必须点名：只说「版本已存在」，调用方无法判断该递增 version
             # 还是该换 constraint_pack_id（两者都是合法修法，但方向相反）。
-            occupant = await self._repository.get_by_pack_version(
-                pack.constraint_pack_id, version
-            )
+            occupant = await self._repository.get_by_pack_version(pack.constraint_pack_id, version)
             who = occupant.entity_id if occupant is not None else "未知实体"
             raise DomainError(
                 ErrorRegistry.IDEMPOTENCY_CONFLICT,
@@ -265,9 +253,7 @@ class ConstraintPackService:
     async def get_pack(self, entity_id: str) -> ConstraintPack:
         pack = await self._repository.get_by_id(entity_id)
         if pack is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"约束包不存在: {entity_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"约束包不存在: {entity_id}")
         return pack
 
     async def lock_pack(
@@ -297,9 +283,7 @@ class ConstraintPackService:
         approved_by = approved_by.strip()
         lock_basis_ref = lock_basis_ref.strip()
         if not approved_by:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="approved_by 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="approved_by 不能为空")
         if not lock_basis_ref:
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,
@@ -308,19 +292,14 @@ class ConstraintPackService:
 
         pack = await self._repository.get_by_id(entity_id)
         if pack is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"约束包不存在: {entity_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"约束包不存在: {entity_id}")
 
         # 重复锁定提前给贴切文案；判定仍由状态机兜底（ACTIVE 没有回到 ACTIVE
         # 的边，edge_owned_by 会以「非法状态转移」拒绝）。两层同一事实。
         if pack.status is ConstraintPackStatus.ACTIVE:
             raise DomainError(
                 ErrorRegistry.STATE_TRANSITION_DENIED,
-                detail=(
-                    f"约束包 {entity_id} 已生效（ACTIVE）；"
-                    "内容变更须新建版本，不得原地重锁"
-                ),
+                detail=(f"约束包 {entity_id} 已生效（ACTIVE）；内容变更须新建版本，不得原地重锁"),
             )
 
         pack.approved_by = approved_by
@@ -389,14 +368,10 @@ class ConstraintPackService:
         """
         changed_by = changed_by.strip()
         if not changed_by:
-            raise DomainError(
-                ErrorRegistry.VALIDATION_ERROR, detail="changed_by 不能为空"
-            )
+            raise DomainError(ErrorRegistry.VALIDATION_ERROR, detail="changed_by 不能为空")
         pack = await self._repository.get_by_id(entity_id)
         if pack is None:
-            raise DomainError(
-                ErrorRegistry.NOT_FOUND, detail=f"约束包不存在: {entity_id}"
-            )
+            raise DomainError(ErrorRegistry.NOT_FOUND, detail=f"约束包不存在: {entity_id}")
 
         authority_ref, evidence_key = _governance_evidence(
             target_status,

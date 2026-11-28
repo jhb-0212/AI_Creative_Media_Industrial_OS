@@ -68,9 +68,7 @@ async def set_test_scope(
     """
     from packages.shared.rls import set_session_scope
 
-    await set_session_scope(
-        executor, tenant_id=tenant_id, organization_id=organization_id
-    )
+    await set_session_scope(executor, tenant_id=tenant_id, organization_id=organization_id)
 
 
 @pytest.fixture(scope="session")
@@ -192,9 +190,7 @@ async def admin_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]
     try:
         async with engine.connect() as conn:
             is_super = await conn.scalar(
-                text(
-                    "SELECT rolsuper FROM pg_roles WHERE rolname = current_user"
-                )
+                text("SELECT rolsuper FROM pg_roles WHERE rolname = current_user")
             )
             assert is_super, (
                 "admin_sessionmaker 必须以超级用户连接（否则无法绕过 RLS，"
@@ -284,7 +280,5 @@ async def auth_client() -> AsyncClient:
     transport = ASGITransport(app=app)
     token = make_test_token()
     headers = {"Authorization": f"Bearer {token}"}
-    async with AsyncClient(
-        transport=transport, base_url="http://test", headers=headers
-    ) as c:
+    async with AsyncClient(transport=transport, base_url="http://test", headers=headers) as c:
         yield c

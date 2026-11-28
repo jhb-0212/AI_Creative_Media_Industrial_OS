@@ -67,10 +67,7 @@ def test_production_route_to_dict_matches_schema_keys() -> None:
     必须精确等于它的 required 集合（本对象全部属性均必填）。
     """
     schema_path = (
-        Path(__file__).resolve().parents[2]
-        / "contracts"
-        / "schemas"
-        / "object_schemas.schema.json"
+        Path(__file__).resolve().parents[2] / "contracts" / "schemas" / "object_schemas.schema.json"
     )
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     route_schema = schema["definitions"]["ProductionRoute"]
@@ -87,9 +84,7 @@ def test_production_route_to_dict_matches_schema_keys() -> None:
 
 def test_production_route_revoke_edge_owned_by_select() -> None:
     route = _route()
-    route.transition_to(
-        ProductionRouteStatus.REVOKED, "audit-1", PRODUCTION_ROUTE_SELECT_ACTION
-    )
+    route.transition_to(ProductionRouteStatus.REVOKED, "audit-1", PRODUCTION_ROUTE_SELECT_ACTION)
     assert route.status is ProductionRouteStatus.REVOKED
     assert route.entity_version == 2
 

@@ -99,9 +99,7 @@ def entries(registry: dict[str, Any]) -> list[dict[str, Any]]:
 def open_block_ids(registry: dict[str, Any]) -> tuple[str, ...]:
     """当前仍然阻塞的条目 id（按文件顺序）。"""
     return tuple(
-        str(item.get("id"))
-        for item in entries(registry)
-        if str(item.get("status")) == BLOCKED
+        str(item.get("id")) for item in entries(registry) if str(item.get("status")) == BLOCKED
     )
 
 
@@ -110,11 +108,7 @@ def _amendment_ids(path: pathlib.Path) -> set[str]:
     amendments = data.get("amendments") if isinstance(data, dict) else None
     if not isinstance(amendments, list):
         raise ValueError(f"{path} 缺少 amendments 列表")
-    return {
-        str(item["id"])
-        for item in amendments
-        if isinstance(item, dict) and item.get("id")
-    }
+    return {str(item["id"]) for item in amendments if isinstance(item, dict) and item.get("id")}
 
 
 def _is_blank(value: Any) -> bool:
@@ -145,9 +139,7 @@ def _date_problem(label: str, raw: Any) -> str | None:
     return None
 
 
-def _gate_problems(
-    item: dict[str, Any], *, block_id: str, root: pathlib.Path
-) -> list[str]:
+def _gate_problems(item: dict[str, Any], *, block_id: str, root: pathlib.Path) -> list[str]:
     """``remaining_gate``：决策解除了，但执行门槛还在，门槛必须指得到权威条款。"""
     gate = item.get("remaining_gate")
     if not isinstance(gate, dict):
@@ -156,9 +148,7 @@ def _gate_problems(
     missing = [field for field in _GATE_FIELDS if _is_blank(gate.get(field))]
     if missing:
         return [f"{block_id}.remaining_gate 缺少字段: {missing}"]
-    path_problem = _path_problem(
-        root, f"{block_id}.remaining_gate.source", gate.get("source")
-    )
+    path_problem = _path_problem(root, f"{block_id}.remaining_gate.source", gate.get("source"))
     if path_problem:
         problems.append(path_problem)
     return problems
@@ -185,17 +175,13 @@ def _reference_problems(item: dict[str, Any], *, block_id: str) -> list[str]:
     if not isinstance(commit, str) or not commit.strip():
         problems.append(f"{block_id}.reference_baseline.as_of_commit 必须是非空字符串")
     elif not all(char in "0123456789abcdef" for char in commit.strip()):
-        problems.append(
-            f"{block_id}.reference_baseline.as_of_commit 不是提交哈希: {commit!r}"
-        )
+        problems.append(f"{block_id}.reference_baseline.as_of_commit 不是提交哈希: {commit!r}")
 
     counts: dict[str, int] = {}
     for name in ("matched_lines", "files"):
         value = raw.get(name)
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-            problems.append(
-                f"{block_id}.reference_baseline.{name} 必须是正整数，实际 {value!r}"
-            )
+            problems.append(f"{block_id}.reference_baseline.{name} 必须是正整数，实际 {value!r}")
         else:
             counts[name] = value
     if (
@@ -253,15 +239,11 @@ def _lift_problems(
                 "两处指针必须互为凭据，否则会出现「有裁决无记录」或「有记录无裁决」"
             )
 
-    problems.extend(
-        _scope_problems(item, block_id=str(item["id"]), root=root)
-    )
+    problems.extend(_scope_problems(item, block_id=str(item["id"]), root=root))
     return problems
 
 
-def _scope_problems(
-    item: dict[str, Any], *, block_id: str, root: pathlib.Path
-) -> list[str]:
+def _scope_problems(item: dict[str, Any], *, block_id: str, root: pathlib.Path) -> list[str]:
     """解除到哪一层：ALL 与 DECISION 的字段搭配互为反证。
 
     这一对规则是本文件最核心的防呆。缺了它，TC-1~TC-5 只能二选一：
@@ -353,9 +335,7 @@ def check_registry(
                     "状态与字段矛盾，两种读法都能自圆其说"
                 )
         else:
-            problems.extend(
-                _lift_problems(item, root=root, amendment_ids=amendment_ids)
-            )
+            problems.extend(_lift_problems(item, root=root, amendment_ids=amendment_ids))
 
         problems.extend(_reference_problems(item, block_id=block_id))
 

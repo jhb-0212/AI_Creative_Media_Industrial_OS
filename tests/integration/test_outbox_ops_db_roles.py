@@ -64,9 +64,7 @@ def _is_permission_denied(exc: BaseException) -> bool:
     return "permission denied" in str(exc).lower()
 
 
-async def _set_tenant(
-    conn: AsyncConnection, tenant_id: uuid.UUID = TEST_TENANT_ID
-) -> None:
+async def _set_tenant(conn: AsyncConnection, tenant_id: uuid.UUID = TEST_TENANT_ID) -> None:
     """在事务内注入租户上下文（``true`` = 事务结束即失效）。"""
     await conn.execute(
         text("SELECT set_config(:key, :value, true)"),
@@ -100,9 +98,7 @@ async def test_role_is_not_privileged(ops_engine: AsyncEngine) -> None:
 async def test_can_read_events(ops_engine: AsyncEngine) -> None:
     async with ops_engine.connect() as conn:
         assert (
-            await conn.execute(
-                text("SELECT count(*) FROM outbox.outbox_events WHERE false")
-            )
+            await conn.execute(text("SELECT count(*) FROM outbox.outbox_events WHERE false"))
         ).scalar() == 0
 
 
@@ -143,10 +139,7 @@ async def test_can_insert_and_read_own_audit_rows(ops_engine: AsyncEngine) -> No
         )
         found = (
             await conn.execute(
-                text(
-                    "SELECT count(*) FROM outbox.dead_letter_replays "
-                    "WHERE replay_id = :rid"
-                ),
+                text("SELECT count(*) FROM outbox.dead_letter_replays WHERE replay_id = :rid"),
                 {"rid": replay_id},
             )
         ).scalar()
@@ -178,9 +171,7 @@ async def test_cannot_forge_event_content_or_delivery_time(
     with pytest.raises(DBAPIError) as exc:
         async with ops_engine.begin() as conn:
             await _set_tenant(conn)
-            await conn.execute(
-                text(f"UPDATE outbox.outbox_events SET {assignment} WHERE false")
-            )
+            await conn.execute(text(f"UPDATE outbox.outbox_events SET {assignment} WHERE false"))
     assert _is_permission_denied(exc.value), str(exc.value)
 
 
@@ -219,9 +210,7 @@ async def test_cannot_delete_events(ops_engine: AsyncEngine) -> None:
         "TRUNCATE outbox.dead_letter_replays",
     ],
 )
-async def test_audit_table_is_append_only_by_grant(
-    ops_engine: AsyncEngine, statement: str
-) -> None:
+async def test_audit_table_is_append_only_by_grant(ops_engine: AsyncEngine, statement: str) -> None:
     """授权层就没有 UPDATE/DELETE/TRUNCATE——第一道防线，先于触发器生效。"""
     with pytest.raises(DBAPIError) as exc:
         async with ops_engine.begin() as conn:

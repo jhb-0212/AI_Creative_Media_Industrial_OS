@@ -28,16 +28,16 @@ sys.path.insert(0, str(SCRIPTS))
 
 import contract_check as cc  # noqa: E402
 
-SCHEMA = json.loads((ROOT / "contracts/schemas/object_schemas.schema.json").read_text(encoding="utf-8"))
+SCHEMA = json.loads(
+    (ROOT / "contracts/schemas/object_schemas.schema.json").read_text(encoding="utf-8")
+)
 OBJECT = "ShotBreakdownDraft"
 DEF = SCHEMA["definitions"][OBJECT]
 
 STATE_MACHINES = yaml.safe_load(
     (ROOT / "contracts/state_machines/state_machines.yaml").read_text(encoding="utf-8")
 )
-ENUMS = yaml.safe_load(
-    (ROOT / "contracts/enums/enum_registry.yaml").read_text(encoding="utf-8")
-)
+ENUMS = yaml.safe_load((ROOT / "contracts/enums/enum_registry.yaml").read_text(encoding="utf-8"))
 ACTIONS = yaml.safe_load(
     (ROOT / "contracts/action_registry/action_registry.yaml").read_text(encoding="utf-8")
 )
@@ -161,9 +161,7 @@ def test_each_terminal_state_requires_evidence() -> None:
         if "status" in rule.get("if", {}).get("properties", {})
     }
 
-    assert set(covered) == TERMINAL_STATES, (
-        "每个终态都必须有证据要求，且非终态不得被证据规则误伤"
-    )
+    assert set(covered) == TERMINAL_STATES, "每个终态都必须有证据要求，且非终态不得被证据规则误伤"
     for state, required in covered.items():
         assert required, f"{state} 的证据要求不能为空"
         assert required <= set(DEF["properties"]), f"{state} 要求了未声明字段"
@@ -171,10 +169,14 @@ def test_each_terminal_state_requires_evidence() -> None:
 
 def test_version_chain_rules() -> None:
     """首版不得有前驱；非首版必须写明取代谁、改了什么。"""
-    rules = [rule for rule in DEF["allOf"] if "draft_version" in rule.get("if", {}).get("properties", {})]
+    rules = [
+        rule for rule in DEF["allOf"] if "draft_version" in rule.get("if", {}).get("properties", {})
+    ]
     assert len(rules) == 2, "版本链规则应有两条（首版 / 非首版）"
 
-    first = next(rule for rule in rules if rule["if"]["properties"]["draft_version"].get("const") == 1)
+    first = next(
+        rule for rule in rules if rule["if"]["properties"]["draft_version"].get("const") == 1
+    )
     assert first["then"]["properties"]["supersedes_draft_ref"] == {"type": "null"}
 
     later = next(rule for rule in rules if "minimum" in rule["if"]["properties"]["draft_version"])
@@ -217,7 +219,9 @@ def test_action_resource_type_resolves_to_defined_object() -> None:
 
 def test_gap_ledger_no_longer_lists_the_gap() -> None:
     gaps = GAPS["gaps"]
-    assert "ShotDraft" not in gaps, "ShotDraft 已有 schema（改名为 ShotBreakdownDraft），陈旧债务必须删除"
+    assert "ShotDraft" not in gaps, (
+        "ShotDraft 已有 schema（改名为 ShotBreakdownDraft），陈旧债务必须删除"
+    )
     assert OBJECT not in gaps
     assert "ShotRevision" not in gaps, (
         "ShotRevision 已有 schema（ADR-R17），陈旧债务必须删除；"

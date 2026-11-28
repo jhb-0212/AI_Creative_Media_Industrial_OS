@@ -72,9 +72,7 @@ async def test_no_cluster_dependencies_on_retired_roles(
     完整口径。
     """
     async with admin_sessionmaker() as session:
-        count = await session.scalar(
-            _CLUSTER_DEPENDENCIES_SQL, {"roles": list(_RETIRED_ROLES)}
-        )
+        count = await session.scalar(_CLUSTER_DEPENDENCIES_SQL, {"roles": list(_RETIRED_ROLES)})
     assert count == 0, "集群里仍有对象依赖已退役角色，请用 retire_legacy_roles.py 定位"
 
 

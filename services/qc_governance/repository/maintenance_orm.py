@@ -84,13 +84,9 @@ class MaintenanceWorkOrderModel(Base, EntityMixin):
     idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
     requested_by: Mapped[str] = mapped_column(String(128), nullable=False)
     approved_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    approved_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     target_task_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    result_summary: Mapped[dict[str, Any] | None] = mapped_column(
-        JSONB, nullable=True
-    )
+    result_summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
 
@@ -115,12 +111,8 @@ class MaintenanceActionLogModel(Base):
     attempt_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     outcome: Mapped[str] = mapped_column(String(16), nullable=False)
-    detail: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, nullable=False, default=dict
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    detail: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 __all__ = [

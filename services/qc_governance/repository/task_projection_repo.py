@@ -82,8 +82,7 @@ class SqlAlchemyTaskProjectionRepository:
                 "updated_at": statement.excluded.updated_at,
             },
             # 低版本不得覆盖高版本；同版本重放幂等。
-            where=TaskProjectionModel.entity_version
-            <= statement.excluded.entity_version,
+            where=TaskProjectionModel.entity_version <= statement.excluded.entity_version,
         )
         result = await self._session.execute(statement)
         # ``ON CONFLICT ... WHERE`` 条件不成立时不会有任何行被更新（rowcount=0）：
@@ -107,8 +106,7 @@ class SqlAlchemyTaskProjectionRepository:
         """对账/测试用：本租户当前投影行数（RLS 仍由会话 GUC 决定可见范围）。"""
         result = await self._session.execute(
             text(
-                "SELECT count(*) FROM qc_maintenance.task_projection "
-                "WHERE tenant_id = :tenant_id"
+                "SELECT count(*) FROM qc_maintenance.task_projection WHERE tenant_id = :tenant_id"
             ),
             {"tenant_id": str(tenant_id)},
         )

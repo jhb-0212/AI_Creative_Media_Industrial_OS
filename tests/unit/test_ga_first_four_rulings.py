@@ -81,9 +81,7 @@ def test_projection_objects_use_sentinel(name: str) -> None:
     assert entry["basis"] == "derived_projection"
     assert entry["reason"].strip() and entry["unblocks_when"].strip()
     assert name not in {o["object"] for o in _sm_objects()}
-    sentinel = cc.envelope_only_sentinel(
-        yaml.safe_load(LAYERS_PATH.read_text(encoding="utf-8"))
-    )
+    sentinel = cc.envelope_only_sentinel(yaml.safe_load(LAYERS_PATH.read_text(encoding="utf-8")))
     assert _definitions()[name]["properties"]["status"]["enum"] == [sentinel]
 
 

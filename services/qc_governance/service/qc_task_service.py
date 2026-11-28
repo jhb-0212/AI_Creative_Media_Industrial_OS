@@ -222,9 +222,7 @@ class QCTaskService:
     async def _load_for_claim(self, task_id: str) -> QCTask:
         """领取专用读取：行锁串行化「读→判→写」，避免两个 Worker 同时通过判定。"""
         loader = getattr(self._repository, "get_by_id_for_update", None)
-        task = (
-            await loader(task_id) if loader is not None else await self._load(task_id)
-        )
+        task = await loader(task_id) if loader is not None else await self._load(task_id)
         if task is None:
             # 行锁没拿到 = 同一任务在同一瞬间被另一个 Worker 领走了。这不是
             # 错误路径的噪声，而是「Worker 并发度相对待办过密」的量化证据。
@@ -416,9 +414,7 @@ class QCTaskService:
         # 第三个参数是任务事实里的组织归属：报告表的可见性经
         # asset_versions → projects 继承组织面 RLS，Worker/CLI 没有 Principal，
         # 只能靠这一行事实建立组织上下文去读。
-        facts = await self._report_lookup(
-            qc_report_id, task.tenant_id, task.organization_id
-        )
+        facts = await self._report_lookup(qc_report_id, task.tenant_id, task.organization_id)
         if facts is None:
             raise DomainError(
                 ErrorRegistry.VALIDATION_ERROR,
@@ -458,9 +454,7 @@ class QCTaskService:
             resource_type="QCTask",
             owner_action=QC_TASK_PROCESS_ACTION,
             conflict_detail="QC 租约回收并发冲突，请重试",
-            domain_operation=lambda audit_ref, action: task.release_expired(
-                _now(), audit_ref
-            ),
+            domain_operation=lambda audit_ref, action: task.release_expired(_now(), audit_ref),
         )
         # 回收成功才计数：这个指标回答「有多少租约真的死掉了」，而不是「有人试过
         # 回收多少次」。失败（并发冲突）不算，否则会把重试噪声记成 Worker 死亡率。
