@@ -2466,7 +2466,8 @@ amendments:
     approved_by: 'Owner 2026-11-29 口头授权 P2（契约变更 + 迁移 + 实现 + 冻结重签）；本条为实现方转录，非 Owner 手写签名'
     approved_at: '2026-11-29'
     source_commits:
-      - 'd4e0dc4'  # feat(r47): 落地生成规格 P2（契约/迁移/领域/仓储/API/Worker/测试）
+      - '9a94b96'  # PR #81 squash 合并：实现 + 本条修订 + 冻结重签同落 main
+      - 'd4e0dc4'  # 实现主体提交（squash 前；经 GitHub PR #81 的 head 引用可追溯）
     additions:
       schema_objects:
         - object: 'GenerationSpec'
